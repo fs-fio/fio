@@ -450,9 +450,6 @@ Scripts/
 .ionide
 .config
 
-### Visual Studio Code ###
-.vscode/*
-
 ### FSharp.FIO ###
 /benchmarks/FSharp.FIO.Benchmarks/results
 /benchmarks/FSharp.FIO.Benchmarks.Plots/boxplot_data

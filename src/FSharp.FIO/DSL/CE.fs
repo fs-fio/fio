@@ -94,6 +94,16 @@ type FIOBuilder internal () =
         eff
 
     /// <summary>
+    /// Returns the given FIO effect. Used to return an effect from a computation expression as the final operation.
+    /// </summary>
+    /// <typeparam name="'R">The result type.</typeparam>
+    /// <typeparam name="'E">The error type.</typeparam>
+    /// <param name="eff">The FIO effect to return.</param>
+    /// <returns>The same FIO effect.</returns>
+    member inline _.ReturnFromFinal<'R, 'E> (eff: FIO<'R, 'E>) : FIO<'R, 'E> =
+        eff
+
+    /// <summary>
     /// Returns an FIO effect that succeeds with the given value. Used for yield expressions.
     /// </summary>
     /// <typeparam name="'R">The result type.</typeparam>
@@ -101,7 +111,7 @@ type FIOBuilder internal () =
     /// <param name="res">The value to yield.</param>
     /// <returns>An FIO effect that succeeds with the given value.</returns>
     member inline this.Yield<'R, 'E> (res: 'R) : FIO<'R, 'E> =
-        this.Return res
+        FIO.Succeed res
 
     /// <summary>
     /// Returns the given FIO effect. Used for yield! expressions.
@@ -110,8 +120,18 @@ type FIOBuilder internal () =
     /// <typeparam name="'E">The error type.</typeparam>
     /// <param name="eff">The FIO effect to yield from.</param>
     /// <returns>The same FIO effect.</returns>
-    member inline this.YieldFrom<'R, 'E> (eff: FIO<'R, 'E>) : FIO<'R, 'E> =
-        this.ReturnFrom eff
+    member inline _.YieldFrom<'R, 'E> (eff: FIO<'R, 'E>) : FIO<'R, 'E> =
+        eff
+
+    /// <summary>
+    /// Returns the given FIO effect. Used for yield! expressions as the final operation.
+    /// </summary>
+    /// <typeparam name="'R">The result type.</typeparam>
+    /// <typeparam name="'E">The error type.</typeparam>
+    /// <param name="eff">The FIO effect to yield from.</param>
+    /// <returns>The same FIO effect.</returns>
+    member inline _.YieldFromFinal<'R, 'E> (eff: FIO<'R, 'E>) : FIO<'R, 'E> =
+        eff
 
     /// <summary>
     /// Handles exceptions in an FIO effect by binding the error to a handler.

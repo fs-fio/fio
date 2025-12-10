@@ -2,10 +2,10 @@ name: Run Tests
 
 on:
   push:
-    branches: [ "*" ]
+    branches: ["*"]
   pull_request:
-    branches: [ "*" ]
-  workflow_dispatch: 
+    branches: ["*"]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -18,7 +18,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: "10.0.x"
 
       - name: Restore dependencies
         run: dotnet restore ./FSharp.FIO.slnx

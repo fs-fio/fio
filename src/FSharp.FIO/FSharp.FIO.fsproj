@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
 	<PropertyGroup>
-		<TargetFramework>net9.0</TargetFramework>
+		<TargetFramework>net10.0</TargetFramework>
 		<WarningsAsErrors>true</WarningsAsErrors>
 		<GenerateDocumentationFile>true</GenerateDocumentationFile>
 		<Title>FSharp.FIO</Title>
@@ -12,6 +12,10 @@
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<PackageProjectUrl>https://github.com/fs-fio/FIO</PackageProjectUrl>
 		<Version>0.0.31-alpha</Version>
+	</PropertyGroup>
+
+	<PropertyGroup>
+		<LangVersion>preview</LangVersion>
 	</PropertyGroup>
 
 	<ItemGroup>
@@ -54,12 +58,12 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<None Include="..\FSharp.FIO.Lib\bin\$(Configuration)\net9.0\FSharp.FIO.Lib.dll" Pack="true" PackagePath="lib\net9.0\" />
-		<None Include="..\FSharp.FIO.App\bin\$(Configuration)\net9.0\FSharp.FIO.App.dll" Pack="true" PackagePath="lib\net9.0\" />
+		<None Include="..\FSharp.FIO.Lib\bin\$(Configuration)\net10.0\FSharp.FIO.Lib.dll" Pack="true" PackagePath="lib\net10.0\" />
+		<None Include="..\FSharp.FIO.App\bin\$(Configuration)\net10.0\FSharp.FIO.App.dll" Pack="true" PackagePath="lib\net10.0\" />
 	</ItemGroup>
 
 	<ItemGroup>
-		<PackageReference Update="FSharp.Core" Version="9.0.303" />
+		<PackageReference Update="FSharp.Core" Version="10.0.101" />
 	</ItemGroup>
 
 </Project>
