@@ -135,8 +135,9 @@ and internal InternalFiber () =
         
     member internal _.Complete res =
         task {
-            if Interlocked.Exchange (&completed, true)
-               || not (resTcs.TrySetResult res) then
+            if Interlocked.Exchange (&completed, true) then
+                return () // Already completed, silently ignore
+            elif not (resTcs.TrySetResult res) then
                 completeAlreadyCalledFail ()
         }
     
