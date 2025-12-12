@@ -18,10 +18,18 @@ open System
 open System.Threading
 open System.Threading.Tasks
 
-// TODO: Is this necessary?
-let private maxThreads = 32767
-ThreadPool.SetMaxThreads(maxThreads, maxThreads) |> ignore
-ThreadPool.SetMinThreads(maxThreads, maxThreads) |> ignore
+module private ThreadPoolConfig =
+    let configure () =
+        let cores = Environment.ProcessorCount
+        let minWorkerThreads = cores * 2
+        let maxWorkerThreads = cores * 50
+        let minIOThreads = cores
+        let maxIOThreads = cores * 10
+        
+        ThreadPool.SetMinThreads(minWorkerThreads, minIOThreads) |> ignore
+        ThreadPool.SetMaxThreads(maxWorkerThreads, maxIOThreads) |> ignore
+
+do ThreadPoolConfig.configure ()
 
 let private defaultRuntime = Runtime()
 

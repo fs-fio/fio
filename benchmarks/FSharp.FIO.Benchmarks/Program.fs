@@ -9,12 +9,21 @@ module private FSharp.FIO.Benchmarks.Program
 open FSharp.FIO.Benchmarks.ArgParser
 open FSharp.FIO.Benchmarks.Suite.BenchmarkRunner
 
+open System
 open System.Threading
 
-// TODO: Is this necessary?
-let maxThreads = 32767
-ThreadPool.SetMaxThreads(maxThreads, maxThreads) |> ignore
-ThreadPool.SetMinThreads(maxThreads, maxThreads) |> ignore
+module private ThreadPoolConfig =
+    let configure () =
+        let cores = Environment.ProcessorCount
+        let minWorkerThreads = cores * 2
+        let maxWorkerThreads = cores * 50
+        let minIOThreads = cores
+        let maxIOThreads = cores * 10
+        
+        ThreadPool.SetMinThreads(minWorkerThreads, minIOThreads) |> ignore
+        ThreadPool.SetMaxThreads(maxWorkerThreads, maxIOThreads) |> ignore
+
+do ThreadPoolConfig.configure ()
 
 [<EntryPoint>]
 let main args =

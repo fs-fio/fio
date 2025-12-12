@@ -27,7 +27,7 @@ type Runtime () =
     [<TailCall>]
     member private this.InterpretAsync eff =
         let mutable currentEff = eff
-        let mutable contStack = ResizeArray<ContStackFrame> ()
+        let mutable contStack = ContStackPool.Rent()
         let mutable result = Unchecked.defaultof<_>
         let mutable completed = false
 
@@ -164,6 +164,7 @@ type Runtime () =
                     contStack.Add
                     <| ContStackFrame (FailureCont, cont)
 
+            ContStackPool.Return contStack
             return result
         }
 

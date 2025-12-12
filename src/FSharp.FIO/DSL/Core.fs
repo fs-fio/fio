@@ -176,6 +176,18 @@ and internal InternalFiber () =
                 do! activeWorkItemChan.AddAsync workItem
         }
 
+    member internal _.TryRescheduleBlockingWorkItems (activeWorkItemChan: InternalChannel<WorkItem>) =
+        task {
+            // Only reschedule if we're the one completing
+            if not (Volatile.Read &completed) then
+                return false
+            else
+                let mutable workItem = Unchecked.defaultof<_>
+                while blockingWorkItemChan.TryTake (&workItem) do
+                    do! activeWorkItemChan.AddAsync workItem
+                return true
+        }
+
 /// <summary>
 /// A Fiber represents a lightweight, cooperative thread of execution.
 /// Fibers are used to interpret multiple effects in parallel and can be awaited to retrieve the result of the effect.
@@ -636,6 +648,32 @@ and FIO<'R, 'E> =
             this.BindError <| fun err ->
                 fiber.Await().BindError <| fun err' ->
                     FIO.Fail (err, err')
+                    
+    member this.Retry (maxRetries: int) (initialDelay: TimeSpan) : FIO<'R, 'E> =
+        let rec loop attempt (delay: TimeSpan) =
+            this.BindError <| fun err ->
+                if attempt >= maxRetries then
+                    FIO<'R, 'E>.Fail err
+                else
+                    let nextDelay = TimeSpan.FromMilliseconds(delay.TotalMilliseconds * 2.0)
+                    // Use Succeed to create a pure delay without error constraints
+                    FIO<unit, 'E>.Succeed(Thread.Sleep delay)
+                        .Then (loop (attempt + 1) nextDelay)
+        loop 0 initialDelay
+
+    member this.Timeout (duration: TimeSpan) (onTimeout: unit -> 'E) : FIO<'R, 'E> =
+        this.Fork().Bind <| fun fiber ->
+            // Use Succeed to create a pure delay without error constraints
+            let delayEffect = FIO<unit, 'E>.Succeed(Thread.Sleep(duration))
+            let timeoutEff = delayEffect.Then (FIO<'R, 'E>.Fail (onTimeout ()))
+            
+            timeoutEff.Fork().Bind <| fun timeoutFiber ->
+                // Race: return whichever completes first
+                fiber.Await().BindError <| fun err ->
+                    // Original effect failed, check if timeout also completed
+                    timeoutFiber.Await().BindError <| fun _ ->
+                        // Both failed, return original error
+                        FIO<'R, 'E>.Fail err
 
     member internal this.UpcastResult () : FIO<obj, 'E> =
         match this with

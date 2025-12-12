@@ -154,7 +154,8 @@ and Runtime (config: WorkerConfig) as this =
             let mutable loop = true
             while loop do
                 if currentContStack.Count = 0 then
-                    result <- Success res, ResizeArray<ContStackFrame> (), Evaluated
+                    ContStackPool.Return currentContStack
+                    result <- Success res, ContStackPool.Rent(), Evaluated
                     completed <- true
                     loop <- false
                 else
@@ -170,7 +171,8 @@ and Runtime (config: WorkerConfig) as this =
             let mutable loop = true
             while loop do
                 if currentContStack.Count = 0 then
-                    result <- Failure err, ResizeArray<ContStackFrame> (), Evaluated
+                    ContStackPool.Return currentContStack
+                    result <- Failure err, ContStackPool.Rent(), Evaluated
                     completed <- true
                     loop <- false
                 else
@@ -219,11 +221,12 @@ and Runtime (config: WorkerConfig) as this =
                         else
                             do! chan.AddBlockingWorkItem
                                 <| WorkItem.Create (ReceiveChan chan, workItem.IFiber, currentContStack, Skipped)
-                            result <- Success (), ResizeArray<ContStackFrame> (), Skipped
+                            let newStack = ContStackPool.Rent()
+                            result <- Success (), newStack, Skipped
                             completed <- true
                     | ConcurrentEffect (eff, fiber, ifiber) ->
                         do! activeWorkItemChan.AddAsync
-                            <| WorkItem.Create (eff, ifiber, ResizeArray<ContStackFrame> (), workItem.PrevAction)
+                            <| WorkItem.Create (eff, ifiber, ContStackPool.Rent(), workItem.PrevAction)
                         processSuccess fiber
                     | ConcurrentTPLTask (lazyTask, onError, fiber, ifiber) ->
                         do! Task.Run(fun () ->
@@ -269,10 +272,10 @@ and Runtime (config: WorkerConfig) as this =
                             processResult res
                         else
                             do! ifiber.AddBlockingWorkItem (WorkItem.Create (AwaitFiber ifiber, workItem.IFiber, currentContStack, Skipped))
-                            // TODO: This double check here fixes a race condition, but is not optimal.
-                            if ifiber.Completed then
-                                do! ifiber.RescheduleBlockingWorkItems activeWorkItemChan
-                            result <- Success (), ResizeArray<ContStackFrame> (), Skipped
+                            // Atomically check and reschedule if fiber completed during AddBlockingWorkItem
+                            let! _ = ifiber.TryRescheduleBlockingWorkItems activeWorkItemChan
+                            let newStack = ContStackPool.Rent()
+                            result <- Success (), newStack, Skipped
                             completed <- true
                     | AwaitTPLTask (task, onError) ->
                         try
@@ -306,6 +309,6 @@ and Runtime (config: WorkerConfig) as this =
         this.Reset ()
         let fiber = Fiber<'R, 'E> ()
         activeWorkItemChan.AddAsync
-        <| WorkItem.Create (eff.Upcast (), fiber.Internal, ResizeArray<ContStackFrame> (), Evaluated)
+        <| WorkItem.Create (eff.Upcast (), fiber.Internal, ContStackPool.Rent(), Evaluated)
         |> ignore
         fiber

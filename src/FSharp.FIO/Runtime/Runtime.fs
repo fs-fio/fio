@@ -8,7 +8,9 @@ namespace FSharp.FIO.Runtime
 
 open FSharp.FIO.DSL
 
+open System
 open System.Globalization
+open System.Collections.Generic
 
 [<AutoOpen>]
 module private Utils =
@@ -18,6 +20,39 @@ module private Utils =
         let stackFrame = contStack[lastIndex]
         contStack.RemoveAt lastIndex
         stackFrame
+
+/// <summary>
+/// Object pool for continuation stacks to reduce GC pressure.
+/// Thread-local pooling avoids synchronization overhead.
+/// </summary>
+type internal ContStackPool private () =
+    [<ThreadStatic; DefaultValue>]
+    static val mutable private pool: Stack<ResizeArray<ContStackFrame>>
+    
+    /// <summary>
+    /// Rents a continuation stack from the pool or creates a new one.
+    /// </summary>
+    /// <returns>A cleared ResizeArray ready for use.</returns>
+    static member inline Rent () =
+        if isNull ContStackPool.pool then 
+            ContStackPool.pool <- Stack<_>()
+        
+        if ContStackPool.pool.Count > 0 then
+            let stack = ContStackPool.pool.Pop()
+            stack.Clear()
+            stack
+        else
+            ResizeArray<ContStackFrame> 32  // Pre-sized to reduce resizing
+    
+    /// <summary>
+    /// Returns a continuation stack to the pool for reuse.
+    /// Large stacks are not pooled to avoid holding excessive memory.
+    /// </summary>
+    /// <param name="stack">The stack to return to the pool.</param>
+    static member inline Return (stack: ResizeArray<ContStackFrame>) =
+        if stack.Capacity <= 1024 then  // Don't pool huge stacks
+            stack.Clear()
+            ContStackPool.pool.Push stack
 
 /// <summary>
 /// Represents a functional runtime for interpreting FIO effects.

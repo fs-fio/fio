@@ -170,7 +170,8 @@ and Runtime (config: WorkerConfig) as this =
             let mutable loop = true
             while loop do
                 if currentContStack.Count = 0 then
-                    result <- Success res, ResizeArray<ContStackFrame> (), Evaluated
+                    ContStackPool.Return currentContStack
+                    result <- Success res, ContStackPool.Rent(), Evaluated
                     completed <- true
                     loop <- false
                 else
@@ -187,7 +188,8 @@ and Runtime (config: WorkerConfig) as this =
             let mutable loop = true
             while loop do
                 if currentContStack.Count = 0 then
-                    result <- Failure err, ResizeArray<ContStackFrame> (), Evaluated
+                    ContStackPool.Return currentContStack
+                    result <- Failure err, ContStackPool.Rent(), Evaluated
                     completed <- true
                     loop <- false
                 else
@@ -240,7 +242,7 @@ and Runtime (config: WorkerConfig) as this =
                             completed <- true
                     | ConcurrentEffect (eff, fiber, ifiber) ->
                         do! activeWorkItemChan.AddAsync
-                            <| WorkItem.Create (eff, ifiber, ResizeArray<ContStackFrame> (), currentPrevAction)
+                            <| WorkItem.Create (eff, ifiber, ContStackPool.Rent(), currentPrevAction)
                         processSuccess fiber
                     | ConcurrentTPLTask (lazyTask, onError, fiber, ifiber) ->
                         do! Task.Run(fun () -> 
@@ -321,6 +323,6 @@ and Runtime (config: WorkerConfig) as this =
         this.Reset ()
         let fiber = Fiber<'R, 'E> ()
         activeWorkItemChan.AddAsync
-        <| WorkItem.Create (eff.Upcast (), fiber.Internal, ResizeArray<ContStackFrame> (), Evaluated)
+        <| WorkItem.Create (eff.Upcast (), fiber.Internal, ContStackPool.Rent(), Evaluated)
         |> ignore
         fiber
