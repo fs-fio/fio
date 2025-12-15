@@ -74,18 +74,22 @@ and private EvaluationWorker (config: EvaluationWorkerConfig) =
             cancellationTokenSource.Dispose ()
 
 and private BlockingWorker (config: BlockingWorkerConfig) =
-    
+
     let processBlockingChannel blockingData (blockingChan: Channel<obj>) =
-        if blockingChan.Count > 0 then
-            config.ActiveWorkItemChan.AddAsync blockingData.WaitingWorkItem
-        else
-            config.ActiveBlockingDataChan.AddAsync blockingData
-            
+        task {
+            if blockingChan.Count > 0 then
+                do! config.ActiveWorkItemChan.AddAsync blockingData.WaitingWorkItem
+            else
+                do! config.ActiveBlockingDataChan.AddAsync blockingData
+        }
+
     let processBlockingIFiber blockingData (ifiber: InternalFiber) =
-        if ifiber.Completed then
-            config.ActiveWorkItemChan.AddAsync blockingData.WaitingWorkItem
-        else
-            config.ActiveBlockingDataChan.AddAsync blockingData
+        task {
+            if ifiber.Completed then
+                do! config.ActiveWorkItemChan.AddAsync blockingData.WaitingWorkItem
+            else
+                do! config.ActiveBlockingDataChan.AddAsync blockingData
+        }
 
     let rec processBlockingData blockingData =
         task {
@@ -244,8 +248,8 @@ and Runtime (config: WorkerConfig) as this =
                         do! chan.SendAsync msg
                         processSuccess msg
                     | ReceiveChan chan ->
-                        if chan.Count > 0 then
-                            let! res = chan.ReceiveAsync ()
+                        let mutable res = Unchecked.defaultof<_>
+                        if chan.Internal.TryTake(&res) then
                             processSuccess res
                         else
                             let newPrevAction = RescheduleForBlocking <| BlockingChannel chan

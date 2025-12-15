@@ -276,6 +276,9 @@ and Channel<'R> private (id: Guid, resChan: InternalChannel<obj>, blockingWorkIt
     /// <returns>The unique Guid of the channel.</returns>
     member _.Id =
         id
+        
+    member internal _.Internal =
+        resChan
 
     member internal _.SendAsync (msg: 'R) =
         resChan.AddAsync msg
@@ -500,7 +503,25 @@ and FIO<'R, 'E> =
     /// <returns>An FIO effect that starts the Task in a Fiber and returns the Fiber.</returns>
     static member inline FromGenericTask<'R, 'E> (lazyTask: unit -> Task<'R>) : FIO<Fiber<'R, exn>, exn> =
         FIO.FromGenericTask<'R, exn> (lazyTask, id)
-        
+
+    /// <summary>
+    /// Acquire-release pattern for resource management with custom error types.
+    /// Ensures the release effect runs after the use effect, even if an error occurs.
+    /// This is the general-purpose resource management primitive that works with arbitrary error types.
+    /// </summary>
+    /// <typeparam name="'A">The resource type.</typeparam>
+    /// <typeparam name="'R">The result type.</typeparam>
+    /// <typeparam name="'E">The error type.</typeparam>
+    /// <param name="acquire">The effect that acquires the resource.</param>
+    /// <param name="release">The effect that releases the resource.</param>
+    /// <param name="use">The effect that uses the resource.</param>
+    /// <returns>An FIO effect that acquires, uses, and releases the resource.</returns>
+    static member AcquireRelease<'A, 'R, 'E> (acquire: FIO<'A, 'E>) (release: 'A -> FIO<unit, 'E>) (useResource: 'A -> FIO<'R, 'E>) : FIO<'R, 'E> =
+        acquire.Bind(fun resource ->
+            (useResource resource)
+                .Bind(fun res -> (release resource).Bind(fun _ -> FIO.Succeed res))
+                .BindError(fun err -> (release resource).Bind(fun _ -> FIO.Fail err)))
+
     /// <summary>
     /// Interprets an effect concurrently and returns the fiber interpreting it. The fiber can be awaited for the result of the effect.
     /// </summary>
@@ -655,39 +676,55 @@ and FIO<'R, 'E> =
             this.BindError <| fun err ->
                 fiber.Await().BindError <| fun err' ->
                     FIO.Fail (err, err')
-                    
-    member this.Retry (maxRetries: int) (initialDelay: TimeSpan) : FIO<'R, 'E> =
-        let rec loop attempt (delay: TimeSpan) =
+                     
+    /// <summary>
+    /// Retries this effect up to maxRetries times with exponential backoff on failure.
+    /// Executes onEachRetry callback before each retry attempt (not before the initial attempt).
+    /// The delay doubles after each failed attempt, starting from the initial delay.
+    /// </summary>
+    /// <typeparam name="R">The result type.</typeparam>
+    /// <typeparam name="E">The error type.</typeparam>
+    /// <param name="delayBetweenRetriesMillis">Initial delay in milliseconds before the first retry.</param>
+    /// <param name="maxRetries">Maximum number of retry attempts.</param>
+    /// <param name="onEachRetry">Callback executed before each retry with current retry number (0-indexed) and maxRetries.</param>
+    /// <returns>An FIO effect that retries on failure with exponential backoff, or returns the final error if all retries are exhausted.</returns>
+    member this.Retry (delayBetweenRetriesMillis: float) (maxRetries: int) (onEachRetry: int -> int -> FIO<unit, 'E>): FIO<'R, 'E> =
+        let rec loop retry (delayBetweenRetriesMillis: float) =
             this.BindError <| fun err ->
-                if attempt >= maxRetries then
+                if retry >= maxRetries then
                     FIO<'R, 'E>.Fail err
                 else
-                    let nextDelay = TimeSpan.FromMilliseconds(delay.TotalMilliseconds * 2.0)
-                    // Use async Task.Delay instead of blocking Thread.Sleep
-                    FIO<'R, 'E>.AwaitTask(Task.Delay delay)
-                        .MapError(fun _ -> err)  // Map any delay errors to original error type
-                        .Then (loop (attempt + 1) nextDelay)
-        loop 0 initialDelay
+                    let nextDelay = delayBetweenRetriesMillis * 2.0
+                    let delayEff = FIO<unit, 'E>.AwaitTask(Task.Delay(TimeSpan.FromMilliseconds delayBetweenRetriesMillis), fun _ -> err)
+                    (onEachRetry retry maxRetries)
+                        .Then(delayEff
+                            .Then (loop (retry + 1) nextDelay))
+        loop 0 delayBetweenRetriesMillis
 
-    member this.Timeout (duration: TimeSpan) (onTimeout: unit -> 'E) : FIO<'R, 'E> =
+    /// <summary>
+    /// Times out this effect after the specified duration, failing with the onTimeout error if the duration is exceeded.
+    /// Uses Task.WhenAny to race the original effect against a timeout timer - whichever completes first wins.
+    /// </summary>
+    /// <typeparam name="R">The result type.</typeparam>
+    /// <typeparam name="E">The error type.</typeparam>
+    /// <param name="durationMillis">Maximum duration in milliseconds to wait before timing out.</param>
+    /// <param name="onTimeout">Function that produces the error to fail with if timeout occurs.</param>
+    /// <returns>An FIO effect that returns the result if completed within duration, or fails with timeout error.</returns>
+    member this.Timeout (durationMillis: float) (onTimeout: unit -> 'E) : FIO<'R, 'E> =
         this.Fork().Bind <| fun originalFiber ->
-            // Create timeout effect: async delay then fail with timeout error
-            let timeoutEffect : FIO<'R, 'E> =
-                FIO<'R, 'E>.AwaitTask(Task.Delay duration)
-                    .MapError(fun (_ : exn) -> onTimeout())
-                    .Then(FIO<'R, 'E>.Fail (onTimeout()))
-
-            timeoutEffect.Fork().Bind <| fun timeoutFiber ->
-                // Race both fibers - return result of whichever completes first
-                FIO.AwaitGenericTask<Result<'R, 'E>, exn>(
-                    task {
-                        let originalTask = originalFiber.Task()
-                        let timeoutTask = timeoutFiber.Task()
-                        let! completedTask = Task.WhenAny(originalTask, timeoutTask)
-                        return! completedTask
+            // Race the original effect against a timeout using Task.WhenAny
+            FIO.AwaitGenericTask<'R, 'E>(
+                task {
+                    let originalTask = originalFiber.Task()
+                    let timeoutTask = task {
+                        do! Task.Delay(TimeSpan.FromMilliseconds durationMillis)
+                        return Error (onTimeout ())
                     }
-                ).MapError(fun (_ : exn) -> onTimeout())
-                 .Bind(FIO.FromResult)
+                    let! completedTask = Task.WhenAny(originalTask, timeoutTask)
+                    return! completedTask
+                }
+            ).MapError(fun _ -> onTimeout())
+             .Bind FIO.FromResult
 
     member internal this.UpcastResult () : FIO<obj, 'E> =
         match this with

@@ -221,6 +221,51 @@ type ErrorHandlingApp() =
                     >>=? fun _ -> !+ ("default", 'D')
         }
 
+type ErrorHandlingWithRetryApp() =
+    inherit FIOApp<string * char, Error>()
+
+    let readFromDatabase : FIO<string, bool> =
+        fio {
+            let! rand = !<<< (fun () -> Random().Next(0, 2)) (fun _ -> true)
+            if rand = 0 then
+                return "data"
+            else
+                return! !- false
+        }
+
+    let awaitWebservice : FIO<char, int> =
+        fio {
+            let! rand = !<<< (fun () -> Random().Next(0, 2)) (fun _ -> -1)
+            if rand = 1 then
+                return 'S'
+            else
+                return! !- 404
+        }
+
+    let databaseResult : FIO<string, Error> =
+        fio {
+            let onRetry retry maxRetries =
+                FConsole.PrintLine $"Retrying database read (attempt %d{retry + 1} of %d{maxRetries})..."
+                >>=? fun _ -> !- false
+            return! readFromDatabase.Retry 100.0 3 onRetry
+                    >>=? fun error -> !- (DbError error)
+        }
+
+    let webserviceResult : FIO<char, Error> =
+        fio {
+            let onRetry retry maxRetries =
+                FConsole.PrintLine $"Retrying webservice read (attempt %d{retry + 1} of %d{maxRetries})..."
+                >>=? fun _ -> !- 400
+            return! awaitWebservice.Retry 100.0 3 onRetry
+                >>=? fun error -> !- (WsError error)
+        }
+
+    override _.effect =
+        fio {
+            return! databaseResult <^> webserviceResult
+                    >>=? fun _ -> !+ ("default", 'D')
+        }
+
 type AsyncErrorHandlingApp() =
     inherit FIOApp<string * int, Error>()
 
@@ -546,7 +591,11 @@ Console.ReadLine () |> ignore
 PingPongMatchApp().Run ()
 Console.ReadLine () |> ignore
 
+
 ErrorHandlingApp().Run ()
+Console.ReadLine () |> ignore
+
+ErrorHandlingWithRetryApp().Run ()
 Console.ReadLine () |> ignore
 
 AsyncErrorHandlingApp().Run ()

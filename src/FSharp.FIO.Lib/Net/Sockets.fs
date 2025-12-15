@@ -12,6 +12,7 @@ module FSharp.FIO.Lib.Net.Sockets
 
 open FSharp.FIO.DSL
 
+open System
 open System.IO
 open System.Net
 open System.Text.Json
@@ -27,12 +28,37 @@ open System.Net.Sockets
 /// All operations are asynchronous, non-blocking, and return FIO effects, enabling composable and safe TCP networking in a purely functional style.
 /// </para>
 /// </summary>
-type FSocket<'S, 'R, 'E> private (socket: Socket, reader: StreamReader, writer: StreamWriter, onError: exn -> 'E, options: JsonSerializerOptions) =
+type FSocket<'S, 'R, 'E> private (socket: Socket, reader: StreamReader, writer: StreamWriter, networkStream: NetworkStream, onError: exn -> 'E, options: JsonSerializerOptions) =
+
+    let mutable disposed = false
 
     // Partially applied function as it is the same
     // onError function used everywhere in the type
     let ( !<<< ) (func: unit -> 'T) : FIO<'T, 'E> =
         !<<< func onError
+
+    /// <summary>
+    /// Disposes the socket and all associated resources.
+    /// </summary>
+    member _.Dispose() =
+        if not disposed then
+            disposed <- true
+            try reader.Dispose() with _ -> ()
+            try writer.Dispose() with _ -> ()
+            try networkStream.Dispose() with _ -> ()
+            try socket.Dispose() with _ -> ()
+
+    interface System.IDisposable with
+        member this.Dispose() = this.Dispose()
+
+    /// <summary>
+    /// Disposes the socket and all associated resources as an FIO effect.
+    /// </summary>
+    /// <returns>An FIO effect that disposes the socket.</returns>
+    member this.DisposeAsync<'E> () : FIO<unit, 'E> =
+        fio {
+            do! !<<< (fun () -> this.Dispose())
+        }
 
     /// <summary>
     /// Creates a new functional socket abstraction from an existing .NET Socket, with custom error handling and JSON serialization options.
@@ -50,7 +76,7 @@ type FSocket<'S, 'R, 'E> private (socket: Socket, reader: StreamReader, writer: 
             let! writer = !<<< (fun () -> new StreamWriter (networkStream)) onError
             let! reader = !<<< (fun () -> new StreamReader (networkStream)) onError
             do! !<<< (fun () -> writer.AutoFlush <- true) onError
-            return FSocket (socket, reader, writer, onError, options)
+            return new FSocket<'S, 'R, 'E> (socket, reader, writer, networkStream, onError, options)
         }
 
     /// <summary>
@@ -170,8 +196,12 @@ type FSocket<'S, 'R, 'E> private (socket: Socket, reader: StreamReader, writer: 
     member _.Receive<'R, 'E> () : FIO<'R, 'E> =
         fio {
             let! json = !<<< reader.ReadLine
-            let! msg = !<<< (fun () -> JsonSerializer.Deserialize<'R>(json, options))
-            return msg
+            match json with
+            | null ->
+                return! FIO.Fail (onError (InvalidOperationException "Connection closed: ReadLine returned null"))
+            | jsonStr ->
+                let! msg = !<<< (fun () -> JsonSerializer.Deserialize<'R>(jsonStr, options))
+                return msg
         }
     
     /// <summary>

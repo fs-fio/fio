@@ -146,32 +146,17 @@ type FIOBuilder internal () =
         eff.BindError cont
 
     /// <summary>
-    /// Ensures a finalizer is run after an FIO effect, even if an exception occurs.
+    /// Ensures a finalizer effect is run after an FIO effect, even if an error occurs.
     /// The finalizer runs on both success and error paths, consistent with try-finally semantics.
     /// </summary>
     /// <typeparam name="'R">The result type.</typeparam>
-    /// <typeparam name="'E">The error type (must be an exception type).</typeparam>
+    /// <typeparam name="'E">The error type.</typeparam>
     /// <param name="eff">The FIO effect to try.</param>
-    /// <param name="finalizer">The finalizer function to run after the effect.</param>
+    /// <param name="finalizer">The finalizer effect to run after the effect.</param>
     /// <returns>An FIO effect that runs the finalizer after the effect.</returns>
-    member inline _.TryFinally<'R, 'E when 'E :> exn> (eff: FIO<'R, 'E>, finalizer: unit -> unit) : FIO<'R, 'E> =
-        // Success path: run finalizer, then return result or error if finalizer throws
-        let onSuccess = fun res ->
-            try
-                finalizer ()
-                FIO.Succeed res
-            with
-            | :? 'E as e -> FIO.Fail e
-
-        // Error path: run finalizer, then return original error or new error if finalizer throws
-        let onError = fun err ->
-            try
-                finalizer ()
-                FIO.Fail err
-            with
-            | :? 'E as e -> FIO.Fail e
-
-        eff.Bind(onSuccess).BindError onError
+    member inline _.TryFinally<'R, 'E> (eff: FIO<'R, 'E>, finalizer: FIO<unit, 'E>) : FIO<'R, 'E> =
+        eff.Bind(fun res -> finalizer.Then(FIO.Succeed res))
+           .BindError(fun err -> finalizer.Then(FIO.Fail err))
 
     /// <summary>
     /// Delays the execution of a computation until it is needed.
@@ -224,15 +209,19 @@ type FIOBuilder internal () =
 
     /// <summary>
     /// Uses a disposable resource in a computation expression, ensuring it is disposed after use.
+    /// This method supports use! syntax but requires the error type to be an exception.
+    /// For custom error types, use FIO.AcquireRelease instead.
     /// </summary>
     /// <typeparam name="'T">The type of the resource.</typeparam>
     /// <typeparam name="'R">The result type.</typeparam>
-    /// <typeparam name="'E">The error type.</typeparam>
+    /// <typeparam name="'E">The error type (must be an exception type).</typeparam>
     /// <param name="resource">The disposable resource to use.</param>
     /// <param name="body">The function to run with the resource.</param>
     /// <returns>An FIO effect that uses and disposes the resource.</returns>
-    member inline this.Using (resource: #IDisposable, body: 'T -> FIO<'R, 'E>) : FIO<'R, 'E> =
-        this.TryFinally (body resource, fun () -> resource.Dispose())
+    member inline this.Using<'T, 'R, 'E when 'T :> IDisposable and 'E :> exn> (resource: 'T, body: 'T -> FIO<'R, 'E>) : FIO<'R, 'E> =
+        let errorHandler : exn -> 'E = unbox
+        let disposeEffect = FIO.FromFunc<unit, 'E>((fun () -> resource.Dispose()), errorHandler)
+        this.TryFinally (body resource, disposeEffect)
 
     /// <summary>
     /// Pattern matches on a value and runs the corresponding FIO effect.

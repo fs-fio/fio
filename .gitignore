@@ -458,3 +458,7 @@ Scripts/
 ### Cursor ###
 .cursor/rules/cursor-rule.mdc
 .cursor/rules/fio-cursor-rule.mdc
+
+### Claude ###
+.claude
+**CLAUDE.md

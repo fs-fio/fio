@@ -227,8 +227,8 @@ and Runtime (config: WorkerConfig) as this =
                         do! activeBlockingEventChan.AddAsync chan
                         processSuccess msg
                     | ReceiveChan chan ->
-                        if chan.Count > 0 then
-                            let! res = chan.ReceiveAsync ()
+                        let mutable res = Unchecked.defaultof<_>
+                        if chan.Internal.TryTake(&res) then
                             processSuccess res
                         else
                             do! chan.AddBlockingWorkItem

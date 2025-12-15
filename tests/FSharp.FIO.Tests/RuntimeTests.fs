@@ -18,12 +18,12 @@ open System.Threading.Tasks
 type RuntimeTests () =
 
     let result (fiber: Fiber<'R, 'E>) =
-        match fiber.Task().Result with
+        match fiber.Task().GetAwaiter().GetResult() with
         | Ok res -> res
         | Error _ -> failwith "Error happened when result was expected!"
-        
+
     let error (fiber: Fiber<'R, 'E>) =
-        match fiber.Task().Result with
+        match fiber.Task().GetAwaiter().GetResult() with
         | Ok _ -> failwith "Result happened when error was expected!"
         | Error err -> err
     
@@ -958,8 +958,15 @@ type RuntimeTests () =
     [<Property>]
     member _.``ParallelError always succeeds with the initial effect when the initial effect succeeds and second effect succeeds`` (runtime: FRuntime, res1: int, res2: int) =
         let eff = (FIO.Succeed res1).ParallelError(FIO.Succeed res2)
-        
+
         let actual = result <| runtime.Run eff
         let expected = res1
-        
+
         actual = expected
+
+    [<Property>]
+    member _.``Fiber.Id returns unique identifier`` (runtime: FRuntime) =
+        let fiber1 = runtime.Run (FIO.Succeed 42)
+        let fiber2 = runtime.Run (FIO.Succeed 42)
+
+        fiber1.Id <> System.Guid.Empty && fiber2.Id <> System.Guid.Empty && fiber1.Id <> fiber2.Id
