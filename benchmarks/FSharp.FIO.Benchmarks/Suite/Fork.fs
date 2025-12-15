@@ -1,6 +1,6 @@
 ﻿(*********************************************************************************************)
 (* FIO - A Type-Safe, Purely Functional Effect System for Asynchronous and Concurrent F#     *)
-(* Copyright (c) 2022-2025 - Daniel "iyyel" Larsen and Technical University of Denmark (DTU) *)
+(* Copyright (c) 2022-2026 - Daniel Larsen and Technical University of Denmark (DTU)         *)
 (* All rights reserved                                                                       *)
 (* ----------------------------------------------------------------------------------------- *)
 (* Fork benchmark                                                                            *)

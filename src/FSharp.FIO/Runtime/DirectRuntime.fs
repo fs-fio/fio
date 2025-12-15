@@ -1,6 +1,6 @@
 ﻿(*********************************************************************************************)
 (* FIO - A Type-Safe, Purely Functional Effect System for Asynchronous and Concurrent F#     *)
-(* Copyright (c) 2022-2025 - Daniel "iyyel" Larsen and Technical University of Denmark (DTU) *)
+(* Copyright (c) 2022-2026 - Daniel Larsen and Technical University of Denmark (DTU)         *)
 (* All rights reserved                                                                       *)
 (*********************************************************************************************)
 
@@ -91,14 +91,24 @@ type Runtime () =
                     let! res = chan.ReceiveAsync ()
                     processSuccess res
                 | ConcurrentEffect (eff, fiber, ifiber) ->
-                    // This runs the task on a separate thread pool.
-                    Task.Run(fun () ->
+                    // This runs the task on a separate thread pool with proper error handling
+                    (Task.Run(fun () ->
                         task {
                             let! res = this.InterpretAsync eff
                             do! ifiber.Complete res
                         } :> Task
-                    )
-                    |> ignore
+                    )).ContinueWith(
+                        (fun (t: Task) ->
+                            if t.IsFaulted then
+                                // InterpretAsync threw an unexpected exception (shouldn't happen by design)
+                                // Complete the fiber with the error to prevent unobserved exceptions
+                                ifiber.Complete(Error (t.Exception.GetBaseException() :> obj))
+                                |> ignore
+                        ),
+                        CancellationToken.None,
+                        TaskContinuationOptions.OnlyOnFaulted,
+                        TaskScheduler.Default
+                    ) |> ignore
                     processSuccess fiber
                 | ConcurrentTPLTask (lazyTask, onError, fiber, ifiber) ->
                     Task.Run(fun () ->

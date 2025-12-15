@@ -1,126 +1,72 @@
 ﻿(*********************************************************************************************)
 (* FIO - A Type-Safe, Purely Functional Effect System for Asynchronous and Concurrent F#     *)
-(* Copyright (c) 2022-2025 - Daniel "iyyel" Larsen and Technical University of Denmark (DTU) *)
+(* Copyright (c) 2022-2026 - Daniel Larsen and Technical University of Denmark (DTU)         *)
 (* All rights reserved                                                                       *)
 (*********************************************************************************************)
 
+/// <summary>
+/// Runtime monitoring tool for observing channel state.
+/// Note: This provides non-destructive monitoring by only reading channel counts
+/// and metadata, without removing items from channels.
+/// </summary>
 module internal FSharp.FIO.Runtime.Tools.Monitor
 
 open FSharp.FIO.DSL
 
-open System.Threading
+open System.Threading.Tasks
 
-// TODO: This implementation is currently wrong. It currently takes data from the channels, which is not correct.
-// Rather, it should take a copy of the current contents of the channels, without removing anything.
-// Perhaps the channel could hold a buffer when compilation directives are present.
+/// <summary>
+/// Monitor for observing runtime channel state without interfering with execution.
+/// Provides periodic snapshots of channel counts and statistics.
+/// </summary>
 type internal Monitor (
     activeWorkItemChan: InternalChannel<WorkItem>,
     activeBlockingDataChanOpt: InternalChannel<BlockingData> option,
-    activeBlockingEventChan: InternalChannel<Channel<obj>> option) as this =
-    
-    let startMonitor () =
+    activeBlockingEventChan: InternalChannel<Channel<obj>> option) =
+
+    let mutable running = true
+    let monitorTask =
         task {
-            while true do
-                printfn "\n\n"
-                do! this.PrintActiveWorkItemChanInfo activeWorkItemChan
-                printfn "\n"
-                
+            while running do
+                printfn "\n========== FIO Runtime Monitor Snapshot =========="
+                printfn "Timestamp: %s" (System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"))
+                printfn ""
+
+                // Active Work Items (non-destructive)
+                printfn "Active Work Items:"
+                printfn "  Count: %i" activeWorkItemChan.Count
+                printfn "  Channel ID: %A" activeWorkItemChan.Id
+
+                // Blocking Data (non-destructive)
                 match activeBlockingDataChanOpt with
                 | Some chan ->
-                    do! this.PrintActiveBlockingDataChanInfo chan
-                    printfn "\n"
-                | _ -> ()
-                
+                    printfn ""
+                    printfn "Blocking Data:"
+                    printfn "  Count: %i" chan.Count
+                    printfn "  Channel ID: %A" chan.Id
+                | None ->
+                    ()
+
+                // Blocking Events (non-destructive)
                 match activeBlockingEventChan with
                 | Some chan ->
-                    do! this.PrintBlockingEventChanInfo chan
-                    printfn "\n"
-                | _ -> ()
+                    printfn ""
+                    printfn "Blocking Events:"
+                    printfn "  Count: %i" chan.Count
+                    printfn "  Channel ID: %A" chan.Id
+                | None ->
+                    ()
 
-                Thread.Sleep 1000
-        } |> ignore
+                printfn "=================================================="
+                printfn ""
 
-    do startMonitor ()
-
-    member private _.PrintActiveWorkItemChanInfo chan =
-        task {
-            printfn "MONITOR: ------------ activeWorkItemChan monitoring information start ------------"
-            printfn $"MONITOR: activeWorkItemChan count: %i{chan.Count}"
-
-            let mutable loop = true
-            while loop do
-                let! hasWorkItem = chan.WaitToTakeAsync()
-                if not hasWorkItem then
-                    loop <- false
-                else
-                    let! workItem = chan.TakeAsync()
-                    printfn $"MONITOR:    ------------ workItem start ------------"
-                    printfn $"MONITOR:      WorkItem IFiber Id: %A{workItem.IFiber.Id}"
-                    printfn $"MONITOR:      WorkItem IFiber completed: %b{workItem.IFiber.Completed}"
-                    printfn $"MONITOR:      WorkItem IFiber blocking items count: %i{workItem.IFiber.BlockingWorkItemCount}"
-                    printfn $"MONITOR:      WorkItem PrevAction: %A{workItem.PrevAction}"
-                    printfn $"MONITOR:      WorkItem Eff: %A{workItem.Eff}"
-                    printfn $"MONITOR:    ------------ workItem end ------------"
-
-            printfn "MONITOR: ------------ activeWorkItemChan monitoring information end ------------"
-        }
-        
-    member private _.PrintActiveBlockingDataChanInfo chan =
-        task {
-            printfn "MONITOR: ------------ activeBlockingDataChan monitoring information start ------------"
-            printfn $"MONITOR: activeBlockingDataChan count: %i{chan.Count}"
-
-            let mutable loop = true
-            while loop do
-                let! hasWorkItem = chan.WaitToTakeAsync()
-                if not hasWorkItem then
-                    loop <- false
-                else
-                    // BlockingItem
-                    // and WaitingWorkItem
-                    let! blockingData = chan.TakeAsync()
-                    printfn $"MONITOR:    ------------ waitingWorkItem start ------------"
-                    printfn $"MONITOR:      WorkItem IFiber Id: %A{blockingData.WaitingWorkItem.IFiber.Id}"
-                    printfn $"MONITOR:      WorkItem IFiber completed: %b{blockingData.WaitingWorkItem.IFiber.Completed}"
-                    printfn $"MONITOR:      WorkItem IFiber blocking items count: %i{blockingData.WaitingWorkItem.IFiber.BlockingWorkItemCount}"
-                    printfn $"MONITOR:      WorkItem PrevAction: %A{blockingData.WaitingWorkItem.PrevAction}"
-                    printfn $"MONITOR:      WorkItem Eff: %A{blockingData.WaitingWorkItem.Eff}"
-                    printfn $"MONITOR:    ------------ waitingWorkItem end ------------"
-                    
-                    match blockingData.BlockingItem with
-                    | BlockingChannel chan ->
-                        printfn $"MONITOR:    ------------ blockingChan start ------------"
-                        printfn $"MONITOR:      Id: %%{chan.Id}"
-                        printfn $"MONITOR:      Count: %i{chan.Count}"
-                        printfn $"MONITOR:      BlockingWorkItemCount: %i{chan.BlockingWorkItemCount}"
-                        printfn $"MONITOR:    ------------ blockingChan end ------------"
-                    | BlockingIFiber ifiber ->
-                        printfn $"MONITOR:    ------------ blockingIFiber start ------------"
-                        printfn $"MONITOR:      IFiber Id: %A{ifiber.Id}"
-                        printfn $"MONITOR:      IFiber completed: %b{ifiber.Completed}"
-                        printfn $"MONITOR:      IFiber blocking items count: %i{ifiber.BlockingWorkItemCount}"
-                        printfn $"MONITOR:    ------------ blockingIFiber end ------------"
-
-            printfn "MONITOR: ------------ activeBlockingDataChan monitoring information end ------------"
+                do! Task.Delay(1000)
         }
 
-    member private _.PrintBlockingEventChanInfo chan =
-        task {
-            printfn $"MONITOR: ------------ activeBlockingEventChan monitoring information start ------------"
-            printfn $"MONITOR: activeBlockingEventChan count: %i{chan.Count}"
+    do monitorTask |> ignore
 
-            let mutable loop = true
-            while loop do
-                let! hasWorkItem = chan.WaitToTakeAsync()
-                if not hasWorkItem then
-                    loop <- false
-                else
-                    let! eventChan = chan.TakeAsync()
-                    printfn $"MONITOR:    ------------ eventChan start ------------"
-                    printfn $"MONITOR:      Id: %%{eventChan.Id}"
-                    printfn $"MONITOR:      Count: %i{eventChan.Count}"
-                    printfn $"MONITOR:      BlockingWorkItemCount: %i{eventChan.BlockingWorkItemCount}"
-                    printfn $"MONITOR:    ------------ eventChan end ------------"
-                        
-            printfn "MONITOR: ------------ activeBlockingEventChan monitoring information end ------------"
-        }
+    /// <summary>
+    /// Stops the monitoring loop.
+    /// </summary>
+    member _.Stop() =
+        running <- false

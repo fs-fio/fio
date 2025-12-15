@@ -1,6 +1,6 @@
 ﻿(*********************************************************************************************)
 (* FIO - A Type-Safe, Purely Functional Effect System for Asynchronous and Concurrent F#     *)
-(* Copyright (c) 2022-2025 - Daniel "iyyel" Larsen and Technical University of Denmark (DTU) *)
+(* Copyright (c) 2022-2026 - Daniel Larsen and Technical University of Denmark (DTU)         *)
 (* All rights reserved                                                                       *)
 (*********************************************************************************************)
 
@@ -147,19 +147,31 @@ type FIOBuilder internal () =
 
     /// <summary>
     /// Ensures a finalizer is run after an FIO effect, even if an exception occurs.
+    /// The finalizer runs on both success and error paths, consistent with try-finally semantics.
     /// </summary>
     /// <typeparam name="'R">The result type.</typeparam>
     /// <typeparam name="'E">The error type (must be an exception type).</typeparam>
     /// <param name="eff">The FIO effect to try.</param>
     /// <param name="finalizer">The finalizer function to run after the effect.</param>
     /// <returns>An FIO effect that runs the finalizer after the effect.</returns>
-    member inline this.TryFinally<'R, 'E when 'E :> exn> (eff: FIO<'R, 'E>, finalizer: unit -> unit) : FIO<'R, 'E> =
-        eff.Bind <| fun res ->
+    member inline _.TryFinally<'R, 'E when 'E :> exn> (eff: FIO<'R, 'E>, finalizer: unit -> unit) : FIO<'R, 'E> =
+        // Success path: run finalizer, then return result or error if finalizer throws
+        let onSuccess = fun res ->
             try
                 finalizer ()
-                this.Return res
-            with exn ->
-                FIO.Fail (exn :?> 'E)
+                FIO.Succeed res
+            with
+            | :? 'E as e -> FIO.Fail e
+
+        // Error path: run finalizer, then return original error or new error if finalizer throws
+        let onError = fun err ->
+            try
+                finalizer ()
+                FIO.Fail err
+            with
+            | :? 'E as e -> FIO.Fail e
+
+        eff.Bind(onSuccess).BindError onError
 
     /// <summary>
     /// Delays the execution of a computation until it is needed.
@@ -182,15 +194,15 @@ type FIOBuilder internal () =
     member inline this.For<'T, 'E when 'E :> exn> (sequence: seq<'T>, body: 'T -> FIO<unit, 'E>) : FIO<unit, 'E> =
         let rec loop (enumerator: IEnumerator<'T>) =
             if enumerator.MoveNext () then
-                this.Delay <| fun () -> 
+                this.Delay <| fun () ->
                     body(enumerator.Current).Then(loop enumerator)
             else
                 try
                     enumerator.Dispose ()
                     this.Zero ()
-                with exn ->
-                    FIO.Fail (exn :?> 'E)
-                
+                with
+                | :? 'E as e -> FIO.Fail e
+
         sequence.GetEnumerator()
         |> loop
 

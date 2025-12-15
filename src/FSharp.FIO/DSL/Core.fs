@@ -1,6 +1,6 @@
 ﻿(*********************************************************************************************)
 (* FIO - A Type-Safe, Purely Functional Effect System for Asynchronous and Concurrent F#     *)
-(* Copyright (c) 2022-2025 - Daniel "iyyel" Larsen and Technical University of Denmark (DTU) *)
+(* Copyright (c) 2022-2026 - Daniel Larsen and Technical University of Denmark (DTU)         *)
 (* All rights reserved                                                                       *)
 (*********************************************************************************************)
 
@@ -81,10 +81,16 @@ and internal WorkItem =
     member internal this.CompleteAndReschedule res activeWorkItemChan =
         this.IFiber.CompleteAndReschedule res activeWorkItemChan
 
+/// <summary>
+/// Internal channel implementation using System.Threading.Channels for efficient message passing.
+/// Thread-safety: All operations are thread-safe. Count uses Volatile.Read for non-blocking
+/// queries (acceptable to return slightly stale values), while Interlocked ensures atomic
+/// updates during Add/Take operations.
+/// </summary>
 and internal InternalChannel<'R> (id: Guid) =
     let chan = Channel.CreateUnbounded<'R>()
     let mutable count = 0L
-    
+
     new() = InternalChannel (Guid.NewGuid ())
 
     member internal _.AddAsync (msg: 'R) =
@@ -136,16 +142,17 @@ and internal InternalFiber () =
     member internal _.Complete res =
         task {
             if Interlocked.Exchange (&completed, true) then
-                return () // Already completed, silently ignore
+                return () // Already completed, silently ignore (valid race condition)
             elif not (resTcs.TrySetResult res) then
-                completeAlreadyCalledFail ()
+                return () // TrySetResult failed, silently ignore (valid race condition)
         }
-    
+
     member internal this.CompleteAndReschedule res activeWorkItemChan =
         task {
-            if Interlocked.Exchange (&completed, true)
-               || not (resTcs.TrySetResult res) then
-                completeAlreadyCalledFail ()
+            if Interlocked.Exchange (&completed, true) then
+                return () // Already completed, silently ignore (valid race condition)
+            elif not (resTcs.TrySetResult res) then
+                return () // TrySetResult failed, silently ignore (valid race condition)
             else
                 do! this.RescheduleBlockingWorkItems activeWorkItemChan
         }
@@ -220,7 +227,7 @@ and Fiber<'R, 'E> internal () =
     /// </summary>
     /// <returns>The unique Guid of the fiber.</returns>
     member _.Id =
-        id
+        ifiber.Id
 
      member internal _.Internal =
         ifiber
@@ -284,9 +291,9 @@ and Channel<'R> private (id: Guid, resChan: InternalChannel<obj>, blockingWorkIt
 
     member internal _.RescheduleNextBlockingWorkItem (activeWorkItemChan: InternalChannel<WorkItem>) =
         task {
-            if blockingWorkItemChan.Count > 0 then
-                let! unblockedWorkItem = blockingWorkItemChan.TakeAsync ()
-                do! activeWorkItemChan.AddAsync unblockedWorkItem
+            let mutable workItem = Unchecked.defaultof<_>
+            if blockingWorkItemChan.TryTake &workItem then
+                do! activeWorkItemChan.AddAsync workItem
         }
 
     member internal _.BlockingWorkItemCount =
@@ -492,7 +499,7 @@ and FIO<'R, 'E> =
     /// <param name="lazyTask">A function that produces the Task to run.</param>
     /// <returns>An FIO effect that starts the Task in a Fiber and returns the Fiber.</returns>
     static member inline FromGenericTask<'R, 'E> (lazyTask: unit -> Task<'R>) : FIO<Fiber<'R, exn>, exn> =
-        FIO.FromGenericTask<Fiber<'R, exn>, exn> (lazyTask, id)
+        FIO.FromGenericTask<'R, exn> (lazyTask, id)
         
     /// <summary>
     /// Interprets an effect concurrently and returns the fiber interpreting it. The fiber can be awaited for the result of the effect.
@@ -656,24 +663,31 @@ and FIO<'R, 'E> =
                     FIO<'R, 'E>.Fail err
                 else
                     let nextDelay = TimeSpan.FromMilliseconds(delay.TotalMilliseconds * 2.0)
-                    // Use Succeed to create a pure delay without error constraints
-                    FIO<unit, 'E>.Succeed(Thread.Sleep delay)
+                    // Use async Task.Delay instead of blocking Thread.Sleep
+                    FIO<'R, 'E>.AwaitTask(Task.Delay delay)
+                        .MapError(fun _ -> err)  // Map any delay errors to original error type
                         .Then (loop (attempt + 1) nextDelay)
         loop 0 initialDelay
 
     member this.Timeout (duration: TimeSpan) (onTimeout: unit -> 'E) : FIO<'R, 'E> =
-        this.Fork().Bind <| fun fiber ->
-            // Use Succeed to create a pure delay without error constraints
-            let delayEffect = FIO<unit, 'E>.Succeed(Thread.Sleep(duration))
-            let timeoutEff = delayEffect.Then (FIO<'R, 'E>.Fail (onTimeout ()))
-            
-            timeoutEff.Fork().Bind <| fun timeoutFiber ->
-                // Race: return whichever completes first
-                fiber.Await().BindError <| fun err ->
-                    // Original effect failed, check if timeout also completed
-                    timeoutFiber.Await().BindError <| fun _ ->
-                        // Both failed, return original error
-                        FIO<'R, 'E>.Fail err
+        this.Fork().Bind <| fun originalFiber ->
+            // Create timeout effect: async delay then fail with timeout error
+            let timeoutEffect : FIO<'R, 'E> =
+                FIO<'R, 'E>.AwaitTask(Task.Delay duration)
+                    .MapError(fun (_ : exn) -> onTimeout())
+                    .Then(FIO<'R, 'E>.Fail (onTimeout()))
+
+            timeoutEffect.Fork().Bind <| fun timeoutFiber ->
+                // Race both fibers - return result of whichever completes first
+                FIO.AwaitGenericTask<Result<'R, 'E>, exn>(
+                    task {
+                        let originalTask = originalFiber.Task()
+                        let timeoutTask = timeoutFiber.Task()
+                        let! completedTask = Task.WhenAny(originalTask, timeoutTask)
+                        return! completedTask
+                    }
+                ).MapError(fun (_ : exn) -> onTimeout())
+                 .Bind(FIO.FromResult)
 
     member internal this.UpcastResult () : FIO<obj, 'E> =
         match this with

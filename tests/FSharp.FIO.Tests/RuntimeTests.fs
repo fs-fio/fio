@@ -1,6 +1,6 @@
 ﻿(*********************************************************************************************)
 (* FIO - A Type-Safe, Purely Functional Effect System for Asynchronous and Concurrent F#     *)
-(* Copyright (c) 2022-2025 - Daniel "iyyel" Larsen and Technical University of Denmark (DTU) *)
+(* Copyright (c) 2022-2026 - Daniel Larsen and Technical University of Denmark (DTU)         *)
 (* All rights reserved                                                                       *)
 (*********************************************************************************************)
 
@@ -29,9 +29,9 @@ type RuntimeTests () =
     
     static member Runtime() : Arbitrary<FRuntime> =
         Arb.fromGen <| Gen.oneof [
-            Gen.constant (Direct.Runtime())
-            Gen.constant (Cooperative.Runtime())
-            Gen.constant (Concurrent.Runtime())
+            Gen.constant (new Direct.Runtime())
+            Gen.constant (new Cooperative.Runtime())
+            Gen.constant (new Concurrent.Runtime())
         ]
     
     [<Property>]

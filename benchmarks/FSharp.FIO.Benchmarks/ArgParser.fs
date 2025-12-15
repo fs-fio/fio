@@ -1,6 +1,6 @@
 ﻿(*********************************************************************************************)
 (* FIO - A Type-Safe, Purely Functional Effect System for Asynchronous and Concurrent F#     *)
-(* Copyright (c) 2022-2025 - Daniel "iyyel" Larsen and Technical University of Denmark (DTU) *)
+(* Copyright (c) 2022-2026 - Daniel Larsen and Technical University of Denmark (DTU)         *)
 (* All rights reserved                                                                       *)
 (*********************************************************************************************)
 
@@ -72,13 +72,13 @@ let parseArgs args =
 
     let runtime: FRuntime =
         if results.Contains Direct_Runtime then
-            Direct.Runtime ()
+            new Direct.Runtime ()
         elif results.Contains Cooperative_Runtime then
             let ewc, ews, bwc = results.GetResult Cooperative_Runtime
-            Cooperative.Runtime { EWC = ewc; EWS = ews; BWC = bwc }
+            new Cooperative.Runtime { EWC = ewc; EWS = ews; BWC = bwc }
         elif results.Contains Concurrent_Runtime then
             let ewc, ews, bwc = results.GetResult Concurrent_Runtime
-            Concurrent.Runtime { EWC = ewc; EWS = ews; BWC = bwc }
+            new Concurrent.Runtime { EWC = ewc; EWS = ews; BWC = bwc }
         else
             invalidArg "args" "Runtime should be specified!"
 

@@ -25,11 +25,11 @@
     <br />
     <br />
     -->
-    <a href="https://iyyel.io/projects/fio/">View Project Post</a>
+    <a href="https://itsdaniel.dk/projects/fio/">View Project Post</a>
     &middot;
-    <a href="https://github.com/fio-fsharp/fio/issues/new?labels=bug&template=bug-report---.md">Report Bug</a>
+    <a href="https://github.com/fs-fio/fio/issues/new?labels=bug&template=bug-report---.md">Report Bug</a>
     &middot;
-    <a href="https://github.com/fio-fsharp/fio/issues/new?labels=enhancement&template=feature-request---.md">Request Feature</a>
+    <a href="https://github.com/fs-fio/fio/issues/new?labels=enhancement&template=feature-request---.md">Request Feature</a>
   </p>
 </div>
 
@@ -96,12 +96,10 @@ Inspired by [**ZIO**](https://zio.dev/) and [**Cats Effect**](https://typelevel.
 - **Fibers** (green threads) for scalable concurrency  
 - A focus on **purity**, **type safety**, and **performance**
 
-**FIO** was developed as part of a master’s thesis in Computer Science at [**DTU**](https://www.dtu.dk/english). 
-
-[**Read the thesis**](https://iyyel.io/assets/doc/masters_thesis_daniel_larsen.pdf) (some parts may be outdated).
+**FIO** was developed as part of a master’s thesis in Computer Science at [**DTU**](https://www.dtu.dk/english).
 
 > **Note:** FIO is under active development. Contributions, feedback, and questions are very welcome!  
-> Feel free to report bugs, request features or [**reach out**](mailto:me@iyyel.io).
+> Feel free to report bugs, request features or [**reach out**](mailto:hey@itsdaniel.dk).
 
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
@@ -376,7 +374,7 @@ Distributed under the MIT License See [**LICENSE.md**](LICENSE.md) for more info
 <!-- CONTACT -->
 ## Contact
 
-Daniel "iyyel" Larsen ([**iyyel.io**](https://iyyel.io))
+Daniel Larsen ([**itsdaniel.dk**](https://itsdaniel.dk))
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -403,7 +401,7 @@ Alceste Scalas ([**people.compute.dtu.dk**](https://people.compute.dtu.dk/alcsc/
 [license-shield]: https://img.shields.io/github/license/fio-fsharp/fio.svg?style=for-the-badge
 [license-url]: https://github.com/fio-fsharp/fio/blob/main/LICENSE.md
 [linkedin-shield]: https://img.shields.io/badge/-LinkedIn-black.svg?style=for-the-badge&logo=linkedin&colorB=555
-[linkedin-url]: https://linkedin.com/in/iyyel
+[linkedin-url]: https://linkedin.com/in/itsdanieldk
 [product-screenshot]: images/screenshot.png
 [nuget-shield]: https://img.shields.io/nuget/v/FSharp.FIO.svg?style=for-the-badge
 [nuget-url]: https://www.nuget.org/packages/FSharp.FIO/0.0.30-alpha

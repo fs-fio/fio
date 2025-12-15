@@ -1,6 +1,6 @@
 ﻿(*********************************************************************************************)
 (* FIO - A Type-Safe, Purely Functional Effect System for Asynchronous and Concurrent F#     *)
-(* Copyright (c) 2022-2025 - Daniel "iyyel" Larsen and Technical University of Denmark (DTU) *)
+(* Copyright (c) 2022-2026 - Daniel Larsen and Technical University of Denmark (DTU)         *)
 (* All rights reserved                                                                       *)
 (*********************************************************************************************)
 
@@ -26,31 +26,41 @@ module private Utils =
 /// Thread-local pooling avoids synchronization overhead.
 /// </summary>
 type internal ContStackPool private () =
+    // Configuration constants
+    static let DefaultStackCapacity = 32      // Initial capacity for new stacks
+    static let MaxStackCapacity = 1024        // Maximum stack capacity to pool
+    static let MaxPoolSize = 100              // Maximum stacks per thread pool
+
     [<ThreadStatic; DefaultValue>]
     static val mutable private pool: Stack<ResizeArray<ContStackFrame>>
-    
+
     /// <summary>
     /// Rents a continuation stack from the pool or creates a new one.
     /// </summary>
     /// <returns>A cleared ResizeArray ready for use.</returns>
     static member inline Rent () =
-        if isNull ContStackPool.pool then 
+        if isNull ContStackPool.pool then
             ContStackPool.pool <- Stack<_>()
-        
+
         if ContStackPool.pool.Count > 0 then
             let stack = ContStackPool.pool.Pop()
             stack.Clear()
             stack
         else
-            ResizeArray<ContStackFrame> 32  // Pre-sized to reduce resizing
-    
+            ResizeArray<ContStackFrame> DefaultStackCapacity
+
     /// <summary>
     /// Returns a continuation stack to the pool for reuse.
     /// Large stacks are not pooled to avoid holding excessive memory.
+    /// Enforces maximum pool size to prevent unbounded growth.
     /// </summary>
     /// <param name="stack">The stack to return to the pool.</param>
     static member inline Return (stack: ResizeArray<ContStackFrame>) =
-        if stack.Capacity <= 1024 then  // Don't pool huge stacks
+        if isNull ContStackPool.pool then
+            ContStackPool.pool <- Stack<_>()
+
+        // Only pool stacks that aren't too large and if pool isn't at capacity
+        if stack.Capacity <= MaxStackCapacity && ContStackPool.pool.Count < MaxPoolSize then
             stack.Clear()
             ContStackPool.pool.Push stack
 

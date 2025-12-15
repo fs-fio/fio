@@ -1,6 +1,6 @@
 ﻿(*********************************************************************************************)
 (* FIO - A Type-Safe, Purely Functional Effect System for Asynchronous and Concurrent F#     *)
-(* Copyright (c) 2022-2025 - Daniel "iyyel" Larsen and Technical University of Denmark (DTU) *)
+(* Copyright (c) 2022-2026 - Daniel Larsen and Technical University of Denmark (DTU)         *)
 (* All rights reserved                                                                       *)
 (*********************************************************************************************)
 
@@ -44,26 +44,32 @@ and private EvaluationWorker (config: EvaluationWorkerConfig) =
                 invalidOp "EvaluationWorker: Unexpected state encountered during effect interpretation!"
         }
 
+    let cancellationTokenSource = new CancellationTokenSource ()
+
     let startWorker () =
         (new Task((fun () ->
             task {
                 let mutable loop = true
-                while loop do
-                    let! hasWorkItem = config.ActiveWorkItemChan.WaitToTakeAsync ()
-                    if not hasWorkItem then
+                while loop && not cancellationTokenSource.Token.IsCancellationRequested do
+                    try
+                        let! hasWorkItem = config.ActiveWorkItemChan.WaitToTakeAsync ()
+                        if not hasWorkItem || cancellationTokenSource.Token.IsCancellationRequested then
+                            loop <- false
+                        else
+                            let! workItem = config.ActiveWorkItemChan.TakeAsync ()
+                            do! processWorkItem workItem
+                    with
+                    | :? OperationCanceledException ->
                         loop <- false
-                    else
-                        let! workItem = config.ActiveWorkItemChan.TakeAsync ()
-                        do! processWorkItem workItem
             } |> ignore), TaskCreationOptions.LongRunning))
             .Start TaskScheduler.Default
 
-    let cancellationTokenSource = new CancellationTokenSource ()
     do startWorker ()
-    
+
     interface IDisposable with
         member _.Dispose () =
             cancellationTokenSource.Cancel ()
+            cancellationTokenSource.Dispose ()
 
 and private BlockingWorker (config: BlockingWorkerConfig) =
 
@@ -76,28 +82,34 @@ and private BlockingWorker (config: BlockingWorkerConfig) =
                 do! config.ActiveBlockingEventChan.AddAsync blockingChan
         }
 
+    let cancellationTokenSource = new CancellationTokenSource ()
+
     let startWorker () =
         (new Task((fun () ->
             task {
                 let mutable loop = true
-                while loop do
-                    // When the BlockingWorker receives a channel, it is an "event" that the
-                    // the given channel now has received one element, that the next blocking effect can retrieve.
-                    let! hasBlockingItem = config.ActiveBlockingEventChan.WaitToTakeAsync ()
-                    if not hasBlockingItem then
-                        loop <- false 
-                    else
-                        let! blockingChanEvent = config.ActiveBlockingEventChan.TakeAsync ()
-                        do! processBlockingChannel blockingChanEvent
+                while loop && not cancellationTokenSource.Token.IsCancellationRequested do
+                    try
+                        // When the BlockingWorker receives a channel, it is an "event" that the
+                        // the given channel now has received one element, that the next blocking effect can retrieve.
+                        let! hasBlockingItem = config.ActiveBlockingEventChan.WaitToTakeAsync ()
+                        if not hasBlockingItem || cancellationTokenSource.Token.IsCancellationRequested then
+                            loop <- false
+                        else
+                            let! blockingChanEvent = config.ActiveBlockingEventChan.TakeAsync ()
+                            do! processBlockingChannel blockingChanEvent
+                    with
+                    | :? OperationCanceledException ->
+                        loop <- false
             } |> ignore), TaskCreationOptions.LongRunning))
             .Start TaskScheduler.Default
 
-    let cancellationTokenSource = new CancellationTokenSource ()
     do startWorker ()
 
     interface IDisposable with
         member _.Dispose () =
             cancellationTokenSource.Cancel ()
+            cancellationTokenSource.Dispose ()
 
 /// <summary>
 /// Represents the concurrent runtime for FIO, interpreting effects using event-driven concurrency and advanced scheduling.
@@ -108,34 +120,34 @@ and Runtime (config: WorkerConfig) as this =
     let activeWorkItemChan = InternalChannel<WorkItem> ()
     let activeBlockingEventChan = InternalChannel<Channel<obj>> ()
 
-    let createBlockingWorkers count =
-        List.init count <| fun _ ->
-            new BlockingWorker({
-                ActiveWorkItemChan = activeWorkItemChan
-                ActiveBlockingEventChan = activeBlockingEventChan
-            })
+    // Note: BWC (Blocking Worker Count) is currently limited to 1
+    // Multiple blocking workers would require event distribution logic
+    let blockingWorker =
+        new BlockingWorker({
+            ActiveWorkItemChan = activeWorkItemChan
+            ActiveBlockingEventChan = activeBlockingEventChan
+        })
 
-    let createEvaluationWorkers runtime blockingWorker evalSteps count =
-        List.init count <| fun _ -> 
-            new EvaluationWorker({ 
-                Runtime = runtime
+    let evaluationWorkers =
+        List.init config.EWC <| fun _ ->
+            new EvaluationWorker({
+                Runtime = this
                 ActiveWorkItemChan = activeWorkItemChan
                 BlockingWorker = blockingWorker
-                EWSteps = evalSteps 
+                EWSteps = config.EWS
             })
-
-    do
-        let blockingWorkers = createBlockingWorkers config.BWC
-        // Currently we take head of the list, as the AdvancedRuntime
-        // only supports a single blocking worker.
-        createEvaluationWorkers this (List.head blockingWorkers) config.EWS config.EWC
-        |> ignore
 
     override _.Name =
         "Concurrent"
 
+    interface IDisposable with
+        member _.Dispose () =
+            // Dispose workers to stop background threads
+            (blockingWorker :> IDisposable).Dispose ()
+            evaluationWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose ())
+
     new() =
-        Runtime
+        new Runtime
             { EWC =
                 let coreCount = Environment.ProcessorCount - 1
                 if coreCount >= 2 then coreCount else 2
@@ -300,13 +312,8 @@ and Runtime (config: WorkerConfig) as this =
 
             return result
         }
-        
-    member private _.Reset () =
-        activeWorkItemChan.Clear ()
-        activeBlockingEventChan.Clear ()
 
     override _.Run<'R, 'E> (eff: FIO<'R, 'E>) : Fiber<'R, 'E> =
-        this.Reset ()
         let fiber = Fiber<'R, 'E> ()
         activeWorkItemChan.AddAsync
         <| WorkItem.Create (eff.Upcast (), fiber.Internal, ContStackPool.Rent(), Evaluated)
