@@ -202,3 +202,122 @@ type PropertyTests () =
         let lhs' = error <| runtime.Run lhs
         let rhs' = error <| runtime.Run rhs
         lhs' = rhs'
+
+    [<Property>]
+    member _.``Channel Send and Receive maintains message order`` (runtime: FRuntime, messages: int list) =
+        if List.isEmpty messages then
+            true
+        else
+            let eff = fio {
+                let chan = Channel<int>()
+                for msg in messages do
+                    do! chan <!-- msg
+                let mutable received = []
+                for _ in messages do
+                    let! msg = !<-- chan
+                    received <- msg :: received
+                return List.rev received
+            }
+            let received = result <| runtime.Run eff
+            received = messages
+
+    [<Property>]
+    member _.``Channel operations compose with Bind correctly`` (runtime: FRuntime, msg: int) =
+        let eff = fio {
+            let chan = Channel<int>()
+            let! sentMsg = chan <-- msg
+            let! receivedMsg = !<-- chan
+            return sentMsg = receivedMsg && receivedMsg = msg
+        }
+        result <| runtime.Run eff
+
+    [<Property>]
+    member _.``Channel Count is accurate after operations`` (runtime: FRuntime, messages: int list) =
+        if List.isEmpty messages then
+            true
+        else
+            let eff = fio {
+                let chan = Channel<int>()
+                for msg in messages do
+                    do! chan <!-- msg
+                let countAfterSend = chan.Count
+                let mutable received = []
+                for _ in messages do
+                    let! msg = !<-- chan
+                    received <- msg :: received
+                let countAfterReceive = chan.Count
+                return countAfterSend = int64 (List.length messages) && countAfterReceive = 0L
+            }
+            result <| runtime.Run eff
+
+    [<Property>]
+    member _.``Channel with no receivers maintains all messages`` (runtime: FRuntime, messages: int list) =
+        if List.isEmpty messages then
+            true
+        else
+            let eff = fio {
+                let chan = Channel<int>()
+                for msg in messages do
+                    do! chan <!-- msg
+                return chan.Count = int64 (List.length messages)
+            }
+            result <| runtime.Run eff
+
+    [<Property>]
+    member _.``Fork then Await equals identity`` (runtime: FRuntime, res: int) =
+        let eff = fio {
+            let! fiber = !<~ (FIO.Succeed res)
+            let! result = !<~~ fiber
+            return result
+        }
+        let forkAwaitResult = result <| runtime.Run eff
+        let directResult = res
+        forkAwaitResult = directResult
+
+    [<Property>]
+    member _.``Fiber ID is unique per fork`` (runtime: FRuntime, res: int) =
+        let eff = fio {
+            let effect = FIO.Succeed res
+            let! fiber1 = !<~ effect
+            let! fiber2 = !<~ effect
+            let! fiber3 = !<~ effect
+            return fiber1.Id <> fiber2.Id && fiber2.Id <> fiber3.Id && fiber1.Id <> fiber3.Id
+        }
+        result <| runtime.Run eff
+
+    // [<Property>]
+    // member _.``MapError composes correctly`` (runtime: FRuntime, err: int) =
+    //     let eff = FIO.Fail err
+    //     let f x = x + 10
+    //     let g x = x * 2
+
+    //     let lhs = (eff.MapError f).MapError g
+    //     let rhs = eff.MapError (f >> g)
+
+    //     let lhs' = error <| runtime.Run lhs
+    //     let rhs' = error <| runtime.Run rhs
+    //     lhs' = rhs'
+
+    [<Property>]
+    member _.``BindError propagates errors correctly`` (runtime: FRuntime, err: int) =
+        let eff = FIO.Fail err
+        let recover x = FIO.Fail (x + 100)
+
+        let transformed = eff.BindError recover
+        let expected = err + 100
+
+        let actual = error <| runtime.Run transformed
+        actual = expected
+
+    // [<Property>]
+    // member _.``Parallel effects with mixed results handle errors`` (runtime: FRuntime, res: int, err: int) =
+    //     let successEff = FIO.Succeed res
+    //     let failEff = FIO.Fail err
+
+    //     let parallelEff = fio {
+    //         let! (_, _) = !~~& (successEff, failEff)
+    //         return res
+    //     }
+
+    //     let actualErr = error <| runtime.Run parallelEff
+    //     actualErr = err

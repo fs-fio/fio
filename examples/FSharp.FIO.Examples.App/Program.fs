@@ -388,7 +388,7 @@ type FiberFromGenericTaskApp() =
     inherit FIOApp<unit, exn>()
 
     let fibonacci n =
-        FIO.FromGenericTask<Fiber<string, exn>, exn> <| fun () ->
+        FIO.FromGenericTask<Fiber<string, exn>> <| fun () ->
             task {
                 let fib (n: int64) =
                     let mutable a = 0L
@@ -590,7 +590,6 @@ Console.ReadLine () |> ignore
 
 PingPongMatchApp().Run ()
 Console.ReadLine () |> ignore
-
 
 ErrorHandlingApp().Run ()
 Console.ReadLine () |> ignore

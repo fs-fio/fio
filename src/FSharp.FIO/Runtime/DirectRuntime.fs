@@ -78,6 +78,9 @@ type Runtime () =
                         processSuccess res
                     | Failure err ->
                         processError err
+                    | Interrupted ->
+                        let err = Error (OperationCanceledException "Effect execution was interrupted.")
+                        processError err
                     | Action (func, onError) ->
                         try
                             let res = func ()

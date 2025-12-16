@@ -135,6 +135,8 @@ and internal InternalFiber () =
     let resTcs = TaskCompletionSource<Result<obj, obj>> TaskCreationOptions.RunContinuationsAsynchronously
     let blockingWorkItemChan = InternalChannel<WorkItem> ()
     let mutable completed = false
+    let cts = new CancellationTokenSource()
+    let mutable interrupted = false
 
     let completeAlreadyCalledFail () =
         resTcs.SetException (InvalidOperationException "InternalFiber: Complete was called on an already completed InternalFiber!")
@@ -156,6 +158,19 @@ and internal InternalFiber () =
             else
                 do! this.RescheduleBlockingWorkItems activeWorkItemChan
         }
+
+    member internal _.Interrupt() =
+        if not (Interlocked.Exchange(&interrupted, true)) then
+            cts.Cancel()
+            // Complete with an interruption error
+            resTcs.TrySetResult(Error (box (OperationCanceledException "Fiber was interrupted")))
+            |> ignore
+
+    member internal _.IsInterrupted =
+        Volatile.Read &interrupted
+
+    member internal _.CancellationToken =
+        cts.Token
     
     member internal _.Task =
         resTcs.Task
@@ -221,6 +236,12 @@ and Fiber<'R, 'E> internal () =
             | Ok res -> return Ok (res :?> 'R)
             | Error err -> return Error (err :?> 'E)
         }
+
+    member _.Interrupt() : unit =
+        ifiber.Interrupt()
+
+    member _.IsInterrupted =
+        ifiber.IsInterrupted
 
     /// <summary>
     /// Gets the unique identifier of the fiber.
@@ -316,6 +337,7 @@ and FIO<'R, 'E> =
     internal
     | Success of res: 'R
     | Failure of err: 'E
+    | Interrupted
     | Action of func: (unit -> 'R) * onError: (exn -> 'E)
     | SendChan of msg: 'R * chan: Channel<'R>
     | ReceiveChan of chan: Channel<'R>
@@ -501,7 +523,7 @@ and FIO<'R, 'E> =
     /// <typeparam name="R">The result type.</typeparam>
     /// <param name="lazyTask">A function that produces the Task to run.</param>
     /// <returns>An FIO effect that starts the Task in a Fiber and returns the Fiber.</returns>
-    static member inline FromGenericTask<'R, 'E> (lazyTask: unit -> Task<'R>) : FIO<Fiber<'R, exn>, exn> =
+    static member inline FromGenericTask<'R> (lazyTask: unit -> Task<'R>) : FIO<Fiber<'R, exn>, exn> =
         FIO.FromGenericTask<'R, exn> (lazyTask, id)
 
     /// <summary>
@@ -732,6 +754,8 @@ and FIO<'R, 'E> =
             Success (res :> obj)
         | Failure err ->
             Failure err
+        | Interrupted ->
+            Interrupted
         | Action (func, onError) ->
             Action (upcastFunc func, onError)
         | SendChan (msg, chan) ->
@@ -761,6 +785,8 @@ and FIO<'R, 'E> =
             Success res
         | Failure err ->
             Failure (err :> obj)
+        | Interrupted ->
+            Interrupted
         | Action (func, onError) ->
             Action (func, upcastOnError onError)
         | SendChan (msg, chan) ->

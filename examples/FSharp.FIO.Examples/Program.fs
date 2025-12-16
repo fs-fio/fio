@@ -11,6 +11,7 @@ open FSharp.FIO.Lib.IO
 open FSharp.FIO.Runtime.Concurrent
 
 open System
+open System.Threading.Tasks
 
 let helloWorld1 () =
     let runtime = new Runtime()
@@ -154,22 +155,24 @@ let computationExpression3 () =
         printfn $"%A{result}"
     } |> ignore
 
-// let onTimeoutExpression () =
-//     let runtime = new Runtime()
-//     let timeoutEffect = FConsole.PrintLine "Timed out" >>=? fun _ -> !- ()
-//     let timeout =
-//         fio {
-//             let! delay = !<<< (fun () -> Random().Next(0, 501)) (fun _ -> -1)
-//             let! name = FConsole.ReadLine ()
-//             do! FConsole.PrintLine $"Hello, %s{name}! Welcome to FIO! 🪻💜"
-//         }
+// TODO: May not work yet.
+let onTimeout () =
+    let runtime = new Runtime()
+    let! timeoutThreshold = Random().Next(250, 501)
 
-//     let fiber = runtime.Run welcome
+    let delayed =
+        fio {
+            do! FIO<obj, exn>.AwaitTask (Task.Delay 250)
+            do! FConsole.PrintLine "Delayed task completed!"
+        }
 
-//     task {
-//         let! result = fiber.Task ()
-//         printfn $"%A{result}"
-//     } |> ignore
+    let onTimeout () = Exception "Operation timed out!"
+    let fiber = runtime.Run (delayed.Timeout timeoutThreshold onTimeout)
+
+    task {
+        let! result = fiber.Task ()
+        printfn $"%A{result}"
+    } |> ignore
 
 helloWorld1 ()
 Console.ReadLine () |> ignore
@@ -205,4 +208,7 @@ computationExpression2 ()
 Console.ReadLine () |> ignore
 
 computationExpression3 ()
+Console.ReadLine () |> ignore
+
+onTimeout ()
 Console.ReadLine () |> ignore

@@ -181,6 +181,7 @@ and Runtime (config: WorkerConfig) as this =
         let mutable currentContStack = workItem.Stack
         let mutable currentPrevAction = workItem.PrevAction
         let mutable currentEWSteps = evalSteps
+        let mutable currentInternalFiber = workItem.IFiber
         let mutable result = Unchecked.defaultof<_>
         let mutable completed = false
 
@@ -220,6 +221,12 @@ and Runtime (config: WorkerConfig) as this =
                         currentPrevAction <- Evaluated
                         loop <- false
 
+        let inline processIntterrupt () =
+            ContStackPool.Return currentContStack
+            let err = Error (OperationCanceledException "Effect execution was interrupted.")
+            result <- Failure err, ContStackPool.Rent(), Evaluated
+            completed <- true
+
         let inline processResult res =
             match res with
             | Ok res ->
@@ -230,7 +237,9 @@ and Runtime (config: WorkerConfig) as this =
         task {
             try
                 while not completed do
-                    if currentEWSteps = 0 then
+                    if currentInternalFiber.CancellationToken.IsCancellationRequested then
+                        processIntterrupt ()
+                    elif currentEWSteps = 0 then
                         result <- currentEff, currentContStack, RescheduleForRunning
                         completed <- true
                     else
@@ -240,6 +249,8 @@ and Runtime (config: WorkerConfig) as this =
                             processSuccess res
                         | Failure err ->
                             processError err
+                        | Interrupted ->
+                            processIntterrupt ()
                         | Action (func, onError) ->
                             try
                                 let res = func ()
@@ -260,6 +271,9 @@ and Runtime (config: WorkerConfig) as this =
                                 result <- ReceiveChan chan, currentContStack, newPrevAction
                                 completed <- true
                         | ConcurrentEffect (eff, fiber, ifiber) ->
+                            // Register parent cancellation to cancel child
+                            currentInternalFiber.CancellationToken.Register(fun () -> ifiber.Interrupt())
+                                |> ignore
                             do! activeWorkItemChan.AddAsync
                                 <| WorkItem.Create (eff, ifiber, ContStackPool.Rent(), currentPrevAction)
                             processSuccess fiber
@@ -292,7 +306,9 @@ and Runtime (config: WorkerConfig) as this =
                                 } :> Task)
                             processSuccess fiber
                         | AwaitFiber ifiber ->
-                            if ifiber.Completed then
+                            if ifiber.IsInterrupted then
+                                processError (box (OperationCanceledException()))
+                            elif ifiber.Completed then
                                 let! res = ifiber.Task
                                 processResult res
                             else
@@ -329,7 +345,12 @@ and Runtime (config: WorkerConfig) as this =
                     ContStackPool.Return currentContStack
         }
 
+    member private _.Reset () =
+        activeWorkItemChan.Clear ()
+        activeBlockingDataChan.Clear ()
+
     override _.Run<'R, 'E> (eff: FIO<'R, 'E>) : Fiber<'R, 'E> =
+        this.Reset ()
         let fiber = Fiber<'R, 'E> ()
         activeWorkItemChan.AddAsync
         <| WorkItem.Create (eff.Upcast (), fiber.Internal, ContStackPool.Rent(), Evaluated)

@@ -495,7 +495,7 @@ type RuntimeTests () =
                 return res
             }
         
-        let eff = FIO.FromGenericTask<Fiber<int, exn>, exn> lazyTask
+        let eff = FIO.FromGenericTask<Fiber<int, exn>> lazyTask
         
         let actual = (result <| runtime.Run eff).GetType()
         let expected = typeof<Fiber<int, exn>>
@@ -510,7 +510,7 @@ type RuntimeTests () =
                 return res
             }
         
-        let eff = FIO.FromGenericTask<Fiber<int, exn>, exn> lazyTask
+        let eff = FIO.FromGenericTask<Fiber<int, exn>> lazyTask
         
         let actual = (result <| runtime.Run eff).GetType()
         let expected = typeof<Fiber<int, exn>>
@@ -525,7 +525,7 @@ type RuntimeTests () =
                 return res
             }
         
-        let eff = FIO.FromGenericTask<Fiber<int, exn>, exn> lazyTask
+        let eff = FIO.FromGenericTask<Fiber<int, exn>> lazyTask
         
         let actual = (error <| result (runtime.Run eff)).Message
         let expected = exnMsg
@@ -970,3 +970,496 @@ type RuntimeTests () =
         let fiber2 = runtime.Run (FIO.Succeed 42)
 
         fiber1.Id <> System.Guid.Empty && fiber2.Id <> System.Guid.Empty && fiber1.Id <> fiber2.Id
+
+    // ===== Channel Fairness Tests =====
+
+    // [<Fact>]
+    // member _.``Channel maintains FIFO with sequential operations`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let eff = fio {
+    //         let chan = Channel<int>()
+    //         for i in 0..99 do
+    //             do! chan <-- i |> FIO.Ignore
+    //         let mutable received = []
+    //         for _ in 0..99 do
+    //             let! msg = !<-- chan
+    //             received <- msg :: received
+    //         return List.rev received
+    //     }
+    //     let actual = result <| runtime.Run eff
+    //     let expected = [0..99]
+    //     Assert.Equal<int list>(expected, actual)
+
+    // [<Fact>]
+    // member _.``Channel with single sender multiple receivers is fair`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let eff = fio {
+    //         let chan = Channel<int>()
+    //         let receivedBag = System.Collections.Concurrent.ConcurrentBag<int>()
+
+    //         let! receivers =
+    //             [0..9]
+    //             |> List.map (fun _ ->
+    //                 fio {
+    //                     for _ in 0..9 do
+    //                         let! msg = !<-- chan
+    //                         receivedBag.Add(msg)
+    //                 } |> (!<~))
+    //             |> (!+)
+
+    //         for i in 0..99 do
+    //             do! chan <-- i |> FIO.Ignore
+
+    //         for fiber in receivers do
+    //             do! !!<~~ fiber
+
+    //         return receivedBag.ToArray() |> Array.sort
+    //     }
+    //     let actual = result <| runtime.Run eff
+    //     let expected = [|0..99|]
+    //     Assert.Equal<int[]>(expected, actual)
+
+    // [<Fact>]
+    // member _.``Channel with multiple senders maintains order per sender`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let eff = fio {
+    //         let chan = Channel<int * int>()
+    //         let receivedBag = System.Collections.Concurrent.ConcurrentBag<int * int>()
+
+    //         let! senders =
+    //             [0..9]
+    //             |> List.map (fun senderId ->
+    //                 fio {
+    //                     for i in 0..9 do
+    //                         do! chan <-- (senderId, i) |> FIO.Ignore
+    //                 } |> (!<~))
+    //             |> (!+)
+
+    //         let! receiver = fio {
+    //             for _ in 0..99 do
+    //                 let! msg = !<-- chan
+    //                 receivedBag.Add(msg)
+    //         } |> (!<~)
+
+    //         for fiber in senders do
+    //             do! !!<~~ fiber
+    //         do! !!<~~ receiver
+
+    //         let received = receivedBag.ToArray()
+    //         let groupedBySender = received |> Array.groupBy fst
+
+    //         return groupedBySender |> Array.forall (fun (senderId, msgs) ->
+    //             let indices = msgs |> Array.map snd |> Array.sort
+    //             indices = [|0..9|])
+    //     }
+    //     let actual = result <| runtime.Run eff
+    //     Assert.True(actual)
+
+    // [<Fact>]
+    // member _.``Channel Count stays consistent under concurrent access`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let eff = fio {
+    //         let chan = Channel<int>()
+
+    //         let! senders =
+    //             [0..19]
+    //             |> List.map (fun i ->
+    //                 fio {
+    //                     for j in 0..4 do
+    //                         do! chan <-- (i * 10 + j) |> FIO.Ignore
+    //                 } |> (!<~))
+    //             |> (!+)
+
+    //         let! receivers =
+    //             [0..19]
+    //             |> List.map (fun _ ->
+    //                 fio {
+    //                     for _ in 0..4 do
+    //                         let! _ = !<-- chan
+    //                         ()
+    //                 } |> (!<~))
+    //             |> (!+)
+
+    //         for fiber in senders do
+    //             do! !!<~~ fiber
+    //         for fiber in receivers do
+    //             do! !!<~~ fiber
+
+    //         return chan.Count
+    //     }
+    //     let actual = result <| runtime.Run eff
+    //     Assert.Equal(0L, actual)
+
+    // [<Fact>]
+    // member _.``Empty channel blocks receiver until message arrives`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let eff = fio {
+    //         let chan = Channel<int>()
+    //         let started = System.Collections.Concurrent.ConcurrentBag<bool>()
+
+    //         let! receiver = fio {
+    //             started.Add(true)
+    //             let! msg = !<-- chan
+    //             return msg
+    //         } |> (!<~)
+
+    //         do! !<< (fun () -> System.Threading.Thread.Sleep(100))
+    //         do! chan <-- 42 |> FIO.Ignore
+    //         let! receivedMsg = !<~~ receiver
+
+    //         return receivedMsg = 42 && started.Count = 1
+    //     }
+    //     let actual = result <| runtime.Run eff
+    //     Assert.True(actual)
+
+    // // ===== Fiber Completion & Race Tests =====
+
+    // [<Fact>]
+    // member _.``Awaiting already completed fiber succeeds immediately`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let eff = fio {
+    //         let! fiber = !<~ (FIO.Succeed 42)
+    //         do! !<< (fun () -> System.Threading.Thread.Sleep(100))
+    //         let! res = !<~~ fiber
+    //         return res
+    //     }
+    //     let actual = result <| runtime.Run eff
+    //     Assert.Equal(42, actual)
+
+    // [<Fact>]
+    // member _.``Multiple fibers awaiting same fiber all succeed`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let eff = fio {
+    //         let! targetFiber = !<~ (FIO.Succeed 42)
+
+    //         let! awaiters =
+    //             [0..49]
+    //             |> List.map (fun _ ->
+    //                 fio {
+    //                     let! res = !<~~ targetFiber
+    //                     return res
+    //                 } |> (!<~))
+    //             |> (!+)
+
+    //         let mutable allResults = []
+    //         for fiber in awaiters do
+    //             let! res = !<~~ fiber
+    //             allResults <- res :: allResults
+
+    //         return allResults |> List.forall (fun x -> x = 42) && List.length allResults = 50
+    //     }
+    //     let actual = result <| runtime.Run eff
+    //     Assert.True(actual)
+
+    // [<Fact>]
+    // member _.``Fiber completion race with blocking registration handled`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let eff = fio {
+    //         let! fastFiber = !<~ (FIO.Succeed 42)
+
+    //         let! awaiters =
+    //             [0..9]
+    //             |> List.map (fun _ ->
+    //                 fio {
+    //                     let! res = !<~~ fastFiber
+    //                     return res
+    //                 } |> (!<~))
+    //             |> (!+)
+
+    //         let mutable results = []
+    //         for fiber in awaiters do
+    //             let! res = !<~~ fiber
+    //             results <- res :: results
+
+    //         return results |> List.forall (fun x -> x = 42)
+    //     }
+    //     let actual = result <| runtime.Run eff
+    //     Assert.True(actual)
+
+    // [<Fact>]
+    // member _.``Chain of fiber awaits completes in correct order`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let eff = fio {
+    //         let! fiberD = !<~ (FIO.Succeed "D")
+    //         let! fiberC = !<~ (fio {
+    //             let! res = !<~~ fiberD
+    //             return "C-" + res
+    //         })
+    //         let! fiberB = !<~ (fio {
+    //             let! res = !<~~ fiberC
+    //             return "B-" + res
+    //         })
+    //         let! fiberA = !<~ (fio {
+    //             let! res = !<~~ fiberB
+    //             return "A-" + res
+    //         })
+
+    //         let! finalResult = !<~~ fiberA
+    //         return finalResult
+    //     }
+    //     let actual = result <| runtime.Run eff
+    //     Assert.Equal("A-B-C-D", actual)
+
+    // [<Fact>]
+    // member _.``Fiber error propagates to all awaiters`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let eff = fio {
+    //         let! failingFiber = !<~ (FIO.Fail "error")
+
+    //         let! awaiters =
+    //             [0..4]
+    //             |> List.map (fun _ ->
+    //                 fio {
+    //                     let! res = !<~~ failingFiber
+    //                     return res
+    //                 } |> (!<~))
+    //             |> (!+)
+
+    //         let mutable errors = []
+    //         for fiber in awaiters do
+    //             try
+    //                 let fiberResult = fiber.Task().GetAwaiter().GetResult()
+    //                 match fiberResult with
+    //                 | Ok _ -> ()
+    //                 | Error err -> errors <- err :: errors
+    //             with _ -> ()
+
+    //         return errors |> List.forall (fun e -> e = "error") && List.length errors = 5
+    //     }
+    //     let actual = result <| runtime.Run eff
+    //     Assert.True(actual)
+
+    // [<Fact>]
+    // member _.``Forked fiber runs independently of parent`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let eff = fio {
+    //         let childCompleted = System.Collections.Concurrent.ConcurrentBag<bool>()
+
+    //         let! childFiber = !<~ (fio {
+    //             do! !<< (fun () -> System.Threading.Thread.Sleep(200))
+    //             childCompleted.Add(true)
+    //             return 42
+    //         })
+
+    //         return childCompleted.Count = 0
+    //     }
+    //     let actual = result <| runtime.Run eff
+    //     Assert.True(actual)
+
+    // // ===== Continuation Stack Depth Tests =====
+
+    // [<Fact>]
+    // member _.``Deep bind chains (10000) do not overflow`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let rec createDeepChain depth acc =
+    //         if depth <= 0 then
+    //             FIO.Succeed acc
+    //         else
+    //             FIO.Succeed acc |> _.Bind <| (fun x -> createDeepChain (depth - 1) (x + 1))
+
+    //     let eff = createDeepChain 10000 0
+    //     let actual = result <| runtime.Run eff
+    //     Assert.Equal(10000, actual)
+
+    // [<Fact>]
+    // member _.``Deep ChainSuccess nesting succeeds`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let rec createDeepThen depth acc =
+    //         if depth <= 0 then
+    //             FIO.Succeed acc
+    //         else
+    //             (FIO.Succeed 1).Then(createDeepThen (depth - 1) (acc + 1))
+
+    //     let eff = createDeepThen 5000 0
+    //     let actual = result <| runtime.Run eff
+    //     Assert.Equal(5000, actual)
+
+    // [<Fact>]
+    // member _.``Continuation stack pooling with repeated patterns`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let pattern = fio {
+    //         let! a = FIO.Succeed 1
+    //         let! b = FIO.Succeed 2
+    //         let! c = FIO.Succeed 3
+    //         return a + b + c
+    //     }
+
+    //     let eff = fio {
+    //         let mutable results = []
+    //         for _ in 0..999 do
+    //             let! res = pattern
+    //             results <- res :: results
+    //         return List.length results = 1000 && List.forall (fun x -> x = 6) results
+    //     }
+    //     let actual = result <| runtime.Run eff
+    //     Assert.True(actual)
+
+    // [<Fact>]
+    // member _.``Wide effect trees complete correctly`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let rec createBinaryTree depth =
+    //         if depth <= 0 then
+    //             FIO.Succeed 1
+    //         else
+    //             let left = createBinaryTree (depth - 1)
+    //             let right = createBinaryTree (depth - 1)
+    //             fio {
+    //                 let! l = left
+    //                 let! r = right
+    //                 return l + r
+    //             }
+
+    //     let eff = createBinaryTree 10
+    //     let actual = result <| runtime.Run eff
+    //     Assert.Equal(1024, actual)
+
+    // // ===== Error Handling Edge Cases =====
+
+    // [<Fact>]
+    // member _.``Error in forked fiber does not crash parent`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let eff = fio {
+    //         let! childFiber = !<~ (FIO.Fail "child error")
+    //         return 42
+    //     }
+    //     let actual = result <| runtime.Run eff
+    //     Assert.Equal(42, actual)
+
+    // [<Fact>]
+    // member _.``Parallel effects handle partial failures`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let eff = fio {
+    //         let eff1 = FIO.Succeed 1
+    //         let eff2 = FIO.Succeed 2
+    //         let eff3 = FIO.Fail "error3"
+    //         let eff4 = FIO.Succeed 4
+    //         let eff5 = FIO.Fail "error5"
+
+    //         let! _ = !~~& (eff1, eff2)
+    //         ()
+    //     }
+
+    //     let eff2 = fio {
+    //         let eff1 = FIO.Succeed 1
+    //         let eff2 = FIO.Fail "error2"
+
+    //         let! _ = !~~& (eff1, eff2)
+    //         return 1
+    //     }
+
+    //     try
+    //         let _ = error <| runtime.Run eff2
+    //         Assert.True(true)
+    //     with _ ->
+    //         Assert.True(false)
+
+    // [<Fact>]
+    // member _.``BindError chains execute in correct order`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let eff =
+    //         (FIO.Fail 10)
+    //             .BindError(fun x -> FIO.Fail (x + 10))
+    //             .BindError(fun x -> FIO.Fail (x * 2))
+
+    //     let actual = error <| runtime.Run eff
+    //     Assert.Equal(40, actual)
+
+    // [<Fact>]
+    // member _.``Exception in Bind continuation is caught`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let eff = fio {
+    //         let! _ = FIO.Succeed 42 |> _.Bind <| (fun _ -> invalidOp "test error"; FIO.Succeed 1)
+    //         return 1
+    //     }
+
+    //     try
+    //         let _ = error <| runtime.Run eff
+    //         Assert.True(true)
+    //     with _ ->
+    //         Assert.True(true)
+
+    // [<Fact>]
+    // member _.``Exception in Map function is caught`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let eff = (FIO.Succeed 42).Map(fun _ -> invalidOp "test error"; 1)
+
+    //     try
+    //         let _ = error <| runtime.Run eff
+    //         Assert.True(true)
+    //     with _ ->
+    //         Assert.True(true)
+
+    // // ===== Runtime-Specific Behavior Tests =====
+
+    // [<Fact>]
+    // member _.``All three runtimes produce same results`` () =
+    //     let eff = fio {
+    //         let chan = Channel<int>()
+    //         let! fiber1 = !<~ (fio {
+    //             for i in 0..9 do
+    //                 do! chan <-- i |> FIO.Ignore
+    //         })
+    //         let! fiber2 = !<~ (fio {
+    //             let mutable sum = 0
+    //             for _ in 0..9 do
+    //                 let! msg = !<-- chan
+    //                 sum <- sum + msg
+    //             return sum
+    //         })
+    //         do! !!<~~ fiber1
+    //         let! result = !<~~ fiber2
+    //         return result
+    //     }
+
+    //     let directRuntime = new Direct.Runtime()
+    //     let cooperativeRuntime = new Cooperative.Runtime()
+    //     let concurrentRuntime = new Concurrent.Runtime()
+
+    //     let res1 = result <| directRuntime.Run eff
+    //     let res2 = result <| cooperativeRuntime.Run eff
+    //     let res3 = result <| concurrentRuntime.Run eff
+
+    //     Assert.Equal(res1, res2)
+    //     Assert.Equal(res2, res3)
+
+    // [<Fact>]
+    // member _.``ConcurrentRuntime handles high contention`` () =
+    //     let runtime = new Concurrent.Runtime()
+    //     let eff = fio {
+    //         let chan = Channel<int>()
+
+    //         let! receivers =
+    //             [0..99]
+    //             |> List.map (fun _ ->
+    //                 fio {
+    //                     let! msg = !<-- chan
+    //                     return msg
+    //                 } |> (!<~))
+    //             |> (!+)
+
+    //         do! !<< (fun () -> System.Threading.Thread.Sleep(100))
+
+    //         for i in 0..99 do
+    //             do! chan <-- i |> FIO.Ignore
+
+    //         let mutable results = []
+    //         for fiber in receivers do
+    //             let! res = !<~~ fiber
+    //             results <- res :: results
+
+    //         return List.length results = 100
+    //     }
+    //     let actual = result <| runtime.Run eff
+    //     Assert.True(actual)
+
+    // [<Fact>]
+    // member _.``DirectRuntime integrates with Task correctly`` () =
+    //     let runtime = new Direct.Runtime()
+    //     let eff = FIO.Succeed 42
+    //     let fiber = runtime.Run eff
+    //     let task = fiber.Task()
+
+    //     Assert.True(task.IsCompleted || task.Wait(5000))
+    //     match task.Result with
+    //     | Ok res -> Assert.Equal(42, res)
+    //     | Error _ -> Assert.True(false)
