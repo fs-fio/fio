@@ -30,6 +30,52 @@ module private Utils =
             return box res
         }
 
+// In Core.fs or a new Exceptions.fs
+
+/// <summary>
+/// Represents the cause or reason for fiber interruption.
+/// </summary>
+type InterruptionCause =
+    /// Fiber was interrupted due to a timeout.
+    | Timeout of durationMs: float
+    /// Fiber was interrupted because its parent fiber was interrupted.
+    | ParentInterrupted of parentFiberId: Guid
+    /// Fiber was explicitly interrupted via Fiber.Interrupt().
+    | ExplicitInterrupt
+    /// Fiber was interrupted due to resource exhaustion or system limits.
+    | ResourceExhaustion of reason: string
+    
+    override this.ToString() =
+        match this with
+        | Timeout ms -> $"Timeout({ms}ms)"
+        | ParentInterrupted id -> $"ParentInterrupted({id})"
+        | ExplicitInterrupt -> "ExplicitInterrupt"
+        | ResourceExhaustion r -> $"ResourceExhaustion({r})"
+
+/// <summary>
+/// Exception thrown when a fiber is interrupted during execution.
+/// </summary>
+exception FiberInterruptedException of fiberId: Guid * cause: InterruptionCause * message: string with
+    
+    member private this.FiberId =
+        this.fiberId
+
+    member private this.Cause =
+        this.cause
+
+    member private this.MessageText =
+        this.message
+
+    override this.Message = 
+        $"Fiber {this.FiberId} interrupted: {this.Cause} - {this.MessageText}"
+
+type private FiberState =
+    | Running = 0
+    | Completing = 1
+    | Completed = 2
+    | Interrupting = 3
+    | Interrupted = 4
+
 type internal Cont =
     obj -> FIO<obj, obj>
 
@@ -134,40 +180,57 @@ and internal InternalFiber () =
     let id = Guid.NewGuid ()
     let resTcs = TaskCompletionSource<Result<obj, obj>> TaskCreationOptions.RunContinuationsAsynchronously
     let blockingWorkItemChan = InternalChannel<WorkItem> ()
-    let mutable completed = false
+    let mutable state = int FiberState.Running
     let cts = new CancellationTokenSource()
-    let mutable interrupted = false
+    let mutable disposed = false
 
-    let completeAlreadyCalledFail () =
-        resTcs.SetException (InvalidOperationException "InternalFiber: Complete was called on an already completed InternalFiber!")
-        
+    // Helper to try transition state atomically
+    let tryTransitionState fromState toState =
+        Interlocked.CompareExchange(&state, int toState, int fromState) = int fromState
+
     member internal _.Complete res =
         task {
-            if Interlocked.Exchange (&completed, true) then
-                return () // Already completed, silently ignore (valid race condition)
-            elif not (resTcs.TrySetResult res) then
-                return () // TrySetResult failed, silently ignore (valid race condition)
+            // Try to transition Running -> Completing
+            if not (tryTransitionState FiberState.Running FiberState.Completing) then
+                // Already completing, interrupted, or completed
+                return ()
+            else
+                // We won the race to complete
+                // Set result and transition to Completed
+                let success = resTcs.TrySetResult res
+                state <- int FiberState.Completed
+
+                if not success then
+                    // TrySetResult failed, which shouldn't happen since we won the state race
+                    // but handle it gracefully
+                    return ()
         }
 
     member internal this.CompleteAndReschedule res activeWorkItemChan =
         task {
-            if Interlocked.Exchange (&completed, true) then
-                return () // Already completed, silently ignore (valid race condition)
-            elif not (resTcs.TrySetResult res) then
-                return () // TrySetResult failed, silently ignore (valid race condition)
+            // Try to transition Running -> Completing
+            if not (tryTransitionState FiberState.Running FiberState.Completing) then
+                return ()
             else
-                do! this.RescheduleBlockingWorkItems activeWorkItemChan
+                let success = resTcs.TrySetResult res
+                state <- int FiberState.Completed
+
+                if success then
+                    do! this.RescheduleBlockingWorkItems activeWorkItemChan
         }
 
-    member internal _.Interrupt() =
-        if not (Interlocked.Exchange(&interrupted, true)) then
+    member internal _.Interrupt cause msg =
+        // Try to transition Running -> Interrupting
+        if tryTransitionState FiberState.Running FiberState.Interrupting then
+            // We won the race to interrupt
             cts.Cancel()
-            // Complete with an interruption error
-            resTcs.TrySetResult(Error (box (OperationCanceledException "Fiber was interrupted")))
-            |> ignore
+            let interruptError = Error (FiberInterruptedException(id, cause, msg) :> obj)
+            resTcs.TrySetResult interruptError |> ignore
+            state <- int FiberState.Interrupted
 
-    member internal _.IsInterrupted =
-        Volatile.Read &interrupted
+    member internal _.IsInterrupted () =
+        let currentState = enum<FiberState>(Volatile.Read &state)
+        currentState = FiberState.Interrupting || currentState = FiberState.Interrupted
 
     member internal _.CancellationToken =
         cts.Token
@@ -185,8 +248,9 @@ and internal InternalFiber () =
     member internal _.BlockingWorkItemCount =
         blockingWorkItemChan.Count
 
-    member internal _.Completed =
-        Volatile.Read &completed
+    member internal _.Completed () =
+        let currentState = enum<FiberState>(Volatile.Read &state)
+        currentState = FiberState.Completed || currentState = FiberState.Interrupted
 
     member internal _.Id =
         id
@@ -198,17 +262,31 @@ and internal InternalFiber () =
                 do! activeWorkItemChan.AddAsync workItem
         }
 
-    member internal _.TryRescheduleBlockingWorkItems (activeWorkItemChan: InternalChannel<WorkItem>) =
+    member internal this.TryRescheduleBlockingWorkItems (activeWorkItemChan: InternalChannel<WorkItem>) =
         task {
             // Only reschedule if we're the one completing
-            if not (Volatile.Read &completed) then
+            if not <| this.Completed() then
                 return false
             else
                 let mutable workItem = Unchecked.defaultof<_>
-                while blockingWorkItemChan.TryTake (&workItem) do
+                while blockingWorkItemChan.TryTake &workItem do
                     do! activeWorkItemChan.AddAsync workItem
                 return true
         }
+
+    member private _.Dispose(disposing: bool) =
+        if not disposed then
+            disposed <- true
+            if disposing then
+                cts.Dispose()
+
+    interface IDisposable with
+        member this.Dispose() =
+            this.Dispose true
+            GC.SuppressFinalize this
+
+    override this.Finalize() =
+        this.Dispose false
 
 /// <summary>
 /// A Fiber represents a lightweight, cooperative thread of execution.
@@ -217,7 +295,8 @@ and internal InternalFiber () =
 /// <typeparam name="R">The result type of the fiber.</typeparam>
 /// <typeparam name="E">The error type of the fiber.</typeparam>
 and Fiber<'R, 'E> internal () =
-    let ifiber = InternalFiber ()
+    let ifiber = new InternalFiber ()
+    let mutable disposed = false
 
     /// <summary>
     /// Creates an effect that waits for the fiber and succeeds with its result.
@@ -237,8 +316,8 @@ and Fiber<'R, 'E> internal () =
             | Error err -> return Error (err :?> 'E)
         }
 
-    member _.Interrupt() : unit =
-        ifiber.Interrupt()
+    member _.Interrupt<'E> (cause: InterruptionCause) (msg: string) : FIO<unit, 'E> =
+        Interruption (cause, msg)
 
     member _.IsInterrupted =
         ifiber.IsInterrupted
@@ -250,8 +329,22 @@ and Fiber<'R, 'E> internal () =
     member _.Id =
         ifiber.Id
 
-     member internal _.Internal =
+    member internal _.Internal =
         ifiber
+
+    member private _.Dispose(disposing: bool) =
+        if not disposed then
+            disposed <- true
+            if disposing then
+                (ifiber :> IDisposable).Dispose()
+
+    interface IDisposable with
+        member this.Dispose() =
+            this.Dispose(true)
+            GC.SuppressFinalize(this)
+
+    override this.Finalize() =
+        this.Dispose(false)
  
 /// <summary>
 /// A Channel represents a communication queue that holds data of type 'R.
@@ -337,7 +430,7 @@ and FIO<'R, 'E> =
     internal
     | Success of res: 'R
     | Failure of err: 'E
-    | Interrupted
+    | Interruption of cause: InterruptionCause * msg: string
     | Action of func: (unit -> 'R) * onError: (exn -> 'E)
     | SendChan of msg: 'R * chan: Channel<'R>
     | ReceiveChan of chan: Channel<'R>
@@ -369,6 +462,18 @@ and FIO<'R, 'E> =
     /// <returns>An FIO effect that fails with the given error.</returns>
     static member Fail<'R, 'E> (err: 'E) : FIO<'R, 'E> =
         Failure err
+
+    /// <summary>
+    /// Interrupts the effect with the provided message.
+    /// </summary>
+    /// typeparam name="R">The result type.</typeparam>
+    /// typeparam name="E">The error type.</typeparam>
+    /// <param name="msg">The interruption message.</param>
+    /// <returns>An FIO effect that is interrupted with the given message.</returns>
+    static member Interrupt<'R, 'E> (?cause: InterruptionCause, ?msg: string) : FIO<'R, 'E> =
+        let cause = defaultArg cause ExplicitInterrupt
+        let msg = defaultArg msg "Fiber was interrupted"
+        Interruption (cause, msg)
 
     /// <summary>
     /// Converts a function into an effect.
@@ -494,7 +599,7 @@ and FIO<'R, 'E> =
     /// <param name="onError">A function to map exceptions to the error type 'E.</param>
     /// <returns>An FIO effect that starts the Task in a Fiber and returns the Fiber.</returns>
     static member FromTask<'R, 'E> (lazyTask: unit -> Task, onError: exn -> 'E) : FIO<Fiber<unit, 'E>, 'E> =
-        let fiber = Fiber<unit, 'E> ()
+        let fiber = new Fiber<unit, 'E> ()
         ConcurrentTPLTask ((fun () -> lazyTask ()), onError, fiber, fiber.Internal)
 
     /// <summary>
@@ -514,7 +619,7 @@ and FIO<'R, 'E> =
     /// <param name="onError">A function to map exceptions to the error type 'E.</param>
     /// <returns>An FIO effect that starts the Task in a Fiber and returns the Fiber.</returns>
     static member FromGenericTask<'R, 'E> (lazyTask: unit -> Task<'R>, onError: exn -> 'E) : FIO<Fiber<'R, 'E>, 'E> =
-        let fiber = Fiber<'R, 'E> ()
+        let fiber = new Fiber<'R, 'E> ()
         ConcurrentGenericTPLTask ((fun () -> upcastTask (lazyTask ())), onError, fiber, fiber.Internal)
 
     /// <summary>
@@ -754,8 +859,8 @@ and FIO<'R, 'E> =
             Success (res :> obj)
         | Failure err ->
             Failure err
-        | Interrupted ->
-            Interrupted
+        | Interruption (cause, msg) ->
+            Interruption (cause, msg)
         | Action (func, onError) ->
             Action (upcastFunc func, onError)
         | SendChan (msg, chan) ->
@@ -785,8 +890,8 @@ and FIO<'R, 'E> =
             Success res
         | Failure err ->
             Failure (err :> obj)
-        | Interrupted ->
-            Interrupted
+        | Interruption (cause, msg) ->
+            Interruption (cause, msg)
         | Action (func, onError) ->
             Action (func, upcastOnError onError)
         | SendChan (msg, chan) ->

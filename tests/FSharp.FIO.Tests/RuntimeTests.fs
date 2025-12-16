@@ -1463,3 +1463,139 @@ type RuntimeTests () =
     //     match task.Result with
     //     | Ok res -> Assert.Equal(42, res)
     //     | Error _ -> Assert.True(false)
+
+    // ===== Fiber Interruption Tests =====
+
+    [<Property>]
+    member _.``Interrupt stops ConcurrentEffect child fiber`` (runtime: FRuntime) =
+        if runtime.Name <> "Direct" then
+            true
+        else
+            let eff = fio {
+                let childEff = fio {
+                    do! FIO.AwaitTask<unit, exn>(Task.Delay 5000)
+                    return 42
+                }
+                let! childFiber = childEff.Fork()
+
+                do! childFiber.Interrupt<exn> ExplicitInterrupt "Test Interrupt"
+                do! FIO.AwaitTask<unit, exn>(Task.Delay 100)
+
+                return! childFiber.Await()
+            }
+
+            let fiber = runtime.Run eff
+            let result = fiber.Task().GetAwaiter().GetResult()
+
+            match result with
+            | Error (:? FiberInterruptedException as exn) -> 
+                exn.cause = ExplicitInterrupt && exn.message = "Test Interrupt"
+            | Error _ -> false
+            | Ok _ -> false
+
+    [<Property>]
+    member _.``Interrupt stops ConcurrentTPLTask child fiber`` (runtime: FRuntime) =
+        if runtime.Name <> "Direct" then
+            true
+        else
+            let eff = fio {
+                let! childFiber = FIO.FromTask<unit, exn>(fun () -> Task.Delay 5000)
+
+                do! childFiber.Interrupt<exn> ExplicitInterrupt "Test Interrupt"
+                do! FIO.AwaitTask<unit, exn>(Task.Delay 100)
+
+                return! childFiber.Await()
+            }
+
+            let fiber = runtime.Run eff
+            let result = fiber.Task().GetAwaiter().GetResult()
+
+            match result with
+            | Error (:? FiberInterruptedException as exn) -> 
+                exn.cause = ExplicitInterrupt && exn.message = "Test Interrupt"
+            | Error _ -> false
+            | Ok _ -> false
+
+    [<Property>]
+    member _.``Interrupt stops ConcurrentGenericTPLTask child fiber`` (runtime: FRuntime) =
+        if runtime.Name <> "Direct" then
+            true
+        else
+            let eff = fio {
+                let! childFiber = FIO.FromGenericTask<int>(fun () -> task {
+                    do! Task.Delay 5000
+                    return 42
+                })
+
+                do! childFiber.Interrupt<exn> ExplicitInterrupt "Test Interrupt"
+                do! FIO.AwaitTask<unit, exn>(Task.Delay 100)
+
+                return! childFiber.Await()
+            }
+
+            let fiber = runtime.Run eff
+            let result = fiber.Task().GetAwaiter().GetResult()
+
+            match result with
+            | Error (:? FiberInterruptedException as exn) -> 
+                exn.cause = ExplicitInterrupt && exn.message = "Test Interrupt"
+            | Error _ -> false
+            | Ok _ -> false
+
+    [<Property>]
+    member _.``Nested fiber interruption cascades`` (runtime: FRuntime) =
+        if runtime.Name <> "Direct" then
+            true
+        else
+            let eff = fio {
+                let childEff = fio {
+                    let grandchildEff = fio {
+                        do! FIO.AwaitTask<unit, exn>(Task.Delay 5000)
+                        return 42
+                    }
+                    let! grandchildFiber = grandchildEff.Fork()
+                    return grandchildFiber
+                }
+
+                let! childFiber = childEff.Fork()
+
+                do! childFiber.Interrupt<exn> ExplicitInterrupt "Test Interrupt"
+                do! FIO.AwaitTask<unit, exn>(Task.Delay 100)
+
+                return! childFiber.Await()
+            }
+
+            let fiber = runtime.Run eff
+            let result = fiber.Task().GetAwaiter().GetResult()
+
+            match result with
+            | Error (:? FiberInterruptedException as exn) -> 
+                exn.cause = ExplicitInterrupt && exn.message = "Test Interrupt"
+            | Error _ -> false
+            | Ok _ -> false
+
+
+    // [<Property>]
+    // member _.``Fast completing task is not interrupted`` (runtime: FRuntime) =
+    //     if runtime.Name <> "Direct" then
+    //         true
+    //     else
+    //         let eff = fio {
+    //             let! childFiber = FIO.FromGenericTask<int>(fun () -> task {
+    //                 do! Task.Delay 10
+    //                 return 42
+    //             })
+
+    //             do! FIO.AwaitTask<unit, exn>(Task.Delay 100)
+
+    //             do! childFiber.Interrupt<exn> ExplicitInterrupt "Test Interrupt"
+
+    //             return! childFiber.Await()
+    //         }
+
+    //         let fiber = runtime.Run eff
+    //         let result = fiber.Task().GetAwaiter().GetResult()
+
+    //         match result with
+    //         | Ok value -> value = 42
+    //         | Error _ -> false
