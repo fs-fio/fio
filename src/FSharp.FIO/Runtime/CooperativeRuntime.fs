@@ -59,7 +59,9 @@ and private EvaluationWorker (config: EvaluationWorkerConfig) =
                             loop <- false
                         else
                             let! workItem = config.ActiveWorkItemChan.TakeAsync ()
-                            do! processWorkItem workItem
+                            // Skip orphaned work items (fiber already completed)
+                            if not workItem.IFiber.Completed then
+                                do! processWorkItem workItem
                     with
                     | :? OperationCanceledException ->
                         loop <- false
@@ -226,109 +228,105 @@ and Runtime (config: WorkerConfig) as this =
                 processError err
 
         task {
-            while not completed do
-                if currentEWSteps = 0 then
-                    result <- currentEff, currentContStack, RescheduleForRunning
-                    completed <- true
-                else
-                    currentEWSteps <- currentEWSteps - 1
-                    match currentEff with
-                    | Success res ->
-                        processSuccess res
-                    | Failure err ->
-                        processError err
-                    | Action (func, onError) ->
-                        try 
-                            let res = func ()
+            try
+                while not completed do
+                    if currentEWSteps = 0 then
+                        result <- currentEff, currentContStack, RescheduleForRunning
+                        completed <- true
+                    else
+                        currentEWSteps <- currentEWSteps - 1
+                        match currentEff with
+                        | Success res ->
                             processSuccess res
-                        with exn ->
-                            processError
-                            <| onError exn
-                    | SendChan (msg, chan) ->
-                        do! chan.SendAsync msg
-                        processSuccess msg
-                    | ReceiveChan chan ->
-                        let mutable res = Unchecked.defaultof<_>
-                        if chan.Internal.TryTake(&res) then
-                            processSuccess res
-                        else
-                            let newPrevAction = RescheduleForBlocking <| BlockingChannel chan
-                            currentPrevAction <- newPrevAction
-                            result <- ReceiveChan chan, currentContStack, newPrevAction
-                            completed <- true
-                    | ConcurrentEffect (eff, fiber, ifiber) ->
-                        do! activeWorkItemChan.AddAsync
-                            <| WorkItem.Create (eff, ifiber, ContStackPool.Rent(), currentPrevAction)
-                        processSuccess fiber
-                    | ConcurrentTPLTask (lazyTask, onError, fiber, ifiber) ->
-                        do! Task.Run(fun () -> 
-                            (lazyTask ()).ContinueWith((fun (t: Task) ->
-                                if t.IsFaulted then
-                                    ifiber.Complete
-                                    <| Error (onError t.Exception.InnerException)
-                                elif t.IsCanceled then
-                                    ifiber.Complete
-                                    <| Error (onError <| TaskCanceledException "Task has been cancelled.")
-                                elif t.IsCompleted then
-                                    ifiber.Complete
-                                    <| Ok ()
-                                else
-                                    ifiber.Complete
-                                    <| Error (onError <| InvalidOperationException "Task not completed.")),
-                                CancellationToken.None,
-                                TaskContinuationOptions.RunContinuationsAsynchronously,
-                                TaskScheduler.Default) :> Task)
-                        processSuccess fiber
-                    | ConcurrentGenericTPLTask (lazyTask, onError, fiber, ifiber) ->
-                        do! Task.Run(fun () -> 
-                            (lazyTask ()).ContinueWith((fun (t: Task<obj>) ->
-                                if t.IsFaulted then
-                                    ifiber.Complete
-                                    <| Error (onError t.Exception.InnerException)
-                                elif t.IsCanceled then
-                                    ifiber.Complete
-                                    <| Error (onError <| TaskCanceledException "Task has been cancelled.")
-                                elif t.IsCompleted then
-                                    ifiber.Complete
-                                    <| Ok t.Result
-                                else
-                                    ifiber.Complete
-                                    <| Error (onError <| InvalidOperationException "Task not completed.")),
-                                CancellationToken.None,
-                                TaskContinuationOptions.RunContinuationsAsynchronously,
-                                TaskScheduler.Default) :> Task)
-                        processSuccess fiber
-                    | AwaitFiber ifiber ->
-                        if ifiber.Completed then
-                            let! res = ifiber.Task
-                            processResult res
-                        else
-                            let newPrevAction = RescheduleForBlocking <| BlockingIFiber ifiber
-                            currentPrevAction <- newPrevAction
-                            result <- AwaitFiber ifiber, currentContStack, newPrevAction
-                            completed <- true
-                    | AwaitTPLTask (task, onError) ->
-                        try
-                            let! res = task
-                            processSuccess res
-                        with exn ->
-                            processError <| onError exn
-                    | AwaitGenericTPLTask (task, onError) ->
-                        try
-                            let! res = task
-                            processSuccess res
-                        with exn ->
-                            processError <| onError exn
-                    | ChainSuccess (eff, cont) ->
-                        currentEff <- eff
-                        currentContStack.Add
-                        <| ContStackFrame (SuccessCont, cont)
-                    | ChainError (eff, cont) ->
-                        currentEff <- eff
-                        currentContStack.Add
-                        <| ContStackFrame (FailureCont, cont)
-
-            return result
+                        | Failure err ->
+                            processError err
+                        | Action (func, onError) ->
+                            try
+                                let res = func ()
+                                processSuccess res
+                            with exn ->
+                                processError
+                                <| onError exn
+                        | SendChan (msg, chan) ->
+                            do! chan.SendAsync msg
+                            processSuccess msg
+                        | ReceiveChan chan ->
+                            let mutable res = Unchecked.defaultof<_>
+                            if chan.Internal.TryTake(&res) then
+                                processSuccess res
+                            else
+                                let newPrevAction = RescheduleForBlocking <| BlockingChannel chan
+                                currentPrevAction <- newPrevAction
+                                result <- ReceiveChan chan, currentContStack, newPrevAction
+                                completed <- true
+                        | ConcurrentEffect (eff, fiber, ifiber) ->
+                            do! activeWorkItemChan.AddAsync
+                                <| WorkItem.Create (eff, ifiber, ContStackPool.Rent(), currentPrevAction)
+                            processSuccess fiber
+                        | ConcurrentTPLTask (lazyTask, onError, fiber, ifiber) ->
+                            do! Task.Run(fun () ->
+                                task {
+                                    let t = lazyTask ()
+                                    try
+                                        do! t
+                                        do! ifiber.Complete (Ok ())
+                                    with
+                                    | :? OperationCanceledException ->
+                                        do! ifiber.Complete (Error (onError <| TaskCanceledException "Task has been cancelled."))
+                                    | exn ->
+                                        do! ifiber.Complete (Error <| onError exn)
+                                } :> Task)
+                            processSuccess fiber
+                        | ConcurrentGenericTPLTask (lazyTask, onError, fiber, ifiber) ->
+                            do! Task.Run(fun () ->
+                                task {
+                                    let t = lazyTask ()
+                                    try
+                                        let! result = t
+                                        do! ifiber.Complete (Ok result)
+                                    with
+                                    | :? OperationCanceledException ->
+                                        do! ifiber.Complete (Error (onError <| TaskCanceledException "Task has been cancelled."))
+                                    | exn ->
+                                        do! ifiber.Complete (Error <| onError exn)
+                                } :> Task)
+                            processSuccess fiber
+                        | AwaitFiber ifiber ->
+                            if ifiber.Completed then
+                                let! res = ifiber.Task
+                                processResult res
+                            else
+                                let newPrevAction = RescheduleForBlocking <| BlockingIFiber ifiber
+                                currentPrevAction <- newPrevAction
+                                result <- AwaitFiber ifiber, currentContStack, newPrevAction
+                                completed <- true
+                        | AwaitTPLTask (task, onError) ->
+                            try
+                                let! res = task
+                                processSuccess res
+                            with exn ->
+                                processError <| onError exn
+                        | AwaitGenericTPLTask (task, onError) ->
+                            try
+                                let! res = task
+                                processSuccess res
+                            with exn ->
+                                processError <| onError exn
+                        | ChainSuccess (eff, cont) ->
+                            currentEff <- eff
+                            currentContStack.Add
+                            <| ContStackFrame (SuccessCont, cont)
+                        | ChainError (eff, cont) ->
+                            currentEff <- eff
+                            currentContStack.Add
+                            <| ContStackFrame (FailureCont, cont)
+                return result
+            finally
+                // Only return the stack if processing didn't complete normally
+                // If completed=true, the stack was either already returned (Evaluated)
+                // or passed to next work item (RescheduleForRunning/RescheduleForBlocking)
+                if not completed then
+                    ContStackPool.Return currentContStack
         }
 
     override _.Run<'R, 'E> (eff: FIO<'R, 'E>) : Fiber<'R, 'E> =

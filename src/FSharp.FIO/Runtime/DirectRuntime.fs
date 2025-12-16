@@ -71,111 +71,93 @@ type Runtime () =
                 processError err
 
         task {
-            while not completed do
-                match currentEff with
-                | Success res ->
-                    processSuccess res
-                | Failure err ->
-                    processError err
-                | Action (func, onError) ->
-                    try 
-                        let res = func ()
+            try
+                while not completed do
+                    match currentEff with
+                    | Success res ->
                         processSuccess res
-                    with exn ->
-                        processError
-                        <| onError exn
-                | SendChan (msg, chan) ->
-                    do! chan.SendAsync msg
-                    processSuccess msg
-                | ReceiveChan chan ->
-                    let! res = chan.ReceiveAsync ()
-                    processSuccess res
-                | ConcurrentEffect (eff, fiber, ifiber) ->
-                    // This runs the task on a separate thread pool with proper error handling
-                    (Task.Run(fun () ->
-                        task {
-                            let! res = this.InterpretAsync eff
-                            do! ifiber.Complete res
-                        } :> Task
-                    )).ContinueWith(
-                        (fun (t: Task) ->
-                            if t.IsFaulted then
-                                // InterpretAsync threw an unexpected exception (shouldn't happen by design)
-                                // Complete the fiber with the error to prevent unobserved exceptions
-                                ifiber.Complete(Error (t.Exception.GetBaseException() :> obj))
-                                |> ignore
-                        ),
-                        CancellationToken.None,
-                        TaskContinuationOptions.OnlyOnFaulted,
-                        TaskScheduler.Default
-                    ) |> ignore
-                    processSuccess fiber
-                | ConcurrentTPLTask (lazyTask, onError, fiber, ifiber) ->
-                    Task.Run(fun () ->
-                        (lazyTask ()).ContinueWith((fun (t: Task) ->
-                            if t.IsFaulted then
-                                ifiber.Complete
-                                <| Error (onError t.Exception.InnerException)
-                            elif t.IsCanceled then
-                                ifiber.Complete
-                                <| Error (onError <| TaskCanceledException "Task has been cancelled.")
-                            elif t.IsCompleted then
-                                ifiber.Complete
-                                <| Ok ()
-                            else
-                                ifiber.Complete
-                                <| Error (onError <| InvalidOperationException "Task not completed.")),
-                            CancellationToken.None,
-                            TaskContinuationOptions.RunContinuationsAsynchronously,
-                            TaskScheduler.Default) :> Task
-                    ) |> ignore
-                    processSuccess fiber
-                | ConcurrentGenericTPLTask (lazyTask, onError, fiber, ifiber) ->
-                    Task.Run(fun () ->
-                        (lazyTask ()).ContinueWith((fun (t: Task<obj>) ->
-                            if t.IsFaulted then
-                                ifiber.Complete
-                                <| Error (onError t.Exception.InnerException)
-                            elif t.IsCanceled then
-                                ifiber.Complete
-                                <| Error (onError <| TaskCanceledException "Task has been cancelled.")
-                            elif t.IsCompleted then
-                                ifiber.Complete
-                                <| Ok t.Result
-                            else
-                                ifiber.Complete
-                                <| Error (onError <| InvalidOperationException "Task not completed.")),
-                            CancellationToken.None,
-                            TaskContinuationOptions.RunContinuationsAsynchronously,
-                            TaskScheduler.Default) :> Task
-                    ) |> ignore
-                    processSuccess fiber
-                | AwaitFiber ifiber ->
-                    let! res = ifiber.Task
-                    processResult res
-                | AwaitTPLTask (task, onError) ->
-                    try
-                        let! res = task
+                    | Failure err ->
+                        processError err
+                    | Action (func, onError) ->
+                        try
+                            let res = func ()
+                            processSuccess res
+                        with exn ->
+                            processError
+                            <| onError exn
+                    | SendChan (msg, chan) ->
+                        do! chan.SendAsync msg
+                        processSuccess msg
+                    | ReceiveChan chan ->
+                        let! res = chan.ReceiveAsync ()
                         processSuccess res
-                    with exn ->
-                        processError <| onError exn
-                | AwaitGenericTPLTask (task, onError) ->
-                    try
-                        let! res = task
-                        processSuccess res
-                    with exn ->
-                        processError <| onError exn
-                | ChainSuccess (eff, cont) ->
-                    currentEff <- eff
-                    contStack.Add
-                    <| ContStackFrame (SuccessCont, cont)
-                | ChainError (eff, cont) ->
-                    currentEff <- eff
-                    contStack.Add
-                    <| ContStackFrame (FailureCont, cont)
-
-            ContStackPool.Return contStack
-            return result
+                    | ConcurrentEffect (eff, fiber, ifiber) ->
+                        // This runs the task on a separate thread pool with proper error handling
+                        Task.Run(fun () ->
+                            task {
+                                try
+                                    let! res = this.InterpretAsync eff
+                                    do! ifiber.Complete res
+                                with exn ->
+                                    // InterpretAsync threw an unexpected exception (shouldn't happen by design)
+                                    // Complete the fiber with the error to prevent unobserved exceptions
+                                    do! ifiber.Complete(Error (exn.GetBaseException() :> obj))
+                            } :> Task) |> ignore
+                        processSuccess fiber
+                    | ConcurrentTPLTask (lazyTask, onError, fiber, ifiber) ->
+                        Task.Run(fun () ->
+                            task {
+                                let t = lazyTask ()
+                                try
+                                    do! t
+                                    do! ifiber.Complete (Ok ())
+                                with
+                                | :? OperationCanceledException ->
+                                    do! ifiber.Complete (Error (onError <| TaskCanceledException "Task has been cancelled."))
+                                | exn ->
+                                    do! ifiber.Complete (Error <| onError exn)
+                            } :> Task) |> ignore
+                        processSuccess fiber
+                    | ConcurrentGenericTPLTask (lazyTask, onError, fiber, ifiber) ->
+                        Task.Run(fun () ->
+                            task {
+                                let t = lazyTask ()
+                                try
+                                    let! result = t
+                                    do! ifiber.Complete (Ok result)
+                                with
+                                | :? OperationCanceledException ->
+                                    do! ifiber.Complete (Error (onError <| TaskCanceledException "Task has been cancelled."))
+                                | exn ->
+                                    do! ifiber.Complete (Error <| onError exn)
+                            } :> Task) |> ignore
+                        processSuccess fiber
+                    | AwaitFiber ifiber ->
+                        let! res = ifiber.Task
+                        processResult res
+                    | AwaitTPLTask (task, onError) ->
+                        try
+                            let! res = task
+                            processSuccess res
+                        with exn ->
+                            processError <| onError exn
+                    | AwaitGenericTPLTask (task, onError) ->
+                        try
+                            let! res = task
+                            processSuccess res
+                        with exn ->
+                            processError <| onError exn
+                    | ChainSuccess (eff, cont) ->
+                        currentEff <- eff
+                        contStack.Add
+                        <| ContStackFrame (SuccessCont, cont)
+                    | ChainError (eff, cont) ->
+                        currentEff <- eff
+                        contStack.Add
+                        <| ContStackFrame (FailureCont, cont)
+                return result
+            finally
+                ContStackPool.Return contStack
         }
 
     override this.Run<'R, 'E> (eff: FIO<'R, 'E>) : Fiber<'R, 'E> =

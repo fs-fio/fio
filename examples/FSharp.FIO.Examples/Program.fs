@@ -30,7 +30,7 @@ let helloWorld2 () : unit =
     let fiber: Fiber<string, obj> = runtime.Run hello
     
     task {
-        let! (result: Result<string, obj>) = fiber.Task ()
+        let! result: Result<string, obj> = fiber.Task ()
         match result with
         | Ok result -> printfn $"Success: %s{result}"
         | Error error -> printfn $"Error: %A{error}"
@@ -42,7 +42,7 @@ let helloWorld3 () : unit =
     let fiber: Fiber<obj, string> = runtime.Run hello
     
     task {
-        let! (result: Result<obj, string>) = fiber.Task ()
+        let! result: Result<obj, string> = fiber.Task ()
         match result with
         | Ok result -> printfn $"Success: %A{result}"
         | Error error -> printfn $"Error: %s{error}"
@@ -153,6 +153,23 @@ let computationExpression3 () =
         let! result = fiber.Task ()
         printfn $"%A{result}"
     } |> ignore
+
+// let onTimeoutExpression () =
+//     let runtime = new Runtime()
+//     let timeoutEffect = FConsole.PrintLine "Timed out" >>=? fun _ -> !- ()
+//     let timeout =
+//         fio {
+//             let! delay = !<<< (fun () -> Random().Next(0, 501)) (fun _ -> -1)
+//             let! name = FConsole.ReadLine ()
+//             do! FConsole.PrintLine $"Hello, %s{name}! Welcome to FIO! 🪻💜"
+//         }
+
+//     let fiber = runtime.Run welcome
+
+//     task {
+//         let! result = fiber.Task ()
+//         printfn $"%A{result}"
+//     } |> ignore
 
 helloWorld1 ()
 Console.ReadLine () |> ignore

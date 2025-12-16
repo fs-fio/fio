@@ -9,6 +9,8 @@
 
 	<PropertyGroup>
 		<LangVersion>preview</LangVersion>
+		<ParallelCompilation>true</ParallelCompilation>
+		<Deterministic>false</Deterministic>
 	</PropertyGroup>
 
     <ItemGroup>

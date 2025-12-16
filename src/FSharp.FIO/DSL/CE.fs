@@ -148,6 +148,8 @@ type FIOBuilder internal () =
     /// <summary>
     /// Ensures a finalizer effect is run after an FIO effect, even if an error occurs.
     /// The finalizer runs on both success and error paths, consistent with try-finally semantics.
+    /// IMPORTANT: The original result/error is always preserved, even if the finalizer fails.
+    /// This provides safe resource cleanup semantics - finalizer errors are silently ignored.
     /// </summary>
     /// <typeparam name="'R">The result type.</typeparam>
     /// <typeparam name="'E">The error type.</typeparam>
@@ -155,8 +157,12 @@ type FIOBuilder internal () =
     /// <param name="finalizer">The finalizer effect to run after the effect.</param>
     /// <returns>An FIO effect that runs the finalizer after the effect.</returns>
     member inline _.TryFinally<'R, 'E> (eff: FIO<'R, 'E>, finalizer: FIO<unit, 'E>) : FIO<'R, 'E> =
-        eff.Bind(fun res -> finalizer.Then(FIO.Succeed res))
-           .BindError(fun err -> finalizer.Then(FIO.Fail err))
+        eff.Bind(fun res ->
+            finalizer.Bind(fun _ -> FIO.Succeed res)
+                     .BindError(fun _ -> FIO.Succeed res))
+           .BindError(fun err ->
+            finalizer.Bind(fun _ -> FIO.Fail err)
+                     .BindError(fun _ -> FIO.Fail err))
 
     /// <summary>
     /// Delays the execution of a computation until it is needed.
@@ -170,6 +176,10 @@ type FIOBuilder internal () =
 
     /// <summary>
     /// Iterates over a sequence, running the body for each element in order.
+    /// The enumerator is always disposed, even if the body fails or throws an exception.
+    /// NOTE: This method requires 'E :> exn because IEnumerator.Dispose() can throw exceptions
+    /// that must be converted to the error type. For custom (non-exception) error types,
+    /// manually iterate using FIO.Fold or similar, or provide an exception -> 'E mapper.
     /// </summary>
     /// <typeparam name="'T">The element type of the sequence.</typeparam>
     /// <typeparam name="'E">The error type (must be an exception type).</typeparam>
@@ -177,19 +187,21 @@ type FIOBuilder internal () =
     /// <param name="body">The function to run for each element.</param>
     /// <returns>An FIO effect that runs the body for each element in the sequence.</returns>
     member inline this.For<'T, 'E when 'E :> exn> (sequence: seq<'T>, body: 'T -> FIO<unit, 'E>) : FIO<unit, 'E> =
-        let rec loop (enumerator: IEnumerator<'T>) =
+        let enumerator = sequence.GetEnumerator()
+
+        let rec loop () =
             if enumerator.MoveNext () then
                 this.Delay <| fun () ->
-                    body(enumerator.Current).Then(loop enumerator)
+                    body(enumerator.Current).Bind(fun _ -> loop ())
             else
-                try
-                    enumerator.Dispose ()
-                    this.Zero ()
-                with
-                | :? 'E as e -> FIO.Fail e
+                this.Zero ()
 
-        sequence.GetEnumerator()
-        |> loop
+        let errorHandler (exn: exn) : 'E =
+            match exn with
+            | :? 'E as e -> e
+            | e -> unbox e
+        let disposeEffect = FIO.FromFunc<unit, 'E>((fun () -> enumerator.Dispose()), errorHandler)
+        this.TryFinally(loop (), disposeEffect)
 
     /// <summary>
     /// Repeatedly runs the body while the guard returns true.
@@ -210,7 +222,11 @@ type FIOBuilder internal () =
     /// <summary>
     /// Uses a disposable resource in a computation expression, ensuring it is disposed after use.
     /// This method supports use! syntax but requires the error type to be an exception.
-    /// For custom error types, use FIO.AcquireRelease instead.
+    /// The resource is always disposed, even if the body fails. Disposal errors are silently ignored
+    /// to preserve the original result/error from the body.
+    /// NOTE: This method requires 'E :> exn because IDisposable.Dispose() can throw exceptions
+    /// that must be converted to the error type. For custom (non-exception) error types,
+    /// use FIO.AcquireRelease or bracket patterns to manually manage resources.
     /// </summary>
     /// <typeparam name="'T">The type of the resource.</typeparam>
     /// <typeparam name="'R">The result type.</typeparam>
@@ -219,7 +235,10 @@ type FIOBuilder internal () =
     /// <param name="body">The function to run with the resource.</param>
     /// <returns>An FIO effect that uses and disposes the resource.</returns>
     member inline this.Using<'T, 'R, 'E when 'T :> IDisposable and 'E :> exn> (resource: 'T, body: 'T -> FIO<'R, 'E>) : FIO<'R, 'E> =
-        let errorHandler : exn -> 'E = unbox
+        let errorHandler (exn: exn) : 'E =
+            match exn with
+            | :? 'E as e -> e
+            | e -> unbox e
         let disposeEffect = FIO.FromFunc<unit, 'E>((fun () -> resource.Dispose()), errorHandler)
         this.TryFinally (body resource, disposeEffect)
 
