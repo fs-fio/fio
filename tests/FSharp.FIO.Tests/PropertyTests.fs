@@ -285,18 +285,19 @@ type PropertyTests () =
         }
         result <| runtime.Run eff
 
-    // [<Property>]
-    // member _.``MapError composes correctly`` (runtime: FRuntime, err: int) =
-    //     let eff = FIO.Fail err
-    //     let f x = x + 10
-    //     let g x = x * 2
+    [<Property>]
+    member _.``MapError composes correctly`` (runtime: FRuntime, err: int) =
+        let eff : FIO<int, int> = FIO.Fail err
+        let f = fun x -> x + 10
+        let g = fun x -> x * 2
 
-    //     let lhs = (eff.MapError f).MapError g
-    //     let rhs = eff.MapError (f >> g)
+        let intermediate : FIO<int, int> = eff.MapError f
+        let lhs : FIO<int, int> = intermediate.MapError g
+        let rhs : FIO<int, int> = eff.MapError (fun x -> g (f x))
 
-    //     let lhs' = error <| runtime.Run lhs
-    //     let rhs' = error <| runtime.Run rhs
-    //     lhs' = rhs'
+        let lhs' = error <| runtime.Run lhs
+        let rhs' = error <| runtime.Run rhs
+        lhs' = rhs'
 
     [<Property>]
     member _.``BindError propagates errors correctly`` (runtime: FRuntime, err: int) =
@@ -309,15 +310,12 @@ type PropertyTests () =
         let actual = error <| runtime.Run transformed
         actual = expected
 
-    // [<Property>]
-    // member _.``Parallel effects with mixed results handle errors`` (runtime: FRuntime, res: int, err: int) =
-    //     let successEff = FIO.Succeed res
-    //     let failEff = FIO.Fail err
+    [<Property>]
+    member _.``Parallel effects with mixed results handle errors`` (runtime: FRuntime, res: int, err: int) =
+        let successEff = FIO.Succeed res
+        let failEff = FIO.Fail err
 
-    //     let parallelEff = fio {
-    //         let! (_, _) = !~~& (successEff, failEff)
-    //         return res
-    //     }
+        let parallelEff = successEff.Parallel failEff
 
-    //     let actualErr = error <| runtime.Run parallelEff
-    //     actualErr = err
+        let actualErr = error <| runtime.Run parallelEff
+        actualErr = err
