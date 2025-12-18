@@ -155,25 +155,6 @@ let computationExpression3 () =
         printfn $"%A{result}"
     } |> ignore
 
-// TODO: May not work yet.
-let onTimeout () =
-    let runtime = new Runtime()
-    let! timeoutThreshold = Random().Next(250, 501)
-
-    let delayed =
-        fio {
-            do! FIO<obj, exn>.AwaitTask (Task.Delay 250)
-            do! FConsole.PrintLine "Delayed task completed!"
-        }
-
-    let onTimeout () = Exception "Operation timed out!"
-    let fiber = runtime.Run (delayed.Timeout timeoutThreshold onTimeout)
-
-    task {
-        let! result = fiber.Task ()
-        printfn $"%A{result}"
-    } |> ignore
-
 helloWorld1 ()
 Console.ReadLine () |> ignore
 
@@ -208,7 +189,4 @@ computationExpression2 ()
 Console.ReadLine () |> ignore
 
 computationExpression3 ()
-Console.ReadLine () |> ignore
-
-onTimeout ()
 Console.ReadLine () |> ignore

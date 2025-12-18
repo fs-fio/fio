@@ -40,16 +40,16 @@ type FSocket<'S, 'R, 'E> private (socket: Socket, reader: StreamReader, writer: 
     /// <summary>
     /// Disposes the socket and all associated resources.
     /// </summary>
-    member _.Dispose() =
+    member _.Dispose () =
         if not disposed then
             disposed <- true
-            try reader.Dispose() with _ -> ()
-            try writer.Dispose() with _ -> ()
-            try networkStream.Dispose() with _ -> ()
-            try socket.Dispose() with _ -> ()
+            try reader.Dispose () with _ -> ()
+            try writer.Dispose () with _ -> ()
+            try networkStream.Dispose () with _ -> ()
+            try socket.Dispose () with _ -> ()
 
-    interface System.IDisposable with
-        member this.Dispose() = this.Dispose()
+    interface IDisposable with
+        member this.Dispose () = this.Dispose ()
 
     /// <summary>
     /// Disposes the socket and all associated resources as an FIO effect.
@@ -57,7 +57,7 @@ type FSocket<'S, 'R, 'E> private (socket: Socket, reader: StreamReader, writer: 
     /// <returns>An FIO effect that disposes the socket.</returns>
     member this.DisposeAsync<'E> () : FIO<unit, 'E> =
         fio {
-            do! !<<< (fun () -> this.Dispose())
+            do! !<<< (fun () -> this.Dispose ())
         }
 
     /// <summary>

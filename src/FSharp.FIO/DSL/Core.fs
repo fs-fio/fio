@@ -56,37 +56,16 @@ type InterruptionCause =
 /// Exception thrown when a fiber is interrupted during execution.
 /// </summary>
 exception FiberInterruptedException of fiberId: Guid * cause: InterruptionCause * message: string with
-    
-    member private this.FiberId =
-        this.fiberId
-
-    member private this.Cause =
-        this.cause
-
-    member private this.MessageText =
-        this.message
-
-    override this.Message = 
-        $"Fiber {this.FiberId} interrupted: {this.Cause} - {this.MessageText}"
-
-type private FiberState =
-    | Running = 0
-    | Completing = 1
-    | Completed = 2
-    | Interrupting = 3
-    | Interrupted = 4
+    override this.Message =
+        $"Fiber {this.fiberId} interrupted: {this.cause} - {this.message}"
 
 type internal Cont =
-    obj -> FIO<obj, obj>
-
-and internal ContType =
-    | SuccessCont
-    | FailureCont
+    | SuccessCont of cont: (obj -> FIO<obj, obj>)
+    | FailureCont of cont: (obj -> FIO<obj, obj>)
 
 and [<Struct>] internal ContStackFrame =
-    val ContType: ContType
     val Cont: Cont
-    new (contType, cont) = { ContType = contType; Cont = cont }
+    new cont = { Cont = cont }
 
 and internal ContStack =
     ResizeArray<ContStackFrame>
@@ -104,28 +83,12 @@ and internal BlockingItem =
 and internal BlockingData =
     { BlockingItem: BlockingItem
       WaitingWorkItem: WorkItem }
-    
-    static member internal Create (blockingItem, waitingWorkItem) =
-        { BlockingItem = blockingItem
-          WaitingWorkItem = waitingWorkItem }
 
 and internal WorkItem =
     { Eff: FIO<obj, obj>
       IFiber: InternalFiber
       Stack: ContStack
       PrevAction: RuntimeAction }
-
-    static member internal Create (eff, ifiber, stack, prevAction) =
-        { Eff = eff
-          IFiber = ifiber
-          Stack = stack
-          PrevAction = prevAction }
-
-    member internal this.Complete res =
-        this.IFiber.Complete res
-
-    member internal this.CompleteAndReschedule res activeWorkItemChan =
-        this.IFiber.CompleteAndReschedule res activeWorkItemChan
 
 /// <summary>
 /// Internal channel implementation using System.Threading.Channels for efficient message passing.
@@ -176,6 +139,11 @@ and internal InternalChannel<'R> (id: Guid) =
     member internal _.Id =
         id
 
+and private FiberState =
+    | Running = 0
+    | Completed = 1
+    | Interrupted = 2
+
 and internal InternalFiber () =
     let id = Guid.NewGuid ()
     let resTcs = TaskCompletionSource<Result<obj, obj>> TaskCreationOptions.RunContinuationsAsynchronously
@@ -190,47 +158,26 @@ and internal InternalFiber () =
 
     member internal _.Complete res =
         task {
-            // Try to transition Running -> Completing
-            if not (tryTransitionState FiberState.Running FiberState.Completing) then
-                // Already completing, interrupted, or completed
-                return ()
-            else
-                // We won the race to complete
-                // Set result and transition to Completed
-                let success = resTcs.TrySetResult res
-                state <- int FiberState.Completed
-
-                if not success then
-                    // TrySetResult failed, which shouldn't happen since we won the state race
-                    // but handle it gracefully
-                    return ()
+            if tryTransitionState FiberState.Running FiberState.Completed then
+                resTcs.TrySetResult res |> ignore
         }
 
     member internal this.CompleteAndReschedule res activeWorkItemChan =
         task {
-            // Try to transition Running -> Completing
-            if not (tryTransitionState FiberState.Running FiberState.Completing) then
-                return ()
-            else
-                let success = resTcs.TrySetResult res
-                state <- int FiberState.Completed
-
-                if success then
+            if tryTransitionState FiberState.Running FiberState.Completed then
+                if resTcs.TrySetResult res then
                     do! this.RescheduleBlockingWorkItems activeWorkItemChan
         }
 
     member internal _.Interrupt cause msg =
-        // Try to transition Running -> Interrupting
-        if tryTransitionState FiberState.Running FiberState.Interrupting then
-            // We won the race to interrupt
+        if tryTransitionState FiberState.Running FiberState.Interrupted then
             cts.Cancel()
             let interruptError = Error (FiberInterruptedException(id, cause, msg) :> obj)
             resTcs.TrySetResult interruptError |> ignore
-            state <- int FiberState.Interrupted
 
     member internal _.IsInterrupted () =
         let currentState = enum<FiberState>(Volatile.Read &state)
-        currentState = FiberState.Interrupting || currentState = FiberState.Interrupted
+        currentState = FiberState.Interrupted
 
     member internal _.CancellationToken =
         cts.Token
@@ -250,7 +197,7 @@ and internal InternalFiber () =
 
     member internal _.Completed () =
         let currentState = enum<FiberState>(Volatile.Read &state)
-        currentState = FiberState.Completed || currentState = FiberState.Interrupted
+        currentState = FiberState.Completed
 
     member internal _.Id =
         id
@@ -258,34 +205,31 @@ and internal InternalFiber () =
     member internal _.RescheduleBlockingWorkItems (activeWorkItemChan: InternalChannel<WorkItem>) =
         task {
             let mutable workItem = Unchecked.defaultof<_>
-            while blockingWorkItemChan.TryTake (&workItem) do
+            while blockingWorkItemChan.TryTake &workItem do
                 do! activeWorkItemChan.AddAsync workItem
         }
 
     member internal this.TryRescheduleBlockingWorkItems (activeWorkItemChan: InternalChannel<WorkItem>) =
         task {
-            // Only reschedule if we're the one completing
-            if not <| this.Completed() then
+            if not <| this.Completed () then
                 return false
             else
-                let mutable workItem = Unchecked.defaultof<_>
-                while blockingWorkItemChan.TryTake &workItem do
-                    do! activeWorkItemChan.AddAsync workItem
+                do! this.RescheduleBlockingWorkItems activeWorkItemChan
                 return true
         }
 
-    member private _.Dispose(disposing: bool) =
+    member private _.Dispose disposing =
         if not disposed then
             disposed <- true
             if disposing then
-                cts.Dispose()
+                cts.Dispose ()
 
     interface IDisposable with
-        member this.Dispose() =
+        member this.Dispose () =
             this.Dispose true
             GC.SuppressFinalize this
 
-    override this.Finalize() =
+    override this.Finalize () =
         this.Dispose false
 
 /// <summary>
@@ -332,19 +276,19 @@ and Fiber<'R, 'E> internal () =
     member internal _.Internal =
         ifiber
 
-    member private _.Dispose(disposing: bool) =
+    member private _.Dispose disposing =
         if not disposed then
             disposed <- true
             if disposing then
-                (ifiber :> IDisposable).Dispose()
+                (ifiber :> IDisposable).Dispose ()
 
     interface IDisposable with
-        member this.Dispose() =
-            this.Dispose(true)
-            GC.SuppressFinalize(this)
+        member this.Dispose () =
+            this.Dispose true
+            GC.SuppressFinalize this
 
-    override this.Finalize() =
-        this.Dispose(false)
+    override this.Finalize () =
+        this.Dispose false
  
 /// <summary>
 /// A Channel represents a communication queue that holds data of type 'R.

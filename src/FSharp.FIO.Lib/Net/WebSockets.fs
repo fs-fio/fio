@@ -341,7 +341,7 @@ type FWebSocket<'S, 'R, 'E> private (ctx: HttpListenerWebSocketContext, listener
     /// <returns>An FIO effect that disposes the underlying WebSocket or returns an error of type 'E.</returns>
     member _.Dispose<'E> () : FIO<unit, 'E> =
         fio {
-            do! !<<< (fun () -> (ctx.WebSocket :> IDisposable).Dispose())
+            do! !<<< (fun () -> (ctx.WebSocket :> IDisposable).Dispose ())
         }
 
 /// <summary>
@@ -791,5 +791,5 @@ type FClientWebSocket<'S, 'R, 'E> private (clientWebSocket: ClientWebSocket, onE
     /// <returns>An FIO effect that disposes the underlying client WebSocket or returns an error of type 'E.</returns>
     member _.Dispose<'E> () : FIO<unit, 'E> =
         fio {
-            do! !<<< (fun () -> (clientWebSocket :> IDisposable).Dispose())
+            do! !<<< (fun () -> (clientWebSocket :> IDisposable).Dispose ())
         }

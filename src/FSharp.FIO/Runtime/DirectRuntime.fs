@@ -26,7 +26,7 @@ type Runtime () =
     [<TailCall>]
     member private this.InterpretAsync eff (currentInternalFiber: InternalFiber) =
         let mutable currentEff = eff
-        let mutable currentContStack = ContStackPool.Rent()
+        let mutable currentContStack = ContStackPool.Rent ()
         let mutable result = Unchecked.defaultof<_>
         let mutable completed = false
 
@@ -39,11 +39,11 @@ type Runtime () =
                     loop <- false
                 else
                     let stackFrame = pop currentContStack
-                    match stackFrame.ContType with
-                    | SuccessCont ->
-                        currentEff <- stackFrame.Cont res
+                    match stackFrame.Cont with
+                    | SuccessCont cont ->
+                        currentEff <- cont res
                         loop <- false
-                    | FailureCont ->
+                    | FailureCont _ ->
                         ()
 
         let inline processError err =
@@ -55,11 +55,11 @@ type Runtime () =
                     loop <- false
                 else
                     let stackFrame = pop currentContStack
-                    match stackFrame.ContType with
-                    | SuccessCont ->
+                    match stackFrame.Cont with
+                    | SuccessCont _ ->
                         ()
-                    | FailureCont ->
-                        currentEff <- stackFrame.Cont err
+                    | FailureCont cont ->
+                        currentEff <- cont err
                         loop <- false
 
         let inline processInterrupt () =
@@ -118,7 +118,7 @@ type Runtime () =
                                             do! ifiber.Complete <| Error exn
                                     finally
                                         // Always dispose registration when child completes
-                                        registration.Dispose()
+                                        registration.Dispose ()
                                 } :> Task) |> ignore
                             processSuccess fiber
                         | ConcurrentTPLTask (lazyTask, onError, fiber, ifiber) ->
@@ -141,7 +141,7 @@ type Runtime () =
                                             do! ifiber.Complete (Error <| onError exn)
                                     finally
                                         // Always dispose registration when child completes
-                                        registration.Dispose()
+                                        registration.Dispose ()
                                 } :> Task) |> ignore
                             processSuccess fiber
                         | ConcurrentGenericTPLTask (lazyTask, onError, fiber, ifiber) ->
@@ -164,7 +164,7 @@ type Runtime () =
                                             do! ifiber.Complete (Error <| onError exn)
                                     finally
                                         // Always dispose registration when child completes
-                                        registration.Dispose()
+                                        registration.Dispose ()
                                 } :> Task) |> ignore
                             processSuccess fiber
                         | AwaitFiber ifiber ->
@@ -185,11 +185,11 @@ type Runtime () =
                         | ChainSuccess (eff, cont) ->
                             currentEff <- eff
                             currentContStack.Add
-                            <| ContStackFrame (SuccessCont, cont)
+                            <| ContStackFrame (SuccessCont cont)
                         | ChainError (eff, cont) ->
                             currentEff <- eff
                             currentContStack.Add
-                            <| ContStackFrame (FailureCont, cont)
+                            <| ContStackFrame (FailureCont cont)
                 return result
             finally
                 ContStackPool.Return currentContStack
@@ -202,7 +202,6 @@ type Runtime () =
                 let! res = this.InterpretAsync (eff.Upcast ()) fiber.Internal
                 do! fiber.Internal.Complete res
             finally
-                // Ensure internal fiber resources are cleaned up
-                (fiber.Internal :> IDisposable).Dispose()
+                (fiber.Internal :> IDisposable).Dispose ()
         } |> ignore
         fiber

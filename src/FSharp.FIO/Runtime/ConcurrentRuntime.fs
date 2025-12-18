@@ -31,12 +31,12 @@ and private EvaluationWorker (config: EvaluationWorkerConfig) =
         task {
             match! config.Runtime.InterpretAsync workItem config.EWSteps with
             | Success res, _, Evaluated ->
-                do! workItem.CompleteAndReschedule (Ok res) config.ActiveWorkItemChan
+                do! workItem.IFiber.CompleteAndReschedule (Ok res) config.ActiveWorkItemChan
             | Failure err, _, Evaluated ->
-                do! workItem.CompleteAndReschedule (Error err) config.ActiveWorkItemChan
+                do! workItem.IFiber.CompleteAndReschedule (Error err) config.ActiveWorkItemChan
             | eff, stack, RescheduleForRunning ->
                 do! config.ActiveWorkItemChan.AddAsync
-                    <| WorkItem.Create (eff, workItem.IFiber, stack, RescheduleForRunning)
+                    <| { Eff = eff; IFiber = workItem.IFiber; Stack = stack; PrevAction = RescheduleForRunning }
             | _, _, Skipped ->
                 ()
             | _ ->
@@ -170,16 +170,16 @@ and Runtime (config: WorkerConfig) as this =
             while loop do
                 if currentContStack.Count = 0 then
                     ContStackPool.Return currentContStack
-                    result <- Success res, ContStackPool.Rent(), Evaluated
+                    result <- Success res, ContStackPool.Rent (), Evaluated
                     completed <- true
                     loop <- false
                 else
                     let stackFrame = pop currentContStack
-                    match stackFrame.ContType with
-                    | SuccessCont ->
-                        currentEff <- stackFrame.Cont res
+                    match stackFrame.Cont with
+                    | SuccessCont cont ->
+                        currentEff <- cont res
                         loop <- false
-                    | FailureCont ->
+                    | FailureCont _ ->
                         ()
 
         let inline processError err =
@@ -187,16 +187,16 @@ and Runtime (config: WorkerConfig) as this =
             while loop do
                 if currentContStack.Count = 0 then
                     ContStackPool.Return currentContStack
-                    result <- Failure err, ContStackPool.Rent(), Evaluated
+                    result <- Failure err, ContStackPool.Rent (), Evaluated
                     completed <- true
                     loop <- false
                 else
                     let stackFrame = pop currentContStack
-                    match stackFrame.ContType with
-                    | SuccessCont ->
+                    match stackFrame.Cont with
+                    | SuccessCont _ ->
                         ()
-                    | FailureCont ->
-                        currentEff <- stackFrame.Cont err
+                    | FailureCont cont ->
+                        currentEff <- cont err
                         loop <- false
 
         let inline processInterrupt () =
@@ -245,8 +245,8 @@ and Runtime (config: WorkerConfig) as this =
                                 processSuccess res
                             else
                                 do! chan.AddBlockingWorkItem
-                                    <| WorkItem.Create (ReceiveChan chan, workItem.IFiber, currentContStack, Skipped)
-                                let newStack = ContStackPool.Rent()
+                                    <| { Eff = ReceiveChan chan; IFiber = workItem.IFiber; Stack = currentContStack; PrevAction = Skipped }
+                                let newStack = ContStackPool.Rent ()
                                 result <- Success (), newStack, Skipped
                                 completed <- true
                         | ConcurrentEffect (eff, fiber, ifiber) ->
@@ -254,7 +254,7 @@ and Runtime (config: WorkerConfig) as this =
                                 fun () -> ifiber.Interrupt (ParentInterrupted currentInternalFiber.Id) "Parent fiber was interrupted.")
                             |> ignore
                             do! activeWorkItemChan.AddAsync
-                                <| WorkItem.Create (eff, ifiber, ContStackPool.Rent(), workItem.PrevAction)
+                                <| { Eff = eff; IFiber = ifiber; Stack = ContStackPool.Rent (); PrevAction = workItem.PrevAction }
                             processSuccess fiber
                         | ConcurrentTPLTask (lazyTask, onError, fiber, ifiber) ->
                             currentInternalFiber.CancellationToken.Register(
@@ -299,10 +299,11 @@ and Runtime (config: WorkerConfig) as this =
                                 let! res = ifiber.Task
                                 processResult res
                             else
-                                do! ifiber.AddBlockingWorkItem (WorkItem.Create (AwaitFiber ifiber, workItem.IFiber, currentContStack, Skipped))
+                                do! ifiber.AddBlockingWorkItem
+                                    <| { Eff = AwaitFiber ifiber; IFiber = workItem.IFiber; Stack = currentContStack; PrevAction = Skipped }
                                 // Atomically check and reschedule if fiber completed during AddBlockingWorkItem
-                                let! _ = ifiber.TryRescheduleBlockingWorkItems activeWorkItemChan
-                                let newStack = ContStackPool.Rent()
+                                do ifiber.TryRescheduleBlockingWorkItems activeWorkItemChan |> ignore
+                                let newStack = ContStackPool.Rent ()
                                 result <- Success (), newStack, Skipped
                                 completed <- true
                         | AwaitTPLTask (task, onError) ->
@@ -320,11 +321,11 @@ and Runtime (config: WorkerConfig) as this =
                         | ChainSuccess (eff, cont) ->
                             currentEff <- eff
                             currentContStack.Add
-                            <| ContStackFrame (SuccessCont, cont)
+                            <| ContStackFrame (SuccessCont cont)
                         | ChainError (eff, cont) ->
                             currentEff <- eff
                             currentContStack.Add
-                            <| ContStackFrame (FailureCont, cont)
+                            <| ContStackFrame (FailureCont cont)
                 return result
             finally
                 // Only return the stack if processing didn't complete normally
@@ -342,6 +343,6 @@ and Runtime (config: WorkerConfig) as this =
         this.Reset ()
         let fiber = new Fiber<'R, 'E> ()
         activeWorkItemChan.AddAsync
-        <| WorkItem.Create (eff.Upcast (), fiber.Internal, ContStackPool.Rent(), Evaluated)
+        <| { Eff = eff.Upcast (); IFiber = fiber.Internal; Stack = ContStackPool.Rent (); PrevAction = Evaluated }
         |> ignore
         fiber
