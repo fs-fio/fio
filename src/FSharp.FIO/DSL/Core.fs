@@ -56,6 +56,7 @@ type InterruptionCause =
 /// Exception thrown when a fiber is interrupted during execution.
 /// </summary>
 exception FiberInterruptedException of fiberId: Guid * cause: InterruptionCause * message: string with
+
     override this.Message =
         $"Fiber {this.fiberId} interrupted: {this.cause} - {this.message}"
 

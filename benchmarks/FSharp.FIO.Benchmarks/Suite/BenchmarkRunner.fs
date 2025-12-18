@@ -77,7 +77,7 @@ let private printResult result =
         let rec dataRows curDataRows acc =
             match curDataRows with
             | [] ->
-                (acc
+                acc
                     + "│                                                                                            │\n"
                     + "│                                Avg. Execution Time (ms)      Avg. Memory Usage (MB)        │\n"
                     + "│                                ────────────────────────────  ────────────────────────────  │\n"
@@ -86,7 +86,7 @@ let private printResult result =
                     + "│                                Std. Execution Time (ms)      Std. Memory Usage (MB)        │\n"
                     + "│                                ────────────────────────────  ────────────────────────────  │\n"
                    + $"│                                %-28f{result.StdExecutionTime}  %-28f{result.StdMemoryUsage}  │\n"
-                    + "└────────────────────────────────────────────────────────────────────────────────────────────┘")
+                    + "└────────────────────────────────────────────────────────────────────────────────────────────┘"
             | (run, executionTime, memoryUsage) :: ts ->
                 let str = $"│  #%-27i{run}  %-28i{executionTime}  %-28i{memoryUsage}  │\n"
                 dataRows ts (acc + str)
@@ -192,10 +192,8 @@ let internal runBenchmarks args =
                         | ForkConfig actors -> 
                             yield ForkConfig (actors + (actorInc * actorIncTime)) ])
         
-        let results = List.map (runBenchmark args.Runtime args.Runs) configs
-        
-        for task in results do
-            let! result = task
+        for config in configs do
+            let! result = runBenchmark args.Runtime args.Runs config
             printResult result
             if args.SaveToCsv then
                 writeResultToCsv result args.SavePath
