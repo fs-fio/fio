@@ -11,7 +11,6 @@ open FSharp.FIO.Lib.IO
 open FSharp.FIO.Runtime.Concurrent
 
 open System
-open System.Threading.Tasks
 
 let helloWorld1 () =
     let runtime = new Runtime()
