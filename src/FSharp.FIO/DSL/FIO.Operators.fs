@@ -9,7 +9,7 @@
 /// Includes combinators for sequencing, mapping, error handling, concurrency, and channel operations.
 /// </summary>
 [<AutoOpen>]
-module FSharp.FIO.DSL.Ops
+module FSharp.FIO.DSL.Operators
 
 open System.Threading.Tasks
 
@@ -34,24 +34,24 @@ let inline ( !- ) (err: 'E) : FIO<'R, 'E> =
     FIO.Fail err
 
 /// <summary>
-/// Succeeds with the result of a function and applies error handling if necessary. Alias for <c>FIO.FromFunc</c>.
+/// Converts a function into an effect with custom error handling. Alias for <c>FIO.FromFunc</c>.
 /// </summary>
 /// <typeparam name="R">The result type.</typeparam>
 /// <typeparam name="E">The error type.</typeparam>
 /// <param name="func">The function to execute.</param>
 /// <param name="onError">A function to map exceptions to the error type 'E.</param>
-/// <returns>An FIO effect that executes the function and returns its result or an error.</returns>
+/// <returns>An FIO effect that executes the function and returns its result, or fails with a mapped error.</returns>
 let inline ( !<<< ) (func: unit -> 'R) (onError: exn -> 'E) : FIO<'R, 'E> =
     FIO.FromFunc<'R, 'E> (func, onError)
     
 /// <summary>
-/// Succeeds with the result of a function and fails with Exception. Alias for <c>FIO.FromFunc</c>.
+/// Converts a function into an effect with a default error handler. Alias for <c>FIO.FromFunc</c>.
 /// </summary>
 /// <typeparam name="R">The result type.</typeparam>
 /// <param name="func">The function to execute.</param>
-/// <returns>An FIO effect that executes the function and returns its result or an exception.</returns>
+/// <returns>An FIO effect that executes the function and returns its result, or fails with an exception.</returns>
 let inline ( !<< ) (func: unit -> 'R) : FIO<'R, exn> =
-    FIO.FromFunc<'R, exn> func
+    FIO.FromFunc func
 
 /// <summary>
 /// Sends a message to the channel and succeeds with the message. Alias for <c>Channel.Send</c>.
@@ -60,7 +60,7 @@ let inline ( !<< ) (func: unit -> 'R) : FIO<'R, exn> =
 /// <typeparam name="E">The error type.</typeparam>
 /// <param name="msg">The message to send.</param>
 /// <param name="chan">The channel to send to.</param>
-/// <returns>An FIO effect that sends the message and returns it, or an error.</returns>
+/// <returns>An FIO effect that sends the message and returns it.</returns>
 let inline ( --> ) (msg: 'R) (chan: Channel<'R>) : FIO<'R, 'E> =
     chan.Send msg
 
@@ -71,7 +71,7 @@ let inline ( --> ) (msg: 'R) (chan: Channel<'R>) : FIO<'R, 'E> =
 /// <typeparam name="E">The error type.</typeparam>
 /// <param name="chan">The channel to send to.</param>
 /// <param name="msg">The message to send.</param>
-/// <returns>An FIO effect that sends the message and returns it, or an error.</returns>
+/// <returns>An FIO effect that sends the message and returns it.</returns>
 let inline ( <-- ) (chan: Channel<'R>) (msg: 'R) : FIO<'R, 'E> =
     chan.Send msg
 
@@ -82,7 +82,7 @@ let inline ( <-- ) (chan: Channel<'R>) (msg: 'R) : FIO<'R, 'E> =
 /// <typeparam name="E">The error type.</typeparam>
 /// <param name="msg">The message to send.</param>
 /// <param name="chan">The channel to send to.</param>
-/// <returns>An FIO effect that sends the message and returns unit, or an error.</returns>
+/// <returns>An FIO effect that sends the message and returns unit.</returns>
 let inline ( --!> ) (msg: 'R) (chan: Channel<'R>) : FIO<unit, 'E> =
     chan.Send msg |> _.Then <| FIO.Succeed ()
 
@@ -93,7 +93,7 @@ let inline ( --!> ) (msg: 'R) (chan: Channel<'R>) : FIO<unit, 'E> =
 /// <typeparam name="E">The error type.</typeparam>
 /// <param name="chan">The channel to send to.</param>
 /// <param name="msg">The message to send.</param>
-/// <returns>An FIO effect that sends the message and returns unit, or an error.</returns>
+/// <returns>An FIO effect that sends the message and returns unit.</returns>
 let inline ( <!-- ) (chan: Channel<'R>) (msg: 'R) : FIO<unit, 'E> =
     chan.Send msg |> _.Then <| FIO.Succeed ()
 
@@ -113,7 +113,7 @@ let inline ( !--> ) (chan: Channel<'R>) : FIO<'R, 'E> =
 /// <typeparam name="R">The message type.</typeparam>
 /// <typeparam name="E">The error type.</typeparam>
 /// <param name="chan">The channel to receive from.</param>
-/// <returns>An FIO effect that receives a message and returns it, or an error.</returns>
+/// <returns>An FIO effect that receives a message and returns it.</returns>
 let inline ( !<-- ) (chan: Channel<'R>) : FIO<'R, 'E> =
     chan.Receive()
 
@@ -133,7 +133,7 @@ let inline ( !--!> ) (chan: Channel<'R>) : FIO<unit, 'E> =
 /// <typeparam name="R">The message type.</typeparam>
 /// <typeparam name="E">The error type.</typeparam>
 /// <param name="chan">The channel to receive from.</param>
-/// <returns>An FIO effect that receives a message and returns unit, or an error.</returns>
+/// <returns>An FIO effect that receives a message and returns unit.</returns>
 let inline ( !<!-- ) (chan: Channel<'R>) : FIO<unit, 'E> =
     chan.Receive().Then <| FIO.Succeed ()
 
@@ -149,13 +149,13 @@ let inline ( !<~ ) (eff: FIO<'R, 'E>) : FIO<Fiber<'R, 'E>, 'E1> =
     eff.Fork()
 
 /// <summary>
-/// Interprets an effect concurrently and returns the fiber that is interpreting it.
+/// Executes an effect concurrently in a new Fiber and immediately returns the Fiber handle.
 /// The fiber can be awaited for the result of the effect. Alias for <c>FIO.Fork</c>.
 /// </summary>
 /// <typeparam name="R">The result type.</typeparam>
 /// <typeparam name="E">The error type.</typeparam>
 /// <param name="eff">The effect to fork.</param>
-/// <returns>An FIO effect that interprets the given effect concurrently and returns the fiber.</returns>
+/// <returns>An FIO effect that starts concurrent execution and returns the Fiber handle.</returns>
 let inline ( !~> ) (eff: FIO<'R, 'E>) : FIO<Fiber<'R, 'E>, 'E1> =
     eff.Fork()
 
@@ -180,41 +180,41 @@ let inline ( !!~> ) (eff: FIO<'R, 'E>) : FIO<unit, 'E1> =
     eff.Fork().Then <| FIO.Succeed ()
 
 /// <summary>
-/// Interprets two effects concurrently and succeeds with a tuple of their results when both complete.
-/// If either effect fails, the error is immediately returned. Alias for <c>FIO.Parallel</c>.
+/// Executes two effects concurrently and succeeds with a tuple of their results when both complete.
+/// Errors are propagated immediately if any effect fails. Alias for <c>FIO.Parallel</c>.
 /// </summary>
 /// <typeparam name="R">The result type of the first effect.</typeparam>
 /// <typeparam name="R1">The result type of the second effect.</typeparam>
 /// <typeparam name="E">The error type.</typeparam>
 /// <param name="eff">The first effect.</param>
 /// <param name="eff'">The second effect.</param>
-/// <returns>An FIO effect that interprets both effects concurrently and returns a tuple of their results.</returns>
+/// <returns>An FIO effect that executes both effects concurrently and returns a tuple of their results.</returns>
 let inline ( <!> ) (eff: FIO<'R, 'E>) (eff': FIO<'R1, 'E>) : FIO<'R * 'R1, 'E> =
     eff.Parallel eff'
 
 /// <summary>
-/// Interprets two effects concurrently and succeeds with `unit` when completed.
-/// If either effect fails, the error is immediately returned. Alias for <c>FIO.Parallel</c>.
+/// Executes two effects concurrently and succeeds with unit when both complete.
+/// Errors are propagated immediately if any effect fails. Alias for <c>FIO.Parallel</c>.
 /// </summary>
 /// <typeparam name="R">The result type of the first effect.</typeparam>
 /// <typeparam name="R1">The result type of the second effect.</typeparam>
 /// <typeparam name="E">The error type.</typeparam>
 /// <param name="eff">The first effect.</param>
 /// <param name="eff'">The second effect.</param>
-/// <returns>An FIO effect that interprets both effects concurrently and returns `unit`.</returns>
+/// <returns>An FIO effect that executes both effects concurrently and returns unit.</returns>
 let inline ( <~> ) (eff: FIO<'R, 'E>) (eff': FIO<'R1, 'E>) : FIO<unit, 'E> =
     eff.Parallel eff' |> _.Then <| FIO.Succeed ()
 
 /// <summary>
-/// Interprets two effects concurrently and succeeds with a tuple of their errors when both fail.
+/// Executes two effects concurrently and fails with a tuple of their errors when both fail.
 /// Alias for <c>FIO.ParallelError</c>.
 /// </summary>
-/// <typeparam name="R">The result type of the first effect.</typeparam>
+/// <typeparam name="R">The result type.</typeparam>
 /// <typeparam name="E">The error type of the first effect.</typeparam>
 /// <typeparam name="E1">The error type of the second effect.</typeparam>
 /// <param name="eff">The first effect.</param>
 /// <param name="eff'">The second effect.</param>
-/// <returns>An FIO effect that interprets both effects concurrently and returns a tuple of their errors.</returns>
+/// <returns>An FIO effect that executes both effects concurrently and returns a tuple of their errors.</returns>
 let inline ( <!!> ) (eff: FIO<'R, 'E>) (eff': FIO<'R, 'E1>) : FIO<'R, 'E * 'E1> =
     eff.ParallelError eff'
 
@@ -259,60 +259,60 @@ let inline ( !!~~> ) (fiber: Fiber<'R, 'E>) : FIO<unit, 'E> =
     fiber.Await().Then <| FIO.Succeed ()
 
 /// <summary>
-/// Awaits a Task and turns it into an effect, applying error handling if necessary. Alias for <c>FIO.AwaitTask</c>.
+/// Converts a Task into an effect that awaits its completion. Alias for <c>FIO.AwaitTask</c>.
 /// </summary>
 /// <typeparam name="E">The error type.</typeparam>
 /// <param name="task">The Task to await.</param>
 /// <param name="onError">A function to map exceptions to the error type 'E.</param>
-/// <returns>An FIO effect that completes when the Task completes or fails with an error.</returns>
+/// <returns>An FIO effect that completes when the Task completes, or fails with a mapped error.</returns>
 let inline ( !<<~ ) (task: Task) (onError: exn -> 'E) : FIO<unit, 'E> =
-    FIO.AwaitTask<unit, 'E> (task, onError)
+    FIO.AwaitTask (task, onError)
 
 /// <summary>
-/// Awaits a Task and turns it into an effect. Alias for <c>FIO.AwaitTask</c>.
+/// Converts a Task into an effect that awaits its completion with a default error handler. Alias for <c>FIO.AwaitTask</c>.
 /// </summary>
 /// <param name="task">The Task to await.</param>
-/// <returns>An FIO effect that completes when the Task completes or fails with an exception.</returns>
+/// <returns>An FIO effect that completes when the Task completes, or fails with an exception.</returns>
 let inline ( !!<<~ ) (task: Task) : FIO<unit, exn> =
-    FIO.AwaitTask<unit, exn> task
+    FIO.AwaitTask task
 
 /// <summary>
-/// Awaits a generic Task and turns it into an effect, applying error handling if necessary. Alias for <c>FIO.AwaitGenericTask</c>.
+/// Converts a generic Task into an effect that awaits its completion and returns the result. Alias for <c>FIO.AwaitTask</c>.
 /// </summary>
 /// <typeparam name="R">The result type.</typeparam>
 /// <typeparam name="E">The error type.</typeparam>
 /// <param name="task">The Task to await.</param>
 /// <param name="onError">A function to map exceptions to the error type 'E.</param>
-/// <returns>An FIO effect that completes with the Task result or fails with an error.</returns>
+/// <returns>An FIO effect that completes with the Task result, or fails with a mapped error.</returns>
 let inline ( !<<~~ ) (task: Task<'R>) (onError: exn -> 'E) : FIO<'R, 'E> =
-    FIO.AwaitGenericTask<'R, 'E> (task, onError)
+    FIO.AwaitTask (task, onError)
 
 /// <summary>
-/// Awaits a generic Task and turns it into an effect. Alias for <c>FIO.AwaitGenericTask</c>.
+/// Converts a generic Task into an effect that awaits its completion with a default error handler. Alias for <c>FIO.AwaitTask</c>.
 /// </summary>
 /// <typeparam name="R">The result type.</typeparam>
 /// <param name="task">The Task to await.</param>
-/// <returns>An FIO effect that completes with the Task result or fails with an exception.</returns>
+/// <returns>An FIO effect that completes with the Task result, or fails with an exception.</returns>
 let inline ( !!<<~~ ) (task: Task<'R>) : FIO<'R, exn> =
-    FIO.AwaitGenericTask<'R, exn> task
+    FIO.AwaitTask task
 
 /// <summary>
-/// Awaits an Async computation and turns it into an effect with a default onError. Alias for <c>FIO.AwaitAsync</c>.
+/// Converts an Async computation into an effect that awaits its completion with a default error handler. Alias for <c>FIO.AwaitAsync</c>.
 /// </summary>
 /// <typeparam name="R">The result type.</typeparam>
 /// <param name="async">The Async computation to await.</param>
-/// <returns>An FIO effect that completes with the Async result or fails with an exception.</returns>
+/// <returns>An FIO effect that completes with the Async result, or fails with an exception.</returns>
 let inline ( !<<<~ ) (async: Async<'R>) : FIO<'R, exn> =
-    FIO.AwaitAsync<'R, exn> async
+    FIO.AwaitAsync async
 
 /// <summary>
-/// Awaits an Async computation and turns it into an effect, applying error handling if necessary. Alias for <c>FIO.AwaitAsync</c>.
+/// Converts an Async computation into an effect that awaits its completion and returns the result. Alias for <c>FIO.AwaitAsync</c>.
 /// </summary>
 /// <typeparam name="R">The result type.</typeparam>
 /// <typeparam name="E">The error type.</typeparam>
 /// <param name="async">The Async computation to await.</param>
 /// <param name="onError">A function to map exceptions to the error type 'E.</param>
-/// <returns>An FIO effect that completes with the Async result or fails with an error.</returns>
+/// <returns>An FIO effect that completes with the Async result, or fails with a mapped error.</returns>
 let inline ( !!<<<~ ) (async: Async<'R>) (onError: exn -> 'E) : FIO<'R, 'E> =
     FIO.AwaitAsync<'R, 'E> (async, onError)
 
@@ -446,7 +446,7 @@ let inline ( << ) (eff: FIO<'R, 'E>) (eff': FIO<'R1, 'E>) : FIO<'R, 'E> =
 /// <param name="eff'">The second effect.</param>
 /// <returns>An FIO effect that sequences the given effects, ignoring the error of the first one.</returns>
 let inline ( >>? ) (eff: FIO<'R, 'E>) (eff': FIO<'R, 'E1>) : FIO<'R, 'E1> =
-    eff.ThenError eff'
+    eff.OrElse eff'
 
 /// <summary>
 /// Sequences two effects, ignoring the error of the first one. Alias for <c>FIO.ThenError</c>.
@@ -458,7 +458,7 @@ let inline ( >>? ) (eff: FIO<'R, 'E>) (eff': FIO<'R, 'E1>) : FIO<'R, 'E1> =
 /// <param name="eff'">The second effect.</param>
 /// <returns>An FIO effect that sequences the given effects, ignoring the error of the first one.</returns>
 let inline ( ?<< ) (eff: FIO<'R, 'E1>) (eff': FIO<'R, 'E>) : FIO<'R, 'E1> =
-    eff'.ThenError eff
+    eff'.OrElse eff
 
 /// <summary>
 /// Combines two effects: one producing a function and the other a value, 
@@ -487,20 +487,20 @@ let inline ( <**> ) (eff: FIO<'R, 'E>) (eff': FIO<'R, 'E -> 'E1>) : FIO<'R, 'E1>
     eff.ApplyError eff'
 
 /// <summary>
-/// Combines the results of two effects into a tuple when both succeed.
-/// If either effect fails, the error is immediately returned. Alias for <c>FIO.Zip</c>.
+/// Sequences two effects and succeeds with a tuple of their results when both complete.
+/// Errors are propagated immediately if any effect fails. Alias for <c>FIO.Zip</c>.
 /// </summary>
 /// <typeparam name="R">The result type of the first effect.</typeparam>
 /// <typeparam name="R1">The result type of the second effect.</typeparam>
 /// <typeparam name="E">The error type.</typeparam>
 /// <param name="eff">The first effect.</param>
 /// <param name="eff'">The second effect.</param>
-/// <returns>An FIO effect that combines the results of the given effects into a tuple.</returns>
+/// <returns>An FIO effect that returns a tuple of both results, or propagates an error.</returns>
 let inline ( <^> ) (eff: FIO<'R, 'E>) (eff': FIO<'R1, 'E>) : FIO<'R * 'R1, 'E> =
     eff.Zip eff'
 
 /// <summary>
-/// Combines the errors of two effects into a tuple when both fail.
+/// Sequences two effects and fails with a tuple of their errors when both fail.
 /// Alias for <c>FIO.ZipError</c>.
 /// </summary>
 /// <typeparam name="R">The result type.</typeparam>
@@ -508,6 +508,6 @@ let inline ( <^> ) (eff: FIO<'R, 'E>) (eff': FIO<'R1, 'E>) : FIO<'R * 'R1, 'E> =
 /// <typeparam name="E1">The error type of the second effect.</typeparam>
 /// <param name="eff">The first effect.</param>
 /// <param name="eff'">The second effect.</param>
-/// <returns>An FIO effect that combines the errors of the given effects into a tuple.</returns>
+/// <returns>An FIO effect that returns a tuple of both errors, or propagates the result.</returns>
 let inline ( <^^> ) (eff: FIO<'R, 'E>) (eff': FIO<'R, 'E1>) : FIO<'R, 'E * 'E1> =
     eff.ZipError eff'

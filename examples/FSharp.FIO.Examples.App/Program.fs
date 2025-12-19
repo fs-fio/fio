@@ -346,7 +346,7 @@ type FiberFromTaskApp() =
     inherit FIOApp<unit, exn>()
 
     let fibonacci n =
-        FIO.FromTask<Fiber<string, exn>, exn> <| fun () ->
+        FIO.FromTask<unit> <| fun () ->
             task {
                 let fib (n: int64) =
                     let mutable a = 0L
@@ -388,7 +388,7 @@ type FiberFromGenericTaskApp() =
     inherit FIOApp<unit, exn>()
 
     let fibonacci n =
-        FIO.FromGenericTask<Fiber<string, exn>> <| fun () ->
+        FIO.FromTask<unit> <| fun () ->
             task {
                 let fib (n: int64) =
                     let mutable a = 0L

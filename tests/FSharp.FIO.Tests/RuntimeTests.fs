@@ -90,20 +90,20 @@ type RuntimeTests () =
         let func () =
             res
         
-        let eff = FIO.FromFunc<int, exn> func
-        
+        let eff = FIO.FromFunc func
+
         let actual = result <| runtime.Run eff
         let expected = res
 
         actual = expected
-    
+
     [<Property>]
     member _.``FromFunc fails when exception is thrown`` (runtime: FRuntime, res: int, exnMsg: string) =
         let func () =
             invalidOp exnMsg
             res
-            
-        let eff = FIO.FromFunc<int, exn> func
+
+        let eff = FIO.FromFunc func
         
         let actual = (error <| runtime.Run eff).Message
         let expected = exnMsg
@@ -185,8 +185,8 @@ type RuntimeTests () =
             
         let onError exn =
             exn
-        
-        let eff = FIO.AwaitTask<unit, exn> (t, onError)
+
+        let eff = FIO.AwaitTask (t, onError)
         
         let actual = result <| runtime.Run eff
         let expected = ()
@@ -200,8 +200,8 @@ type RuntimeTests () =
         
         let onError (exn: exn) =
             exn.Message
-        
-        let eff = FIO.AwaitTask<unit, string> (t, onError)
+
+        let eff = FIO.AwaitTask (t, onError)
         
         let actual = error <| runtime.Run eff
         let expected = exnMsg
@@ -213,7 +213,7 @@ type RuntimeTests () =
         let t =
             Task.Run(fun () -> ())
 
-        let eff = FIO.AwaitTask<unit, exn> t
+        let eff = FIO.AwaitTask t
         
         let actual = result <| runtime.Run eff
         let expected = ()
@@ -225,7 +225,7 @@ type RuntimeTests () =
         let t = Task.Run(fun () ->
             invalidOp exnMsg)
         
-        let eff = FIO.AwaitTask<unit, string> t
+        let eff = FIO.AwaitTask t
         
         let actual = (error <| runtime.Run eff).Message
         let expected = exnMsg
@@ -241,7 +241,7 @@ type RuntimeTests () =
         let onError exn =
             exn
 
-        let eff = FIO.AwaitGenericTask<int, exn> (t, onError)
+        let eff = FIO.AwaitTask<int, exn> (t, onError)
         
         let actual = result <| runtime.Run eff
         let expected = res
@@ -258,7 +258,7 @@ type RuntimeTests () =
         let onError (exn: exn) =
             exn.Message
 
-        let eff = FIO.AwaitGenericTask<int, string> (t, onError)
+        let eff = FIO.AwaitTask<int, string> (t, onError)
         
         let actual = error <| runtime.Run eff
         let expected = exnMsg
@@ -271,7 +271,7 @@ type RuntimeTests () =
             return res
         }
       
-        let eff = FIO.AwaitGenericTask<int, exn> t
+        let eff = FIO.AwaitTask<int> t
         
         let actual = result <| runtime.Run eff
         let expected = res
@@ -285,7 +285,7 @@ type RuntimeTests () =
             return res
         }
 
-        let eff = FIO.AwaitGenericTask<int, string> t
+        let eff = FIO.AwaitTask t
         
         let actual = (error <| runtime.Run eff).Message
         let expected = exnMsg
@@ -301,7 +301,7 @@ type RuntimeTests () =
         let onError exn =
             exn
 
-        let eff = FIO.AwaitAsync<int, exn> (a, onError)
+        let eff = FIO.AwaitAsync (a, onError)
         
         let actual = result <| runtime.Run eff
         let expected = res
@@ -318,7 +318,7 @@ type RuntimeTests () =
         let onError (exn: exn) =
             exn.Message
 
-        let eff = FIO.AwaitAsync<int, string> (a, onError)
+        let eff = FIO.AwaitAsync (a, onError)
         
         let actual = error <| runtime.Run eff
         let expected = exnMsg
@@ -331,7 +331,7 @@ type RuntimeTests () =
             return res
         }
         
-        let eff = FIO.AwaitAsync<int, exn> a
+        let eff = FIO.AwaitAsync a
         
         let actual = result <| runtime.Run eff
         let expected = res
@@ -345,7 +345,7 @@ type RuntimeTests () =
             return res
         }
         
-        let eff = FIO.AwaitAsync<int, string> a
+        let eff = FIO.AwaitAsync a
         
         let actual = (error <| runtime.Run eff).Message
         let expected = exnMsg
@@ -354,13 +354,13 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``FromTask with onError always succeeds when the task succeeds`` (runtime: FRuntime) =
-        let lazyTask = fun () ->
+        let taskFactory = fun () ->
             Task.Run(fun () -> ())
         
         let onError (exn: exn) =
             exn
         
-        let eff = FIO.FromTask<Fiber<unit, exn>, exn> (lazyTask, onError)
+        let eff = FIO.FromTask (taskFactory, onError)
         
         let actual = (result <| runtime.Run eff).GetType()
         let expected = typeof<Fiber<unit, exn>>
@@ -369,14 +369,14 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``FromTask effect with onError always succeeds with fiber when the task fails`` (runtime: FRuntime, exnMsg: string) =
-        let lazyTask = fun () ->
+        let taskFactory = fun () ->
             Task.Run(fun () ->
             invalidOp exnMsg)
         
         let onError (exn: exn) =
             exn
         
-        let eff = FIO.FromTask<Fiber<unit, exn>, exn> (lazyTask, onError)
+        let eff = FIO.FromTask (taskFactory, onError)
         
         let actual = (result <| runtime.Run eff).GetType()
         let expected = typeof<Fiber<unit, exn>>
@@ -385,14 +385,14 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``FromTask fiber with onError always fails when the task fails and converts error`` (runtime: FRuntime, exnMsg: string) =
-        let lazyTask = fun () ->
+        let taskFactory = fun () ->
             Task.Run(fun () ->
             invalidOp exnMsg)
         
         let onError (exn: exn) =
             exn.Message
         
-        let eff = FIO.FromTask<Fiber<unit, string>, string> (lazyTask, onError)
+        let eff = FIO.FromTask (taskFactory, onError)
         
         let actual = error <| result (runtime.Run eff)
         let expected = exnMsg
@@ -401,10 +401,10 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``FromTask always succeeds when the task succeeds`` (runtime: FRuntime) =
-        let lazyTask = fun () ->
+        let taskFactory = fun () ->
             Task.Run(fun () -> ())
         
-        let eff = FIO.FromTask<Fiber<unit, exn>, exn> lazyTask
+        let eff = FIO.FromTask taskFactory
         
         let actual = (result <| runtime.Run eff).GetType()
         let expected = typeof<Fiber<unit, exn>>
@@ -413,11 +413,11 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``FromTask effect always succeeds with fiber when the task fails`` (runtime: FRuntime, exnMsg: string) =
-        let lazyTask = fun () ->
+        let taskFactory = fun () ->
             Task.Run(fun () ->
             invalidOp exnMsg)
         
-        let eff = FIO.FromTask<Fiber<unit, exn>, exn> lazyTask
+        let eff = FIO.FromTask taskFactory
         
         let actual = (result <| runtime.Run eff).GetType()
         let expected = typeof<Fiber<unit, exn>>
@@ -426,11 +426,11 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``FromTask fiber always fails when the task fails`` (runtime: FRuntime, exnMsg: string) =
-        let lazyTask = fun () ->
+        let taskFactory = fun () ->
             Task.Run(fun () ->
             invalidOp exnMsg)
         
-        let eff = FIO.FromTask<Fiber<unit, exn>, exn> lazyTask
+        let eff = FIO.FromTask taskFactory
         
         let actual = (error <| result (runtime.Run eff)).Message
         let expected = exnMsg
@@ -439,7 +439,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``FromGenericTask with onError always succeeds when the task succeeds`` (runtime: FRuntime, res: int) =
-        let lazyTask = fun () ->
+        let taskFactory = fun () ->
             task {
                 return res
             }
@@ -447,7 +447,7 @@ type RuntimeTests () =
         let onError (exn: exn) =
             exn
         
-        let eff = FIO.FromGenericTask<Fiber<int, exn>, exn> (lazyTask, onError)
+        let eff = FIO.FromTask (taskFactory, onError)
         
         let actual = (result <| runtime.Run eff).GetType()
         let expected = typeof<Fiber<int, exn>>
@@ -456,7 +456,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``FromGenericTask effect with onError always succeeds with fiber when the task fails`` (runtime: FRuntime, res: int, exnMsg: string) =
-        let lazyTask = fun () ->
+        let taskFactory = fun () ->
             task {
                 invalidOp exnMsg
                 return res
@@ -465,7 +465,7 @@ type RuntimeTests () =
         let onError (exn: exn) =
             exn
         
-        let eff = FIO.FromGenericTask<Fiber<int, exn>, exn> (lazyTask, onError)
+        let eff = FIO.FromTask (taskFactory, onError)
         
         let actual = (result <| runtime.Run eff).GetType()
         let expected = typeof<Fiber<int, exn>>
@@ -474,7 +474,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``FromGenericTask fiber with onError always fails when the task fails and converts error`` (runtime: FRuntime, res: int, exnMsg: string) =
-        let lazyTask = fun () ->
+        let taskFactory = fun () ->
             task {
                 invalidOp exnMsg
                 return res
@@ -483,7 +483,7 @@ type RuntimeTests () =
         let onError (exn: exn) =
             exn.Message
         
-        let eff = FIO.FromGenericTask<Fiber<int, string>, string> (lazyTask, onError)
+        let eff = FIO.FromTask (taskFactory, onError)
         
         let actual = error <| result (runtime.Run eff)
         let expected = exnMsg
@@ -492,12 +492,12 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``FromGenericTask always succeeds when the task succeeds`` (runtime: FRuntime, res: int) =
-        let lazyTask = fun () ->
+        let taskFactory = fun () ->
             task {
                 return res
             }
         
-        let eff = FIO.FromGenericTask<Fiber<int, exn>> lazyTask
+        let eff = FIO.FromTask taskFactory
         
         let actual = (result <| runtime.Run eff).GetType()
         let expected = typeof<Fiber<int, exn>>
@@ -506,13 +506,13 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``FromGenericTask effect always succeeds with fiber when the task fails`` (runtime: FRuntime, res: int, exnMsg: string) =
-        let lazyTask = fun () ->
+        let taskFactory = fun () ->
             task {
                 invalidOp exnMsg
                 return res
             }
         
-        let eff = FIO.FromGenericTask<Fiber<int, exn>> lazyTask
+        let eff = FIO.FromTask taskFactory
         
         let actual = (result <| runtime.Run eff).GetType()
         let expected = typeof<Fiber<int, exn>>
@@ -521,13 +521,13 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``FromGenericTask fiber always fails when the task fails`` (runtime: FRuntime, res: int, exnMsg: string) =
-        let lazyTask = fun () ->
+        let taskFactory = fun () ->
             task {
                 invalidOp exnMsg
                 return res
             }
         
-        let eff = FIO.FromGenericTask<Fiber<int, exn>> lazyTask
+        let eff = FIO.FromTask taskFactory
         
         let actual = (error <| result (runtime.Run eff)).Message
         let expected = exnMsg
@@ -716,7 +716,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``ThenError always succeeds with the initial effect when the initial effect succeeds and second effect fails`` (runtime: FRuntime, err: int, res: int) =
-        let eff = (FIO.Succeed res).ThenError(FIO.Fail err)
+        let eff = (FIO.Succeed res).OrElse(FIO.Fail err)
         
         let actual = result <| runtime.Run eff
         let expected = res
@@ -725,7 +725,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``ThenError always succeeds with the second effect when the initial effect fails and second effect succeeds`` (runtime: FRuntime, res: int, err: int) =
-        let eff = (FIO.Fail err).ThenError(FIO.Succeed res)
+        let eff = (FIO.Fail err).OrElse(FIO.Succeed res)
         
         let actual = result <| runtime.Run eff
         let expected = res
@@ -734,7 +734,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``ThenError always succeeds with the initial effect when the initial effect succeeds and second effect succeeds`` (runtime: FRuntime, res1: int, res2: int) =
-        let eff = (FIO.Succeed res1).ThenError(FIO.Succeed res2)
+        let eff = (FIO.Succeed res1).OrElse(FIO.Succeed res2)
         
         let actual = result <| runtime.Run eff
         let expected = res1
@@ -743,7 +743,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``ThenError always fails with the second effect when the initial effect fails and second effect fails`` (runtime: FRuntime, err1: int, err2: int) =
-        let eff = (FIO.Fail err1).ThenError(FIO.Fail err2)
+        let eff = (FIO.Fail err1).OrElse(FIO.Fail err2)
         
         let actual = error <| runtime.Run eff
         let expected = err2
@@ -1344,7 +1344,7 @@ type RuntimeTests () =
 
     [<Property>]
     member _.``Error recovery with ThenError allows continuation after failure`` (runtime: FRuntime, err: int) =
-        let eff = (FIO.Fail err).ThenError(FIO.Succeed 42)
+        let eff = (FIO.Fail err).OrElse(FIO.Succeed 42)
         let actual = result <| runtime.Run eff
         actual = 42
 
@@ -1494,8 +1494,8 @@ type RuntimeTests () =
         let eff = fio {
             let! result =
                 (FIO.Fail "error1")
-                    .ThenError(FIO.Fail "error2")
-                    .ThenError(FIO.Succeed value)
+                    .OrElse(FIO.Fail "error2")
+                    .OrElse(FIO.Succeed value)
             return result
         }
         let actual = result <| runtime.Run eff

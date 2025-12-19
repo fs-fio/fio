@@ -32,6 +32,7 @@ type FIOBuilder internal () =
     
     /// <summary>
     /// Binds the result of an FIO effect to a function, mapping the result in computation expressions.
+    /// Maps a function over the result of the effect, or propagates an error.
     /// </summary>
     /// <typeparam name="'R">The result type of the first effect.</typeparam>
     /// <typeparam name="'R1">The mapped result type.</typeparam>
@@ -44,12 +45,13 @@ type FIOBuilder internal () =
 
     /// <summary>
     /// Combines two FIO effects, sequencing them in computation expressions.
+    /// Ignores the result of the first effect. If the first effect fails, the error is propagated immediately.
     /// </summary>
     /// <typeparam name="'R">The result type of the first effect.</typeparam>
     /// <typeparam name="'R1">The result type of the second effect.</typeparam>
     /// <typeparam name="'E">The error type.</typeparam>
     /// <param name="eff">The first FIO effect.</param>
-    /// <param name="eff'">The second FIO effect to run after the first.</param>
+    /// <param name="eff'">The second FIO effect to run after the first succeeds.</param>
     /// <returns>An FIO effect representing the sequential composition.</returns>
     member inline _.Combine<'R, 'R1, 'E> (eff: FIO<'R, 'E>, eff': FIO<'R1, 'E>) : FIO<'R1, 'E> =
         eff.Then eff'
@@ -109,7 +111,7 @@ type FIOBuilder internal () =
     /// <typeparam name="'E">The error type.</typeparam>
     /// <param name="res">The value to yield.</param>
     /// <returns>An FIO effect that succeeds with the given value.</returns>
-    member inline this.Yield<'R, 'E> (res: 'R) : FIO<'R, 'E> =
+    member inline _.Yield<'R, 'E> (res: 'R) : FIO<'R, 'E> =
         FIO.Succeed res
 
     /// <summary>
@@ -134,12 +136,13 @@ type FIOBuilder internal () =
 
     /// <summary>
     /// Handles exceptions in an FIO effect by binding the error to a handler.
+    /// If the effect succeeds, the result is propagated immediately. If it fails, the handler is invoked with the error.
     /// </summary>
     /// <typeparam name="'R">The result type.</typeparam>
     /// <typeparam name="'E">The error type.</typeparam>
     /// <typeparam name="'E1">The new error type after handling.</typeparam>
     /// <param name="eff">The FIO effect to try.</param>
-    /// <param name="cont">The error handler function.</param>
+    /// <param name="cont">The error handler function that receives the error and returns a recovery effect.</param>
     /// <returns>An FIO effect that handles errors using the given handler.</returns>
     member inline _.TryWith<'R, 'E, 'E1> (eff: FIO<'R, 'E>, cont: 'E -> FIO<'R, 'E1>) : FIO<'R, 'E1> =
         eff.BindError cont
@@ -247,13 +250,14 @@ type FIOBuilder internal () =
 
     /// <summary>
     /// Merges two FIO effects into one that returns a tuple of their results.
+    /// Sequences both effects and succeeds with a tuple when both complete. Errors are propagated immediately if any effect fails.
     /// </summary>
     /// <typeparam name="'R">The result type of the first effect.</typeparam>
     /// <typeparam name="'R1">The result type of the second effect.</typeparam>
     /// <typeparam name="'E">The error type.</typeparam>
     /// <param name="eff">The first FIO effect.</param>
     /// <param name="eff'">The second FIO effect.</param>
-    /// <returns>An FIO effect that returns a tuple of the results.</returns>
+    /// <returns>An FIO effect that returns a tuple of both results, or propagates an error.</returns>
     member inline _.MergeSources<'R, 'R1, 'E> (eff: FIO<'R, 'E>, eff': FIO<'R1, 'E>) : FIO<'R * 'R1, 'E> =
         eff.Zip eff'
 

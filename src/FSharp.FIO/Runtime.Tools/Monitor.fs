@@ -20,9 +20,9 @@ open System.Threading.Tasks
 /// Provides periodic snapshots of channel counts and statistics.
 /// </summary>
 type internal Monitor (
-    activeWorkItemChan: InternalChannel<WorkItem>,
-    activeBlockingDataChanOpt: InternalChannel<BlockingData> option,
-    activeBlockingEventChan: InternalChannel<Channel<obj>> option) =
+    activeWorkItemChan: UnboundedChannel<WorkItem>,
+    activeBlockingDataChanOpt: UnboundedChannel<BlockingData> option,
+    activeBlockingEventChan: UnboundedChannel<Channel<obj>> option) =
 
     let mutable running = true
     let monitorTask =

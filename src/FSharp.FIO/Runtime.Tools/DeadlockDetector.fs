@@ -24,7 +24,7 @@ type internal Worker () =
 /// Detection logic: If there's no work in the queue, all workers are idle, but there
 /// are still blocking items, a potential deadlock is detected.
 /// </summary>
-type internal DeadlockDetector<'B, 'E when 'B :> Worker and 'E :> Worker>(activeWorkItemChan: InternalChannel<WorkItem>, intervalMs: int) =
+type internal DeadlockDetector<'B, 'E when 'B :> Worker and 'E :> Worker>(activeWorkItemChan: UnboundedChannel<WorkItem>, intervalMs: int) =
     let blockingItems = ConcurrentDictionary<BlockingItem, unit>()
     let mutable blockingWorkers: List<'B> = []
     let mutable evalWorkers: List<'E> = []
