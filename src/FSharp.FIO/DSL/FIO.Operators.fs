@@ -181,7 +181,7 @@ let inline ( !!~> ) (eff: FIO<'R, 'E>) : FIO<unit, 'E1> =
 
 /// <summary>
 /// Executes two effects concurrently and succeeds with a tuple of their results when both complete.
-/// Errors are propagated immediately if any effect fails. Alias for <c>FIO.Parallel</c>.
+/// Errors are propagated immediately if any effect fails. Alias for <c>FIO.ZipPar</c>.
 /// </summary>
 /// <typeparam name="R">The result type of the first effect.</typeparam>
 /// <typeparam name="R1">The result type of the second effect.</typeparam>
@@ -190,11 +190,11 @@ let inline ( !!~> ) (eff: FIO<'R, 'E>) : FIO<unit, 'E1> =
 /// <param name="eff'">The second effect.</param>
 /// <returns>An FIO effect that executes both effects concurrently and returns a tuple of their results.</returns>
 let inline ( <!> ) (eff: FIO<'R, 'E>) (eff': FIO<'R1, 'E>) : FIO<'R * 'R1, 'E> =
-    eff.Parallel eff'
+    eff.ZipPar eff'
 
 /// <summary>
 /// Executes two effects concurrently and succeeds with unit when both complete.
-/// Errors are propagated immediately if any effect fails. Alias for <c>FIO.Parallel</c>.
+/// Errors are propagated immediately if any effect fails. Alias for <c>FIO.ZipPar</c>.
 /// </summary>
 /// <typeparam name="R">The result type of the first effect.</typeparam>
 /// <typeparam name="R1">The result type of the second effect.</typeparam>
@@ -203,11 +203,11 @@ let inline ( <!> ) (eff: FIO<'R, 'E>) (eff': FIO<'R1, 'E>) : FIO<'R * 'R1, 'E> =
 /// <param name="eff'">The second effect.</param>
 /// <returns>An FIO effect that executes both effects concurrently and returns unit.</returns>
 let inline ( <~> ) (eff: FIO<'R, 'E>) (eff': FIO<'R1, 'E>) : FIO<unit, 'E> =
-    eff.Parallel eff' |> _.Then <| FIO.Succeed ()
+    eff.ZipPar eff' |> _.Then <| FIO.Succeed ()
 
 /// <summary>
 /// Executes two effects concurrently and fails with a tuple of their errors when both fail.
-/// Alias for <c>FIO.ParallelError</c>.
+/// Alias for <c>FIO.ZipParError</c>.
 /// </summary>
 /// <typeparam name="R">The result type.</typeparam>
 /// <typeparam name="E">The error type of the first effect.</typeparam>
@@ -216,47 +216,47 @@ let inline ( <~> ) (eff: FIO<'R, 'E>) (eff': FIO<'R1, 'E>) : FIO<unit, 'E> =
 /// <param name="eff'">The second effect.</param>
 /// <returns>An FIO effect that executes both effects concurrently and returns a tuple of their errors.</returns>
 let inline ( <!!> ) (eff: FIO<'R, 'E>) (eff': FIO<'R, 'E1>) : FIO<'R, 'E * 'E1> =
-    eff.ParallelError eff'
+    eff.ZipParError eff'
 
 /// <summary>
-/// Waits for the result of the given fiber and succeeds with it. Alias for <c>Fiber.Await</c>.
+/// Joins the given fiber, awaiting its completion and returning its result. Alias for <c>Fiber.Join</c>.
 /// </summary>
 /// <typeparam name="R">The result type.</typeparam>
 /// <typeparam name="E">The error type.</typeparam>
-/// <param name="fiber">The fiber to await.</param>
-/// <returns>An FIO effect that awaits the given fiber and returns its result.</returns>
+/// <param name="fiber">The fiber to join.</param>
+/// <returns>An FIO effect that joins the given fiber and returns its result.</returns>
 let inline ( !<~~ ) (fiber: Fiber<'R, 'E>) : FIO<'R, 'E> =
-    fiber.Await()
+    fiber.Join()
 
 /// <summary>
-/// Waits for the result of the given fiber and succeeds with it. Alias for <c>Fiber.Await</c>.
+/// Joins the given fiber, awaiting its completion and returning its result. Alias for <c>Fiber.Join</c>.
 /// </summary>
 /// <typeparam name="R">The result type.</typeparam>
 /// <typeparam name="E">The error type.</typeparam>
-/// <param name="fiber">The fiber to await.</param>
-/// <returns>An FIO effect that awaits the given fiber and returns its result.</returns>
+/// <param name="fiber">The fiber to join.</param>
+/// <returns>An FIO effect that joins the given fiber and returns its result.</returns>
 let inline ( !~~> ) (fiber: Fiber<'R, 'E>) : FIO<'R, 'E> =
-    fiber.Await()
+    fiber.Join()
 
 /// <summary>
-/// Waits for the completion of the fiber and returns `unit`. Alias for <c>Fiber.Await</c>.
+/// Joins the given fiber, awaiting its completion and returning unit. Alias for <c>Fiber.Join</c>.
 /// </summary>
 /// <typeparam name="R">The result type.</typeparam>
 /// <typeparam name="E">The error type.</typeparam>
-/// <param name="fiber">The fiber to await.</param>
-/// <returns>An FIO effect that awaits the given fiber and returns `unit`.</returns>
+/// <param name="fiber">The fiber to join.</param>
+/// <returns>An FIO effect that joins the given fiber and returns `unit`.</returns>
 let inline ( !!<~~ ) (fiber: Fiber<'R, 'E>) : FIO<unit, 'E> =
-    fiber.Await().Then <| FIO.Succeed ()
+    fiber.Join().Then <| FIO.Succeed ()
 
 /// <summary>
-/// Waits for the completion of the fiber and returns `unit`. Alias for <c>Fiber.Await</c>.
+/// Joins the given fiber, awaiting its completion and returning unit. Alias for <c>Fiber.Join</c>.
 /// </summary>
 /// <typeparam name="R">The result type.</typeparam>
 /// <typeparam name="E">The error type.</typeparam>
-/// <param name="fiber">The fiber to await.</param>
-/// <returns>An FIO effect that awaits the given fiber and returns `unit`.</returns>
+/// <param name="fiber">The fiber to join.</param>
+/// <returns>An FIO effect that joins the given fiber and returns `unit`.</returns>
 let inline ( !!~~> ) (fiber: Fiber<'R, 'E>) : FIO<unit, 'E> =
-    fiber.Await().Then <| FIO.Succeed ()
+    fiber.Join().Then <| FIO.Succeed ()
 
 /// <summary>
 /// Converts a Task into an effect that awaits its completion. Alias for <c>FIO.AwaitTask</c>.
@@ -317,7 +317,7 @@ let inline ( !!<<<~ ) (async: Async<'R>) (onError: exn -> 'E) : FIO<'R, 'E> =
     FIO.AwaitAsync<'R, 'E> (async, onError)
 
 /// <summary>
-/// Chains the success result of the effect to the continuation function. Alias for <c>FIO.Bind</c>.
+/// Chains the success result of the effect to the continuation function. Alias for <c>FIO.FlatMap</c>.
 /// </summary>
 /// <typeparam name="R">The result type of the effect.</typeparam>
 /// <typeparam name="R1">The result type of the continuation.</typeparam>
@@ -326,10 +326,10 @@ let inline ( !!<<<~ ) (async: Async<'R>) (onError: exn -> 'E) : FIO<'R, 'E> =
 /// <param name="cont">The continuation function.</param>
 /// <returns>An FIO effect that chains the success result of the given effect to the continuation function.</returns>
 let inline ( >>= ) (eff: FIO<'R, 'E>) (cont: 'R -> FIO<'R1, 'E>) : FIO<'R1, 'E> =
-    eff.Bind cont
+    eff.FlatMap cont
 
 /// <summary>
-/// Chains the success result of the effect to the continuation function. Alias for <c>FIO.Bind</c>.
+/// Chains the success result of the effect to the continuation function. Alias for <c>FIO.FlatMap</c>.
 /// </summary>
 /// <typeparam name="R">The result type of the effect.</typeparam>
 /// <typeparam name="R1">The result type of the continuation.</typeparam>
@@ -338,31 +338,31 @@ let inline ( >>= ) (eff: FIO<'R, 'E>) (cont: 'R -> FIO<'R1, 'E>) : FIO<'R1, 'E> 
 /// <param name="eff">The effect to bind.</param>
 /// <returns>An FIO effect that chains the success result of the given effect to the continuation function.</returns>
 let inline ( =<< ) (cont: 'R -> FIO<'R1, 'E>) (eff: FIO<'R, 'E>)  : FIO<'R1, 'E> =
-    eff.Bind cont
+    eff.FlatMap cont
 
 /// <summary>
-/// Chains the error result of the effect to the continuation function. Alias for <c>FIO.BindError</c>.
+/// Handles all errors in the effect by applying a recovery function. Alias for <c>FIO.CatchAll</c>.
 /// </summary>
 /// <typeparam name="R">The result type of the effect.</typeparam>
 /// <typeparam name="E">The error type of the effect.</typeparam>
 /// <typeparam name="E1">The error type of the continuation.</typeparam>
-/// <param name="eff">The effect to bind.</param>
-/// <param name="cont">The continuation function.</param>
-/// <returns>An FIO effect that chains the error result of the given effect to the continuation function.</returns>
+/// <param name="eff">The effect to handle errors for.</param>
+/// <param name="cont">The error handler function.</param>
+/// <returns>An FIO effect that handles errors using the given recovery function.</returns>
 let inline ( >>=? ) (eff: FIO<'R, 'E>) (cont: 'E -> FIO<'R, 'E1>) : FIO<'R, 'E1> =
-    eff.BindError cont
+    eff.CatchAll cont
 
 /// <summary>
-/// Chains the error result of the effect to the continuation function. Alias for <c>FIO.BindError</c>.
+/// Handles all errors in the effect by applying a recovery function. Alias for <c>FIO.CatchAll</c>.
 /// </summary>
 /// <typeparam name="R">The result type of the effect.</typeparam>
 /// <typeparam name="E">The error type of the effect.</typeparam>
 /// <typeparam name="E1">The error type of the continuation.</typeparam>
-/// <param name="cont">The continuation function.</param>
-/// <param name="eff">The effect to bind.</param>
-/// <returns>An FIO effect that chains the error result of the given effect to the continuation function.</returns>
+/// <param name="cont">The error handler function.</param>
+/// <param name="eff">The effect to handle errors for.</param>
+/// <returns>An FIO effect that handles errors using the given recovery function.</returns>
 let inline ( ?=<< ) (cont: 'E -> FIO<'R, 'E1>) (eff: FIO<'R, 'E>) : FIO<'R, 'E1> =
-    eff.BindError cont
+    eff.CatchAll cont
 
 /// <summary>
 /// Maps a function over the result of an effect. Alias for <c>FIO.Map</c>.

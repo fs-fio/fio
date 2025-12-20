@@ -28,7 +28,7 @@ type FIOBuilder internal () =
     /// <param name="cont">The continuation function to apply to the result.</param>
     /// <returns>An FIO effect representing the composed computation.</returns>
     member inline _.Bind<'R, 'R1, 'E> (eff: FIO<'R, 'E>, cont: 'R -> FIO<'R1, 'E>) : FIO<'R1, 'E> =
-        eff.Bind cont
+        eff.FlatMap cont
     
     /// <summary>
     /// Binds the result of an FIO effect to a function, mapping the result in computation expressions.
@@ -145,7 +145,7 @@ type FIOBuilder internal () =
     /// <param name="cont">The error handler function that receives the error and returns a recovery effect.</param>
     /// <returns>An FIO effect that handles errors using the given handler.</returns>
     member inline _.TryWith<'R, 'E, 'E1> (eff: FIO<'R, 'E>, cont: 'E -> FIO<'R, 'E1>) : FIO<'R, 'E1> =
-        eff.BindError cont
+        eff.CatchAll cont
 
     /// <summary>
     /// Ensures a finalizer effect is run after an FIO effect, even if an error occurs.
@@ -157,12 +157,12 @@ type FIOBuilder internal () =
     /// <param name="finalizer">The finalizer effect to run after the effect.</param>
     /// <returns>An FIO effect that runs the finalizer after the effect.</returns>
     member inline _.TryFinally<'R, 'E> (eff: FIO<'R, 'E>, finalizer: FIO<unit, 'E>) : FIO<'R, 'E> =
-        eff.Bind(fun res ->
-            finalizer.Bind(fun _ -> FIO.Succeed res)
-                     .BindError(fun _ -> FIO.Succeed res))
-           .BindError(fun err ->
-            finalizer.Bind(fun _ -> FIO.Fail err)
-                     .BindError(fun _ -> FIO.Fail err))
+        eff.FlatMap(fun res ->
+            finalizer.FlatMap(fun _ -> FIO.Succeed res)
+                     .CatchAll(fun _ -> FIO.Succeed res))
+           .CatchAll(fun err ->
+            finalizer.FlatMap(fun _ -> FIO.Fail err)
+                     .CatchAll(fun _ -> FIO.Fail err))
 
     /// <summary>
     /// Delays the execution of a computation until it is needed.
@@ -172,7 +172,7 @@ type FIOBuilder internal () =
     /// <param name="cont">A function that produces the FIO effect to run.</param>
     /// <returns>An FIO effect that delays execution.</returns>
     member inline this.Delay<'R1, 'E> (cont: unit -> FIO<'R1, 'E>) : FIO<'R1, 'E> =
-       this.Zero().Bind cont
+       this.Zero().FlatMap cont
 
     /// <summary>
     /// Iterates over a sequence, running the body for each element in order.
@@ -189,7 +189,7 @@ type FIOBuilder internal () =
         let rec loop () =
             if enumerator.MoveNext () then
                 this.Delay <| fun () ->
-                    body(enumerator.Current).Bind(fun _ -> loop ())
+                    body(enumerator.Current).FlatMap(fun _ -> loop ())
             else
                 this.Zero ()
 
@@ -211,7 +211,7 @@ type FIOBuilder internal () =
     member inline this.While<'R, 'E> (guard: unit -> bool, body: FIO<'R, 'E>) : FIO<unit, 'E> =
         let rec loop () =
             if guard () then
-                this.Delay <| fun () -> body.Bind <| fun _ -> loop ()
+                this.Delay <| fun () -> body.FlatMap <| fun _ -> loop ()
             else
                 this.Zero ()
         loop ()

@@ -80,7 +80,7 @@ let helloWorld6 () =
 
 let concurrency1 () =
     let runtime = new Runtime()
-    let concurrent = (FIO.Succeed 42).Fork().Bind _.Await()
+    let concurrent = (FIO.Succeed 42).Fork().FlatMap _.Join()
     let fiber = runtime.Run concurrent
     
     task {

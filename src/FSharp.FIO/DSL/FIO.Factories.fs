@@ -214,7 +214,7 @@ type FIO<'R, 'E> with
     /// <param name="useResource">A function that produces the effect to use the resource.</param>
     /// <returns>An FIO effect that safely acquires, uses, and releases the resource with guaranteed cleanup.</returns>
     static member inline AcquireRelease<'A, 'R, 'E> (acquire: FIO<'A, 'E>) (release: 'A -> FIO<unit, 'E>) (useResource: 'A -> FIO<'R, 'E>) : FIO<'R, 'E> =
-        acquire.Bind(fun resource ->
+        acquire.FlatMap(fun resource ->
             (useResource resource)
-                .Bind(fun res -> (release resource).Bind(fun _ -> FIO.Succeed<'R, 'E> res))
-                .BindError(fun err -> (release resource).Bind(fun _ -> FIO.Fail<'R, 'E> err)))
+                .FlatMap(fun res -> (release resource).FlatMap(fun _ -> FIO.Succeed<'R, 'E> res))
+                .CatchAll(fun err -> (release resource).FlatMap(fun _ -> FIO.Fail<'R, 'E> err)))

@@ -78,7 +78,7 @@ and internal RuntimeAction =
 and internal BlockingItem =
     | BlockingChannel of Channel<obj>
     | BlockingFiberContext of FiberContext
-    
+
 /// <summary>
 /// Internal data structure tracking a blocked work item and its blocking resource.
 /// </summary>
@@ -197,8 +197,6 @@ and internal FiberContext () =
     
     member internal _.AddBlockingWorkItem (blockingWorkItem: WorkItem) =
         task {
-            // if completed then
-            //     printfn "WARNING: FiberContext: Adding a blocking item on a fiber that is already completed!"
             do! blockingWorkItemChan.AddAsync blockingWorkItem
         }
         
@@ -253,10 +251,10 @@ and Fiber<'R, 'E> internal () =
     let mutable disposed = false
 
     /// <summary>
-    /// Creates an effect that awaits the fiber and succeeds with its result.
+    /// Joins the fiber, awaiting its completion and returning its result.
     /// </summary>
     /// <returns>An FIO effect that awaits the fiber and returns its result or error.</returns>
-    member _.Await<'R, 'E> () : FIO<'R, 'E> =
+    member _.Join<'R, 'E> () : FIO<'R, 'E> =
         AwaitFiberContext fiberContext
 
     /// <summary>
@@ -446,25 +444,27 @@ and FIO<'R, 'E> =
         ConcurrentEffect (this.Upcast (), fiber, fiber.Internal)
 
     /// <summary>
-    /// Binds a continuation to the result of this effect. Errors are propagated immediately if the effect fails.
+    /// Sequentially composes this effect with a function that returns another effect (monadic bind).
+    /// Errors are propagated immediately if the first effect fails.
     /// </summary>
     /// <typeparam name="R">The original result type.</typeparam>
     /// <typeparam name="R1">The result type of the continuation.</typeparam>
     /// <typeparam name="E">The error type.</typeparam>
     /// <param name="cont">The continuation function to apply to the result.</param>
     /// <returns>An FIO effect that applies the continuation to the result, or propagates an error.</returns>
-    member this.Bind<'R, 'R1, 'E> (cont: 'R -> FIO<'R1, 'E>) : FIO<'R1, 'E> =
+    member this.FlatMap<'R, 'R1, 'E> (cont: 'R -> FIO<'R1, 'E>) : FIO<'R1, 'E> =
         ChainSuccess (this.UpcastResult (), fun res -> cont (res :?> 'R))
 
     /// <summary>
-    /// Binds a continuation to the error of this effect. Results are propagated immediately if the effect succeeds.
+    /// Handles all errors in this effect by applying a recovery function.
+    /// Results are propagated immediately if the effect succeeds.
     /// </summary>
     /// <typeparam name="R">The result type.</typeparam>
     /// <typeparam name="E">The original error type.</typeparam>
     /// <typeparam name="E1">The error type of the continuation.</typeparam>
-    /// <param name="cont">The continuation function to apply to the error.</param>
-    /// <returns>An FIO effect that applies the continuation to the error, or propagates the result.</returns>
-    member this.BindError<'R, 'E, 'E1> (cont: 'E -> FIO<'R, 'E1>) : FIO<'R, 'E1> =
+    /// <param name="cont">The error handler function that returns a recovery effect.</param>
+    /// <returns>An FIO effect that applies the error handler, or propagates the result.</returns>
+    member this.CatchAll<'R, 'E, 'E1> (cont: 'E -> FIO<'R, 'E1>) : FIO<'R, 'E1> =
         ChainError (this.UpcastError (), fun err -> cont (err :?> 'E))
 
     /// <summary>

@@ -572,7 +572,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``Bind always succeeds when the initial effect succeeds and continuation succeeds`` (runtime: FRuntime, res: int) =
-        let eff = (FIO.Succeed res).Bind(FIO.Succeed)
+        let eff = (FIO.Succeed res).FlatMap FIO.Succeed
         
         let actual = result <| runtime.Run eff
         let expected = res
@@ -581,7 +581,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``Bind always fails when the initial effect fails and continuation fails`` (runtime: FRuntime, err: int) =
-        let eff = (FIO.Fail err).Bind(FIO.Fail)
+        let eff = (FIO.Fail err).FlatMap FIO.Fail
         
         let actual = error <| runtime.Run eff
         let expected = err
@@ -590,7 +590,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``Bind always fails when the initial effect fails and continuation succeeds`` (runtime: FRuntime, err: int) =
-        let eff = (FIO.Fail err).Bind(FIO.Succeed)
+        let eff = (FIO.Fail err).FlatMap FIO.Succeed
         
         let actual = error <| runtime.Run eff
         let expected = err
@@ -599,7 +599,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``Bind always fails when the initial effect succeeds and continuation fails`` (runtime: FRuntime, res: int) =
-        let eff = (FIO.Succeed res).Bind(FIO.Fail)
+        let eff = (FIO.Succeed res).FlatMap FIO.Fail
         
         let actual = error <| runtime.Run eff
         let expected = res
@@ -608,7 +608,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``BindError always succeeds when the initial effect succeeds and continuation fails`` (runtime: FRuntime, res: int) =
-        let eff = (FIO.Succeed res).BindError(FIO.Fail)
+        let eff = (FIO.Succeed res).CatchAll FIO.Fail
         
         let actual = result <| runtime.Run eff
         let expected = res
@@ -617,7 +617,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``BindError always succeeds when the initial effect fails and continuation succeeds`` (runtime: FRuntime, err: int) =
-        let eff = (FIO.Fail err).BindError(FIO.Succeed)
+        let eff = (FIO.Fail err).CatchAll FIO.Succeed
         
         let actual = result <| runtime.Run eff
         let expected = err
@@ -626,7 +626,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``BindError always succeeds with the initial effect when the initial effect succeeds and continuation succeeds`` (runtime: FRuntime, res: int) =
-        let eff = (FIO.Succeed res).BindError(fun r -> FIO.Succeed <| r + 1)
+        let eff = (FIO.Succeed res).CatchAll(fun r -> FIO.Succeed <| r + 1)
         
         let actual = result <| runtime.Run eff
         let expected = res
@@ -635,7 +635,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``BindError always fails with the continuation when the initial effect fails and continuation fails`` (runtime: FRuntime, err: int) =
-        let eff = (FIO.Fail err).BindError(fun e -> FIO.Fail <| e + 1)
+        let eff = (FIO.Fail err).CatchAll(fun e -> FIO.Fail <| e + 1)
         
         let actual = error <| runtime.Run eff
         let expected = err + 1
@@ -644,7 +644,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``Map always succeeds when the effect succeeds and transforms result`` (runtime: FRuntime, res: int) =
-        let eff = (FIO.Succeed res).Map(string)
+        let eff = (FIO.Succeed res).Map string
         
         let actual = result <| runtime.Run eff
         let expected = string res
@@ -653,7 +653,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``Map always fails when the effect fails and does not transform result`` (runtime: FRuntime, err: int) =
-        let eff = (FIO.Fail err).Map(string) 
+        let eff = (FIO.Fail err).Map string 
         
         let actual = error <| runtime.Run eff
         let expected = err
@@ -662,7 +662,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``MapError always succeeds when the effect succeeds and does not transform result`` (runtime: FRuntime, res: int) =
-        let eff = (FIO.Succeed res).MapError(string) 
+        let eff = (FIO.Succeed res).MapError string 
         
         let actual = result <| runtime.Run eff
         let expected = res
@@ -671,7 +671,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``MapError always fails when the effect fails and transforms result`` (runtime: FRuntime, err: int) =
-        let eff = (FIO.Fail err).MapError(string) 
+        let eff = (FIO.Fail err).MapError string 
         
         let actual = error <| runtime.Run eff
         let expected = string err
@@ -896,7 +896,7 @@ type RuntimeTests () =
         
     [<Property>]
     member _.``Parallel always succeeds when the initial effect succeeds and second effect succeeds`` (runtime: FRuntime, res1: int, res2: int) =
-        let eff = (FIO.Succeed res1).Parallel(FIO.Succeed res2)
+        let eff = (FIO.Succeed res1).ZipPar(FIO.Succeed res2)
         
         let actual = result <| runtime.Run eff
         let expected = (res1, res2)
@@ -905,7 +905,7 @@ type RuntimeTests () =
         
     [<Property>]
     member _.``Parallel always fails when the initial effect fails and second effect succeeds`` (runtime: FRuntime, err: int, res: int) =
-        let eff = (FIO.Fail err).Parallel(FIO.Succeed res)
+        let eff = (FIO.Fail err).ZipPar(FIO.Succeed res)
         
         let actual = error <| runtime.Run eff
         let expected = err
@@ -914,7 +914,7 @@ type RuntimeTests () =
         
     [<Property>]
     member _.``Parallel always fails when the initial effect succeeds and second effect fails`` (runtime: FRuntime, err: int, res: int) =
-        let eff = (FIO.Succeed res).Parallel(FIO.Fail err)
+        let eff = (FIO.Succeed res).ZipPar(FIO.Fail err)
         
         let actual = error <| runtime.Run eff
         let expected = err
@@ -923,7 +923,7 @@ type RuntimeTests () =
         
     [<Property>]
     member _.``Parallel always fails when the initial effect fails and second effect fails`` (runtime: FRuntime, err1: int, err2: int) =
-        let eff = (FIO.Fail err1).Parallel(FIO.Fail err2)
+        let eff = (FIO.Fail err1).ZipPar(FIO.Fail err2)
         
         let actual = error <| runtime.Run eff
         let expected = err1
@@ -932,7 +932,7 @@ type RuntimeTests () =
         
     [<Property>]
     member _.``ParallelError always fails when the initial effect fails and second effect fails`` (runtime: FRuntime, err1: int, err2: int) =
-        let eff = (FIO.Fail err1).ParallelError(FIO.Fail err2)
+        let eff = (FIO.Fail err1).ZipParError(FIO.Fail err2)
         
         let actual = error <| runtime.Run eff
         let expected = (err1, err2)
@@ -941,7 +941,7 @@ type RuntimeTests () =
         
     [<Property>]
     member _.``ParallelError always succeeds when the initial effect fails and second effect succeeds`` (runtime: FRuntime, err: int, res: int) =
-        let eff = (FIO.Fail err).ParallelError(FIO.Succeed res)
+        let eff = (FIO.Fail err).ZipParError(FIO.Succeed res)
         
         let actual = result <| runtime.Run eff
         let expected = res
@@ -950,7 +950,7 @@ type RuntimeTests () =
         
     [<Property>]
     member _.``ParallelError always succeeds when the initial effect succeeds and second effect fails`` (runtime: FRuntime, err: int, res: int) =
-        let eff = (FIO.Succeed res).ParallelError(FIO.Fail err)
+        let eff = (FIO.Succeed res).ZipParError(FIO.Fail err)
         
         let actual = result <| runtime.Run eff
         let expected = res
@@ -959,7 +959,7 @@ type RuntimeTests () =
         
     [<Property>]
     member _.``ParallelError always succeeds with the initial effect when the initial effect succeeds and second effect succeeds`` (runtime: FRuntime, res1: int, res2: int) =
-        let eff = (FIO.Succeed res1).ParallelError(FIO.Succeed res2)
+        let eff = (FIO.Succeed res1).ZipParError(FIO.Succeed res2)
 
         let actual = result <| runtime.Run eff
         let expected = res1
@@ -1184,7 +1184,7 @@ type RuntimeTests () =
             if depth <= 0 then
                 FIO.Succeed acc
             else
-                (FIO.Succeed acc).Bind(fun x -> createDeepChain (depth - 1) (x + 1))
+                (FIO.Succeed acc).FlatMap(fun x -> createDeepChain (depth - 1) (x + 1))
 
         let eff = createDeepChain 100 0
         let actual = result <| runtime.Run eff
@@ -1257,7 +1257,7 @@ type RuntimeTests () =
             let _ = FIO.Succeed 4
             let _ = FIO.Fail "error5"
 
-            let! _ = eff1.Parallel eff2
+            let! _ = eff1.ZipPar eff2
             return ()
         }
 
@@ -1265,7 +1265,7 @@ type RuntimeTests () =
             let eff1 = FIO.Succeed 1
             let eff2 = FIO.Fail "error2"
 
-            let! _ = eff1.Parallel eff2
+            let! _ = eff1.ZipPar eff2
             return 1
         }
 
@@ -1279,8 +1279,8 @@ type RuntimeTests () =
     member _.``BindError chains execute in correct order`` (runtime: FRuntime) =
         let eff =
             (FIO.Fail 10)
-                .BindError(fun x -> FIO.Fail (x + 10))
-                .BindError(fun x -> FIO.Fail (x * 2))
+                .CatchAll(fun x -> FIO.Fail (x + 10))
+                .CatchAll(fun x -> FIO.Fail (x * 2))
 
         let actual = error <| runtime.Run eff
         actual = 40
@@ -1335,8 +1335,8 @@ type RuntimeTests () =
         let f x = x + 10
         let g x = FIO.Succeed (x * 2)
 
-        let lhs = (FIO.Succeed value).Bind(g).Map(f)
-        let rhs = (FIO.Succeed value).Map(fun x -> x * 2).Bind(fun x -> FIO.Succeed (f x))
+        let lhs = (FIO.Succeed value).FlatMap(g).Map(f)
+        let rhs = (FIO.Succeed value).Map(fun x -> x * 2).FlatMap(fun x -> FIO.Succeed (f x))
 
         let lhsResult = result <| runtime.Run lhs
         let rhsResult = result <| runtime.Run rhs
@@ -1363,7 +1363,7 @@ type RuntimeTests () =
     member _.``Parallel effects both execute and return results`` (runtime: FRuntime, val1: int, val2: int) =
         let eff1 = FIO.Succeed val1
         let eff2 = FIO.Succeed val2
-        let parallelEff = eff1.Parallel eff2
+        let parallelEff = eff1.ZipPar eff2
         let r1, r2 = result <| runtime.Run parallelEff
         r1 = val1 && r2 = val2
 
@@ -1409,7 +1409,7 @@ type RuntimeTests () =
 
     [<Property>]
     member _.``Error propagation - Error in bind continuation propagates`` (runtime: FRuntime, err: int) =
-        let eff = (FIO.Succeed 42).Bind(fun _ -> FIO.Fail err)
+        let eff = (FIO.Succeed 42).FlatMap(fun _ -> FIO.Fail err)
         let actual = error <| runtime.Run eff
         actual = err
 
@@ -1460,8 +1460,8 @@ type RuntimeTests () =
         let g x = FIO.Succeed (x * 2)
         let h x = FIO.Succeed (x - 5)
 
-        let lhs = (FIO.Succeed value).Bind(f).Bind(g).Bind h
-        let rhs = (FIO.Succeed value).Bind(fun x -> f(x).Bind(fun y -> g(y).Bind(h)))
+        let lhs = (FIO.Succeed value).FlatMap(f).FlatMap(g).FlatMap h
+        let rhs = (FIO.Succeed value).FlatMap(fun x -> f(x).FlatMap(fun y -> g(y).FlatMap(h)))
 
         let lhsResult = result <| runtime.Run lhs
         let rhsResult = result <| runtime.Run rhs
