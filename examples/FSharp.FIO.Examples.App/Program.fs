@@ -44,7 +44,7 @@ type EnterNumberApp() =
                 return! !- IOException("You entered an invalid number!")
         }
 
-type TryCatchApp() =
+type TryWithApp() =
     inherit FIOApp<string, int>()
 
     override _.effect =
@@ -56,13 +56,40 @@ type TryCatchApp() =
                 return! !- errorCode
         }
 
+type TryFinallyApp() =
+    inherit FIOApp<string, int>()
+
+    override _.effect =
+        fio {
+            try
+                do! !- 1
+                return "Successfully completed!"
+            finally
+                FConsole.PrintLineMapError ("Running finalizer, always executes", (fun _ -> -2))
+        }
+
+type TryWithFinallyApp() =
+    inherit FIOApp<string, int>()
+
+    override _.effect =
+        fio {
+            try
+                try
+                    do! !- 1
+                    return "Successfully completed!"
+                with errorCode ->
+                    return! !- errorCode
+            finally
+                FConsole.PrintLineMapError ("Running finalizer, always executes", (fun _ -> -2))
+        }
+
 type ForApp() =
     inherit FIOApp<unit, exn>()
 
     override _.effect =
         fio {
             for number in 1..10 do
-                match! !<< (fun () -> number % 2 = 0) with
+                match number % 2 = 0 with
                 | true -> do! FConsole.PrintLine $"%i{number} is even!"
                 | false -> do! FConsole.PrintLine $"%i{number} is odd!"
         }
@@ -79,7 +106,7 @@ type GuessNumberApp() =
                 do! FConsole.Print "Guess a number: "
                 let! input = FConsole.ReadLine ()
 
-                match! !<< (fun () -> Int32.TryParse input) with
+                match Int32.TryParse input with
                 | true, parsedInput ->
                     guess <- parsedInput
                     if guess < numberToGuess then
@@ -566,14 +593,20 @@ type WebSocketApp(serverUrl, clientUrl) =
         fio {
             do! client clientUrl <~> server serverUrl
         }
-        
+
 WelcomeApp().Run ()
 Console.ReadLine () |> ignore
 
 EnterNumberApp().Run ()
 Console.ReadLine () |> ignore
 
-TryCatchApp().Run ()
+TryWithApp().Run ()
+Console.ReadLine () |> ignore
+
+TryFinallyApp().Run ()
+Console.ReadLine () |> ignore
+
+TryWithFinallyApp().Run ()
 Console.ReadLine () |> ignore
 
 ForApp().Run ()

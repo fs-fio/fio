@@ -110,11 +110,11 @@ type Runtime () =
                                     try
                                         try
                                             let! res = this.InterpretAsync eff fiberContext
-                                            do! fiberContext.Complete res
+                                            fiberContext.Complete res
                                         with exn ->
                                             // InterpretAsync threw an unexpected exception (shouldn't happen by design)
                                             // Complete the fiber with the error to prevent unobserved exceptions
-                                            do! fiberContext.Complete <| Error exn
+                                            fiberContext.Complete <| Error exn
                                     finally
                                         // Always dispose registration when child completes
                                         registration.Dispose ()
@@ -131,12 +131,12 @@ type Runtime () =
                                         let t = taskFactory ()
                                         try
                                             do! t
-                                            do! fiberContext.Complete (Ok ())
+                                            fiberContext.Complete (Ok ())
                                         with
                                         | :? OperationCanceledException ->
-                                            do! fiberContext.Complete (Error (onError <| FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled.")))
+                                            fiberContext.Complete (Error (onError <| FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled.")))
                                         | exn ->
-                                            do! fiberContext.Complete (Error <| onError exn)
+                                            fiberContext.Complete (Error <| onError exn)
                                     finally
                                         // Always dispose registration when child completes
                                         registration.Dispose ()
@@ -153,12 +153,12 @@ type Runtime () =
                                         let t = taskFactory ()
                                         try
                                             let! result = t
-                                            do! fiberContext.Complete (Ok result)
+                                            fiberContext.Complete (Ok result)
                                         with
                                         | :? OperationCanceledException ->
-                                            do! fiberContext.Complete (Error (onError <| FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled.")))
+                                            fiberContext.Complete (Error (onError <| FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled.")))
                                         | exn ->
-                                            do! fiberContext.Complete (Error <| onError exn)
+                                            fiberContext.Complete (Error <| onError exn)
                                     finally
                                         // Always dispose registration when child completes
                                         registration.Dispose ()
@@ -197,7 +197,7 @@ type Runtime () =
         task {
             try
                 let! res = this.InterpretAsync (eff.Upcast ()) fiber.Internal
-                do! fiber.Internal.Complete res
+                fiber.Internal.Complete res
             finally
                 (fiber.Internal :> IDisposable).Dispose ()
         } |> ignore

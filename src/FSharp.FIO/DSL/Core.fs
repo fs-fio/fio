@@ -5,7 +5,7 @@
 (*********************************************************************************************)
 
 /// <summary>
-/// Provides the core types, primitives, and internal machinery for the FIO effect system, including FIO, Fiber, Channel, and supporting types for effectful, concurrent, and asynchronous programming in F#.
+/// Core types and primitives for the FIO effect system.
 /// </summary>
 [<AutoOpen>]
 module FSharp.FIO.DSL.Core
@@ -96,58 +96,72 @@ and internal WorkItem =
       PrevAction: RuntimeAction }
 
 /// <summary>
-/// Unbounded channel implementation using System.Threading.Channels for efficient message passing.
-/// Thread-safety: All operations are thread-safe. Count uses Volatile.Read for non-blocking
-/// queries (returning potentially stale values), while Interlocked ensures atomic
-/// updates during Add/Take operations.
+/// Thread-safe unbounded channel for message passing.
 /// </summary>
-and internal UnboundedChannel<'R> (id: Guid) =
-    let chan = Channel.CreateUnbounded<'R>()
+and [<Sealed>] internal UnboundedChannel<'R> (id: Guid) =
     let mutable count = 0L
+    let chan = Channel.CreateUnbounded<'R> ()
 
     new() = UnboundedChannel (Guid.NewGuid ())
 
-    member internal _.AddAsync (msg: 'R) =
-        task {
-            do! chan.Writer.WriteAsync msg
-            Interlocked.Increment &count
-            |> ignore
-        }
-    
-    member internal _.TakeAsync () =
-        task {
-            let! res = chan.Reader.ReadAsync()
-            Interlocked.Decrement &count
-            |> ignore
-            return res
-        }
-        
-    member internal _.TryTake (res: byref<'R>) =
-        let success = chan.Reader.TryRead &res
-        if success then
-            Interlocked.Decrement &count
-            |> ignore
-        success
-    
-    member internal _.WaitToTakeAsync () =
-        chan.Reader.WaitToReadAsync().AsTask()
-        
-    member internal _.Clear () =
-        let mutable item = Unchecked.defaultof<'R>
-        while chan.Reader.TryRead &item do
-            Interlocked.Decrement &count
-            |> ignore
-
-    member internal _.Count =
-        Volatile.Read &count
-
+    /// <summary>
+    /// Gets the unique identifier.
+    /// </summary>
     member internal _.Id =
         id
 
+    /// <summary>
+    /// Gets the current message count.
+    /// </summary>
+    member internal _.Count =
+        Volatile.Read &count
+
+    /// <summary>
+    /// Adds a message asynchronously.
+    /// </summary>
+    member internal _.AddAsync (msg: 'R) =
+        task {
+            do! chan.Writer.WriteAsync msg
+            Interlocked.Increment &count |> ignore
+        }
+    
+    /// <summary>
+    /// Takes a message asynchronously.
+    /// </summary>
+    member internal _.TakeAsync () =
+        task {
+            let! res = chan.Reader.ReadAsync()
+            Interlocked.Decrement &count |> ignore
+            return res
+        }
+        
+    /// <summary>
+    /// Tries to take a message without blocking.
+    /// </summary>
+    member internal _.TryTake (res: byref<'R>) =
+        let success = chan.Reader.TryRead &res
+        if success then
+            Interlocked.Decrement &count |> ignore
+        success
+    
+    /// <summary>
+    /// Waits asynchronously until a message is available.
+    /// </summary>
+    member internal _.WaitToTakeAsync () =
+        chan.Reader.WaitToReadAsync().AsTask()
+        
+    /// <summary>
+    /// Clears all messages from the channel.
+    /// </summary>
+    member internal _.Clear () =
+        let mutable item = Unchecked.defaultof<'R>
+        while chan.Reader.TryRead &item do
+            Interlocked.Decrement &count |> ignore
+
 /// <summary>
-/// Internal state of a fiber's execution lifecycle.
+/// Internal state of a fiber's execution context lifecycle.
 /// </summary>
-and private FiberState =
+and private FiberContextState =
     | Running = 0
     | Completed = 1
     | Interrupted = 2
@@ -155,61 +169,79 @@ and private FiberState =
 /// <summary>
 /// Internal fiber execution context managing state, result, cancellation, and blocking work items.
 /// </summary>
-and internal FiberContext () =
+and [<Sealed>] internal FiberContext () =
     let id = Guid.NewGuid ()
-    let resTcs = TaskCompletionSource<Result<obj, obj>> TaskCreationOptions.RunContinuationsAsynchronously
+    let mutable state = int FiberContextState.Running
     let blockingWorkItemChan = UnboundedChannel<WorkItem> ()
-    let mutable state = int FiberState.Running
+    let resTcs = TaskCompletionSource<Result<obj, obj>> TaskCreationOptions.RunContinuationsAsynchronously
     let cts = new CancellationTokenSource()
     let mutable disposed = false
 
-    let tryTransitionState fromState toState =
-        Interlocked.CompareExchange(&state, int toState, int fromState) = int fromState
+    /// <summary>
+    /// Gets the unique identifier.
+    /// </summary>
+    member internal _.Id =
+        id
 
+    /// <summary>
+    /// Gets the task representing the fiber's result.
+    /// </summary>
+    member internal _.Task =
+        resTcs.Task
+
+    /// <summary>
+    /// Gets the cancellation token for cooperative cancellation.
+    /// </summary>
+    member internal _.CancellationToken =
+        cts.Token
+    
+    /// <summary>
+    /// Completes the fiber with the given result.
+    /// </summary>
     member internal _.Complete res =
-        task {
-            if tryTransitionState FiberState.Running FiberState.Completed then
-                resTcs.TrySetResult res |> ignore
-        }
+        if Interlocked.CompareExchange(&state, int FiberContextState.Completed, int FiberContextState.Running) = int FiberContextState.Running then
+            resTcs.TrySetResult res |> ignore
 
+    /// <summary>
+    /// Completes the fiber and reschedules blocking work items.
+    /// </summary>
     member internal this.CompleteAndReschedule res activeWorkItemChan =
         task {
-            if tryTransitionState FiberState.Running FiberState.Completed then
+            if Interlocked.CompareExchange(&state, int FiberContextState.Completed, int FiberContextState.Running) = int FiberContextState.Running then
                 if resTcs.TrySetResult res then
                     do! this.RescheduleBlockingWorkItems activeWorkItemChan
         }
 
+    /// <summary>
+    /// Gets whether the fiber has completed.
+    /// </summary>
+    member internal _.Completed () =
+        Volatile.Read &state = int FiberContextState.Completed
+
+    /// <summary>
+    /// Interrupts the fiber with the specified cause and message.
+    /// </summary>
     member internal _.Interrupt cause msg =
-        if tryTransitionState FiberState.Running FiberState.Interrupted then
+        if Interlocked.CompareExchange(&state, int FiberContextState.Interrupted, int FiberContextState.Running) = int FiberContextState.Running then
             cts.Cancel()
             let interruptError = Error (FiberInterruptedException(id, cause, msg) :> obj)
             resTcs.TrySetResult interruptError |> ignore
 
-    member internal _.IsInterrupted () =
-        let currentState = enum<FiberState>(Volatile.Read &state)
-        currentState = FiberState.Interrupted
+    /// <summary>
+    /// Gets whether the fiber has been interrupted.
+    /// </summary>
+    member internal _.Interrupted () =
+        Volatile.Read &state = int FiberContextState.Interrupted
 
-    member internal _.CancellationToken =
-        cts.Token
-    
-    member internal _.Task =
-        resTcs.Task
-    
+    /// <summary>
+    /// Adds a blocking work item to the queue.
+    /// </summary>
     member internal _.AddBlockingWorkItem (blockingWorkItem: WorkItem) =
-        task {
-            do! blockingWorkItemChan.AddAsync blockingWorkItem
-        }
-        
-    member internal _.BlockingWorkItemCount =
-        blockingWorkItemChan.Count
+        blockingWorkItemChan.AddAsync blockingWorkItem
 
-    member internal _.Completed () =
-        let currentState = enum<FiberState>(Volatile.Read &state)
-        currentState = FiberState.Completed
-
-    member internal _.Id =
-        id
-
+    /// <summary>
+    /// Reschedules all blocking work items to the active queue.
+    /// </summary>
     member internal _.RescheduleBlockingWorkItems (activeWorkItemChan: UnboundedChannel<WorkItem>) =
         task {
             let mutable workItem = Unchecked.defaultof<_>
@@ -217,6 +249,9 @@ and internal FiberContext () =
                 do! activeWorkItemChan.AddAsync workItem
         }
 
+    /// <summary>
+    /// Tries to reschedule blocking work items if fiber is completed.
+    /// </summary>
     member internal this.TryRescheduleBlockingWorkItems (activeWorkItemChan: UnboundedChannel<WorkItem>) =
         task {
             if not <| this.Completed () then
@@ -241,26 +276,45 @@ and internal FiberContext () =
         this.Dispose false
 
 /// <summary>
-/// A Fiber represents a lightweight, cooperative thread of execution.
-/// Fibers are used to execute effects concurrently and can be awaited to retrieve the result.
+/// A lightweight, cooperative thread of execution that can be awaited for its result.
 /// </summary>
-/// <typeparam name="R">The result type of the fiber.</typeparam>
-/// <typeparam name="E">The error type of the fiber.</typeparam>
 and Fiber<'R, 'E> internal () =
     let fiberContext = new FiberContext ()
     let mutable disposed = false
 
     /// <summary>
-    /// Joins the fiber, awaiting its completion and returning its result.
+    /// Gets the unique identifier.
     /// </summary>
-    /// <returns>An FIO effect that awaits the fiber and returns its result or error.</returns>
+    member _.Id =
+        fiberContext.Id
+
+    /// <summary>
+    /// Gets the cancellation token for cooperative cancellation.
+    /// </summary>
+    member _.CancellationToken =
+        fiberContext.CancellationToken
+
+    /// <summary>
+    /// Gets whether the fiber has completed.
+    /// </summary>
+    member _.Completed () =
+        fiberContext.Completed ()
+
+    /// <summary>
+    /// Gets whether the fiber has been interrupted.
+    /// </summary>
+    member _.Interrupted =
+        fiberContext.Interrupted
+
+    /// <summary>
+    /// Awaits the fiber's completion and returns its result.
+    /// </summary>
     member _.Join<'R, 'E> () : FIO<'R, 'E> =
         AwaitFiberContext fiberContext
 
     /// <summary>
-    /// Awaits the fiber and returns its result as a Task.
+    /// Returns the fiber's result as a Task.
     /// </summary>
-    /// <returns>A Task that completes with the result or error of the fiber.</returns>
     member _.Task<'R, 'E> () =
         task {
             match! fiberContext.Task with
@@ -271,26 +325,10 @@ and Fiber<'R, 'E> internal () =
     /// <summary>
     /// Interrupts the fiber with the specified cause and message.
     /// </summary>
-    /// <typeparam name="E">The error type.</typeparam>
     /// <param name="cause">The interruption cause.</param>
     /// <param name="msg">The interruption message.</param>
-    /// <returns>An FIO effect that performs the interruption.</returns>
     member _.Interrupt<'E> (cause: InterruptionCause) (msg: string) : FIO<unit, 'E> =
         Interruption (cause, msg)
-
-    /// <summary>
-    /// Gets a value indicating whether the fiber has been interrupted.
-    /// </summary>
-    /// <returns>True if the fiber is interrupted, otherwise false.</returns>
-    member _.IsInterrupted =
-        fiberContext.IsInterrupted
-
-    /// <summary>
-    /// Gets the unique identifier of the fiber.
-    /// </summary>
-    /// <returns>The unique Guid of the fiber.</returns>
-    member _.Id =
-        fiberContext.Id
 
     /// <summary>
     /// Gets the internal fiber context (for runtime use only).
@@ -313,10 +351,8 @@ and Fiber<'R, 'E> internal () =
         this.Dispose false
 
 /// <summary>
-/// A Channel represents a communication queue that holds data of type 'R.
-/// Data can be sent to and received (blocking) from a channel.
+/// A typed communication queue for sending and receiving messages.
 /// </summary>
-/// <typeparam name="R">The type of data held by the channel.</typeparam>
 and Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, blockingWorkItemChan: UnboundedChannel<WorkItem>) =
 
     /// <summary>
@@ -325,43 +361,29 @@ and Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, blockingWorkI
     new() = Channel(Guid.NewGuid (), UnboundedChannel<obj> (), UnboundedChannel<WorkItem> ())
 
     /// <summary>
-    /// Sends a message to the channel and succeeds with the message.
+    /// Gets the unique identifier.
     /// </summary>
-    /// <typeparam name="R">The result type.</typeparam>
-    /// <typeparam name="E">The error type.</typeparam>
+    member _.Id =
+        id
+
+    /// <summary>
+    /// Gets the current message count.
+    /// </summary>
+    member _.Count =
+        resChan.Count
+
+    /// <summary>
+    /// Sends a message to the channel.
+    /// </summary>
     /// <param name="msg">The message to send.</param>
-    /// <returns>An FIO effect that sends the message and returns it.</returns>
     member this.Send<'R, 'E> (msg: 'R) : FIO<'R, 'E> =
         SendChan (msg, this)
 
     /// <summary>
-    /// Receives a message from the channel and succeeds with it.
+    /// Receives a message from the channel (blocking if empty).
     /// </summary>
-    /// <typeparam name="R">The result type.</typeparam>
-    /// <typeparam name="E">The error type.</typeparam>
-    /// <returns>An FIO effect that receives a message from the channel.</returns>
     member this.Receive<'R, 'E> () : FIO<'R, 'E> =
         ReceiveChan this
-
-    /// <summary>
-    /// Gets the number of messages currently in the channel.
-    /// </summary>
-    /// <returns>The number of messages in the channel.</returns>
-    member _.Count =
-        resChan.Count
-        
-    /// <summary>
-    /// Gets the unique identifier of the channel.
-    /// </summary>
-    /// <returns>The unique Guid of the channel.</returns>
-    member _.Id =
-        id
-        
-    /// <summary>
-    /// Gets the unbounded channel (for runtime use only).
-    /// </summary>
-    member internal _.UnboundedChannel =
-        resChan
 
     /// <summary>
     /// Sends a message to the channel asynchronously (for runtime use only).
@@ -388,14 +410,23 @@ and Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, blockingWorkI
     /// Reschedules the next blocking work item to the active work item channel (for runtime use only).
     /// </summary>
     member internal _.RescheduleNextBlockingWorkItem (activeWorkItemChan: UnboundedChannel<WorkItem>) =
-        task {
-            let mutable workItem = Unchecked.defaultof<_>
-            if blockingWorkItemChan.TryTake &workItem then
-                do! activeWorkItemChan.AddAsync workItem
-        }
+        let mutable workItem = Unchecked.defaultof<_>
+        if blockingWorkItemChan.TryTake &workItem then
+            activeWorkItemChan.AddAsync workItem
+        else
+            Task.FromResult ()
 
+    /// <summary>
+    /// Gets the count of blocking work items (for runtime use only).
+    /// </summary>
     member internal _.BlockingWorkItemCount =
         blockingWorkItemChan.Count
+
+    /// <summary>
+    /// Gets the unbounded channel (for runtime use only).
+    /// </summary>
+    member internal _.UnboundedChannel =
+        resChan
 
     /// <summary>
     /// Upcasts the channel to Channel&lt;obj&gt; (for runtime use only).
@@ -409,11 +440,8 @@ and Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, blockingWorkI
 and channel<'R> = Channel<'R>
 
 /// <summary>
-/// Builds a functional effect that can either succeed with a result or fail with an error when interpreted by a runtime.
-/// This is the core type of the FIO effect system.
+/// A functional effect that succeeds with a result or fails with an error when interpreted.
 /// </summary>
-/// <typeparam name="R">The result type.</typeparam>
-/// <typeparam name="E">The error type.</typeparam>
 and FIO<'R, 'E> =
     internal
     | Success of res: 'R
@@ -432,40 +460,34 @@ and FIO<'R, 'E> =
     | ChainError of eff: FIO<'R, obj> * cont: (obj -> FIO<'R, 'E>)
 
     /// <summary>
-    /// Executes an effect concurrently in a new Fiber and immediately returns the Fiber handle.
-    /// The fiber can be awaited for the result of the effect.
+    /// Executes this effect concurrently in a new Fiber.
     /// </summary>
-    /// <typeparam name="R">The result type of the fiber.</typeparam>
-    /// <typeparam name="E">The error type of the fiber.</typeparam>
-    /// <typeparam name="E1">The error type of the returned effect.</typeparam>
-    /// <returns>An FIO effect that starts concurrent execution and returns the Fiber handle.</returns>
     member this.Fork<'R, 'E, 'E1> () : FIO<Fiber<'R, 'E>, 'E1> =
         let fiber = new Fiber<'R, 'E>()
         ConcurrentEffect (this.Upcast (), fiber, fiber.Internal)
 
     /// <summary>
-    /// Sequentially composes this effect with a function that returns another effect (monadic bind).
-    /// Errors are propagated immediately if the first effect fails.
+    /// Chains this effect with a continuation function (monadic bind).
     /// </summary>
-    /// <typeparam name="R">The original result type.</typeparam>
-    /// <typeparam name="R1">The result type of the continuation.</typeparam>
-    /// <typeparam name="E">The error type.</typeparam>
-    /// <param name="cont">The continuation function to apply to the result.</param>
-    /// <returns>An FIO effect that applies the continuation to the result, or propagates an error.</returns>
+    /// <param name="cont">The continuation function.</param>
     member this.FlatMap<'R, 'R1, 'E> (cont: 'R -> FIO<'R1, 'E>) : FIO<'R1, 'E> =
         ChainSuccess (this.UpcastResult (), fun res -> cont (res :?> 'R))
 
     /// <summary>
-    /// Handles all errors in this effect by applying a recovery function.
-    /// Results are propagated immediately if the effect succeeds.
+    /// Handles errors with a recovery function.
     /// </summary>
-    /// <typeparam name="R">The result type.</typeparam>
-    /// <typeparam name="E">The original error type.</typeparam>
-    /// <typeparam name="E1">The error type of the continuation.</typeparam>
-    /// <param name="cont">The error handler function that returns a recovery effect.</param>
-    /// <returns>An FIO effect that applies the error handler, or propagates the result.</returns>
+    /// <param name="cont">The error handler function.</param>
     member this.CatchAll<'R, 'E, 'E1> (cont: 'E -> FIO<'R, 'E1>) : FIO<'R, 'E1> =
         ChainError (this.UpcastError (), fun err -> cont (err :?> 'E))
+
+    /// <summary>
+    /// Runs a finalizer after this effect, preserving the original outcome.
+    /// </summary>
+    /// <param name="finalizer">The finalizer effect to run.</param>
+    member this.Ensuring<'R, 'E> (finalizer: FIO<unit, 'E>) : FIO<'R, 'E> =
+        let runFinalizer outcome = finalizer.CatchAll(fun _ -> Success ()).FlatMap(fun _ -> outcome)
+        this.FlatMap(fun res -> runFinalizer (Success res))
+            .CatchAll(fun err -> runFinalizer (Failure err))
 
     /// <summary>
     /// Upcasts the result type to obj (for runtime use only).

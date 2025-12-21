@@ -31,9 +31,9 @@ and private EvaluationWorker (config: EvaluationWorkerConfig) =
         task {
             match! config.Runtime.InterpretAsync workItem config.EWSteps with
             | Success res, _, Evaluated ->
-                do! workItem.FiberContext.Complete <| Ok res
+                workItem.FiberContext.Complete <| Ok res
             | Failure err, _, Evaluated ->
-                do! workItem.FiberContext.Complete <| Error err
+                workItem.FiberContext.Complete <| Error err
             | eff, stack, RescheduleForRunning ->
                 do! config.ActiveWorkItemChan.AddAsync
                     <| { Eff = eff; FiberContext = workItem.FiberContext; Stack = stack; PrevAction = RescheduleForRunning }
@@ -285,12 +285,12 @@ and Runtime (config: WorkerConfig) as this =
                                     let t = taskFactory ()
                                     try
                                         do! t
-                                        do! fiberContext.Complete (Ok ())
+                                        fiberContext.Complete (Ok ())
                                     with
                                     | :? OperationCanceledException ->
-                                        do! fiberContext.Complete (Error (onError <| FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled.")))
+                                        fiberContext.Complete (Error (onError <| FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled.")))
                                     | exn ->
-                                        do! fiberContext.Complete (Error <| onError exn)
+                                        fiberContext.Complete (Error <| onError exn)
                                 } :> Task)
                             processSuccess fiber
                         | ConcurrentGenericTPLTask (taskFactory, onError, fiber, fiberContext) ->
@@ -302,18 +302,16 @@ and Runtime (config: WorkerConfig) as this =
                                     let t = taskFactory ()
                                     try
                                         let! result = t
-                                        do! fiberContext.Complete (Ok result)
+                                        fiberContext.Complete (Ok result)
                                     with
                                     | :? OperationCanceledException ->
-                                        do! fiberContext.Complete (Error (onError <| FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled.")))
+                                        fiberContext.Complete (Error (onError <| FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled.")))
                                     | exn ->
-                                        do! fiberContext.Complete (Error <| onError exn)
+                                        fiberContext.Complete (Error <| onError exn)
                                 } :> Task)
                             processSuccess fiber
                         | AwaitFiberContext fiberContext ->
-                            if fiberContext.IsInterrupted () then
-                                processInterrupt ()
-                            elif fiberContext.Completed () then
+                            if fiberContext.Completed () then
                                 let! res = fiberContext.Task
                                 processResult res
                             else

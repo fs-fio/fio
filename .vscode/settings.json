@@ -1,5 +1,25 @@
 {
   "[fsharp]": {
     "editor.inlayHints.enabled": "off"
-  }
+  },
+  "workbench.colorCustomizations": {
+    "activityBar.activeBackground": "#9933ff",
+    "activityBar.background": "#9933ff",
+    "activityBar.foreground": "#e7e7e7",
+    "activityBar.inactiveForeground": "#e7e7e799",
+    "activityBarBadge.background": "#ff8f20",
+    "activityBarBadge.foreground": "#15202b",
+    "commandCenter.border": "#e7e7e799",
+    "sash.hoverBorder": "#9933ff",
+    "statusBar.background": "#7f00ff",
+    "statusBar.foreground": "#e7e7e7",
+    "statusBarItem.hoverBackground": "#9933ff",
+    "statusBarItem.remoteBackground": "#7f00ff",
+    "statusBarItem.remoteForeground": "#e7e7e7",
+    "titleBar.activeBackground": "#7f00ff",
+    "titleBar.activeForeground": "#e7e7e7",
+    "titleBar.inactiveBackground": "#7f00ff99",
+    "titleBar.inactiveForeground": "#e7e7e799"
+  },
+  "peacock.color": "#7F00FF"
 }

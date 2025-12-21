@@ -13,9 +13,8 @@ open FSharp.FIO.Runtime.Concurrent
 open System
 
 let helloWorld1 () =
-    let runtime = new Runtime()
     let hello = FIO.Succeed "Hello world! 🪻"
-    let fiber = runtime.Run hello
+    let fiber = (new Runtime()).Run hello
     
     task {
         let! result = fiber.Task ()
@@ -25,9 +24,8 @@ let helloWorld1 () =
     } |> ignore
 
 let helloWorld2 () : unit =
-    let runtime = new Runtime()
     let hello: FIO<string, obj> = FIO.Succeed "Hello world! 🪻"
-    let fiber: Fiber<string, obj> = runtime.Run hello
+    let fiber: Fiber<string, obj> = (new Runtime()).Run hello
     
     task {
         let! result: Result<string, obj> = fiber.Task ()
@@ -37,9 +35,8 @@ let helloWorld2 () : unit =
     } |> ignore
 
 let helloWorld3 () : unit =
-    let runtime = new Runtime()
     let hello: FIO<obj, string> = FIO.Fail "Hello world! 🪻"
-    let fiber: Fiber<obj, string> = runtime.Run hello
+    let fiber: Fiber<obj, string> = (new Runtime()).Run hello
     
     task {
         let! result: Result<obj, string> = fiber.Task ()
@@ -49,9 +46,8 @@ let helloWorld3 () : unit =
     } |> ignore
 
 let helloWorld4 () =
-    let runtime = new Runtime()
     let hello = FIO.Succeed "Hello world! 🪻"
-    let fiber = runtime.Run hello
+    let fiber = (new Runtime()).Run hello
     
     task {
         let! result = fiber.Task()
@@ -59,9 +55,8 @@ let helloWorld4 () =
     } |> ignore
 
 let helloWorld5 () =
-    let runtime = new Runtime()
     let hello = !+ "Hello world! 🪻"
-    let fiber = runtime.Run hello
+    let fiber = (new Runtime()).Run hello
     
     task {
         let! result = fiber.Task ()
@@ -69,9 +64,8 @@ let helloWorld5 () =
     } |> ignore
 
 let helloWorld6 () =
-    let runtime = new Runtime()
     let hello = !- "Hello world! 🪻"
-    let fiber = runtime.Run hello
+    let fiber = (new Runtime()).Run hello
     
     task {
         let! result = fiber.Task()
@@ -79,9 +73,8 @@ let helloWorld6 () =
     } |> ignore
 
 let concurrency1 () =
-    let runtime = new Runtime()
     let concurrent = (FIO.Succeed 42).Fork().FlatMap _.Join()
-    let fiber = runtime.Run concurrent
+    let fiber = (new Runtime()).Run concurrent
     
     task {
         let! result = fiber.Task ()
@@ -89,9 +82,8 @@ let concurrency1 () =
     } |> ignore
 
 let concurrency2 () =
-    let runtime = new Runtime()
     let concurrent = !~> !+ 42 >>= fun fiber -> !~~> fiber
-    let fiber = runtime.Run concurrent
+    let fiber = (new Runtime()).Run concurrent
     
     task {
         let! result = fiber.Task ()
@@ -99,11 +91,10 @@ let concurrency2 () =
     } |> ignore
 
 let concurrency3 () =
-    let runtime = new Runtime()
     let taskA = !+ "Task A completed!"
     let taskB = !+ (200, "Task B OK")
     let concurrent = taskA <!> taskB
-    let fiber = runtime.Run concurrent
+    let fiber = (new Runtime()).Run concurrent
     
     task {
         let! result = fiber.Task ()
@@ -111,13 +102,12 @@ let concurrency3 () =
     } |> ignore
 
 let computationExpression1 () =
-    let runtime = new Runtime()
     let hello : FIO<string, obj> =
         fio {
             return "Hello world! 🪻"
         }
 
-    let fiber = runtime.Run hello
+    let fiber = (new Runtime()).Run hello
     
     task {
         let! result = fiber.Task ()
@@ -125,13 +115,12 @@ let computationExpression1 () =
     } |> ignore
 
 let computationExpression2 () =
-    let runtime = new Runtime()
     let hello : FIO<obj, string> =
         fio {
             return! !- "Hello world! 🪻"
         }
 
-    let fiber = runtime.Run hello
+    let fiber = (new Runtime()).Run hello
 
     task {
         let! result = fiber.Task ()
@@ -139,7 +128,6 @@ let computationExpression2 () =
     } |> ignore
 
 let computationExpression3 () =
-    let runtime = new Runtime()
     let welcome =
         fio {
             do! FConsole.PrintLine "Hello! What is your name?"
@@ -147,7 +135,7 @@ let computationExpression3 () =
             do! FConsole.PrintLine $"Hello, %s{name}! Welcome to FIO! 🪻💜"
         }
 
-    let fiber = runtime.Run welcome
+    let fiber = (new Runtime()).Run welcome
 
     task {
         let! result = fiber.Task ()

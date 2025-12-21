@@ -22,11 +22,11 @@
 
 	<ItemGroup>
 		<Compile Include="DSL\Utilities.fs" />
-		<Compile Include="DSL\FIO.Core.fs" />
-		<Compile Include="DSL\FIO.Factories.fs" />
-		<Compile Include="DSL\FIO.Extensions.fs" />
-		<Compile Include="DSL\FIO.Operators.fs" />
-		<Compile Include="DSL\FIO.CE.fs" />
+		<Compile Include="DSL\Core.fs" />
+		<Compile Include="DSL\Factories.fs" />
+		<Compile Include="DSL\Extensions.fs" />
+		<Compile Include="DSL\Operators.fs" />
+		<Compile Include="DSL\CE.fs" />
 		<Compile Include="Runtime.Tools\Monitor.fs" />
 		<Compile Include="Runtime.Tools\DeadlockDetector.fs" />
 		<Compile Include="Runtime\Runtime.fs" />

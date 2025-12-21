@@ -293,9 +293,7 @@ and Runtime (config: WorkerConfig) as this =
                                 } :> Task)
                             processSuccess fiber
                         | AwaitFiberContext fiberContext ->
-                            if fiberContext.IsInterrupted () then
-                                processInterrupt ()
-                            elif fiberContext.Completed () then
+                            if fiberContext.Completed () then
                                 let! res = fiberContext.Task
                                 processResult res
                             else
