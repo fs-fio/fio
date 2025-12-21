@@ -9,8 +9,8 @@ module private FSharp.FIO.Examples.App
 open FSharp.FIO.DSL
 open FSharp.FIO.App
 open FSharp.FIO.Lib.IO
-open FSharp.FIO.Lib.Net.Sockets
-open FSharp.FIO.Lib.Net.WebSockets
+open FSharp.FIO.Lib.Net.FSockets
+open FSharp.FIO.Lib.Net.FWebSockets
 
 open System
 open System.IO
@@ -29,7 +29,7 @@ type WelcomeApp() =
             do! FConsole.PrintLine $"Hello, %s{name}! Welcome to FIO! 🪻💜"
         }
 
-type EnterNumberApp() =
+type EnterNumberApp () =
     inherit FIOApp<string, exn>()
 
     override _.effect =
@@ -37,32 +37,32 @@ type EnterNumberApp() =
             do! FConsole.Print "Enter a number: "
             let! input = FConsole.ReadLine ()
 
-            match! !<< (fun () -> Int32.TryParse input) with
+            match! FIO.FromFunc <| fun () -> Int32.TryParse input with
             | true, number ->
                 return $"You entered the number: %i{number}."
             | false, _ ->
-                return! !- IOException("You entered an invalid number!")
+                return! FIO.Fail <| IOException "You entered an invalid number!"
         }
 
-type TryWithApp() =
+type TryWithApp () =
     inherit FIOApp<string, int>()
 
     override _.effect =
         fio {
             try
-                do! !- 1
+                do! FIO.Fail 1
                 return "Successfully completed!"
             with errorCode ->
-                return! !- errorCode
+                return! FIO.Fail errorCode
         }
 
-type TryFinallyApp() =
+type TryFinallyApp () =
     inherit FIOApp<string, int>()
 
     override _.effect =
         fio {
             try
-                do! !- 1
+                do! FIO.Fail 1
                 return "Successfully completed!"
             finally
                 FConsole.PrintLineMapError ("Running finalizer, always executes", (fun _ -> -2))
@@ -75,10 +75,10 @@ type TryWithFinallyApp() =
         fio {
             try
                 try
-                    do! !- 1
+                    do! FIO.Fail 1
                     return "Successfully completed!"
                 with errorCode ->
-                    return! !- errorCode
+                    return! FIO.Fail errorCode
             finally
                 FConsole.PrintLineMapError ("Running finalizer, always executes", (fun _ -> -2))
         }
@@ -99,7 +99,7 @@ type GuessNumberApp() =
 
     override _.effect =
         fio {
-            let! numberToGuess = !<< (fun () -> Random().Next(1, 100))
+            let! numberToGuess = FIO.FromFunc <| fun () -> Random().Next(1, 100)
             let mutable guess = -1
 
             while guess <> numberToGuess do
@@ -124,41 +124,41 @@ type GuessNumberApp() =
 type PingPongApp() =
     inherit FIOApp<unit, exn>()
 
-    let pinger chan1 chan2 =
-        "ping" --> chan1 >>= fun ping ->
+    let pinger (chan1: Channel<string>) (chan2: Channel<string>) =
+        chan1.Send "ping" >>= fun ping ->
         FConsole.PrintLine $"pinger sent: %s{ping}" >>= fun _ ->
-        !--> chan2 >>= fun pong ->
+        chan2.Receive () >>= fun pong ->
         FConsole.PrintLine $"pinger received: %s{pong}" >>= fun _ ->
-        !+ ()
+        FIO.Succeed ()
 
-    let ponger chan1 chan2 =
-        !--> chan1 >>= fun ping ->
+    let ponger (chan1: Channel<string>) (chan2: Channel<string>) =
+        chan1.Receive () >>= fun ping ->
         FConsole.PrintLine $"ponger received: %s{ping}" >>= fun _ ->
-        "pong" --> chan2 >>= fun pong ->
+        chan2.Send "pong" >>= fun pong ->
         FConsole.PrintLine $"ponger sent: %s{pong}" >>= fun _ ->
-        !+ ()
-
+        FIO.Succeed ()
+        
     override _.effect =
         let chan1 = Channel<string>()
         let chan2 = Channel<string>()
-        pinger chan1 chan2 <~> ponger chan1 chan2
+        (pinger chan1 chan2 <&> ponger chan1 chan2).Unit
 
 type PingPongCEApp() =
     inherit FIOApp<unit, exn>()
 
     let pinger (chan1: Channel<string>) (chan2: Channel<string>) =
         fio {
-            let! ping = chan1 <-- "ping"
+            let! ping = chan1.Send "ping"
             do! FConsole.PrintLine $"pinger sent: %s{ping}"
-            let! pong = !<-- chan2
+            let! pong = chan2.Receive ()
             do! FConsole.PrintLine $"pinger received: %s{pong}"
         }
 
     let ponger (chan1: Channel<string>) (chan2: Channel<string>) =
         fio {
-            let! ping = !<-- chan1
+            let! ping = chan1.Receive ()
             do! FConsole.PrintLine $"ponger received: %s{ping}"
-            let! pong = chan2 <-- "pong"
+            let! pong = chan2.Send "pong"
             do! FConsole.PrintLine $"ponger sent: %s{pong}"
         }
 
@@ -166,7 +166,7 @@ type PingPongCEApp() =
         fio {
             let chan1 = Channel<string>()
             let chan2 = Channel<string>()
-            return! pinger chan1 chan2 <~> ponger chan1 chan2
+            return! (pinger chan1 chan2 <&> ponger chan1 chan2).Unit
         }
 
 type Message =
@@ -178,24 +178,24 @@ type PingPongMatchApp() =
 
     let pinger (chan1: Channel<Message>) (chan2: Channel<Message>) =
         fio {
-            let! ping = chan1 <-- Ping
+            let! ping = chan1.Send Ping
             do! FConsole.PrintLineMapError ($"pinger sent: %A{ping}", _.Message)
             
-            match! !<-- chan2 with
+            match! chan2.Receive () with
             | Pong -> do! FConsole.PrintLineMapError ($"pinger received: %A{Pong}", _.Message)
-            | Ping -> return! !- $"pinger received %A{Ping} when %A{Pong} was expected!"
+            | Ping -> return! FIO.Fail $"pinger received %A{Ping} when %A{Pong} was expected!"
         }
 
     let ponger (chan1: Channel<Message>) (chan2: Channel<Message>) =
         fio {
-            match! !<-- chan1 with
+            match! chan1.Receive () with
             | Ping -> do! FConsole.PrintLineMapError ($"ponger received: %A{Ping}", _.Message)
-            | Pong -> return! !- $"ponger received %A{Pong} when %A{Ping} was expected!"
+            | Pong -> return! FIO.Fail $"ponger received %A{Pong} when %A{Ping} was expected!"
             
             let! sentMsg =
                 match Random().Next(0, 2) with
-                | 0 -> chan2 <-- Pong
-                | _ -> chan2 <-- Ping
+                | 0 -> chan2.Send Pong
+                | _ -> chan2.Send Ping
             do! FConsole.PrintLineMapError ($"ponger sent: %A{sentMsg}", _.Message)
         }
 
@@ -203,7 +203,7 @@ type PingPongMatchApp() =
         fio {
             let chan1 = Channel<Message>()
             let chan2 = Channel<Message>()
-            return! pinger chan1 chan2 <~> ponger chan1 chan2
+            return! (pinger chan1 chan2 <&> ponger chan1 chan2).Unit
         }
 
 type Error =
@@ -216,36 +216,35 @@ type ErrorHandlingApp() =
 
     let readFromDatabase : FIO<string, bool> =
         fio {
-            let! rand = !<<< (fun () -> Random().Next(0, 2)) (fun _ -> true)
+            let! rand = FIO.FromFunc ((fun () -> Random().Next(0, 2)), fun _ -> true)
             if rand = 0 then
                 return "data"
             else
-                return! !- false
+                return! FIO.Fail false
         }
 
     let awaitWebservice : FIO<char, int> =
         fio {
-            let! rand = !<<< (fun () -> Random().Next(0, 2)) (fun _ -> -1)
+            let! rand = FIO.FromFunc ((fun () -> Random().Next(0, 2)), fun _ -> -1)
             if rand = 1 then
                 return 'S'
             else
-                return! !- 404
+                return! FIO.Fail 404
         }
 
     let databaseResult : FIO<string, Error> =
         fio {
-            return! readFromDatabase >>=? fun error -> !- (DbError error)
+            return! readFromDatabase.CatchAll <| fun error -> FIO.Fail (DbError error)
         }
 
     let webserviceResult : FIO<char, Error> =
         fio {
-            return! awaitWebservice >>=? fun error -> !- (WsError error)
+            return! awaitWebservice.CatchAll <| fun error -> FIO.Fail (WsError error)
         }
 
     override _.effect =
         fio {
-            return! databaseResult <^> webserviceResult
-                    >>=? fun _ -> !+ ("default", 'D')
+            return! (databaseResult <*> webserviceResult).CatchAll <| fun _ -> FIO.Succeed ("default", 'D')
         }
 
 type ErrorHandlingWithRetryApp() =
@@ -253,44 +252,43 @@ type ErrorHandlingWithRetryApp() =
 
     let readFromDatabase : FIO<string, bool> =
         fio {
-            let! rand = !<<< (fun () -> Random().Next(0, 2)) (fun _ -> true)
+            let! rand = FIO.FromFunc ((fun () -> Random().Next(0, 2)), fun _ -> true)
             if rand = 0 then
                 return "data"
             else
-                return! !- false
+                return! FIO.Fail false
         }
 
     let awaitWebservice : FIO<char, int> =
         fio {
-            let! rand = !<<< (fun () -> Random().Next(0, 2)) (fun _ -> -1)
+            let! rand = FIO.FromFunc ((fun () -> Random().Next(0, 2)), fun _ -> -1)
             if rand = 1 then
                 return 'S'
             else
-                return! !- 404
+                return! FIO.Fail 404
         }
 
     let databaseResult : FIO<string, Error> =
         fio {
             let onRetry retry maxRetries =
-                FConsole.PrintLine $"Retrying database read (attempt %d{retry + 1} of %d{maxRetries})..."
-                >>=? fun _ -> !- false
-            return! readFromDatabase.Retry 100.0 3 onRetry
-                    >>=? fun error -> !- (DbError error)
+                (FConsole.PrintLine $"Retrying database read (attempt %d{retry + 1} of %d{maxRetries})...")
+                    .CatchAll(fun _ -> FIO.Fail false)
+            return! (readFromDatabase.Retry 100.0 3 onRetry).CatchAll
+                <| fun error -> FIO.Fail (DbError error)
         }
 
     let webserviceResult : FIO<char, Error> =
         fio {
             let onRetry retry maxRetries =
-                FConsole.PrintLine $"Retrying webservice read (attempt %d{retry + 1} of %d{maxRetries})..."
-                >>=? fun _ -> !- 400
-            return! awaitWebservice.Retry 100.0 3 onRetry
-                >>=? fun error -> !- (WsError error)
+                (FConsole.PrintLine $"Retrying webservice read (attempt %d{retry + 1} of %d{maxRetries})...")
+                    .CatchAll(fun _ -> FIO.Fail 400)
+            return! (awaitWebservice.Retry 100.0 3 onRetry)
+                .CatchAll <| fun error -> FIO.Fail (WsError error)
         }
 
     override _.effect =
         fio {
-            return! databaseResult <^> webserviceResult
-                    >>=? fun _ -> !+ ("default", 'D')
+            return! (databaseResult <*> webserviceResult).CatchAll <| fun _ -> FIO.Succeed ("default", 'D')
         }
 
 type AsyncErrorHandlingApp() =
@@ -317,16 +315,16 @@ type AsyncErrorHandlingApp() =
         }
 
     let databaseResult : FIO<string, Error> =
-        FIO<string, exn>.AwaitAsync databaseReadTask
-        >>=? fun exn -> !- (GeneralError exn.Message)
+        (FIO<string, exn>.AwaitAsync databaseReadTask)
+           .CatchAll <| fun exn -> FIO.Fail (GeneralError exn.Message)
 
     let webserviceResult : FIO<int, Error> =
-        FIO<int, exn>.AwaitAsync webserviceAwaitTask
-        >>=? fun exn -> !- (GeneralError exn.Message)
+        (FIO<int, exn>.AwaitAsync webserviceAwaitTask)
+           .CatchAll <| fun exn -> FIO.Fail (GeneralError exn.Message)
 
     override _.effect =
         fio {
-            return! databaseResult <!> webserviceResult
+            return! databaseResult <&> webserviceResult
         }
 
 type HighlyConcurrentApp() =
@@ -334,18 +332,18 @@ type HighlyConcurrentApp() =
 
     let sender (chan: Channel<int>) id (rand: Random) =
         fio {
-            let! msg = !+ rand.Next(100, 501)
-            do! msg --!> chan
+            let! msg = FIO.Succeed <| rand.Next(100, 501)
+            do! (chan.Send msg).Unit
             do! FConsole.PrintLine $"Sender[%i{id}] sent: %i{msg}"
         }
 
     let rec receiver (chan: Channel<int>) count (max: int) =
         fio {
             if count = 0 then
-                let! maxFibers = !+ max.ToString("N0", CultureInfo "en-US")
+                let! maxFibers = FIO.Succeed <| max.ToString("N0", CultureInfo "en-US")
                 do! FConsole.PrintLine $"Successfully received a message from all %s{maxFibers} fibers!"
             else
-                let! msg = !<-- chan
+                let! msg = chan.Receive ()
                 do! FConsole.PrintLine $"Receiver received: %i{msg}"
                 return! receiver chan (count - 1) max
         }
@@ -355,7 +353,7 @@ type HighlyConcurrentApp() =
             if count = 0 then
                 return! acc
             else
-                let newAcc = sender chan count rand <~> acc
+                let newAcc = (sender chan count rand <&> acc).Unit
                 return! create chan (count - 1) newAcc rand
         }
 
@@ -364,8 +362,8 @@ type HighlyConcurrentApp() =
             let fiberCount = 1000000
             let chan = Channel<int>()
             let rand = Random()
-            let acc = sender chan fiberCount rand
-                      <~> receiver chan fiberCount fiberCount
+            let acc = (sender chan fiberCount rand
+                      <&> receiver chan fiberCount fiberCount).Unit
             return! create chan (fiberCount - 1) acc rand
         }
 
@@ -397,7 +395,7 @@ type FiberFromTaskApp() =
     override _.effect : FIO<unit, exn> =
         let await (fiber: Fiber<unit, exn>) =
             fio {
-                do! !!<~~ fiber
+                do! fiber.Join ()
                 return ()
             }
             
@@ -406,9 +404,9 @@ type FiberFromTaskApp() =
             and! fiber40 = fibonacci 40L
             and! fiber45 = fibonacci 45L
 
-            do! await fiber35 <~>
-                await fiber40 <~>
-                await fiber45
+            do! (await fiber35 <&>
+                await fiber40 <&>
+                await fiber45).Unit
         }
 
 type FiberFromGenericTaskApp() =
@@ -438,7 +436,7 @@ type FiberFromGenericTaskApp() =
     override _.effect : FIO<unit, exn> =
         let awaitAndPrint (fiber: Fiber<string, exn>) =
             fio {
-                 let! res = !<~~ fiber
+                 let! res = fiber.Join ()
                  do! FConsole.PrintLine $"%s{res}"
             }
             
@@ -447,9 +445,9 @@ type FiberFromGenericTaskApp() =
             and! fiber40 = fibonacci 40L
             and! fiber45 = fibonacci 45L
 
-            do! awaitAndPrint fiber35 <~>
-                awaitAndPrint fiber40 <~>
-                awaitAndPrint fiber45
+            do! (awaitAndPrint fiber35 <&>
+                awaitAndPrint fiber40 <&>
+                awaitAndPrint fiber45).Unit
         }
 
 type SocketApp(ip: string, port: int) =
@@ -465,10 +463,10 @@ type SocketApp(ip: string, port: int) =
                     
                     let! ascii =
                         if msg.Length > 0 then
-                            !<< (fun () -> msg.Chars 0) >>= fun c ->
-                            !+ (int c)
+                            FIO.FromFunc (fun () -> msg.Chars 0) >>= fun c ->
+                            FIO.Succeed (int c)
                         else
-                            !+ -1
+                            FIO.Succeed -1
                     do! socket.Send ascii
                     do! FConsole.PrintLine $"Server sent ASCII: %i{ascii}"
             }
@@ -476,19 +474,19 @@ type SocketApp(ip: string, port: int) =
         let handleClient (clientSocket: FSocket<int, string, exn>) =
             fio {
                 let! remoteEndPoint = clientSocket.RemoteEndPoint()
-                let! endPoint = !<< (fun () -> remoteEndPoint.ToString())
+                let! endPoint = FIO.FromFunc <| fun () -> remoteEndPoint.ToString()
                 do! FConsole.PrintLine $"Client connected from %s{endPoint}"
-                do! !!~> receiveAndSendASCII(clientSocket)
+                do! (receiveAndSendASCII clientSocket).Fork().Unit
             }
         
         fio {
-            let! listener = !<< (fun () ->
-                new TcpListener(IPAddress.Parse ip, port))
-            do! !<< (fun () -> listener.Start())
+            let! listener = FIO.FromFunc <| fun () ->
+                new TcpListener(IPAddress.Parse ip, port)
+            do! FIO.FromFunc (fun () -> listener.Start())
             do! FConsole.PrintLine $"Server listening on %s{ip}:%i{port}..."
             
             while true do
-                let! internalSocket = !<< (fun () -> listener.AcceptSocket())
+                let! internalSocket = FIO.FromFunc <| fun () -> listener.AcceptSocket()
                 let! clientSocket = FSocket.Create<int, string, exn> internalSocket
                 do! handleClient clientSocket
         }
@@ -513,16 +511,16 @@ type SocketApp(ip: string, port: int) =
     
         fio {
             do! FConsole.PrintLine $"Connecting to %s{ip}:%i{port}..."
-            let! internalSocket = !<< (fun () ->
-                new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+            let! internalSocket = FIO.FromFunc <| fun () ->
+                new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)
             let! socket = FSocket<string, int, exn>.Create(internalSocket, ip, port)
             do! FConsole.PrintLine $"Connected to %s{ip}:%i{port}"
-            do! send socket <~> receive socket
+            do! (send socket <&> receive socket).Unit
         }
 
     override _.effect =
         fio {
-            do! client ip port <~> server ip port
+            do! (client ip port <&> server ip port).Unit
         }
 
 type WebSocketApp(serverUrl, clientUrl) =
@@ -539,10 +537,10 @@ type WebSocketApp(serverUrl, clientUrl) =
                     
                     let! ascii =
                         if msg.Length > 0 then
-                            !<< (fun () -> msg.Chars 0) >>= fun c ->
-                            !+ (int c)
+                            FIO.FromFunc (fun () -> msg.Chars 0) >>= fun c ->
+                            FIO.Succeed (int c)
                         else
-                            !+ -1
+                            FIO.Succeed -1
                     do! clientSocket.Send ascii
                     do! FConsole.PrintLine $"Server sent ASCII: %i{ascii}"
             }
@@ -550,9 +548,9 @@ type WebSocketApp(serverUrl, clientUrl) =
         let handleClient (clientSocket: FWebSocket<int, string, exn>) =
             fio {
                 let! remoteEndPoint = clientSocket.RemoteEndPoint()
-                let! endPoint = !<< (fun () -> remoteEndPoint.ToString())
+                let! endPoint = FIO.FromFunc <| fun () -> remoteEndPoint.ToString()
                 do! FConsole.PrintLine $"Client connected from %s{endPoint}"
-                do! !!~> receiveAndSendASCII(clientSocket)
+                do! (receiveAndSendASCII clientSocket).Fork().Unit
             }
 
         fio {
@@ -586,12 +584,12 @@ type WebSocketApp(serverUrl, clientUrl) =
         fio {
             let! clientSocket = FClientWebSocket.Create<string, int, exn>()
             do! clientSocket.Connect url
-            do! send clientSocket <~> receive clientSocket
+            do! send clientSocket <&> receive clientSocket
         }
 
     override _.effect =
         fio {
-            do! client clientUrl <~> server serverUrl
+            do! (client clientUrl <&> server serverUrl).Unit
         }
 
 WelcomeApp().Run ()

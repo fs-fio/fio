@@ -41,11 +41,25 @@ type FIO<'R, 'E> with
             .Map successMapper
 
     /// <summary>
-    /// Sequences two effects, ignoring the result of the first effect.
+    /// Sequences two effects, ignoring the result of the first effect (zipRight).
     /// </summary>
     /// <param name="eff">The effect to run after this effect succeeds.</param>
-    member inline this.Then<'R, 'R1, 'E> (eff: FIO<'R1, 'E>) : FIO<'R1, 'E> =
+    member inline this.ZipRight<'R, 'R1, 'E> (eff: FIO<'R1, 'E>) : FIO<'R1, 'E> =
         this.FlatMap <| fun _ -> eff
+
+    /// <summary>
+    /// Discards the result of this effect, returning unit instead.
+    /// </summary>
+    member inline this.Unit : FIO<unit, 'E> =
+        this.Map <| fun _ -> ()
+
+    /// <summary>
+    /// Sequences two effects, ignoring the result of the second effect.
+    /// </summary>
+    /// <param name="eff">The first effect.</param>
+    /// <param name="eff'">The second effect.</param>
+    member inline this.ZipLeft<'R, 'R1, 'E> (eff: FIO<'R1, 'E>) : FIO<'R, 'E> =
+        this.FlatMap <| fun res -> eff.Map <| fun _ -> res
 
     /// <summary>
     /// Sequences two effects, ignoring the error of the first effect.
@@ -104,7 +118,7 @@ type FIO<'R, 'E> with
                 err, err'
 
     /// <summary>
-    /// Executes two effects concurrently and succeeds with a tuple of their results.
+    /// Executes two effects in parallel, returning a tuple of their results.
     /// </summary>
     /// <param name="eff">The effect to run concurrently with this effect.</param>
     member inline this.ZipPar<'R, 'R1, 'E> (eff: FIO<'R1, 'E>) : FIO<'R * 'R1, 'E> =
@@ -112,6 +126,20 @@ type FIO<'R, 'E> with
             this.FlatMap <| fun res ->
                 fiber.Join().Map <| fun res' ->
                     res, res'
+
+    /// <summary>
+    /// Executes two effects in parallel, returning the result of the second.
+    /// </summary>
+    /// <param name="eff">The effect to run concurrently with this effect.</param>
+    member inline this.ZipParRight<'R, 'R1, 'E> (eff: FIO<'R1, 'E>) : FIO<'R1, 'E> =
+        this.ZipPar(eff).Map <| fun (_, res) -> res
+
+    /// <summary>
+    /// Executes two effects in parallel, returning the result of the first.
+    /// </summary>
+    /// <param name="eff">The effect to run concurrently with this effect.</param>
+    member inline this.ZipParLeft<'R, 'R1, 'E> (eff: FIO<'R1, 'E>) : FIO<'R, 'E> =
+        this.ZipPar(eff).Map <| fun (res, _) -> res
 
     /// <summary>
     /// Executes two effects concurrently and fails with a tuple of their errors when both fail.
@@ -153,6 +181,6 @@ type FIO<'R, 'E> with
                     FIO.Fail err
                 else
                     (onEachRetry retry maxRetries)
-                        .Then(FIO.AwaitTask(Task.Delay(TimeSpan.FromMilliseconds delayMs), fun _ -> err))
-                        .Then(loop (retry + 1) (delayMs * 2.0)))
+                        .ZipRight(FIO.AwaitTask(Task.Delay(TimeSpan.FromMilliseconds delayMs), fun _ -> err))
+                        .ZipRight(loop (retry + 1) (delayMs * 2.0)))
         loop 0 delayBetweenRetriesMillis

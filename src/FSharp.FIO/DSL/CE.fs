@@ -25,7 +25,7 @@ type FIOBuilder internal () =
     /// <param name="cont">The continuation function.</param>
     member inline _.Bind<'R, 'R1, 'E> (eff: FIO<'R, 'E>, cont: 'R -> FIO<'R1, 'E>) : FIO<'R1, 'E> =
         eff.FlatMap cont
-    
+
     /// <summary>
     /// Enables <c>let! ... return</c> patterns in computation expressions.
     /// </summary>
@@ -88,7 +88,7 @@ type FIOBuilder internal () =
     /// <param name="eff">The first FIO effect.</param>
     /// <param name="eff'">The second FIO effect.</param>
     member inline _.Combine<'R, 'R1, 'E> (eff: FIO<'R, 'E>, eff': FIO<'R1, 'E>) : FIO<'R1, 'E> =
-        eff.Then eff'
+        eff.ZipRight eff'
 
     /// <summary>
     /// Finalizes the computation expression.

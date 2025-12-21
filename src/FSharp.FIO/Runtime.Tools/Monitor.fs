@@ -16,8 +16,7 @@ open FSharp.FIO.DSL
 open System.Threading.Tasks
 
 /// <summary>
-/// Monitor for observing runtime channel state without interfering with execution.
-/// Provides periodic snapshots of channel counts and statistics.
+/// Monitor for observing runtime channel state.
 /// </summary>
 type internal Monitor (
     activeWorkItemChan: UnboundedChannel<WorkItem>,
@@ -32,12 +31,10 @@ type internal Monitor (
                 printfn "Timestamp: %s" (System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff"))
                 printfn ""
 
-                // Active Work Items (non-destructive)
                 printfn "Active Work Items:"
                 printfn "  Count: %i" activeWorkItemChan.Count
                 printfn "  Channel ID: %A" activeWorkItemChan.Id
 
-                // Blocking Data (non-destructive)
                 match activeBlockingDataChanOpt with
                 | Some chan ->
                     printfn ""
@@ -47,7 +44,6 @@ type internal Monitor (
                 | None ->
                     ()
 
-                // Blocking Events (non-destructive)
                 match activeBlockingEventChan with
                 | Some chan ->
                     printfn ""
@@ -60,7 +56,7 @@ type internal Monitor (
                 printfn "=================================================="
                 printfn ""
 
-                do! Task.Delay(1000)
+                do! Task.Delay 1000
         }
 
     do monitorTask |> ignore
@@ -68,5 +64,5 @@ type internal Monitor (
     /// <summary>
     /// Stops the monitoring loop.
     /// </summary>
-    member _.Stop() =
+    member _.Stop () =
         running <- false

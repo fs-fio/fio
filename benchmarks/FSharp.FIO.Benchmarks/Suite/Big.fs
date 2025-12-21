@@ -33,7 +33,7 @@ type private Actor =
 let rec private createSendPings actor roundCount ping (chans: Message channel list) timerChan : FIO<unit, exn> =
     fio {
         for chan in chans do
-            do! chan <!-- Ping (ping, actor.PongReceiveChan)
+            do! (chan.Send (Ping (ping, actor.PongReceiveChan))).Unit
             #if DEBUG
             do! FConsole.PrintLine $"DEBUG: %s{actor.Name} sent ping: %i{ping}"
             #endif
@@ -44,47 +44,47 @@ let rec private createSendPings actor roundCount ping (chans: Message channel li
 and private createReceivePings actor rounds receiveCount msg timerChan : FIO<unit, exn> =
     fio {
         for _ in 1..receiveCount do
-            match! !<-- actor.PingReceiveChan with
+            match! actor.PingReceiveChan.Receive () with
             | Ping (ping, replyChan) ->
                 #if DEBUG
                 do! FConsole.PrintLine $"DEBUG: %s{actor.Name} received ping: %i{ping}"
                 #endif
-                match! replyChan <-- Pong (ping + 1) with
+                match! replyChan.Send <| Pong (ping + 1) with
                 | Pong pong ->
                     #if DEBUG
                     do! FConsole.PrintLine $"DEBUG: %s{actor.Name} sent pong: %i{pong}"
                     #endif
                     return ()
                 | Ping _ ->
-                    return! !- (InvalidOperationException "createReceivePings: Received ping when pong was expected!")
+                    return! FIO.Fail <| InvalidOperationException "createReceivePings: Received ping when pong was expected!"
             | _ ->
-                return! !- (InvalidOperationException "createReceivePings: Received pong when ping was expected!")
+                return! FIO.Fail <| InvalidOperationException "createReceivePings: Received pong when ping was expected!"
                 
         return! createReceivePongs actor rounds actor.SendingChans.Length msg timerChan
     }
 
-and private createReceivePongs actor roundCount receiveCount msg timerChan : FIO<unit, exn> =
+and private createReceivePongs actor roundCount receiveCount msg (timerChan: TimerMessage<int> channel) : FIO<unit, exn> =
     fio {
         for _ in 1..receiveCount do
-            match! !<-- actor.PongReceiveChan with
+            match! actor.PongReceiveChan.Receive () with
             | Pong pong -> 
                 #if DEBUG
                 do! FConsole.PrintLine $"DEBUG: %s{actor.Name} received pong: %i{pong}"
                 #endif
                 return ()
             | _ ->
-                return! !- (InvalidOperationException "createRecvPongs: Received ping when pong was expected!")
+                return! FIO.Fail <| InvalidOperationException "createRecvPongs: Received ping when pong was expected!"
         
         if roundCount <= 0 then
-            do! timerChan <!-- Stop
+            do! (timerChan.Send Stop).Unit
         else
             return! createSendPings actor (roundCount - 1) msg actor.SendingChans timerChan
     }
 
-let private createActor actor msg roundCount timerChan startChan : FIO<unit, exn> =
+let private createActor actor msg roundCount (timerChan: TimerMessage<int> channel) (startChan: int channel) : FIO<unit, exn> =
     fio {
-        do! timerChan <!-- Start
-        do! !<!-- startChan
+        do! (timerChan.Send Start).Unit
+        do! startChan.Receive().Unit
         return! createSendPings actor (roundCount - 1) msg actor.SendingChans timerChan
     }
 
@@ -127,8 +127,8 @@ let private createBig (actors: Actor list) roundCount msg timerChan startChan : 
        
         for actor in actors.Tail do
             currentMsg <- currentMsg + 10
-            currentEff <- createActor actor currentMsg roundCount timerChan startChan
-                          <~> currentEff
+            currentEff <- (createActor actor currentMsg roundCount timerChan startChan
+                           <&> currentEff).Unit
         
         return! currentEff
     }
@@ -137,22 +137,22 @@ let createBigBenchmark config : FIO<int64, exn> =
     fio {
         let! actorCount, roundCount =
             match config with
-            | BigConfig (actorCount, roundCount) -> !+ (actorCount, roundCount)
-            | _ -> !- ArgumentException("Big benchmark requires a BigConfig!", nameof(config))
+            | BigConfig (actorCount, roundCount) -> FIO.Succeed (actorCount, roundCount)
+            | _ -> FIO.Fail <| ArgumentException ("Big benchmark requires a BigConfig!", nameof config)
         
         if actorCount < 2 then
-            return! !- ArgumentException($"Big failed: At least 2 actors should be specified. actorCount = %i{actorCount}", nameof(actorCount))
+            return! FIO.Fail <| ArgumentException ($"Big failed: At least 2 actors should be specified. actorCount = %i{actorCount}", nameof actorCount)
         
         if roundCount < 1 then
-            return! !- ArgumentException($"Big failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof(roundCount))
+            return! FIO.Fail <| ArgumentException ($"Big failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount)
         
-        let timerChan = Channel<TimerMessage<int>>()
-        let startChan = Channel<int>()
+        let timerChan = Channel<TimerMessage<int>> ()
+        let startChan = Channel<int> ()
         let actors = createActors actorCount
 
-        let! timerFiber = !~> (TimerEff actorCount actorCount actorCount timerChan)
-        do! timerChan <!-- MsgChannel startChan
+        let! timerFiber = (TimerEff actorCount actorCount actorCount timerChan).Fork ()
+        do! (timerChan.Send (MsgChannel startChan)).Unit
         do! createBig actors roundCount 0 timerChan startChan
-        let! res = !<~~ timerFiber
+        let! res = timerFiber.Join ()
         return res
     }

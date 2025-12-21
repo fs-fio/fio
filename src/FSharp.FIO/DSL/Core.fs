@@ -27,7 +27,7 @@ type InterruptionCause =
     | ExplicitInterrupt
     /// Fiber was interrupted due to resource exhaustion or system limits.
     | ResourceExhaustion of reason: string
-    
+
     override this.ToString() =
         match this with
         | Timeout ms -> $"Timeout({ms}ms)"
@@ -124,7 +124,7 @@ and [<Sealed>] internal UnboundedChannel<'R> (id: Guid) =
             do! chan.Writer.WriteAsync msg
             Interlocked.Increment &count |> ignore
         }
-    
+
     /// <summary>
     /// Takes a message asynchronously.
     /// </summary>
@@ -134,7 +134,7 @@ and [<Sealed>] internal UnboundedChannel<'R> (id: Guid) =
             Interlocked.Decrement &count |> ignore
             return res
         }
-        
+
     /// <summary>
     /// Tries to take a message without blocking.
     /// </summary>
@@ -143,13 +143,13 @@ and [<Sealed>] internal UnboundedChannel<'R> (id: Guid) =
         if success then
             Interlocked.Decrement &count |> ignore
         success
-    
+
     /// <summary>
     /// Waits asynchronously until a message is available.
     /// </summary>
     member internal _.WaitToTakeAsync () =
         chan.Reader.WaitToReadAsync().AsTask()
-        
+
     /// <summary>
     /// Clears all messages from the channel.
     /// </summary>
@@ -194,7 +194,7 @@ and [<Sealed>] internal FiberContext () =
     /// </summary>
     member internal _.CancellationToken =
         cts.Token
-    
+
     /// <summary>
     /// Completes the fiber with the given result.
     /// </summary>
@@ -476,9 +476,9 @@ and FIO<'R, 'E> =
     /// <summary>
     /// Handles errors with a recovery function.
     /// </summary>
-    /// <param name="cont">The error handler function.</param>
-    member this.CatchAll<'R, 'E, 'E1> (cont: 'E -> FIO<'R, 'E1>) : FIO<'R, 'E1> =
-        ChainError (this.UpcastError (), fun err -> cont (err :?> 'E))
+    /// <param name="onError">The error handler function.</param>
+    member this.CatchAll<'R, 'E, 'E1> (onError: 'E -> FIO<'R, 'E1>) : FIO<'R, 'E1> =
+        ChainError (this.UpcastError (), fun err -> onError (err :?> 'E))
 
     /// <summary>
     /// Runs a finalizer after this effect, preserving the original outcome.

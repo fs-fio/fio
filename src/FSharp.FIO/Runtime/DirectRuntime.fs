@@ -15,7 +15,7 @@ open System
 open System.Threading.Tasks
 
 /// <summary>
-/// Represents the direct runtime for FIO, interpreting effects on the current thread.
+/// The direct runtime for FIO, interpreting effects on the current thread.
 /// </summary>
 type Runtime () =
     inherit FRuntime ()
@@ -23,6 +23,11 @@ type Runtime () =
     override _.Name =
         "Direct"
 
+    /// <summary>
+    /// Interprets an FIO effect asynchronously within the given fiber context.
+    /// </summary>
+    /// <param name="eff">The effect to interpret.</param>
+    /// <param name="currentFiberContext">The fiber context for execution.</param>
     [<TailCall>]
     member private this.InterpretAsync eff (currentFiberContext: FiberContext) =
         let mutable currentEff = eff
@@ -112,11 +117,8 @@ type Runtime () =
                                             let! res = this.InterpretAsync eff fiberContext
                                             fiberContext.Complete res
                                         with exn ->
-                                            // InterpretAsync threw an unexpected exception (shouldn't happen by design)
-                                            // Complete the fiber with the error to prevent unobserved exceptions
                                             fiberContext.Complete <| Error exn
                                     finally
-                                        // Always dispose registration when child completes
                                         registration.Dispose ()
                                 } :> Task) |> ignore
                             processSuccess fiber
@@ -138,7 +140,6 @@ type Runtime () =
                                         | exn ->
                                             fiberContext.Complete (Error <| onError exn)
                                     finally
-                                        // Always dispose registration when child completes
                                         registration.Dispose ()
                                 } :> Task) |> ignore
                             processSuccess fiber
@@ -160,7 +161,6 @@ type Runtime () =
                                         | exn ->
                                             fiberContext.Complete (Error <| onError exn)
                                     finally
-                                        // Always dispose registration when child completes
                                         registration.Dispose ()
                                 } :> Task) |> ignore
                             processSuccess fiber

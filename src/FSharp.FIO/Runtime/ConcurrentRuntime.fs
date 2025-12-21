@@ -15,18 +15,31 @@ open System
 open System.Threading
 open System.Threading.Tasks
 
+/// <summary>
+/// Configuration for an evaluation worker.
+/// </summary>
 type private EvaluationWorkerConfig =
     { Runtime: Runtime
       ActiveWorkItemChan: UnboundedChannel<WorkItem>
       BlockingWorker: BlockingWorker
       EWSteps: int }
 
+/// <summary>
+/// Configuration for a blocking worker.
+/// </summary>
 and private BlockingWorkerConfig =
     { ActiveWorkItemChan: UnboundedChannel<WorkItem>
       ActiveBlockingEventChan: UnboundedChannel<Channel<obj>> }
 
+/// <summary>
+/// Worker that evaluates FIO effects.
+/// </summary>
 and private EvaluationWorker (config: EvaluationWorkerConfig) =
     
+    /// <summary>
+    /// Processes a work item by interpreting its effect.
+    /// </summary>
+    /// <param name="workItem">The work item to process.</param>
     let processWorkItem (workItem: WorkItem) =
         task {
             match! config.Runtime.InterpretAsync workItem config.EWSteps with
@@ -57,7 +70,6 @@ and private EvaluationWorker (config: EvaluationWorkerConfig) =
                             loop <- false
                         else
                             let! workItem = config.ActiveWorkItemChan.TakeAsync ()
-                            // Skip orphaned work items (fiber already completed)
                             if not <| workItem.FiberContext.Completed () then
                                 do! processWorkItem workItem
                     with
@@ -73,8 +85,15 @@ and private EvaluationWorker (config: EvaluationWorkerConfig) =
             cancellationTokenSource.Cancel ()
             cancellationTokenSource.Dispose ()
 
+/// <summary>
+/// Worker that handles blocked effects waiting for channel events.
+/// </summary>
 and private BlockingWorker (config: BlockingWorkerConfig) =
 
+    /// <summary>
+    /// Processes a blocking channel event.
+    /// </summary>
+    /// <param name="blockingChan">The channel that received an event.</param>
     let processBlockingChannel (blockingChan: Channel<obj>) =
         task {
             if blockingChan.BlockingWorkItemCount > 0 then
@@ -92,8 +111,6 @@ and private BlockingWorker (config: BlockingWorkerConfig) =
                 let mutable loop = true
                 while loop && not cancellationTokenSource.Token.IsCancellationRequested do
                     try
-                        // When the BlockingWorker receives a channel, it is an "event" that the
-                        // the given channel now has received one element, that the next blocking effect can retrieve.
                         let! hasBlockingItem = config.ActiveBlockingEventChan.WaitToTakeAsync ()
                         if not hasBlockingItem || cancellationTokenSource.Token.IsCancellationRequested then
                             loop <- false
@@ -114,7 +131,7 @@ and private BlockingWorker (config: BlockingWorkerConfig) =
             cancellationTokenSource.Dispose ()
 
 /// <summary>
-/// Represents the concurrent runtime for FIO, interpreting effects using event-driven concurrency and advanced scheduling.
+/// The concurrent runtime for FIO, interpreting effects using event-driven concurrency.
 /// </summary>
 and Runtime (config: WorkerConfig) as this =
     inherit FWorkerRuntime(config)
@@ -122,8 +139,6 @@ and Runtime (config: WorkerConfig) as this =
     let activeWorkItemChan = UnboundedChannel<WorkItem> ()
     let activeBlockingEventChan = UnboundedChannel<Channel<obj>> ()
 
-    // Note: BWC (Blocking Worker Count) is currently limited to 1
-    // Multiple blocking workers would require event distribution logic
     let blockingWorker =
         new BlockingWorker({
             ActiveWorkItemChan = activeWorkItemChan
@@ -156,6 +171,11 @@ and Runtime (config: WorkerConfig) as this =
               BWC = 1
               EWS = 200 }
 
+    /// <summary>
+    /// Interprets an FIO effect asynchronously with step-limited evaluation.
+    /// </summary>
+    /// <param name="workItem">The work item containing the effect to interpret.</param>
+    /// <param name="evalSteps">The maximum number of evaluation steps before rescheduling.</param>
     [<TailCall>]
     member internal _.InterpretAsync workItem evalSteps =
         let mutable currentEff = workItem.Eff
@@ -299,7 +319,6 @@ and Runtime (config: WorkerConfig) as this =
                             else
                                 do! fiberContext.AddBlockingWorkItem
                                     <| { Eff = AwaitFiberContext fiberContext; FiberContext = workItem.FiberContext; Stack = currentContStack; PrevAction = Skipped }
-                                // Atomically check and reschedule if fiber completed during AddBlockingWorkItem
                                 do fiberContext.TryRescheduleBlockingWorkItems activeWorkItemChan |> ignore
                                 let newStack = ContStackPool.Rent ()
                                 result <- Success (), newStack, Skipped
@@ -326,13 +345,13 @@ and Runtime (config: WorkerConfig) as this =
                             <| ContStackFrame (FailureCont cont)
                 return result
             finally
-                // Only return the stack if processing didn't complete normally
-                // If completed=true, the stack was either already returned (Evaluated)
-                // or passed to next work item (RescheduleForRunning/Skipped)
                 if not completed then
                     ContStackPool.Return currentContStack
         }
 
+    /// <summary>
+    /// Resets the runtime state by clearing work item channels.
+    /// </summary>
     member private _.Reset () =
         activeWorkItemChan.Clear ()
         activeBlockingEventChan.Clear ()

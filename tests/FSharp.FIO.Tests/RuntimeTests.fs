@@ -680,7 +680,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``Then always succeeds with the second effect when the initial effect succeeds and second effect succeeds`` (runtime: FRuntime, res1: int, res2: int) =
-        let eff = (FIO.Succeed res1).Then(FIO.Succeed res2)
+        let eff = (FIO.Succeed res1).ZipRight(FIO.Succeed res2)
         
         let actual = result <| runtime.Run eff
         let expected = res2
@@ -689,7 +689,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``Then always fails with the initial effect when the initial effect fails and second effect succeeds`` (runtime: FRuntime, err: int, res: int) =
-        let eff = (FIO.Fail err).Then(FIO.Succeed res)
+        let eff = (FIO.Fail err).ZipRight(FIO.Succeed res)
 
         let actual = error <| runtime.Run eff
         let expected = err
@@ -698,7 +698,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``Then always fails with the second effect when the initial effect succeeds and second effect fails`` (runtime: FRuntime, res: int, err: int) =
-        let eff = (FIO.Succeed res).Then(FIO.Fail err)
+        let eff = (FIO.Succeed res).ZipRight(FIO.Fail err)
         
         let actual = error <| runtime.Run eff
         let expected = err
@@ -707,7 +707,7 @@ type RuntimeTests () =
     
     [<Property>]
     member _.``Then always fails with the initial effect when the initial effect fails and second effect fails`` (runtime: FRuntime, err1: int, err2: int) =
-        let eff = (FIO.Fail err1).Then(FIO.Fail err2)
+        let eff = (FIO.Fail err1).ZipRight(FIO.Fail err2)
         
         let actual = error <| runtime.Run eff
         let expected = err1
@@ -978,10 +978,10 @@ type RuntimeTests () =
         let eff = fio {
             let chan = Channel<int>()
             for i in 0..99 do
-                do! chan <!-- i
+                do! (chan.Send i).Unit
             let mutable received = []
             for _ in 0..99 do
-                let! msg = !<-- chan
+                let! msg = chan.Receive ()
                 received <- msg :: received
             return List.rev received
         }
@@ -997,21 +997,22 @@ type RuntimeTests () =
 
             let mutable receivers = []
             for _ in 0..9 do
-                let! fiber = !<~ (fio {
+                let eff = fio {
                     for _ in 0..9 do
-                        let! msg = !<-- chan
-                        do! !<< (fun () -> receivedBag.Add(msg))
+                        let! msg = chan.Receive ()
+                        do! FIO.FromFunc <| fun () -> receivedBag.Add msg
                     return ()
-                })
+                }
+                let! fiber = eff.Fork ()
                 receivers <- fiber :: receivers
 
             for i in 0..99 do
-                do! chan <!-- i
+                do! (chan.Send i).Unit
 
             for fiber in receivers do
-                do! !!<~~ fiber
+                do! fiber.Join ()
 
-            return receivedBag.ToArray() |> Array.sort
+            return receivedBag.ToArray () |> Array.sort
         }
         let actual = result <| runtime.Run eff
         let expected = [|0..99|]
@@ -1025,24 +1026,25 @@ type RuntimeTests () =
 
             let mutable senders = []
             for senderId in 0..9 do
-                let! fiber = !<~ (fio {
+                let eff = fio {
                     for i in 0..9 do
-                        do! chan <!-- (senderId, i)
+                        do! (chan.Send (senderId, i)).Unit
                     return ()
-                })
+                }
+                let! fiber = eff.Fork ()
                 senders <- fiber :: senders
 
-            let! receiver =
-                !<~ (fio {
+            let eff = fio {
                     for _ in 0..99 do
-                        let! msg = !<-- chan
-                        do! !<< (fun () -> receivedBag.Add msg)
+                        let! msg = chan.Receive ()
+                        do! FIO.FromFunc <| fun () -> receivedBag.Add msg
                     return ()
-                })
+                }
+            let! receiver = eff.Fork ()
 
             for fiber in senders do
-                do! !!<~~ fiber
-            do! !!<~~ receiver
+                do! fiber.Join ()
+            do! receiver.Join ()
 
             let received = receivedBag.ToArray()
             let groupedBySender = received |> Array.groupBy fst
@@ -1061,27 +1063,29 @@ type RuntimeTests () =
 
             let mutable senders = []
             for i in 0..19 do
-                let! fiber = !<~ (fio {
+                let eff = fio {
                     for j in 0..4 do
-                        do! chan <!-- (i * 10 + j)
+                        do! (chan.Send (i * 10 + j)).Unit
                     return ()
-                })
+                }
+                let! fiber = eff.Fork ()
                 senders <- fiber :: senders
 
             let mutable receivers = []
             for _ in 0..19 do
-                let! fiber = !<~ (fio {
+                let eff = fio {
                     for _ in 0..4 do
-                        let! _ = !<-- chan
+                        let! _ = chan.Receive ()
                         ()
                     return ()
-                })
+                }
+                let! fiber = eff.Fork ()
                 receivers <- fiber :: receivers
 
             for fiber in senders do
-                do! !!<~~ fiber
+                do! fiber.Join ()
             for fiber in receivers do
-                do! !!<~~ fiber
+                do! fiber.Join ()
 
             return chan.Count
         }
@@ -1096,13 +1100,13 @@ type RuntimeTests () =
 
             let receiverEff = fio {
                 started.Add true
-                let! msg = !<-- chan
+                let! msg = chan.Receive ()
                 return msg
             }
-            let! receiver = !<~ receiverEff
+            let! receiver = receiverEff.Fork ()
 
-            do! (chan <-- 42).Then(FIO.Succeed ())
-            let! receivedMsg = !<~~ receiver
+            do! (chan.Send 42).Unit
+            let! receivedMsg = receiver.Join ()
 
             return receivedMsg = 42 && started.Count = 1
         }
@@ -1112,19 +1116,20 @@ type RuntimeTests () =
     [<Property>]
     member _.``Multiple fibers awaiting same fiber all succeed`` (runtime: FRuntime) =
         let eff = fio {
-            let! targetFiber = !<~ (FIO.Succeed 42)
+            let! targetFiber = (FIO.Succeed 42).Fork ()
 
             let mutable awaiters = []
             for _ in 0..49 do
-                let! fiber = !<~ (fio {
-                    let! res = !<~~ targetFiber
+                let eff = fio {
+                    let! res = targetFiber.Join ()
                     return res
-                })
+                }
+                let! fiber = eff.Fork ()
                 awaiters <- fiber :: awaiters
 
             let mutable allResults = []
             for fiber in awaiters do
-                let! res = !<~~ fiber
+                let! res = fiber.Join ()
                 allResults <- res :: allResults
 
             return allResults |> List.forall (fun x -> x = 42) && List.length allResults = 50
@@ -1135,19 +1140,20 @@ type RuntimeTests () =
     [<Property>]
     member _.``Fiber completion race with blocking registration handled`` (runtime: FRuntime) =
         let eff = fio {
-            let! fastFiber = !<~ (FIO.Succeed 42)
+            let! fastFiber = (FIO.Succeed 42).Fork ()
 
             let mutable awaiters = []
             for _ in 0..9 do
-                let! fiber = !<~ (fio {
-                    let! res = !<~~ fastFiber
+                let eff = fio {
+                    let! res = fastFiber.Join ()
                     return res
-                })
+                }
+                let! fiber = eff.Fork ()
                 awaiters <- fiber :: awaiters
 
             let mutable results = []
             for fiber in awaiters do
-                let! res = !<~~ fiber
+                let! res = fiber.Join ()
                 results <- res :: results
 
             return results |> List.forall (fun x -> x = 42)
@@ -1158,21 +1164,24 @@ type RuntimeTests () =
     [<Property>]
     member _.``Chain of fiber awaits completes in correct order`` (runtime: FRuntime) =
         let eff = fio {
-            let! fiberD = !<~ (FIO.Succeed "D")
-            let! fiberC = !<~ (fio {
-                let! res = !<~~ fiberD
+            let! fiberD = (FIO.Succeed "D").Fork ()
+            let effC = fio {
+                let! res = fiberD.Join ()
                 return "C-" + res
-            })
-            let! fiberB = !<~ (fio {
-                let! res = !<~~ fiberC
+            }
+            let! fiberC = effC.Fork ()
+            let effB = fio {
+                let! res = fiberC.Join ()
                 return "B-" + res
-            })
-            let! fiberA = !<~ (fio {
-                let! res = !<~~ fiberB
+            }
+            let! fiberB = effB.Fork ()
+            let effA = fio {
+                let! res = fiberB.Join ()
                 return "A-" + res
-            })
+            }
+            let! fiberA = effA.Fork ()
 
-            let! finalResult = !<~~ fiberA
+            let! finalResult = fiberA.Join ()
             return finalResult
         }
         let actual = result <| runtime.Run eff
@@ -1196,7 +1205,7 @@ type RuntimeTests () =
             if depth <= 0 then
                 FIO.Succeed acc
             else
-                (FIO.Succeed 1).Then(createDeepThen (depth - 1) (acc + 1))
+                (FIO.Succeed 1).ZipRight(createDeepThen (depth - 1) (acc + 1))
 
         let eff = createDeepThen 100 0
         let actual = result <| runtime.Run eff
@@ -1242,7 +1251,7 @@ type RuntimeTests () =
     [<Property>]
     member _.``Error in forked fiber does not crash parent`` (runtime: FRuntime) =
         let eff = fio {
-            let! childFiber = !<~ (FIO.Fail "child error")
+            let! childFiber = (FIO.Fail "child error").Fork ()
             return 42
         }
         let actual = result <| runtime.Run eff
@@ -1292,18 +1301,19 @@ type RuntimeTests () =
 
             let mutable receivers = []
             for _ in 0..99 do
-                let! fiber = !<~ (fio {
-                    let! msg = !<-- chan
+                let eff = fio {
+                    let! msg = chan.Receive ()
                     return msg
-                })
+                }
+                let! fiber = eff.Fork ()
                 receivers <- fiber :: receivers
 
             for i in 0..99 do
-                do! chan <!-- i
+                do! (chan.Send i).Unit
 
             let mutable results = []
             for fiber in receivers do
-                let! res = !<~~ fiber
+                let! res = fiber.Join ()
                 results <- res :: results
 
             return List.length results = 100
@@ -1335,7 +1345,7 @@ type RuntimeTests () =
         let f x = x + 10
         let g x = FIO.Succeed (x * 2)
 
-        let lhs = (FIO.Succeed value).FlatMap(g).Map(f)
+        let lhs = (FIO.Succeed value).FlatMap(g).Map f
         let rhs = (FIO.Succeed value).Map(fun x -> x * 2).FlatMap(fun x -> FIO.Succeed (f x))
 
         let lhsResult = result <| runtime.Run lhs
@@ -1352,8 +1362,8 @@ type RuntimeTests () =
     member _.``Channel message delivery - Message sent is exactly the message received`` (runtime: FRuntime, msg: int) =
         let eff = fio {
             let chan = Channel<int>()
-            do! chan <!-- msg
-            let! received = !<-- chan
+            do! (chan.Send msg).FlatMap(fun _ -> FIO.Succeed ())
+            let! received = chan.Receive ()
             return received
         }
         let actual = result <| runtime.Run eff
@@ -1382,10 +1392,10 @@ type RuntimeTests () =
     [<Property>]
     member _.``Forked fibers execute independently`` (runtime: FRuntime, val1: int, val2: int) =
         let eff = fio {
-            let! fiber1 = !<~ (FIO.Succeed val1)
-            let! fiber2 = !<~ (FIO.Succeed val2)
-            let! r1 = !<~~ fiber1
-            let! r2 = !<~~ fiber2
+            let! fiber1 = (FIO.Succeed val1).Fork ()
+            let! fiber2 = (FIO.Succeed val2).Fork ()
+            let! r1 = fiber1.Join ()
+            let! r2 = fiber2.Join ()
             return r1, r2
         }
         let actual1, actual2 = result <| runtime.Run eff
@@ -1446,9 +1456,9 @@ type RuntimeTests () =
     member _.``Sequential execution order is preserved`` (runtime: FRuntime) =
         let mutable executionOrder = []
         let eff = fio {
-            do! !<< (fun () -> executionOrder <- 1 :: executionOrder)
-            do! !<< (fun () -> executionOrder <- 2 :: executionOrder)
-            do! !<< (fun () -> executionOrder <- 3 :: executionOrder)
+            do! FIO.FromFunc <| fun () -> executionOrder <- 1 :: executionOrder
+            do! FIO.FromFunc <| fun () -> executionOrder <- 2 :: executionOrder
+            do! FIO.FromFunc <| fun () -> executionOrder <- 3 :: executionOrder
             return List.rev executionOrder
         }
         let actual = result <| runtime.Run eff
@@ -1473,10 +1483,10 @@ type RuntimeTests () =
         let eff = fio {
             let chan = Channel<int>()
             for msg in messages do
-                do! chan <!-- msg
+                do! (chan.Send msg).Unit
             let mutable received = []
             for _ in messages do
-                let! msg = !<-- chan
+                let! msg = chan.Receive ()
                 received <- msg :: received
             return List.rev received
         }
@@ -1485,7 +1495,7 @@ type RuntimeTests () =
 
     [<Property>]
     member _.``Then discards first result but preserves first error`` (runtime: FRuntime, err: int) =
-        let eff = (FIO.Fail err).Then(FIO.Succeed 42)
+        let eff = (FIO.Fail err).ZipRight(FIO.Succeed 42)
         let actual = error <| runtime.Run eff
         actual = err
 

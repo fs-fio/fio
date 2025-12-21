@@ -14,8 +14,8 @@
 
 	<ItemGroup>
 		<Compile Include="IO\FConsole.fs" />
-		<Compile Include="Net\Sockets.fs" />
-		<Compile Include="Net\WebSockets.fs" />
+		<Compile Include="Net\FSockets.fs" />
+		<Compile Include="Net\FWebSockets.fs" />
 	</ItemGroup>
 
 	<ItemGroup>

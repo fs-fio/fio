@@ -23,31 +23,31 @@ type private Actor =
     { Name: string; 
       Chan: int channel }
 
-let private createSendingActor actor roundCount msg timerChan startChan =
+let private createSendingActor actor roundCount msg (timerChan: TimerMessage<int> channel) (startChan: int channel) =
     fio {
-        do! timerChan <!-- Start
-        do! !<!-- startChan
+        do! (timerChan.Send Start).Unit
+        do! startChan.Receive().Unit
         
         for _ in 1..roundCount do
-            do! actor.Chan <!-- msg
+            do! (actor.Chan.Send msg).Unit
             #if DEBUG
             do! FConsole.PrintLine $"[DEBUG]: %s{actor.Name} sent: %i{msg}"
             #endif
     }
 
-let private createReceiveActor actor roundCount timerChan startChan =
+let private createReceiveActor actor roundCount (timerChan: TimerMessage<int> channel) (startChan: int channel) =
     fio {
-        do! timerChan <!-- Start
-        do! !<!-- startChan
+        do! (timerChan.Send Start).Unit
+        do! startChan.Receive().Unit
         
         for _ in 1..roundCount do
-            let! msg = !<-- actor.Chan
+            let! msg = actor.Chan.Receive()
             #if DEBUG
             do! FConsole.PrintLine $"[DEBUG]: %s{actor.Name} received: %i{msg}"
             #endif
             return ()
             
-        do! timerChan <!-- Stop
+        do! (timerChan.Send Stop).Unit
     }
 
 let private createBang receivingActor (sendingActors: Actor list) actorCount roundCount msg timerChan startChan =
@@ -56,8 +56,8 @@ let private createBang receivingActor (sendingActors: Actor list) actorCount rou
         let mutable currentEff = createReceiveActor receivingActor (actorCount * roundCount) timerChan startChan
         
         for sendingActor in sendingActors do
-            currentEff <- createSendingActor sendingActor roundCount currentMsg timerChan startChan
-                          <~> currentEff
+            currentEff <- (createSendingActor sendingActor roundCount currentMsg timerChan startChan
+                          <&> currentEff).Unit
             currentMsg <- currentMsg + 1
         
         return! currentEff
@@ -73,14 +73,14 @@ let createBangBenchmark config : FIO<int64, exn> =
     fio {
         let! actorCount, roundCount =
             match config with
-            | BangConfig (actorCount, roundCount) -> !+ (actorCount, roundCount)
-            | _ -> !- ArgumentException("Bang benchmark requires a BangConfig!", nameof(config))
+            | BangConfig (actorCount, roundCount) -> FIO.Succeed(actorCount, roundCount)
+            | _ -> FIO.Fail <| ArgumentException("Bang benchmark requires a BangConfig!", nameof config)
         
         if actorCount < 1 then
-            return! !- ArgumentException($"Bang failed: At least 1 actor should be specified. actorCount = %i{actorCount}", nameof(actorCount))
+            return! FIO.Fail <| ArgumentException($"Bang failed: At least 1 actor should be specified. actorCount = %i{actorCount}", nameof actorCount)
         
         if roundCount < 1 then
-            return! !- ArgumentException($"Bang failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof(roundCount))
+            return! FIO.Fail <| ArgumentException($"Bang failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount)
         
         let timerChan = Channel<TimerMessage<int>>()
         let startChan = Channel<int>()
@@ -90,9 +90,9 @@ let createBangBenchmark config : FIO<int64, exn> =
               Chan = Channel<int>() }
 
         let sendingActors = createSendingActors receivingActor.Chan actorCount
-        let! timerFiber = !<~ (TimerEff (actorCount + 1) (actorCount + 1) 1 timerChan)
-        do! timerChan <!-- MsgChannel startChan
+        let! timerFiber = (TimerEff (actorCount + 1) (actorCount + 1) 1 timerChan).Fork()
+        do! timerChan.Send(MsgChannel startChan).Unit
         do! createBang receivingActor sendingActors actorCount roundCount 1 timerChan startChan
-        let! res = !<~~ timerFiber
+        let! res = timerFiber.Join()
         return res
     }

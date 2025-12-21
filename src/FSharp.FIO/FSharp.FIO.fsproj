@@ -6,6 +6,9 @@
 		<GenerateDocumentationFile>true</GenerateDocumentationFile>
 		<Title>FSharp.FIO</Title>
 		<Description>FIO is a type-safe, purely functional effect system for F#, designed for building highly concurrent and asynchronous applications. It provides a lightweight DSL for writing composable programs using functional effects.</Description>
+		<Authors>Daniel Larsen</Authors>
+		<Copyright>Copyright (c) 2022-2026 Daniel Larsen and Technical University of Denmark (DTU)</Copyright>
+		<PackageTags>fsharp;effects;async;concurrent;functional;zio;fibers</PackageTags>
 		<RepositoryUrl>https://github.com/fs-fio/FIO</RepositoryUrl>
 		<RepositoryType>git</RepositoryType>
 		<PackageIcon>fio_logo_wide.png</PackageIcon>

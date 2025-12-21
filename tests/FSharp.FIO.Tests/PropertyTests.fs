@@ -211,10 +211,10 @@ type PropertyTests () =
             let eff = fio {
                 let chan = Channel<int>()
                 for msg in messages do
-                    do! chan <!-- msg
+                    do! (chan.Send msg).FlatMap (fun _ -> FIO.Succeed ())
                 let mutable received = []
                 for _ in messages do
-                    let! msg = !<-- chan
+                    let! msg = chan.Receive ()
                     received <- msg :: received
                 return List.rev received
             }
@@ -225,8 +225,8 @@ type PropertyTests () =
     member _.``Channel operations compose with Bind correctly`` (runtime: FRuntime, msg: int) =
         let eff = fio {
             let chan = Channel<int>()
-            let! sentMsg = chan <-- msg
-            let! receivedMsg = !<-- chan
+            let! sentMsg = chan.Send msg
+            let! receivedMsg = chan.Receive ()
             return sentMsg = receivedMsg && receivedMsg = msg
         }
         result <| runtime.Run eff
@@ -239,11 +239,11 @@ type PropertyTests () =
             let eff = fio {
                 let chan = Channel<int>()
                 for msg in messages do
-                    do! chan <!-- msg
+                    do! (chan.Send msg).FlatMap (fun _ -> FIO.Succeed ())
                 let countAfterSend = chan.Count
                 let mutable received = []
                 for _ in messages do
-                    let! msg = !<-- chan
+                    let! msg = chan.Receive ()
                     received <- msg :: received
                 let countAfterReceive = chan.Count
                 return countAfterSend = int64 (List.length messages) && countAfterReceive = 0L
@@ -258,7 +258,7 @@ type PropertyTests () =
             let eff = fio {
                 let chan = Channel<int>()
                 for msg in messages do
-                    do! chan <!-- msg
+                    do! (chan.Send msg).FlatMap (fun _ -> FIO.Succeed ())
                 return chan.Count = int64 (List.length messages)
             }
             result <| runtime.Run eff
@@ -266,8 +266,8 @@ type PropertyTests () =
     [<Property>]
     member _.``Fork then Await equals identity`` (runtime: FRuntime, res: int) =
         let eff = fio {
-            let! fiber = !<~ (FIO.Succeed res)
-            let! result = !<~~ fiber
+            let! fiber = (FIO.Succeed res).Fork ()
+            let! result = fiber.Join ()
             return result
         }
         let forkAwaitResult = result <| runtime.Run eff
@@ -278,9 +278,9 @@ type PropertyTests () =
     member _.``Fiber ID is unique per fork`` (runtime: FRuntime, res: int) =
         let eff = fio {
             let effect = FIO.Succeed res
-            let! fiber1 = !<~ effect
-            let! fiber2 = !<~ effect
-            let! fiber3 = !<~ effect
+            let! fiber1 = effect.Fork ()
+            let! fiber2 = effect.Fork ()
+            let! fiber3 = effect.Fork ()
             return fiber1.Id <> fiber2.Id && fiber2.Id <> fiber3.Id && fiber1.Id <> fiber3.Id
         }
         result <| runtime.Run eff

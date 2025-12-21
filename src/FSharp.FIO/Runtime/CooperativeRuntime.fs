@@ -15,16 +15,25 @@ open System
 open System.Threading
 open System.Threading.Tasks
 
+/// <summary>
+/// Configuration for an evaluation worker.
+/// </summary>
 type private EvaluationWorkerConfig =
     { Runtime: Runtime
       ActiveWorkItemChan: UnboundedChannel<WorkItem>
       BlockingWorker: BlockingWorker
       EWSteps: int }
 
+/// <summary>
+/// Configuration for a blocking worker.
+/// </summary>
 and private BlockingWorkerConfig =
     { ActiveWorkItemChan: UnboundedChannel<WorkItem>
       ActiveBlockingDataChan: UnboundedChannel<BlockingData> }
 
+/// <summary>
+/// Worker that evaluates FIO effects.
+/// </summary>
 and private EvaluationWorker (config: EvaluationWorkerConfig) =
 
     let processWorkItem (workItem: WorkItem) =
@@ -75,8 +84,16 @@ and private EvaluationWorker (config: EvaluationWorkerConfig) =
             cancellationTokenSource.Cancel ()
             cancellationTokenSource.Dispose ()
 
+/// <summary>
+/// Worker that handles blocked effects waiting for resources.
+/// </summary>
 and private BlockingWorker (config: BlockingWorkerConfig) =
 
+    /// <summary>
+    /// Processes blocking data for a channel.
+    /// </summary>
+    /// <param name="blockingData">The blocking data.</param>
+    /// <param name="blockingChan">The channel being waited on.</param>
     let processBlockingChannel blockingData (blockingChan: Channel<obj>) =
         task {
             if blockingChan.Count > 0 then
@@ -85,6 +102,11 @@ and private BlockingWorker (config: BlockingWorkerConfig) =
                 do! config.ActiveBlockingDataChan.AddAsync blockingData
         }
 
+    /// <summary>
+    /// Processes blocking data for a fiber context.
+    /// </summary>
+    /// <param name="blockingData">The blocking data.</param>
+    /// <param name="fiberContext">The fiber context being waited on.</param>
     let processBlockingFiberContext blockingData (fiberContext: FiberContext) =
         task {
             if fiberContext.Completed () then
@@ -93,6 +115,10 @@ and private BlockingWorker (config: BlockingWorkerConfig) =
                 do! config.ActiveBlockingDataChan.AddAsync blockingData
         }
 
+    /// <summary>
+    /// Processes blocking data by dispatching to the appropriate handler.
+    /// </summary>
+    /// <param name="blockingData">The blocking data to process.</param>
     let rec processBlockingData blockingData =
         task {
             match blockingData.BlockingItem with
@@ -129,11 +155,15 @@ and private BlockingWorker (config: BlockingWorkerConfig) =
             cancellationTokenSource.Cancel ()
             cancellationTokenSource.Dispose ()
 
+    /// <summary>
+    /// Reschedules a work item that is blocked on a resource.
+    /// </summary>
+    /// <param name="blockingData">The blocking data for the work item.</param>
     member internal _.RescheduleForBlocking blockingData =
         config.ActiveBlockingDataChan.AddAsync blockingData
 
 /// <summary>
-/// Represents the cooperative runtime for FIO, interpreting effects concurrently using work-stealing and multiple workers.
+/// The cooperative runtime for FIO, interpreting effects concurrently using work-stealing.
 /// </summary>
 and Runtime (config: WorkerConfig) as this =
     inherit FWorkerRuntime(config)
@@ -141,8 +171,6 @@ and Runtime (config: WorkerConfig) as this =
     let activeWorkItemChan = UnboundedChannel<WorkItem> ()
     let activeBlockingDataChan = UnboundedChannel<BlockingData> ()
 
-    // Note: BWC (Blocking Worker Count) is currently limited to 1
-    // Multiple blocking workers would require work distribution logic
     let blockingWorker =
         new BlockingWorker({
             ActiveWorkItemChan = activeWorkItemChan
@@ -163,7 +191,6 @@ and Runtime (config: WorkerConfig) as this =
 
     interface IDisposable with
         member _.Dispose () =
-            // Dispose workers to stop background threads
             (blockingWorker :> IDisposable).Dispose ()
             evaluationWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose ())
 
@@ -175,6 +202,11 @@ and Runtime (config: WorkerConfig) as this =
               BWC = 1
               EWS = 200 }
 
+    /// <summary>
+    /// Interprets an FIO effect asynchronously with step-limited evaluation.
+    /// </summary>
+    /// <param name="workItem">The work item containing the effect to interpret.</param>
+    /// <param name="evalSteps">The maximum number of evaluation steps before rescheduling.</param>
     [<TailCall>]
     member internal _.InterpretAsync workItem evalSteps =
         let mutable currentEff = workItem.Eff
@@ -341,13 +373,13 @@ and Runtime (config: WorkerConfig) as this =
                             <| ContStackFrame (FailureCont cont)
                 return result
             finally
-                // Only return the stack if processing didn't complete normally
-                // If completed=true, the stack was either already returned (Evaluated)
-                // or passed to next work item (RescheduleForRunning/RescheduleForBlocking)
                 if not completed then
                     ContStackPool.Return currentContStack
         }
 
+    /// <summary>
+    /// Resets the runtime state by clearing work item channels.
+    /// </summary>
     member private _.Reset () =
         activeWorkItemChan.Clear ()
         activeBlockingDataChan.Clear ()

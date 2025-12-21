@@ -14,7 +14,7 @@ open System
 
 let helloWorld1 () =
     let hello = FIO.Succeed "Hello world! 🪻"
-    let fiber = (new Runtime()).Run hello
+    let fiber = (new Runtime ()).Run hello
     
     task {
         let! result = fiber.Task ()
@@ -25,7 +25,7 @@ let helloWorld1 () =
 
 let helloWorld2 () : unit =
     let hello: FIO<string, obj> = FIO.Succeed "Hello world! 🪻"
-    let fiber: Fiber<string, obj> = (new Runtime()).Run hello
+    let fiber: Fiber<string, obj> = (new Runtime ()).Run hello
     
     task {
         let! result: Result<string, obj> = fiber.Task ()
@@ -36,7 +36,7 @@ let helloWorld2 () : unit =
 
 let helloWorld3 () : unit =
     let hello: FIO<obj, string> = FIO.Fail "Hello world! 🪻"
-    let fiber: Fiber<obj, string> = (new Runtime()).Run hello
+    let fiber: Fiber<obj, string> = (new Runtime ()).Run hello
     
     task {
         let! result: Result<obj, string> = fiber.Task ()
@@ -47,34 +47,16 @@ let helloWorld3 () : unit =
 
 let helloWorld4 () =
     let hello = FIO.Succeed "Hello world! 🪻"
-    let fiber = (new Runtime()).Run hello
-    
-    task {
-        let! result = fiber.Task()
-        printfn $"%A{result}"
-    } |> ignore
-
-let helloWorld5 () =
-    let hello = !+ "Hello world! 🪻"
-    let fiber = (new Runtime()).Run hello
+    let fiber = (new Runtime ()).Run hello
     
     task {
         let! result = fiber.Task ()
         printfn $"%A{result}"
     } |> ignore
 
-let helloWorld6 () =
-    let hello = !- "Hello world! 🪻"
-    let fiber = (new Runtime()).Run hello
-    
-    task {
-        let! result = fiber.Task()
-        printfn $"%A{result}"
-    } |> ignore
-
 let concurrency1 () =
     let concurrent = (FIO.Succeed 42).Fork().FlatMap _.Join()
-    let fiber = (new Runtime()).Run concurrent
+    let fiber = (new Runtime ()).Run concurrent
     
     task {
         let! result = fiber.Task ()
@@ -82,8 +64,8 @@ let concurrency1 () =
     } |> ignore
 
 let concurrency2 () =
-    let concurrent = !~> !+ 42 >>= fun fiber -> !~~> fiber
-    let fiber = (new Runtime()).Run concurrent
+    let concurrent = (FIO.Succeed 42).Fork() >>= fun fiber -> fiber.Join()
+    let fiber = (new Runtime ()).Run concurrent
     
     task {
         let! result = fiber.Task ()
@@ -91,10 +73,10 @@ let concurrency2 () =
     } |> ignore
 
 let concurrency3 () =
-    let taskA = !+ "Task A completed!"
-    let taskB = !+ (200, "Task B OK")
-    let concurrent = taskA <!> taskB
-    let fiber = (new Runtime()).Run concurrent
+    let taskA = FIO.Succeed "Task A completed!"
+    let taskB = FIO.Succeed (200, "Task B OK")
+    let concurrent = taskA <&> taskB
+    let fiber = (new Runtime ()).Run concurrent
     
     task {
         let! result = fiber.Task ()
@@ -107,7 +89,7 @@ let computationExpression1 () =
             return "Hello world! 🪻"
         }
 
-    let fiber = (new Runtime()).Run hello
+    let fiber = (new Runtime ()).Run hello
     
     task {
         let! result = fiber.Task ()
@@ -117,10 +99,10 @@ let computationExpression1 () =
 let computationExpression2 () =
     let hello : FIO<obj, string> =
         fio {
-            return! !- "Hello world! 🪻"
+            return! FIO.Fail "Hello world! 🪻"
         }
 
-    let fiber = (new Runtime()).Run hello
+    let fiber = (new Runtime ()).Run hello
 
     task {
         let! result = fiber.Task ()
@@ -135,7 +117,7 @@ let computationExpression3 () =
             do! FConsole.PrintLine $"Hello, %s{name}! Welcome to FIO! 🪻💜"
         }
 
-    let fiber = (new Runtime()).Run welcome
+    let fiber = (new Runtime ()).Run welcome
 
     task {
         let! result = fiber.Task ()
@@ -152,12 +134,6 @@ helloWorld3 ()
 Console.ReadLine () |> ignore
 
 helloWorld4 ()
-Console.ReadLine () |> ignore
-
-helloWorld5 ()
-Console.ReadLine () |> ignore
-
-helloWorld6 ()
 Console.ReadLine () |> ignore
 
 concurrency1 ()

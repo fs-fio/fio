@@ -37,7 +37,6 @@ type internal ContStackPool private () =
     /// <summary>
     /// Rents a continuation stack from the pool or creates a new one.
     /// </summary>
-    /// <returns>A cleared ResizeArray ready for use.</returns>
     static member inline Rent () =
         if isNull ContStackPool.pool then
             ContStackPool.pool <- Stack<_>()
@@ -51,8 +50,6 @@ type internal ContStackPool private () =
 
     /// <summary>
     /// Returns a continuation stack to the pool for reuse.
-    /// Large stacks are not pooled to avoid holding excessive memory.
-    /// Enforces maximum pool size to prevent unbounded growth.
     /// </summary>
     /// <param name="stack">The stack to return to the pool.</param>
     static member inline Return (stack: ResizeArray<ContStackFrame>) =
@@ -85,16 +82,12 @@ type FRuntime internal () =
     /// <summary>
     /// Runs an FIO effect and returns a fiber representing its execution.
     /// </summary>
-    /// <typeparam name="R">The result type.</typeparam>
-    /// <typeparam name="E">The error type.</typeparam>
     /// <param name="eff">The FIO effect to run.</param>
-    /// <returns>A fiber representing the running effect.</returns>
     abstract member Run<'R, 'E> : FIO<'R, 'E> -> Fiber<'R, 'E>
 
     /// <summary>
     /// Gets a file-friendly string representation of the runtime.
     /// </summary>
-    /// <returns>A string suitable for file names.</returns>
     member this.ToFileString () =
         this.ToString()
             .ToLowerInvariant()
@@ -132,7 +125,6 @@ type FWorkerRuntime internal (config: WorkerConfig) as this =
     /// <summary>
     /// Gets the worker configuration.
     /// </summary>
-    /// <returns>The worker configuration.</returns>
     member _.GetWorkerConfiguration () =
         config
 
