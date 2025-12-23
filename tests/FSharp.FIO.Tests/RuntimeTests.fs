@@ -62,7 +62,7 @@ type RuntimeTests () =
         let onError exn =
             exn
             
-        let eff = FIO.FromFunc<int, exn> (func, onError)
+        let eff = FIO.Attempt<int, exn> (func, onError)
         
         let actual = result <| runtime.Run eff
         let expected = res
@@ -78,7 +78,7 @@ type RuntimeTests () =
         let onError (exn: exn) =
             exn.Message
             
-        let eff = FIO.FromFunc<int, string> (func, onError)
+        let eff = FIO.Attempt<int, string> (func, onError)
         
         let actual = error <| runtime.Run eff
         let expected = exnMsg
@@ -90,7 +90,7 @@ type RuntimeTests () =
         let func () =
             res
         
-        let eff = FIO.FromFunc func
+        let eff = FIO.Attempt func
 
         let actual = result <| runtime.Run eff
         let expected = res
@@ -103,7 +103,7 @@ type RuntimeTests () =
             invalidOp exnMsg
             res
 
-        let eff = FIO.FromFunc func
+        let eff = FIO.Attempt func
         
         let actual = (error <| runtime.Run eff).Message
         let expected = exnMsg
@@ -978,7 +978,7 @@ type RuntimeTests () =
         let eff = fio {
             let chan = Channel<int>()
             for i in 0..99 do
-                do! (chan.Send i).Unit
+                do! chan.Send(i).Unit()
             let mutable received = []
             for _ in 0..99 do
                 let! msg = chan.Receive ()
@@ -1000,14 +1000,14 @@ type RuntimeTests () =
                 let eff = fio {
                     for _ in 0..9 do
                         let! msg = chan.Receive ()
-                        do! FIO.FromFunc <| fun () -> receivedBag.Add msg
+                        do! FIO.Attempt <| fun () -> receivedBag.Add msg
                     return ()
                 }
                 let! fiber = eff.Fork ()
                 receivers <- fiber :: receivers
 
             for i in 0..99 do
-                do! (chan.Send i).Unit
+                do! chan.Send(i).Unit()
 
             for fiber in receivers do
                 do! fiber.Join ()
@@ -1028,7 +1028,7 @@ type RuntimeTests () =
             for senderId in 0..9 do
                 let eff = fio {
                     for i in 0..9 do
-                        do! (chan.Send (senderId, i)).Unit
+                        do! chan.Send(senderId, i).Unit()
                     return ()
                 }
                 let! fiber = eff.Fork ()
@@ -1037,7 +1037,7 @@ type RuntimeTests () =
             let eff = fio {
                     for _ in 0..99 do
                         let! msg = chan.Receive ()
-                        do! FIO.FromFunc <| fun () -> receivedBag.Add msg
+                        do! FIO.Attempt <| fun () -> receivedBag.Add msg
                     return ()
                 }
             let! receiver = eff.Fork ()
@@ -1065,7 +1065,7 @@ type RuntimeTests () =
             for i in 0..19 do
                 let eff = fio {
                     for j in 0..4 do
-                        do! (chan.Send (i * 10 + j)).Unit
+                        do! chan.Send(i * 10 + j).Unit()
                     return ()
                 }
                 let! fiber = eff.Fork ()
@@ -1105,7 +1105,7 @@ type RuntimeTests () =
             }
             let! receiver = receiverEff.Fork ()
 
-            do! (chan.Send 42).Unit
+            do! chan.Send(42).Unit()
             let! receivedMsg = receiver.Join ()
 
             return receivedMsg = 42 && started.Count = 1
@@ -1309,7 +1309,7 @@ type RuntimeTests () =
                 receivers <- fiber :: receivers
 
             for i in 0..99 do
-                do! (chan.Send i).Unit
+                do! chan.Send(i).Unit()
 
             let mutable results = []
             for fiber in receivers do
@@ -1456,9 +1456,9 @@ type RuntimeTests () =
     member _.``Sequential execution order is preserved`` (runtime: FRuntime) =
         let mutable executionOrder = []
         let eff = fio {
-            do! FIO.FromFunc <| fun () -> executionOrder <- 1 :: executionOrder
-            do! FIO.FromFunc <| fun () -> executionOrder <- 2 :: executionOrder
-            do! FIO.FromFunc <| fun () -> executionOrder <- 3 :: executionOrder
+            do! FIO.Attempt <| fun () -> executionOrder <- 1 :: executionOrder
+            do! FIO.Attempt <| fun () -> executionOrder <- 2 :: executionOrder
+            do! FIO.Attempt <| fun () -> executionOrder <- 3 :: executionOrder
             return List.rev executionOrder
         }
         let actual = result <| runtime.Run eff
@@ -1483,7 +1483,7 @@ type RuntimeTests () =
         let eff = fio {
             let chan = Channel<int>()
             for msg in messages do
-                do! (chan.Send msg).Unit
+                do! chan.Send(msg).Unit()
             let mutable received = []
             for _ in messages do
                 let! msg = chan.Receive ()

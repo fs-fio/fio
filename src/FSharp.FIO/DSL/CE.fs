@@ -102,7 +102,7 @@ type FIOBuilder internal () =
     /// </summary>
     /// <param name="cont">A function that produces the FIO effect.</param>
     member inline _.Delay<'R1, 'E> (cont: unit -> FIO<'R1, 'E>) : FIO<'R1, 'E> =
-        FIO.Succeed().FlatMap cont
+        FIO.Unit().FlatMap cont
 
     /// <summary>
     /// Enables <c>try...with</c> expressions in computation expressions.
@@ -126,16 +126,16 @@ type FIOBuilder internal () =
     /// <param name="sequence">The sequence to iterate over.</param>
     /// <param name="body">The function to run for each element.</param>
     member inline _.For<'T, 'E> (sequence: seq<'T>, body: 'T -> FIO<unit, 'E>) : FIO<unit, 'E> =
-        FIO.Succeed().FlatMap(fun () ->
+        FIO.Unit().FlatMap(fun () ->
             let enumerator = sequence.GetEnumerator()
 
             let rec loop () =
                 if enumerator.MoveNext() then
                     body(enumerator.Current).FlatMap(fun _ -> loop())
                 else
-                    FIO.Succeed()
+                    FIO.Unit()
 
-            let dispose = FIO.Succeed().FlatMap(fun () -> enumerator.Dispose(); FIO.Succeed())
+            let dispose = FIO.Unit().FlatMap(fun () -> enumerator.Dispose(); FIO.Unit())
             loop().Ensuring dispose)
 
     /// <summary>
@@ -157,8 +157,8 @@ type FIOBuilder internal () =
     /// <param name="resource">The disposable resource.</param>
     /// <param name="body">The function to run with the resource.</param>
     member inline _.Using<'T, 'R, 'E when 'T :> IDisposable> (resource: 'T, body: 'T -> FIO<'R, 'E>) : FIO<'R, 'E> =
-        (body resource).Ensuring(FIO.Succeed().FlatMap(
-            fun () -> resource.Dispose(); FIO.Succeed()))
+        (body resource).Ensuring(FIO.Unit().FlatMap(
+            fun () -> resource.Dispose(); FIO.Unit()))
 
     /// <summary>
     /// Enables pattern matching in computation expressions.

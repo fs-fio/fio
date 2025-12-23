@@ -268,7 +268,7 @@ and Runtime (config: WorkerConfig) as this =
             try
                 while not completed do
                     if currentFiberContext.CancellationToken.IsCancellationRequested then
-                        processInterrupt ()
+                        processInterrupt()
                     elif currentEWSteps = 0 then
                         result <- currentEff, currentContStack, RescheduleForRunning
                         completed <- true
@@ -279,17 +279,16 @@ and Runtime (config: WorkerConfig) as this =
                             processSuccess res
                         | Failure err ->
                             processError err
-                        | Interruption (cause, msg) ->
-                            currentFiberContext.Interrupt cause msg
-                            processInterrupt ()
-                        | Action (func, onError) ->
+                        | Interruption(cause, msg) ->
+                            currentFiberContext.Interrupt(cause, msg)
+                            processInterrupt()
+                        | Action(func, onError) ->
                             try
-                                let res = func ()
+                                let res = func()
                                 processSuccess res
                             with exn ->
-                                processError
-                                <| onError exn
-                        | SendChan (msg, chan) ->
+                                processError (onError exn)
+                        | SendChan(msg, chan) ->
                             do! chan.SendAsync msg
                             processSuccess msg
                         | ReceiveChan chan ->
@@ -297,80 +296,81 @@ and Runtime (config: WorkerConfig) as this =
                             if chan.UnboundedChannel.TryTake(&res) then
                                 processSuccess res
                             else
-                                let newPrevAction = RescheduleForBlocking <| BlockingChannel chan
+                                let newPrevAction = RescheduleForBlocking (BlockingChannel chan)
                                 currentPrevAction <- newPrevAction
                                 result <- ReceiveChan chan, currentContStack, newPrevAction
                                 completed <- true
-                        | ConcurrentEffect (eff, fiber, fiberContext) ->
+                        | ConcurrentEffect(eff, fiber, fiberContext) ->
                             currentFiberContext.CancellationToken.Register(
-                                fun () -> fiberContext.Interrupt (ParentInterrupted currentFiberContext.Id) "Parent fiber was interrupted.")
+                                fun () -> fiberContext.Interrupt(ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
                             |> ignore
                             do! activeWorkItemChan.AddAsync
-                                <| { Eff = eff; FiberContext = fiberContext; Stack = ContStackPool.Rent (); PrevAction = currentPrevAction }
+                                    { Eff = eff;
+                                      FiberContext = fiberContext;
+                                      Stack = ContStackPool.Rent();
+                                      PrevAction = currentPrevAction }
                             processSuccess fiber
-                        | ConcurrentTPLTask (taskFactory, onError, fiber, fiberContext) ->
+                        | ConcurrentTPLTask(taskFactory, onError, fiber, fiberContext) ->
                             currentFiberContext.CancellationToken.Register(
-                                fun () -> fiberContext.Interrupt (ParentInterrupted currentFiberContext.Id) "Parent fiber was interrupted.")
+                                fun () -> fiberContext.Interrupt(ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
                             |> ignore
                             do! Task.Run(fun () ->
                                 task {
-                                    let t = taskFactory ()
+                                    let t = taskFactory()
                                     try
                                         do! t
-                                        fiberContext.Complete (Ok ())
+                                        fiberContext.Complete(Ok ())
                                     with
                                     | :? OperationCanceledException ->
-                                        fiberContext.Complete (Error (onError <| FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled.")))
+                                        fiberContext.Complete(Error (onError (FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled."))))
                                     | exn ->
-                                        fiberContext.Complete (Error <| onError exn)
+                                        fiberContext.Complete(Error (onError exn))
                                 } :> Task)
                             processSuccess fiber
-                        | ConcurrentGenericTPLTask (taskFactory, onError, fiber, fiberContext) ->
+                        | ConcurrentGenericTPLTask(taskFactory, onError, fiber, fiberContext) ->
                             currentFiberContext.CancellationToken.Register(
-                                fun () -> fiberContext.Interrupt (ParentInterrupted currentFiberContext.Id) "Parent fiber was interrupted.")
+                                fun () -> fiberContext.Interrupt(ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
                             |> ignore
                             do! Task.Run(fun () ->
                                 task {
-                                    let t = taskFactory ()
+                                    let t = taskFactory()
                                     try
                                         let! result = t
                                         fiberContext.Complete (Ok result)
                                     with
                                     | :? OperationCanceledException ->
-                                        fiberContext.Complete (Error (onError <| FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled.")))
+                                        fiberContext.Complete (Error (onError (FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled."))))
                                     | exn ->
-                                        fiberContext.Complete (Error <| onError exn)
+                                        fiberContext.Complete (Error (onError exn))
                                 } :> Task)
                             processSuccess fiber
                         | AwaitFiberContext fiberContext ->
-                            if fiberContext.Completed () then
+                            if fiberContext.Completed() then
                                 let! res = fiberContext.Task
                                 processResult res
                             else
-                                let newPrevAction = RescheduleForBlocking <| BlockingFiberContext fiberContext
+                                let newPrevAction = RescheduleForBlocking (BlockingFiberContext fiberContext)
                                 currentPrevAction <- newPrevAction
                                 result <- AwaitFiberContext fiberContext, currentContStack, newPrevAction
                                 completed <- true
-                        | AwaitTPLTask (task, onError) ->
+                        | AwaitTPLTask(task, onError) ->
                             try
                                 let! res = task
                                 processSuccess res
                             with exn ->
-                                processError <| onError exn
-                        | AwaitGenericTPLTask (task, onError) ->
+                                processError (onError exn)
+                        | AwaitGenericTPLTask(task, onError) ->
                             try
                                 let! res = task
                                 processSuccess res
                             with exn ->
-                                processError <| onError exn
-                        | ChainSuccess (eff, cont) ->
+                                processError (onError exn)
+                        | ChainSuccess(eff, cont) ->
                             currentEff <- eff
-                            currentContStack.Add
-                            <| ContStackFrame (SuccessCont cont)
+                            currentContStack.Add(ContStackFrame (SuccessCont cont))
                         | ChainError (eff, cont) ->
                             currentEff <- eff
-                            currentContStack.Add
-                            <| ContStackFrame (FailureCont cont)
+                            currentContStack.Add(ContStackFrame (FailureCont cont))
                 return result
             finally
                 if not completed then
@@ -381,13 +381,16 @@ and Runtime (config: WorkerConfig) as this =
     /// Resets the runtime state by clearing work item channels.
     /// </summary>
     member private _.Reset () =
-        activeWorkItemChan.Clear ()
-        activeBlockingDataChan.Clear ()
+        activeWorkItemChan.Clear()
+        activeBlockingDataChan.Clear()
 
     override _.Run<'R, 'E> (eff: FIO<'R, 'E>) : Fiber<'R, 'E> =
-        this.Reset ()
-        let fiber = new Fiber<'R, 'E> ()
+        this.Reset()
+        let fiber = new Fiber<'R, 'E>()
         activeWorkItemChan.AddAsync
-        <| { Eff = eff.Upcast (); FiberContext = fiber.Internal; Stack = ContStackPool.Rent (); PrevAction = Evaluated }
+            { Eff = eff.Upcast();
+              FiberContext = fiber.Internal;
+              Stack = ContStackPool.Rent();
+              PrevAction = Evaluated }
         |> ignore
         fiber

@@ -100,9 +100,9 @@ and internal WorkItem =
 /// </summary>
 and [<Sealed>] internal UnboundedChannel<'R> (id: Guid) =
     let mutable count = 0L
-    let chan = Channel.CreateUnbounded<'R> ()
+    let chan = Channel.CreateUnbounded<'R>()
 
-    new() = UnboundedChannel (Guid.NewGuid ())
+    new() = UnboundedChannel (Guid.NewGuid())
 
     /// <summary>
     /// Gets the unique identifier.
@@ -170,9 +170,9 @@ and private FiberContextState =
 /// Internal fiber execution context managing state, result, cancellation, and blocking work items.
 /// </summary>
 and [<Sealed>] internal FiberContext () =
-    let id = Guid.NewGuid ()
+    let id = Guid.NewGuid()
     let mutable state = int FiberContextState.Running
-    let blockingWorkItemChan = UnboundedChannel<WorkItem> ()
+    let blockingWorkItemChan = UnboundedChannel<WorkItem>()
     let resTcs = TaskCompletionSource<Result<obj, obj>> TaskCreationOptions.RunContinuationsAsynchronously
     let cts = new CancellationTokenSource()
     let mutable disposed = false
@@ -205,7 +205,7 @@ and [<Sealed>] internal FiberContext () =
     /// <summary>
     /// Completes the fiber and reschedules blocking work items.
     /// </summary>
-    member internal this.CompleteAndReschedule res activeWorkItemChan =
+    member internal this.CompleteAndReschedule (res, activeWorkItemChan) =
         task {
             if Interlocked.CompareExchange(&state, int FiberContextState.Completed, int FiberContextState.Running) = int FiberContextState.Running then
                 if resTcs.TrySetResult res then
@@ -221,7 +221,7 @@ and [<Sealed>] internal FiberContext () =
     /// <summary>
     /// Interrupts the fiber with the specified cause and message.
     /// </summary>
-    member internal _.Interrupt cause msg =
+    member internal _.Interrupt (cause, msg) =
         if Interlocked.CompareExchange(&state, int FiberContextState.Interrupted, int FiberContextState.Running) = int FiberContextState.Running then
             cts.Cancel()
             let interruptError = Error (FiberInterruptedException(id, cause, msg) :> obj)
@@ -254,7 +254,7 @@ and [<Sealed>] internal FiberContext () =
     /// </summary>
     member internal this.TryRescheduleBlockingWorkItems (activeWorkItemChan: UnboundedChannel<WorkItem>) =
         task {
-            if not <| this.Completed () then
+            if not <| this.Completed() then
                 return false
             else
                 do! this.RescheduleBlockingWorkItems activeWorkItemChan
@@ -265,7 +265,7 @@ and [<Sealed>] internal FiberContext () =
         if not disposed then
             disposed <- true
             if disposing then
-                cts.Dispose ()
+                cts.Dispose()
 
     interface IDisposable with
         member this.Dispose () =
@@ -279,7 +279,7 @@ and [<Sealed>] internal FiberContext () =
 /// A lightweight, cooperative thread of execution that can be awaited for its result.
 /// </summary>
 and Fiber<'R, 'E> internal () =
-    let fiberContext = new FiberContext ()
+    let fiberContext = new FiberContext()
     let mutable disposed = false
 
     /// <summary>
@@ -298,7 +298,7 @@ and Fiber<'R, 'E> internal () =
     /// Gets whether the fiber has completed.
     /// </summary>
     member _.Completed () =
-        fiberContext.Completed ()
+        fiberContext.Completed()
 
     /// <summary>
     /// Gets whether the fiber has been interrupted.
@@ -318,8 +318,8 @@ and Fiber<'R, 'E> internal () =
     member _.Task<'R, 'E> () =
         task {
             match! fiberContext.Task with
-            | Ok res -> return Ok (res :?> 'R)
-            | Error err -> return Error (err :?> 'E)
+            | Ok res -> return Ok(res :?> 'R)
+            | Error err -> return Error(err :?> 'E)
         }
 
     /// <summary>
@@ -327,8 +327,8 @@ and Fiber<'R, 'E> internal () =
     /// </summary>
     /// <param name="cause">The interruption cause.</param>
     /// <param name="msg">The interruption message.</param>
-    member _.Interrupt<'E> (cause: InterruptionCause) (msg: string) : FIO<unit, 'E> =
-        Interruption (cause, msg)
+    member _.Interrupt<'E> (cause: InterruptionCause, msg: string) : FIO<unit, 'E> =
+        Interruption(cause, msg)
 
     /// <summary>
     /// Gets the internal fiber context (for runtime use only).
@@ -340,7 +340,7 @@ and Fiber<'R, 'E> internal () =
         if not disposed then
             disposed <- true
             if disposing then
-                (fiberContext :> IDisposable).Dispose ()
+                (fiberContext :> IDisposable).Dispose()
 
     interface IDisposable with
         member this.Dispose () =
@@ -358,7 +358,7 @@ and Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, blockingWorkI
     /// <summary>
     /// Creates a new channel with a unique identifier.
     /// </summary>
-    new() = Channel(Guid.NewGuid (), UnboundedChannel<obj> (), UnboundedChannel<WorkItem> ())
+    new() = Channel(Guid.NewGuid(), UnboundedChannel<obj>(), UnboundedChannel<WorkItem>())
 
     /// <summary>
     /// Gets the unique identifier.
@@ -377,7 +377,7 @@ and Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, blockingWorkI
     /// </summary>
     /// <param name="msg">The message to send.</param>
     member this.Send<'R, 'E> (msg: 'R) : FIO<'R, 'E> =
-        SendChan (msg, this)
+        SendChan(msg, this)
 
     /// <summary>
     /// Receives a message from the channel (blocking if empty).
@@ -414,7 +414,7 @@ and Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, blockingWorkI
         if blockingWorkItemChan.TryTake &workItem then
             activeWorkItemChan.AddAsync workItem
         else
-            Task.FromResult ()
+            Task.FromResult()
 
     /// <summary>
     /// Gets the count of blocking work items (for runtime use only).
@@ -432,7 +432,7 @@ and Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, blockingWorkI
     /// Upcasts the channel to Channel&lt;obj&gt; (for runtime use only).
     /// </summary>
     member internal _.Upcast () =
-        Channel<obj> (id, resChan, blockingWorkItemChan)
+        Channel<obj>(id, resChan, blockingWorkItemChan)
 
 /// <summary>
 /// Type alias for Channel with lowercase naming convention.
@@ -464,30 +464,30 @@ and FIO<'R, 'E> =
     /// </summary>
     member this.Fork<'R, 'E, 'E1> () : FIO<Fiber<'R, 'E>, 'E1> =
         let fiber = new Fiber<'R, 'E>()
-        ConcurrentEffect (this.Upcast (), fiber, fiber.Internal)
+        ConcurrentEffect (this.Upcast(), fiber, fiber.Internal)
 
     /// <summary>
     /// Chains this effect with a continuation function (monadic bind).
     /// </summary>
     /// <param name="cont">The continuation function.</param>
     member this.FlatMap<'R, 'R1, 'E> (cont: 'R -> FIO<'R1, 'E>) : FIO<'R1, 'E> =
-        ChainSuccess (this.UpcastResult (), fun res -> cont (res :?> 'R))
+        ChainSuccess (this.UpcastResult(), fun res -> cont(res :?> 'R))
 
     /// <summary>
     /// Handles errors with a recovery function.
     /// </summary>
     /// <param name="onError">The error handler function.</param>
     member this.CatchAll<'R, 'E, 'E1> (onError: 'E -> FIO<'R, 'E1>) : FIO<'R, 'E1> =
-        ChainError (this.UpcastError (), fun err -> onError (err :?> 'E))
+        ChainError (this.UpcastError(), fun err -> onError(err :?> 'E))
 
     /// <summary>
     /// Runs a finalizer after this effect, preserving the original outcome.
     /// </summary>
     /// <param name="finalizer">The finalizer effect to run.</param>
     member this.Ensuring<'R, 'E> (finalizer: FIO<unit, 'E>) : FIO<'R, 'E> =
-        let runFinalizer outcome = finalizer.CatchAll(fun _ -> Success ()).FlatMap(fun _ -> outcome)
-        this.FlatMap(fun res -> runFinalizer (Success res))
-            .CatchAll(fun err -> runFinalizer (Failure err))
+        let runFinalizer outcome = finalizer.CatchAll(fun _ -> Success()).FlatMap(fun _ -> outcome)
+        this.FlatMap(fun res -> runFinalizer(Success res))
+            .CatchAll(fun err -> runFinalizer(Failure err))
 
     /// <summary>
     /// Upcasts the result type to obj (for runtime use only).
@@ -498,30 +498,30 @@ and FIO<'R, 'E> =
             Success (res :> obj)
         | Failure err ->
             Failure err
-        | Interruption (cause, msg) ->
-            Interruption (cause, msg)
-        | Action (func, onError) ->
-            Action (upcastFunc func, onError)
-        | SendChan (msg, chan) ->
-            SendChan (msg :> obj, chan.Upcast ())
+        | Interruption(cause, msg) ->
+            Interruption(cause, msg)
+        | Action(func, onError) ->
+            Action(upcastFunc func, onError)
+        | SendChan(msg, chan) ->
+            SendChan(msg :> obj, chan.Upcast())
         | ReceiveChan chan ->
-            ReceiveChan <| chan.Upcast ()
-        | ConcurrentEffect (eff, fiber, fiberContext) ->
-            ConcurrentEffect (eff, fiber, fiberContext)
-        | ConcurrentTPLTask (taskFactory, onError, fiber, fiberContext) ->
-            ConcurrentTPLTask (taskFactory, onError, fiber, fiberContext)
-        | ConcurrentGenericTPLTask (taskFactory, onError, fiber, fiberContext) ->
-            ConcurrentGenericTPLTask (taskFactory, onError, fiber, fiberContext)
+            ReceiveChan(chan.Upcast())
+        | ConcurrentEffect(eff, fiber, fiberContext) ->
+            ConcurrentEffect(eff, fiber, fiberContext)
+        | ConcurrentTPLTask(taskFactory, onError, fiber, fiberContext) ->
+            ConcurrentTPLTask(taskFactory, onError, fiber, fiberContext)
+        | ConcurrentGenericTPLTask(taskFactory, onError, fiber, fiberContext) ->
+            ConcurrentGenericTPLTask(taskFactory, onError, fiber, fiberContext)
         | AwaitFiberContext fiberContext ->
             AwaitFiberContext fiberContext
-        | AwaitTPLTask (task, onError) ->
-            AwaitTPLTask (task, onError)
-        | AwaitGenericTPLTask (task, onError) ->
-            AwaitGenericTPLTask (task, onError)
-        | ChainSuccess (eff, cont) ->
-            ChainSuccess (eff, fun res -> (cont res).UpcastResult ())
-        | ChainError (eff, cont) ->
-            ChainError (eff.UpcastResult (), fun err -> (cont err).UpcastResult ())
+        | AwaitTPLTask(task, onError) ->
+            AwaitTPLTask(task, onError)
+        | AwaitGenericTPLTask(task, onError) ->
+            AwaitGenericTPLTask(task, onError)
+        | ChainSuccess(eff, cont) ->
+            ChainSuccess(eff, fun res -> (cont res).UpcastResult())
+        | ChainError(eff, cont) ->
+            ChainError(eff.UpcastResult(), fun err -> (cont err).UpcastResult())
 
     /// <summary>
     /// Upcasts the error type to obj (for runtime use only).
@@ -531,31 +531,31 @@ and FIO<'R, 'E> =
         | Success res ->
             Success res
         | Failure err ->
-            Failure (err :> obj)
-        | Interruption (cause, msg) ->
-            Interruption (cause, msg)
-        | Action (func, onError) ->
-            Action (func, upcastOnError onError)
-        | SendChan (msg, chan) ->
-            SendChan (msg, chan)
+            Failure(err :> obj)
+        | Interruption(cause, msg) ->
+            Interruption(cause, msg)
+        | Action(func, onError) ->
+            Action(func, upcastOnError onError)
+        | SendChan(msg, chan) ->
+            SendChan(msg, chan)
         | ReceiveChan chan ->
             ReceiveChan chan
-        | ConcurrentEffect (eff, fiber, fiberContext) ->
-            ConcurrentEffect (eff, fiber, fiberContext)
-        | ConcurrentTPLTask (taskFactory, onError, fiber, fiberContext) ->
-            ConcurrentTPLTask (taskFactory, upcastOnError onError, fiber, fiberContext)
-        | ConcurrentGenericTPLTask (taskFactory, onError, fiber, fiberContext) ->
-            ConcurrentGenericTPLTask (taskFactory, upcastOnError onError, fiber, fiberContext)
+        | ConcurrentEffect(eff, fiber, fiberContext) ->
+            ConcurrentEffect(eff, fiber, fiberContext)
+        | ConcurrentTPLTask(taskFactory, onError, fiber, fiberContext) ->
+            ConcurrentTPLTask(taskFactory, upcastOnError onError, fiber, fiberContext)
+        | ConcurrentGenericTPLTask(taskFactory, onError, fiber, fiberContext) ->
+            ConcurrentGenericTPLTask(taskFactory, upcastOnError onError, fiber, fiberContext)
         | AwaitFiberContext fiberContext ->
             AwaitFiberContext fiberContext
-        | AwaitTPLTask (task, onError) ->
-            AwaitTPLTask (task, upcastOnError onError)
-        | AwaitGenericTPLTask (task, onError) ->
-            AwaitGenericTPLTask (task, upcastOnError onError)
-        | ChainSuccess (eff, cont) ->
-            ChainSuccess (eff.UpcastError (), fun res -> (cont res).UpcastError ())
-        | ChainError (eff, cont) ->
-            ChainError (eff, fun err -> (cont err).UpcastError ())
+        | AwaitTPLTask(task, onError) ->
+            AwaitTPLTask(task, upcastOnError onError)
+        | AwaitGenericTPLTask(task, onError) ->
+            AwaitGenericTPLTask(task, upcastOnError onError)
+        | ChainSuccess(eff, cont) ->
+            ChainSuccess(eff.UpcastError(), fun res -> (cont res).UpcastError())
+        | ChainError(eff, cont) ->
+            ChainError(eff, fun err -> (cont err).UpcastError())
 
     /// <summary>
     /// Upcasts both the result and error types to obj (for runtime use only).

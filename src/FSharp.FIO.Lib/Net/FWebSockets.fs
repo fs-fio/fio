@@ -27,7 +27,7 @@ type FWebSocket<'S, 'R, 'E> private (ctx: HttpListenerWebSocketContext, listener
     // Partially applied functions as it is the same
     // onError function used everywhere in the type
     let fromFunc (func: unit -> 'T) : FIO<'T, 'E> =
-        FIO.FromFunc (func, onError)
+        FIO.Attempt (func, onError)
 
     let awaitTask (task: Task) : FIO<unit, 'E> =
         FIO.AwaitTask (task, onError)
@@ -277,7 +277,7 @@ type FServerWebSocket<'S, 'R, 'E> private (listener: HttpListener, onError: exn 
     // Partially applied functions as it is the same
     // onError function used everywhere in the type
     let fromFunc (func: unit -> 'T) : FIO<'T, 'E> =
-        FIO.FromFunc (func, onError)
+        FIO.Attempt (func, onError)
 
     let awaitTask (task: Task) : FIO<unit, 'E> =
         FIO.AwaitTask (task, onError)
@@ -292,7 +292,7 @@ type FServerWebSocket<'S, 'R, 'E> private (listener: HttpListener, onError: exn 
     /// <param name="options">The JSON serializer options.</param>
     static member Create<'S, 'R, 'E> (onError: exn -> 'E, options: JsonSerializerOptions) : FIO<FServerWebSocket<'S, 'R, 'E>, 'E> =
         fio {
-            let! listener = FIO.FromFunc ((fun () -> new HttpListener()), onError)
+            let! listener = FIO.Attempt ((fun () -> new HttpListener()), onError)
             return FServerWebSocket (listener, onError, options)
         }
     
@@ -376,7 +376,7 @@ type FClientWebSocket<'S, 'R, 'E> private (clientWebSocket: ClientWebSocket, onE
     // Partially applied functions as it is the same
     // onError function used everywhere in the type
     let fromFunc (func: unit -> 'T) : FIO<'T, 'E> =
-        FIO.FromFunc (func, onError)
+        FIO.Attempt (func, onError)
 
     let awaitTask (task: Task) : FIO<unit, 'E> =
         FIO.AwaitTask (task, onError)
@@ -391,7 +391,7 @@ type FClientWebSocket<'S, 'R, 'E> private (clientWebSocket: ClientWebSocket, onE
     /// <param name="options">The JSON serializer options.</param>
     static member Create<'S, 'R, 'E> (onError: exn -> 'E, options: JsonSerializerOptions) : FIO<FClientWebSocket<'S, 'R, 'E>, 'E> =
         fio {
-            let! clientWebSocket = FIO.FromFunc ((fun () -> new ClientWebSocket()), onError)
+            let! clientWebSocket = FIO.Attempt ((fun () -> new ClientWebSocket()), onError)
             return FClientWebSocket (clientWebSocket, onError, options)
         }
     

@@ -321,23 +321,23 @@ type PropertyTests () =
         actualErr = err
 
     [<Property>]
-    member _.``Bimap transforms success value when effect succeeds`` (runtime: FRuntime, res: int) =
-        let eff = (FIO.Succeed res).Bimap (fun e -> e + 100) (fun r -> r * 2)
+    member _.``MapBoth transforms success value when effect succeeds`` (runtime: FRuntime, res: int) =
+        let eff = (FIO.Succeed res).MapBoth((fun r -> r * 2), (fun e -> e + 100))
         let actual = result <| runtime.Run eff
         let expected = res * 2
         actual = expected
 
     [<Property>]
-    member _.``Bimap transforms error value when effect fails`` (runtime: FRuntime, err: int) =
-        let eff = (FIO.Fail err).Bimap (fun e -> e + 100) (fun r -> r * 2)
+    member _.``MapBoth transforms error value when effect fails`` (runtime: FRuntime, err: int) =
+        let eff = (FIO.Fail err).MapBoth((fun r -> r * 2), (fun e -> e + 100))
         let actual = error <| runtime.Run eff
         let expected = err + 100
         actual = expected
 
     [<Property>]
-    member _.``Bimap composes MapError and Map in correct order`` (runtime: FRuntime, res: int) =
+    member _.``MapBoth composes MapError and Map in correct order`` (runtime: FRuntime, res: int) =
         let eff = FIO.Succeed res
-        let bimap = eff.Bimap string (fun r -> r + 1)
+        let bimap = eff.MapBoth((fun r -> r + 1), string)
         let manual = eff.MapError(string).Map(fun r -> r + 1)
         let actualBimap = result <| runtime.Run bimap
         let actualManual = result <| runtime.Run manual
@@ -401,22 +401,22 @@ type PropertyTests () =
 
     [<Property>]
     member _.``Fold handles success case with pure function`` (runtime: FRuntime, res: int) =
-        let eff = (FIO.Succeed res).Fold (fun e -> e) (fun r -> r * 2)
+        let eff = (FIO.Succeed res).Fold((fun e -> e), (fun r -> r * 2))
         let actual = result <| runtime.Run eff
         let expected = res * 2
         actual = expected
 
     [<Property>]
     member _.``Fold handles error case with pure function`` (runtime: FRuntime, err: int) =
-        let eff = (FIO.Fail err).Fold (fun e -> e + 100) (fun r -> r * 2)
+        let eff = (FIO.Fail err).Fold((fun e -> e + 100), (fun r -> r * 2))
         let actual = result <| runtime.Run eff
         let expected = err + 100
         actual = expected
 
     [<Property>]
     member _.``Fold produces infallible result`` (runtime: FRuntime, res: int, err: int) =
-        let successEff = (FIO.Succeed res).Fold (fun _ -> -1) (fun r -> r + 1)
-        let errorEff = (FIO.Fail err).Fold (fun e -> e * 2) (fun _ -> 0)
+        let successEff = (FIO.Succeed res).Fold((fun _ -> -1), (fun r -> r + 1))
+        let errorEff = (FIO.Fail err).Fold((fun e -> e * 2), (fun _ -> 0))
 
         let actualSuccess = result <| runtime.Run successEff
         let actualError = result <| runtime.Run errorEff
@@ -425,36 +425,36 @@ type PropertyTests () =
 
     [<Property>]
     member _.``FoldFIO handles success case with effectful function`` (runtime: FRuntime, res: int) =
-        let eff = (FIO.Succeed res).FoldFIO (fun e -> FIO.Succeed e) (fun r -> FIO.Succeed (r * 2))
+        let eff = (FIO.Succeed res).FoldFIO((fun e -> FIO.Succeed e), (fun r -> FIO.Succeed (r * 2)))
         let actual = result <| runtime.Run eff
         let expected = res * 2
         actual = expected
 
     [<Property>]
     member _.``FoldFIO handles error case with effectful function`` (runtime: FRuntime, err: int) =
-        let eff = (FIO.Fail err).FoldFIO (fun e -> FIO.Succeed (e + 100)) (fun r -> FIO.Succeed (r * 2))
+        let eff = (FIO.Fail err).FoldFIO((fun e -> FIO.Succeed (e + 100)), (fun r -> FIO.Succeed (r * 2)))
         let actual = result <| runtime.Run eff
         let expected = err + 100
         actual = expected
 
     [<Property>]
     member _.``FoldFIO error handler catches errors from success handler`` (runtime: FRuntime, res: int, err: int) =
-        let eff = (FIO.Succeed res).FoldFIO (fun e -> FIO.Succeed (e * 10)) (fun _ -> FIO.Fail err)
+        let eff = (FIO.Succeed res).FoldFIO((fun e -> FIO.Succeed (e * 10)), (fun _ -> FIO.Fail err))
         let actual = result <| runtime.Run eff
         let expected = err * 10
         actual = expected
 
     [<Property>]
     member _.``FoldFIO propagates error when error handler fails`` (runtime: FRuntime, err1: int, err2: int) =
-        let eff = (FIO.Fail err1).FoldFIO (fun _ -> FIO.Fail err2) (fun r -> FIO.Succeed r)
+        let eff = (FIO.Fail err1).FoldFIO((fun _ -> FIO.Fail err2), (fun r -> FIO.Succeed r))
         let actual = error <| runtime.Run eff
         actual = err2
 
     [<Property>]
     member _.``Retry does not retry when effect succeeds immediately`` (runtime: FRuntime, res: int) =
         let mutable attempts = 0
-        let eff = FIO.FromFunc (fun () -> attempts <- attempts + 1; res)
-        let retried = eff.Retry 10.0 3 (fun _ _ -> FIO.Succeed ())
+        let eff = FIO.Attempt (fun () -> attempts <- attempts + 1; res)
+        let retried = eff.RetryN 3
 
         let actual = result <| runtime.Run retried
         actual = res && attempts = 1
@@ -466,7 +466,7 @@ type PropertyTests () =
             attempts <- attempts + 1
             return! FIO.Fail "error"
         }
-        let retried = eff.Retry 10.0 3 (fun _ _ -> FIO.Succeed ())
+        let retried = eff.RetryN 4
 
         let _ = error <| runtime.Run retried
         attempts = 4
@@ -481,24 +481,15 @@ type PropertyTests () =
             else
                 return res
         }
-        let retried = eff.Retry 10.0 5 (fun _ _ -> FIO.Succeed ())
+        let retried = eff.RetryN 5
 
         let actual = result <| runtime.Run retried
         actual = res && attempts = 3
 
     [<Property>]
-    member _.``Retry onEachRetry callback invoked correct number of times`` (runtime: FRuntime) =
-        let mutable callbackCount = 0
-        let eff = FIO.Fail "error"
-        let retried = eff.Retry 10.0 3 (fun _ _ -> FIO.Succeed (callbackCount <- callbackCount + 1))
-
-        let _ = error <| runtime.Run retried
-        callbackCount = 3
-
-    [<Property>]
     member _.``Retry final failure after max retries`` (runtime: FRuntime) =
         let eff = FIO.Fail "error"
-        let retried = eff.Retry 10.0 2 (fun _ _ -> FIO.Succeed ())
+        let retried = eff.RetryN 2
 
         let actual = error <| runtime.Run retried
         actual = "error"
@@ -506,11 +497,11 @@ type PropertyTests () =
     [<Property>]
     member _.``Retry preserves success value when retrying`` (runtime: FRuntime, res: int) =
         let mutable attempts = 0
-        let eff = FIO.FromFunc (fun () ->
+        let eff = FIO.Attempt (fun () ->
             attempts <- attempts + 1
             if attempts = 1 then failwith "Fail once" else res)
 
-        let retried = eff.Retry 10.0 5 (fun _ _ -> FIO.Succeed ())
+        let retried = eff.RetryN 5
 
         let actual = result <| runtime.Run retried
         actual = res

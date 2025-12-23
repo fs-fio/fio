@@ -43,6 +43,14 @@ let inline ( <&> ) (eff: FIO<'R, 'E>) (eff': FIO<'R1, 'E>) : FIO<'R * 'R1, 'E> =
     eff.ZipPar eff'
 
 /// <summary>
+/// Executes two effects in parallel, returning unit.
+/// </summary>
+/// <param name="eff">The first effect.</param>
+/// <param name="eff'">The second effect.</param>
+let inline ( <&&> ) (eff: FIO<'R, 'E>) (eff': FIO<'R1, 'E>) : FIO<unit, 'E> =
+    eff.ZipPar(eff').Unit()
+
+/// <summary>
 /// Executes two effects in parallel, returning the result of the second (zipParRight).
 /// </summary>
 /// <param name="eff">The first effect.</param>

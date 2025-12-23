@@ -29,9 +29,9 @@ type Runtime () =
     /// <param name="eff">The effect to interpret.</param>
     /// <param name="currentFiberContext">The fiber context for execution.</param>
     [<TailCall>]
-    member private this.InterpretAsync eff (currentFiberContext: FiberContext) =
+    member private this.InterpretAsync (eff, currentFiberContext: FiberContext) =
         let mutable currentEff = eff
-        let mutable currentContStack = ContStackPool.Rent ()
+        let mutable currentContStack = ContStackPool.Rent()
         let mutable result = Unchecked.defaultof<_>
         let mutable completed = false
 
@@ -82,123 +82,117 @@ type Runtime () =
             try
                 while not completed do
                     if currentFiberContext.CancellationToken.IsCancellationRequested then
-                        processInterrupt ()
+                        processInterrupt()
                     else
                         match currentEff with
                         | Success res ->
                             processSuccess res
                         | Failure err ->
                             processError err
-                        | Interruption (cause, msg) ->
-                            currentFiberContext.Interrupt cause msg
-                            processInterrupt ()
-                        | Action (func, onError) ->
+                        | Interruption(cause, msg) ->
+                            currentFiberContext.Interrupt(cause, msg)
+                            processInterrupt()
+                        | Action(func, onError) ->
                             try
-                                let res = func ()
+                                let res = func()
                                 processSuccess res
                             with exn ->
-                                processError
-                                <| onError exn
-                        | SendChan (msg, chan) ->
+                                processError(onError exn)
+                        | SendChan(msg, chan) ->
                             do! chan.SendAsync msg
                             processSuccess msg
                         | ReceiveChan chan ->
-                            let! res = chan.ReceiveAsync ()
+                            let! res = chan.ReceiveAsync()
                             processSuccess res
-                        | ConcurrentEffect (eff, fiber, fiberContext) ->
+                        | ConcurrentEffect(eff, fiber, fiberContext) ->
                             let registration =
                                 currentFiberContext.CancellationToken.Register(
-                                    fun () -> fiberContext.Interrupt (ParentInterrupted currentFiberContext.Id) "Parent fiber was interrupted.")
-
+                                    fun () -> fiberContext.Interrupt(ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
                             Task.Run(fun () ->
                                 task {
                                     try
                                         try
-                                            let! res = this.InterpretAsync eff fiberContext
+                                            let! res = this.InterpretAsync(eff, fiberContext)
                                             fiberContext.Complete res
                                         with exn ->
-                                            fiberContext.Complete <| Error exn
+                                            fiberContext.Complete (Error exn)
                                     finally
-                                        registration.Dispose ()
+                                        registration.Dispose()
                                 } :> Task) |> ignore
                             processSuccess fiber
-                        | ConcurrentTPLTask (taskFactory, onError, fiber, fiberContext) ->
+                        | ConcurrentTPLTask(taskFactory, onError, fiber, fiberContext) ->
                             let registration =
                                 currentFiberContext.CancellationToken.Register(
-                                    fun () -> fiberContext.Interrupt (ParentInterrupted currentFiberContext.Id) "Parent fiber was interrupted.")
-
+                                    fun () -> fiberContext.Interrupt(ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
                             Task.Run(fun () ->
                                 task {
                                     try
-                                        let t = taskFactory ()
+                                        let t = taskFactory()
                                         try
                                             do! t
-                                            fiberContext.Complete (Ok ())
+                                            fiberContext.Complete(Ok ())
                                         with
                                         | :? OperationCanceledException ->
-                                            fiberContext.Complete (Error (onError <| FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled.")))
+                                            fiberContext.Complete (Error (onError (FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled."))))
                                         | exn ->
-                                            fiberContext.Complete (Error <| onError exn)
+                                            fiberContext.Complete (Error (onError exn))
                                     finally
-                                        registration.Dispose ()
+                                        registration.Dispose()
                                 } :> Task) |> ignore
                             processSuccess fiber
-                        | ConcurrentGenericTPLTask (taskFactory, onError, fiber, fiberContext) ->
+                        | ConcurrentGenericTPLTask(taskFactory, onError, fiber, fiberContext) ->
                             let registration =
                                 currentFiberContext.CancellationToken.Register(
-                                    fun () -> fiberContext.Interrupt (ParentInterrupted currentFiberContext.Id) "Parent fiber was interrupted.")
-
+                                    fun () -> fiberContext.Interrupt(ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
                             Task.Run(fun () ->
                                 task {
                                     try
-                                        let t = taskFactory ()
+                                        let t = taskFactory()
                                         try
                                             let! result = t
-                                            fiberContext.Complete (Ok result)
+                                            fiberContext.Complete(Ok result)
                                         with
                                         | :? OperationCanceledException ->
-                                            fiberContext.Complete (Error (onError <| FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled.")))
+                                            fiberContext.Complete (Error (onError (FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled."))))
                                         | exn ->
-                                            fiberContext.Complete (Error <| onError exn)
+                                            fiberContext.Complete (Error (onError exn))
                                     finally
-                                        registration.Dispose ()
+                                        registration.Dispose()
                                 } :> Task) |> ignore
                             processSuccess fiber
                         | AwaitFiberContext fiberContext ->
                             let! res = fiberContext.Task
                             processResult res
-                        | AwaitTPLTask (task, onError) ->
+                        | AwaitTPLTask(task, onError) ->
                             try
                                 let! res = task
                                 processSuccess res
                             with exn ->
-                                processError <| onError exn
-                        | AwaitGenericTPLTask (task, onError) ->
+                                processError(onError exn)
+                        | AwaitGenericTPLTask(task, onError) ->
                             try
                                 let! res = task
                                 processSuccess res
                             with exn ->
-                                processError <| onError exn
-                        | ChainSuccess (eff, cont) ->
+                                processError(onError exn)
+                        | ChainSuccess(eff, cont) ->
                             currentEff <- eff
-                            currentContStack.Add
-                            <| ContStackFrame (SuccessCont cont)
-                        | ChainError (eff, cont) ->
+                            currentContStack.Add(ContStackFrame (SuccessCont cont))
+                        | ChainError(eff, cont) ->
                             currentEff <- eff
-                            currentContStack.Add
-                            <| ContStackFrame (FailureCont cont)
+                            currentContStack.Add(ContStackFrame (FailureCont cont))
                 return result
             finally
                 ContStackPool.Return currentContStack
         }
 
     override this.Run<'R, 'E> (eff: FIO<'R, 'E>) : Fiber<'R, 'E> =
-        let fiber = new Fiber<'R, 'E> ()
+        let fiber = new Fiber<'R, 'E>()
         task {
             try
-                let! res = this.InterpretAsync (eff.Upcast ()) fiber.Internal
+                let! res = this.InterpretAsync (eff.Upcast(), fiber.Internal)
                 fiber.Internal.Complete res
             finally
-                (fiber.Internal :> IDisposable).Dispose ()
+                (fiber.Internal :> IDisposable).Dispose()
         } |> ignore
         fiber

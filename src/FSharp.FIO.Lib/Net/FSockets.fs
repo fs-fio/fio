@@ -27,7 +27,7 @@ type FSocket<'S, 'R, 'E> private (socket: Socket, reader: StreamReader, writer: 
     // Partially applied function as it is the same
     // onError function used everywhere in the type
     let fromFunc (func: unit -> 'T) : FIO<'T, 'E> =
-        FIO.FromFunc (func, onError)
+        FIO.Attempt (func, onError)
 
     /// <summary>
     /// Disposes the socket and all associated resources.
@@ -59,10 +59,10 @@ type FSocket<'S, 'R, 'E> private (socket: Socket, reader: StreamReader, writer: 
     /// <param name="options">The JSON serializer options.</param>
     static member Create<'S, 'R, 'E> (socket: Socket, onError: exn -> 'E, options: JsonSerializerOptions) : FIO<FSocket<'S, 'R, 'E>, 'E> =
         fio {
-            let! networkStream = FIO.FromFunc ((fun () -> new NetworkStream (socket)), onError)
-            let! writer = FIO.FromFunc ((fun _ -> new StreamWriter (networkStream)), onError)
-            let! reader = FIO.FromFunc ((fun () -> new StreamReader (networkStream)), onError)
-            do! FIO.FromFunc ((fun () -> writer.AutoFlush <- true), onError)
+            let! networkStream = FIO.Attempt ((fun () -> new NetworkStream (socket)), onError)
+            let! writer = FIO.Attempt ((fun _ -> new StreamWriter (networkStream)), onError)
+            let! reader = FIO.Attempt ((fun () -> new StreamReader (networkStream)), onError)
+            do! FIO.Attempt ((fun () -> writer.AutoFlush <- true), onError)
             return new FSocket<'S, 'R, 'E> (socket, reader, writer, networkStream, onError, options)
         }
 
@@ -99,7 +99,7 @@ type FSocket<'S, 'R, 'E> private (socket: Socket, reader: StreamReader, writer: 
     /// <param name="options">The JSON serializer options.</param>
     static member Create<'S, 'R, 'E> (socket: Socket, host: string, port: int, onError: exn -> 'E, options: JsonSerializerOptions) : FIO<FSocket<'S, 'R, 'E>, 'E> =
         fio {
-            do! FIO.FromFunc ((fun () -> socket.Connect(host, port)), onError)
+            do! FIO.Attempt ((fun () -> socket.Connect(host, port)), onError)
             return! FSocket.Create<'S, 'R, 'E> (socket, onError, options)
         }
         
