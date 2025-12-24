@@ -7,7 +7,10 @@
 module internal FSharp.FIO.Benchmarks.ArgParser
 
 open FSharp.FIO.Runtime
+open FSharp.FIO.Runtime.Direct
 open FSharp.FIO.Benchmarks.Suite
+open FSharp.FIO.Runtime.Concurrent
+open FSharp.FIO.Runtime.Cooperative
 
 open Argu
 open System.IO
@@ -61,8 +64,7 @@ let private parser =
     ArgumentParser.Create<Arguments> (programName = "FSharp.FIO.Benchmarks")
 
 let printUsage () =
-    parser.PrintUsage ()
-    |> printfn "%s"
+   printfn "%s" (parser.PrintUsage())
 
 let printArgs args =
     printfn "%s arguments: %s" parser.ProgramName (String.concat " " args)
@@ -72,20 +74,18 @@ let parseArgs args =
 
     let runtime: FRuntime =
         if results.Contains Direct_Runtime then
-            new Direct.Runtime ()
+            new DirectRuntime()
         elif results.Contains Cooperative_Runtime then
             let ewc, ews, bwc = results.GetResult Cooperative_Runtime
-            new Cooperative.Runtime { EWC = ewc; EWS = ews; BWC = bwc }
+            new CooperativeRuntime { EWC = ewc; EWS = ews; BWC = bwc }
         elif results.Contains Concurrent_Runtime then
             let ewc, ews, bwc = results.GetResult Concurrent_Runtime
-            new Concurrent.Runtime { EWC = ewc; EWS = ews; BWC = bwc }
+            new ConcurrentRuntime { EWC = ewc; EWS = ews; BWC = bwc }
         else
             invalidArg "args" "Runtime should be specified!"
 
-    let runs = results.TryGetResult Runs|> Option.defaultValue 1
-
+    let runs = results.TryGetResult Runs |> Option.defaultValue 1
     let actorInc = results.TryGetResult Actor_Increment |> Option.defaultValue (0, 0)
-
     let roundInc = results.TryGetResult Round_Increment |> Option.defaultValue (0, 0)
 
     let configs =
@@ -104,7 +104,7 @@ let parseArgs args =
         |> Option.defaultValue false
 
     let projectDirPath =
-        Directory.GetCurrentDirectory ()
+        Directory.GetCurrentDirectory()
         |> Directory.GetParent
         |> _.Parent
         |> _.Parent

@@ -8,6 +8,9 @@ module FSharp.FIO.Tests.RuntimeTests
 
 open FSharp.FIO.DSL
 open FSharp.FIO.Runtime
+open FSharp.FIO.Runtime.Direct
+open FSharp.FIO.Runtime.Concurrent
+open FSharp.FIO.Runtime.Cooperative
 
 open FsCheck
 open FsCheck.Xunit
@@ -31,9 +34,9 @@ type RuntimeTests () =
     
     static member Runtime() : Arbitrary<FRuntime> =
         Arb.fromGen <| Gen.oneof [
-            Gen.constant (new Direct.Runtime())
-            Gen.constant (new Cooperative.Runtime())
-            Gen.constant (new Concurrent.Runtime())
+            Gen.constant (new DirectRuntime())
+            Gen.constant (new CooperativeRuntime())
+            Gen.constant (new ConcurrentRuntime())
         ]
     
     [<Property>]

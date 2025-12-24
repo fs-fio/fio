@@ -5,14 +5,13 @@
 (*********************************************************************************************)
 
 /// <summary>
-/// Provides application-level helpers and the <c>FIOApp</c> base class for running FIO effects as applications.
-/// Includes default runtime, fiber handling, and customizable success/error handlers for effectful entry points.
+/// Application-level helpers and the FIOApp base class for running FIO effects.
 /// </summary>
 module FSharp.FIO.App
 
 open FSharp.FIO.DSL
 open FSharp.FIO.Runtime
-open FSharp.FIO.Runtime.Concurrent
+open FSharp.FIO.Runtime.Default
 
 open System
 open System.Threading
@@ -31,36 +30,57 @@ module private ThreadPoolConfig =
 
 do ThreadPoolConfig.configure ()
 
-let private defaultRuntime = new Runtime()
+let private defaultRuntime = new DefaultRuntime()
 
+/// <summary>
+/// Applies the appropriate handler based on success or error.
+/// </summary>
+/// <param name="onSuccess">Handler to invoke on success.</param>
+/// <param name="onError">Handler to invoke on error.</param>
 let private mergeResult onSuccess onError = function
     | Ok res -> onSuccess res
     | Error err -> onError err
 
+/// <summary>
+/// Awaits a fiber and applies the appropriate handler.
+/// </summary>
+/// <param name="onSuccess">Handler to invoke on success.</param>
+/// <param name="onError">Handler to invoke on error.</param>
+/// <param name="fiber">The fiber to await.</param>
 let private mergeFiber onSuccess onError (fiber: Fiber<'R, 'E>) = task {
     let! res = fiber.Task()
     return! mergeResult onSuccess onError res
 }
 
+/// <summary>
+/// Default success handler that prints the result in green.
+/// </summary>
+/// <param name="res">The result to print.</param>
 let private defaultOnSuccess res = task {
     Console.ForegroundColor <- ConsoleColor.DarkGreen
     Console.WriteLine $"%A{Ok res}"
     Console.ResetColor()
 }
 
+/// <summary>
+/// Default error handler that prints the error in red.
+/// </summary>
+/// <param name="err">The error to print.</param>
 let private defaultOnError err = task {
     Console.ForegroundColor <- ConsoleColor.DarkRed
     Console.WriteLine $"%A{Error err}"
     Console.ResetColor()
 }
 
+/// <summary>
+/// Default fiber handler using default success and error handlers.
+/// </summary>
+/// <param name="fiber">The fiber to handle.</param>
 let private defaultFiberHandler fiber = mergeFiber defaultOnSuccess defaultOnError fiber
 
 /// <summary>
-/// Abstract base class for FIO applications. Provides effectful entry points and customizable handlers for success and error cases.
+/// Abstract base class for FIO applications.
 /// </summary>
-/// <typeparam name="R">The result type of the application effect.</typeparam>
-/// <typeparam name="E">The error type of the application effect.</typeparam>
 /// <param name="onSuccess">Handler to invoke on success.</param>
 /// <param name="onError">Handler to invoke on error.</param>
 /// <param name="runtime">The runtime to use for interpretation.</param>
@@ -69,30 +89,25 @@ type FIOApp<'R, 'E> (onSuccess: 'R -> Task<unit>, onError: 'E -> Task<unit>, run
     let fiberHandler = mergeFiber onSuccess onError
 
     /// <summary>
-    /// Initializes a new <c>FIOApp</c> with default handlers and runtime.
+    /// Initializes a new FIOApp with default handlers and runtime.
     /// </summary>
     new() = FIOApp(defaultOnSuccess, defaultOnError, defaultRuntime)
 
     /// <summary>
-    /// The main effect to be interpreted by the application.
+    /// The main effect to interpret.
     /// </summary>
-    /// <returns>The main FIO effect of the application.</returns>
     abstract member effect: FIO<'R, 'E>
 
     /// <summary>
-    /// Runs the given <c>FIOApp</c> instance using its configured runtime and handlers.
+    /// Runs the given FIOApp instance.
     /// </summary>
-    /// <typeparam name="R">The result type of the application effect.</typeparam>
-    /// <typeparam name="E">The error type of the application effect.</typeparam>
     /// <param name="app">The FIOApp instance to run.</param>
     static member Run<'R, 'E> (app: FIOApp<'R, 'E>) =
         app.Run()
 
     /// <summary>
-    /// Runs the given FIO effect using the default runtime and handlers.
+    /// Runs the given FIO effect using default runtime and handlers.
     /// </summary>
-    /// <typeparam name="R">The result type of the effect.</typeparam>
-    /// <typeparam name="E">The error type of the effect.</typeparam>
     /// <param name="eff">The FIO effect to run.</param>
     static member Run<'R, 'E> (eff: FIO<'R, 'E>) =
         let fiber = defaultRuntime.Run eff
@@ -100,30 +115,23 @@ type FIOApp<'R, 'E> (onSuccess: 'R -> Task<unit>, onError: 'E -> Task<unit>, run
         task.Wait()
 
     /// <summary>
-    /// Runs the application effect using the configured runtime and handlers.
+    /// Runs the application effect.
     /// </summary>
-    /// <typeparam name="R">The result type of the application effect.</typeparam>
-    /// <typeparam name="E">The error type of the application effect.</typeparam>
     member this.Run<'R, 'E> () =
         this.Run runtime
 
     /// <summary>
-    /// Runs the application effect using the specified runtime and the configured handlers.
+    /// Runs the application effect with the specified runtime.
     /// </summary>
-    /// <typeparam name="R">The result type of the application effect.</typeparam>
-    /// <typeparam name="E">The error type of the application effect.</typeparam>
-    /// <param name="runtime">The runtime to use for interpretation.</param>
+    /// <param name="runtime">The runtime to use.</param>
     member this.Run<'R, 'E> runtime =
         let fiber = runtime.Run this.effect
         let task = fiberHandler fiber
         task.Wait()
 
     /// <summary>
-    /// Runs the application effect using the specified success and error handlers.
+    /// Runs the application effect with the specified handlers.
     /// </summary>
-    /// <typeparam name="R">The result type of the application effect.</typeparam>
-    /// <typeparam name="E">The error type of the application effect.</typeparam>
-    /// <typeparam name="F">The result type of the handlers.</typeparam>
     /// <param name="onSuccess">Handler to invoke on success.</param>
     /// <param name="onError">Handler to invoke on error.</param>
     member this.Run<'R, 'E, 'F> (onSuccess: 'R -> Task<'F>, onError: 'E -> Task<'F>) =

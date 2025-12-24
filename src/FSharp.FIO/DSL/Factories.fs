@@ -23,7 +23,7 @@ type FIO<'R, 'E> with
     /// <summary>
     /// Succeeds immediately with unit.
     /// </summary>
-    static member Unit< 'E> () : FIO<unit, 'E> =
+    static member Unit<'E> () : FIO<unit, 'E> =
         Success ()
 
     /// <summary>
@@ -45,10 +45,10 @@ type FIO<'R, 'E> with
     /// </summary>
     /// <param name="cause">The interruption cause.</param>
     /// <param name="msg">The interruption message.</param>
-    static member Interrupt<'R, 'E> (?cause: InterruptionCause, ?msg: string) : FIO<'R, 'E> =
+    static member Interrupt<'R, 'E> (?cause: InterruptionCause, ?msg: string)  : FIO<'R, 'E> =
         let cause = defaultArg cause ExplicitInterrupt
         let msg = defaultArg msg "Fiber was interrupted."
-        Interruption(cause, msg)
+        InterruptEffect(cause, msg)
 
     /// <summary>
     /// Converts a side-effecting function into an effect.

@@ -11,7 +11,6 @@
 module FSharp.FIO.DSL.Extensions
 
 open System
-open System.Threading
 open System.Diagnostics
 
 type FIO<'R, 'E> with
@@ -105,6 +104,32 @@ type FIO<'R, 'E> with
     /// <param name="onError">The effect to execute on error.</param>
     member inline this.TapBoth<'R, 'R1, 'R2, 'E> (onSuccess: 'R -> FIO<'R2, 'E>, onError: 'E -> FIO<'R1, 'E>) : FIO<'R, 'E> =
         this.Tap(onSuccess).TapError onError
+
+    /// <summary>
+    /// Prints the success value to stdout for debugging, preserving the original value.
+    /// The value is printed with the prefix "Debug: " per default.
+    /// Any errors from printing are printed to stderr but do not fail the effect (best-effort output).
+    /// </summary>
+    /// <param name="message">The message prefix to print before the value.</param>
+    member inline this.Debug<'R, 'E> (?message: string) : FIO<'R, 'E> =
+        let message = defaultArg message "Debug"
+        this.Tap(fun res ->
+            FIO.Attempt((fun () -> printfn "%s: %A" message res))
+                .CatchAll(fun exn ->
+                    eprintfn "Debug print failed. Message: %s, Exception: %s" message (exn.Message); FIO.Unit()))
+
+    /// <summary>
+    /// Prints the error value to stdout for debugging, preserving the original error.
+    /// The error is printed with the prefix "Debug Error: " per default.
+    /// Any errors from printing are printed to stderr but do not fail the effect (best-effort output).
+    /// </summary>
+    /// <param name="message">The message prefix to print before the error.</param>
+    member inline this.DebugError<'R, 'E> (?message: string) : FIO<'R, 'E> =
+        let message = defaultArg message "Debug Error"
+        this.TapError(fun err ->
+            FIO.Attempt((fun () -> printfn "%s: %A" message err), id)
+                .CatchAll(fun exn ->
+                    eprintfn "Debug Error print failed. Message: %s, Exception: %s" message (exn.Message); FIO.Unit()))
 
     /// <summary>
     /// Falls back to another effect if this effect fails, ignoring the original error.
@@ -320,6 +345,6 @@ type FIO<'R, 'E> with
     /// Converts all errors to defects (interruptions), making the effect infallible.
     /// </summary>
     /// <param name="toMessage">A function to convert the error to an interruption message.</param>
-    member inline this.OrInterrupt<'R, 'E, 'E1> (toMessage: 'E -> string) : FIO<'R, 'E1> =
-        this.CatchAll(fun err ->
-            FIO.Interrupt(ResourceExhaustion (toMessage err), "Fiber interrupted due to unrecoverable error"))
+    // member inline this.OrInterrupt<'R, 'E, 'E1> (toMessage: 'E -> string) : FIO<'R, 'E1> =
+    //     this.CatchAll(fun err ->
+    //         FIO.Interrupt(ResourceExhaustion (toMessage err), "Fiber interrupted due to unrecoverable error"))

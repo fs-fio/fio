@@ -36,6 +36,7 @@
 		<Compile Include="Runtime\DirectRuntime.fs" />
 		<Compile Include="Runtime\CooperativeRuntime.fs" />
 		<Compile Include="Runtime\ConcurrentRuntime.fs" />
+		<Compile Include="Runtime\DefaultRuntime.fs" />
 	</ItemGroup>
 
 	<PropertyGroup>

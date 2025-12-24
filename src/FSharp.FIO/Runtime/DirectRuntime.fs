@@ -17,7 +17,7 @@ open System.Threading.Tasks
 /// <summary>
 /// The direct runtime for FIO, interpreting effects on the current thread.
 /// </summary>
-type Runtime () =
+type DirectRuntime () =
     inherit FRuntime ()
 
     override _.Name =
@@ -67,8 +67,9 @@ type Runtime () =
                         currentEff <- cont err
                         loop <- false
 
-        let inline processInterrupt () =
+        let inline processInterruptError err =
             ContStackPool.Return currentContStack
+            result <- Error err
             completed <- true
 
         let inline processResult res =
@@ -82,16 +83,23 @@ type Runtime () =
             try
                 while not completed do
                     if currentFiberContext.CancellationToken.IsCancellationRequested then
-                        processInterrupt()
+                        match! currentFiberContext.Task with
+                        | Ok _ ->
+                            raise (InvalidOperationException "Fiber was cancelled but completed successfully.")
+                        | Error err ->
+                            processInterruptError err
                     else
                         match currentEff with
                         | Success res ->
                             processSuccess res
                         | Failure err ->
                             processError err
-                        | Interruption(cause, msg) ->
+                        | InterruptFiber(cause, msg, fiberContext) ->
+                            fiberContext.Interrupt(cause, msg)
+                            processSuccess()
+                        | InterruptEffect(cause, msg) ->
                             currentFiberContext.Interrupt(cause, msg)
-                            processInterrupt()
+                            processSuccess()
                         | Action(func, onError) ->
                             try
                                 let res = func()
@@ -129,7 +137,7 @@ type Runtime () =
                                     try
                                         let t = taskFactory()
                                         try
-                                            do! t
+                                            do! t.WaitAsync fiberContext.CancellationToken
                                             fiberContext.Complete(Ok ())
                                         with
                                         | :? OperationCanceledException ->
@@ -149,7 +157,7 @@ type Runtime () =
                                     try
                                         let t = taskFactory()
                                         try
-                                            let! result = t
+                                            let! result = t.WaitAsync fiberContext.CancellationToken
                                             fiberContext.Complete(Ok result)
                                         with
                                         | :? OperationCanceledException ->
@@ -165,13 +173,13 @@ type Runtime () =
                             processResult res
                         | AwaitTPLTask(task, onError) ->
                             try
-                                let! res = task
+                                let! res = task.WaitAsync currentFiberContext.CancellationToken
                                 processSuccess res
                             with exn ->
                                 processError(onError exn)
                         | AwaitGenericTPLTask(task, onError) ->
                             try
-                                let! res = task
+                                let! res = task.WaitAsync currentFiberContext.CancellationToken
                                 processSuccess res
                             with exn ->
                                 processError(onError exn)

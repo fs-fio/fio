@@ -30,6 +30,20 @@ let inline Print (format: Printf.TextWriterFormat<unit>) : FIO<unit, exn> =
     PrintMapError<exn>(format, id)
 
 /// <summary>
+/// Prints a formatted message to the error output stream (no newline).
+/// </summary>
+/// <param name="format">The format string to print.</param>
+let inline PrintErrorMapError<'E> (format: Printf.TextWriterFormat<unit>, onError: exn -> 'E) : FIO<unit, 'E> =
+    FIO.Attempt<unit, 'E>((fun () -> eprintf format), onError)
+
+/// <summary>
+/// Prints a formatted message to the error output stream (no newline).
+/// </summary>
+/// <param name="format">The format string to print.</param>
+let inline PrintError (format: Printf.TextWriterFormat<unit>) : FIO<unit, exn> =
+    PrintErrorMapError<exn>(format, id)
+
+/// <summary>
 /// Prints a formatted message to the console output (with newline).
 /// </summary>
 /// <param name="format">The format string to print.</param>
@@ -43,6 +57,20 @@ let inline PrintLineMapError<'E> (format: Printf.TextWriterFormat<unit>, onError
 /// <param name="format">The format string to print.</param>
 let inline PrintLine (format: Printf.TextWriterFormat<unit>) : FIO<unit, exn> =
     PrintLineMapError<exn>(format, id)
+
+/// <summary>
+/// Prints a formatted message to the error output stream (with newline).
+/// </summary>
+/// <param name="format">The format string to print.</param>
+let inline PrintErrorLineMapError<'E> (format: Printf.TextWriterFormat<unit>, onError: exn -> 'E) : FIO<unit, 'E> =
+    FIO.Attempt<unit, 'E>((fun () -> eprintfn format), onError)
+
+/// <summary>
+/// Prints a formatted message to the error output stream (with newline).
+/// </summary>
+/// <param name="format">The format string to print.</param>
+let inline PrintErrorLine (format: Printf.TextWriterFormat<unit>) : FIO<unit, exn> =
+    PrintErrorLineMapError<exn>(format, id)
 
 /// <summary>
 /// Writes a line to the console output with a custom error handler.

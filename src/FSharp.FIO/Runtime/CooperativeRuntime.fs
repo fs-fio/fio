@@ -19,7 +19,7 @@ open System.Threading.Tasks
 /// Configuration for an evaluation worker.
 /// </summary>
 type private EvaluationWorkerConfig =
-    { Runtime: Runtime
+    { Runtime: CooperativeRuntime
       ActiveWorkItemChan: UnboundedChannel<WorkItem>
       BlockingWorker: BlockingWorker
       EWSteps: int }
@@ -165,7 +165,7 @@ and private BlockingWorker (config: BlockingWorkerConfig) =
 /// <summary>
 /// The cooperative runtime for FIO, interpreting effects concurrently using work-stealing.
 /// </summary>
-and Runtime (config: WorkerConfig) as this =
+and CooperativeRuntime (config: WorkerConfig) as this =
     inherit FWorkerRuntime(config)
 
     let activeWorkItemChan = UnboundedChannel<WorkItem> ()
@@ -195,7 +195,7 @@ and Runtime (config: WorkerConfig) as this =
             evaluationWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose ())
 
     new() =
-        new Runtime
+        new CooperativeRuntime
             { EWC =
                 let coreCount = Environment.ProcessorCount - 1
                 if coreCount >= 2 then coreCount else 2
@@ -222,7 +222,7 @@ and Runtime (config: WorkerConfig) as this =
             while loop do
                 if currentContStack.Count = 0 then
                     ContStackPool.Return currentContStack
-                    result <- Success res, ContStackPool.Rent (), Evaluated
+                    result <- Success res, ContStackPool.Rent(), Evaluated
                     completed <- true
                     loop <- false
                 else
@@ -240,7 +240,7 @@ and Runtime (config: WorkerConfig) as this =
             while loop do
                 if currentContStack.Count = 0 then
                     ContStackPool.Return currentContStack
-                    result <- Failure err, ContStackPool.Rent (), Evaluated
+                    result <- Failure err, ContStackPool.Rent(), Evaluated
                     completed <- true
                     loop <- false
                 else
@@ -253,8 +253,9 @@ and Runtime (config: WorkerConfig) as this =
                         currentPrevAction <- Evaluated
                         loop <- false
 
-        let inline processInterrupt () =
+        let inline processInterruptError err =
             ContStackPool.Return currentContStack
+            result <- Failure err, ContStackPool.Rent(), Evaluated
             completed <- true
 
         let inline processResult res =
@@ -268,7 +269,11 @@ and Runtime (config: WorkerConfig) as this =
             try
                 while not completed do
                     if currentFiberContext.CancellationToken.IsCancellationRequested then
-                        processInterrupt()
+                        match! currentFiberContext.Task with
+                        | Ok _ ->
+                            raise (InvalidOperationException "Fiber was cancelled but completed successfully.")
+                        | Error err ->
+                            processInterruptError err
                     elif currentEWSteps = 0 then
                         result <- currentEff, currentContStack, RescheduleForRunning
                         completed <- true
@@ -279,9 +284,12 @@ and Runtime (config: WorkerConfig) as this =
                             processSuccess res
                         | Failure err ->
                             processError err
-                        | Interruption(cause, msg) ->
+                        | InterruptFiber(cause, msg, fiberContext) ->
+                            fiberContext.Interrupt(cause, msg)
+                            processSuccess()
+                        | InterruptEffect(cause, msg) ->
                             currentFiberContext.Interrupt(cause, msg)
-                            processInterrupt()
+                            processSuccess()
                         | Action(func, onError) ->
                             try
                                 let res = func()
@@ -311,37 +319,41 @@ and Runtime (config: WorkerConfig) as this =
                                       PrevAction = currentPrevAction }
                             processSuccess fiber
                         | ConcurrentTPLTask(taskFactory, onError, fiber, fiberContext) ->
-                            currentFiberContext.CancellationToken.Register(
-                                fun () -> fiberContext.Interrupt(ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
-                            |> ignore
+                            let registration = currentFiberContext.CancellationToken.Register(fun () ->
+                                fiberContext.Interrupt (ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
                             do! Task.Run(fun () ->
                                 task {
                                     let t = taskFactory()
                                     try
-                                        do! t
-                                        fiberContext.Complete(Ok ())
-                                    with
-                                    | :? OperationCanceledException ->
-                                        fiberContext.Complete(Error (onError (FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled."))))
-                                    | exn ->
-                                        fiberContext.Complete(Error (onError exn))
+                                        try
+                                            do! t.WaitAsync fiberContext.CancellationToken
+                                            fiberContext.Complete(Ok ())
+                                        with
+                                        | :? OperationCanceledException ->
+                                            fiberContext.Complete(Error (onError (FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled."))))
+                                        | exn ->
+                                            fiberContext.Complete(Error (onError exn))
+                                    finally
+                                        registration.Dispose()
                                 } :> Task)
                             processSuccess fiber
                         | ConcurrentGenericTPLTask(taskFactory, onError, fiber, fiberContext) ->
-                            currentFiberContext.CancellationToken.Register(
-                                fun () -> fiberContext.Interrupt(ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
-                            |> ignore
+                            let registration = currentFiberContext.CancellationToken.Register(fun () ->
+                                fiberContext.Interrupt (ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
                             do! Task.Run(fun () ->
                                 task {
                                     let t = taskFactory()
                                     try
-                                        let! result = t
-                                        fiberContext.Complete (Ok result)
-                                    with
-                                    | :? OperationCanceledException ->
-                                        fiberContext.Complete (Error (onError (FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled."))))
-                                    | exn ->
-                                        fiberContext.Complete (Error (onError exn))
+                                        try
+                                            let! result = t.WaitAsync fiberContext.CancellationToken
+                                            fiberContext.Complete (Ok result)
+                                        with
+                                        | :? OperationCanceledException ->
+                                            fiberContext.Complete (Error (onError (FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled."))))
+                                        | exn ->
+                                            fiberContext.Complete (Error (onError exn))
+                                    finally
+                                        registration.Dispose()
                                 } :> Task)
                             processSuccess fiber
                         | AwaitFiberContext fiberContext ->
@@ -355,13 +367,13 @@ and Runtime (config: WorkerConfig) as this =
                                 completed <- true
                         | AwaitTPLTask(task, onError) ->
                             try
-                                let! res = task
+                                let! res = task.WaitAsync currentFiberContext.CancellationToken
                                 processSuccess res
                             with exn ->
                                 processError (onError exn)
                         | AwaitGenericTPLTask(task, onError) ->
                             try
-                                let! res = task
+                                let! res = task.WaitAsync currentFiberContext.CancellationToken
                                 processSuccess res
                             with exn ->
                                 processError (onError exn)

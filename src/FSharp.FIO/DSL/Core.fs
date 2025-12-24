@@ -30,10 +30,10 @@ type InterruptionCause =
 
     override this.ToString() =
         match this with
-        | Timeout ms -> $"Timeout({ms}ms)"
-        | ParentInterrupted id -> $"ParentInterrupted({id})"
+        | Timeout ms -> $"Timeout ({ms}ms)"
+        | ParentInterrupted id -> $"ParentInterrupted ({id})"
         | ExplicitInterrupt -> "ExplicitInterrupt"
-        | ResourceExhaustion r -> $"ResourceExhaustion({r})"
+        | ResourceExhaustion r -> $"ResourceExhaustion ({r})"
 
 /// <summary>
 /// Exception thrown when a fiber is interrupted during execution.
@@ -41,7 +41,7 @@ type InterruptionCause =
 exception FiberInterruptedException of fiberId: Guid * cause: InterruptionCause * message: string with
 
     override this.Message =
-        $"Fiber {this.fiberId} interrupted: {this.cause} - {this.message}"
+        $"Fiber {this.fiberId} interrupted. Cause: {this.cause}. Message: {this.message}"
 
 /// <summary>
 /// Internal continuation representation for effect chaining.
@@ -327,8 +327,10 @@ and Fiber<'R, 'E> internal () =
     /// </summary>
     /// <param name="cause">The interruption cause.</param>
     /// <param name="msg">The interruption message.</param>
-    member _.Interrupt<'E> (cause: InterruptionCause, msg: string) : FIO<unit, 'E> =
-        Interruption(cause, msg)
+    member _.Interrupt<'E> (?cause: InterruptionCause, ?msg: string) : FIO<unit, 'E> =
+        let cause = defaultArg cause ExplicitInterrupt
+        let msg = defaultArg msg "Fiber was interrupted."
+        InterruptFiber(cause, msg, fiberContext)
 
     /// <summary>
     /// Gets the internal fiber context (for runtime use only).
@@ -446,7 +448,8 @@ and FIO<'R, 'E> =
     internal
     | Success of res: 'R
     | Failure of err: 'E
-    | Interruption of cause: InterruptionCause * msg: string
+    | InterruptFiber of cause: InterruptionCause * msg: string * fiberContext: FiberContext
+    | InterruptEffect of cause: InterruptionCause * msg: string
     | Action of func: (unit -> 'R) * onError: (exn -> 'E)
     | SendChan of msg: 'R * chan: Channel<'R>
     | ReceiveChan of chan: Channel<'R>
@@ -459,26 +462,29 @@ and FIO<'R, 'E> =
     | ChainSuccess of eff: FIO<obj, 'E> * cont: (obj -> FIO<'R, 'E>)
     | ChainError of eff: FIO<'R, obj> * cont: (obj -> FIO<'R, 'E>)
 
+    static member UnsafePrintFiberResult<'R, 'E> (fiber: Fiber<'R, 'E>) : unit =
+        printfn "%A" (fiber.Task().Result)
+
     /// <summary>
     /// Executes this effect concurrently in a new Fiber.
     /// </summary>
     member this.Fork<'R, 'E, 'E1> () : FIO<Fiber<'R, 'E>, 'E1> =
         let fiber = new Fiber<'R, 'E>()
-        ConcurrentEffect (this.Upcast(), fiber, fiber.Internal)
+        ConcurrentEffect(this.Upcast(), fiber, fiber.Internal)
 
     /// <summary>
     /// Chains this effect with a continuation function (monadic bind).
     /// </summary>
     /// <param name="cont">The continuation function.</param>
     member this.FlatMap<'R, 'R1, 'E> (cont: 'R -> FIO<'R1, 'E>) : FIO<'R1, 'E> =
-        ChainSuccess (this.UpcastResult(), fun res -> cont(res :?> 'R))
+        ChainSuccess(this.UpcastResult(), fun res -> cont(res :?> 'R))
 
     /// <summary>
     /// Handles errors with a recovery function.
     /// </summary>
     /// <param name="onError">The error handler function.</param>
     member this.CatchAll<'R, 'E, 'E1> (onError: 'E -> FIO<'R, 'E1>) : FIO<'R, 'E1> =
-        ChainError (this.UpcastError(), fun err -> onError(err :?> 'E))
+        ChainError(this.UpcastError(), fun err -> onError(err :?> 'E))
 
     /// <summary>
     /// Runs a finalizer after this effect, preserving the original outcome.
@@ -498,8 +504,10 @@ and FIO<'R, 'E> =
             Success (res :> obj)
         | Failure err ->
             Failure err
-        | Interruption(cause, msg) ->
-            Interruption(cause, msg)
+        | InterruptFiber(cause, msg, fiberContext) ->
+            InterruptFiber(cause, msg, fiberContext)
+        | InterruptEffect(cause, msg) ->
+            InterruptEffect(cause, msg)
         | Action(func, onError) ->
             Action(upcastFunc func, onError)
         | SendChan(msg, chan) ->
@@ -532,8 +540,10 @@ and FIO<'R, 'E> =
             Success res
         | Failure err ->
             Failure(err :> obj)
-        | Interruption(cause, msg) ->
-            Interruption(cause, msg)
+        | InterruptFiber(cause, msg, fiberContext) ->
+            InterruptFiber(cause, msg, fiberContext)
+        | InterruptEffect(cause, msg) ->
+            InterruptEffect(cause, msg)
         | Action(func, onError) ->
             Action(func, upcastOnError onError)
         | SendChan(msg, chan) ->
