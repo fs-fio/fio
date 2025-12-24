@@ -32,6 +32,14 @@ and private BlockingWorkerConfig =
       ActiveBlockingEventChan: UnboundedChannel<Channel<obj>> }
 
 /// <summary>
+/// Internal type for tracking deferred fiber completion.
+/// </summary>
+and private CompletionAction =
+    | NoCompletion
+    | CompleteSuccess of obj
+    | CompleteFailure of obj
+
+/// <summary>
 /// Worker that evaluates FIO effects.
 /// </summary>
 and private EvaluationWorker (config: EvaluationWorkerConfig) =
@@ -41,35 +49,18 @@ and private EvaluationWorker (config: EvaluationWorkerConfig) =
     /// </summary>
     /// <param name="workItem">The work item to process.</param>
     let processWorkItem (workItem: WorkItem) =
-        task {
-            match! config.Runtime.InterpretAsync workItem config.EWSteps with
-            | Success res, _, Evaluated ->
-                do! workItem.FiberContext.CompleteAndReschedule(Ok res, config.ActiveWorkItemChan)
-            | Failure err, _, Evaluated ->
-                do! workItem.FiberContext.CompleteAndReschedule(Error err, config.ActiveWorkItemChan)
-            | eff, stack, RescheduleForRunning ->
-                do! config.ActiveWorkItemChan.AddAsync
-                        { Eff = eff;
-                          FiberContext = workItem.FiberContext;
-                          Stack = stack;
-                          PrevAction = RescheduleForRunning }
-            | _, _, Skipped ->
-                ()
-            | _ ->
-                printfn "ERROR: EvaluationWorker: Unexpected state encountered during effect interpretation!"
-                invalidOp "EvaluationWorker: Unexpected state encountered during effect interpretation!"
-        }
+        config.Runtime.InterpretAsync (workItem, config.EWSteps, config.ActiveWorkItemChan)
 
-    let cancellationTokenSource = new CancellationTokenSource()
+    let cts = new CancellationTokenSource()
 
     let startWorker () =
         (new Task((fun () ->
             task {
                 let mutable loop = true
-                while loop && not cancellationTokenSource.Token.IsCancellationRequested do
+                while loop && not cts.Token.IsCancellationRequested do
                     try
                         let! hasWorkItem = config.ActiveWorkItemChan.WaitToTakeAsync()
-                        if not hasWorkItem || cancellationTokenSource.Token.IsCancellationRequested then
+                        if not hasWorkItem || cts.Token.IsCancellationRequested then
                             loop <- false
                         else
                             let! workItem = config.ActiveWorkItemChan.TakeAsync()
@@ -81,12 +72,12 @@ and private EvaluationWorker (config: EvaluationWorkerConfig) =
             } |> ignore), TaskCreationOptions.LongRunning))
             .Start TaskScheduler.Default
 
-    do startWorker ()
+    do startWorker()
 
     interface IDisposable with
         member _.Dispose () =
-            cancellationTokenSource.Cancel()
-            cancellationTokenSource.Dispose()
+            cts.Cancel()
+            cts.Dispose()
 
 /// <summary>
 /// Worker that handles blocked effects waiting for channel events.
@@ -162,7 +153,6 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
 
     interface IDisposable with
         member _.Dispose () =
-            // Dispose workers to stop background threads
             (blockingWorker :> IDisposable).Dispose()
             evaluationWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
 
@@ -179,13 +169,14 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
     /// </summary>
     /// <param name="workItem">The work item containing the effect to interpret.</param>
     /// <param name="evalSteps">The maximum number of evaluation steps before rescheduling.</param>
+    /// <param name="activeQueue">The active work item queue for rescheduling.</param>
     [<TailCall>]
-    member internal _.InterpretAsync workItem evalSteps =
+    member internal _.InterpretAsync (workItem: WorkItem, evalSteps: int, activeWorkItemChan: UnboundedChannel<WorkItem>) =
         let mutable currentEff = workItem.Eff
         let mutable currentContStack = workItem.Stack
         let mutable currentEWSteps = evalSteps
         let mutable currentFiberContext = workItem.FiberContext
-        let mutable result = Unchecked.defaultof<_>
+        let mutable completionAction = NoCompletion
         let mutable completed = false
 
         let inline processSuccess res =
@@ -193,7 +184,7 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
             while loop do
                 if currentContStack.Count = 0 then
                     ContStackPool.Return currentContStack
-                    result <- Success res, ContStackPool.Rent(), Evaluated
+                    completionAction <- CompleteSuccess res
                     completed <- true
                     loop <- false
                 else
@@ -210,7 +201,7 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
             while loop do
                 if currentContStack.Count = 0 then
                     ContStackPool.Return currentContStack
-                    result <- Failure err, ContStackPool.Rent(), Evaluated
+                    completionAction <- CompleteFailure err
                     completed <- true
                     loop <- false
                 else
@@ -224,7 +215,7 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
 
         let inline processInterruptError err =
             ContStackPool.Return currentContStack
-            result <- Failure err, ContStackPool.Rent(), Evaluated
+            completionAction <- CompleteFailure err
             completed <- true
 
         let inline processResult res =
@@ -244,7 +235,7 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
                         | Error err ->
                             processInterruptError err
                     elif currentEWSteps = 0 then
-                        result <- currentEff, currentContStack, RescheduleForRunning
+                        do! activeWorkItemChan.AddAsync { Eff = currentEff; FiberContext = currentFiberContext; Stack = currentContStack }
                         completed <- true
                     else
                         currentEWSteps <- currentEWSteps - 1
@@ -275,16 +266,14 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
                                 processSuccess res
                             else
                                 do! chan.AddBlockingWorkItem
-                                    <| { Eff = ReceiveChan chan; FiberContext = workItem.FiberContext; Stack = currentContStack; PrevAction = Skipped }
-                                let newStack = ContStackPool.Rent()
-                                result <- Success(), newStack, Skipped
+                                    <| { Eff = ReceiveChan chan; FiberContext = currentFiberContext; Stack = currentContStack }
                                 completed <- true
                         | ConcurrentEffect(eff, fiber, fiberContext) ->
-                            currentFiberContext.CancellationToken.Register(fun () ->
+                            let registration = currentFiberContext.CancellationToken.Register(fun () ->
                                 fiberContext.Interrupt(ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
-                                |> ignore
+                            fiberContext.AddRegistration registration
                             do! activeWorkItemChan.AddAsync
-                                <| { Eff = eff; FiberContext = fiberContext; Stack = ContStackPool.Rent(); PrevAction = workItem.PrevAction }
+                                <| { Eff = eff; FiberContext = fiberContext; Stack = ContStackPool.Rent() }
                             processSuccess fiber
                         | ConcurrentTPLTask(taskFactory, onError, fiber, fiberContext) ->
                             let registration = currentFiberContext.CancellationToken.Register(fun () ->
@@ -298,8 +287,8 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
                                             do! fiberContext.CompleteAndReschedule (Ok (), activeWorkItemChan)
                                         with
                                         | :? OperationCanceledException ->
-                                            do! fiberContext.CompleteAndReschedule (Error (onError <| 
-                                                FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled.")),activeWorkItemChan)
+                                            do! fiberContext.CompleteAndReschedule (Error (onError <|
+                                                FiberInterruptedException (fiberContext.Id, ExplicitInterrupt, "Task has been cancelled.")), activeWorkItemChan)
                                         | exn ->
                                             do! fiberContext.CompleteAndReschedule (Error (onError exn), activeWorkItemChan)
                                     finally
@@ -332,10 +321,8 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
                                 processResult res
                             else
                                 do! fiberContext.AddBlockingWorkItem
-                                    <| { Eff = AwaitFiberContext fiberContext; FiberContext = workItem.FiberContext; Stack = currentContStack; PrevAction = Skipped }
+                                    <| { Eff = AwaitFiberContext fiberContext; FiberContext = currentFiberContext; Stack = currentContStack }
                                 do fiberContext.TryRescheduleBlockingWorkItems activeWorkItemChan |> ignore
-                                let newStack = ContStackPool.Rent()
-                                result <- Success (), newStack, Skipped
                                 completed <- true
                         | AwaitTPLTask(task, onError) ->
                             try
@@ -355,7 +342,15 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
                         | ChainError (eff, cont) ->
                             currentEff <- eff
                             currentContStack.Add(ContStackFrame (FailureCont cont))
-                return result
+                // Handle deferred fiber completion
+                match completionAction with
+                | CompleteSuccess res ->
+                    do! currentFiberContext.CompleteAndReschedule(Ok res, activeWorkItemChan)
+                | CompleteFailure err ->
+                    do! currentFiberContext.CompleteAndReschedule(Error err, activeWorkItemChan)
+                | NoCompletion ->
+                    ()
+                return ()
             finally
                 if not completed then
                     ContStackPool.Return currentContStack
@@ -371,10 +366,9 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
     override _.Run<'R, 'E> (eff: FIO<'R, 'E>) : Fiber<'R, 'E> =
         this.Reset()
         let fiber = new Fiber<'R, 'E>()
-        activeWorkItemChan.AddAsync 
+        activeWorkItemChan.AddAsync
             { Eff = eff.Upcast();
               FiberContext = fiber.Internal;
-              Stack = ContStackPool.Rent();
-              PrevAction = Evaluated }
+              Stack = ContStackPool.Rent() }
         |> ignore
         fiber

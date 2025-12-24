@@ -20,7 +20,7 @@ open System.Threading.Tasks
 /// </summary>
 type internal Monitor (
     activeWorkItemChan: UnboundedChannel<WorkItem>,
-    activeBlockingDataChanOpt: UnboundedChannel<BlockingData> option,
+    activeBlockingItemChanOpt: UnboundedChannel<BlockingItem> option,
     activeBlockingEventChan: UnboundedChannel<Channel<obj>> option) =
 
     let mutable running = true
@@ -35,7 +35,7 @@ type internal Monitor (
                 printfn "  Count: %i" activeWorkItemChan.Count
                 printfn "  Channel ID: %A" activeWorkItemChan.Id
 
-                match activeBlockingDataChanOpt with
+                match activeBlockingItemChanOpt with
                 | Some chan ->
                     printfn ""
                     printfn "Blocking Data:"

@@ -16,34 +16,6 @@ open System.Threading.Tasks
 open System.Threading.Channels
 
 /// <summary>
-/// Represents the cause or reason for fiber interruption.
-/// </summary>
-type InterruptionCause =
-    /// Fiber was interrupted due to a timeout.
-    | Timeout of durationMs: float
-    /// Fiber was interrupted because its parent fiber was interrupted.
-    | ParentInterrupted of parentFiberId: Guid
-    /// Fiber was explicitly interrupted via Fiber.Interrupt().
-    | ExplicitInterrupt
-    /// Fiber was interrupted due to resource exhaustion or system limits.
-    | ResourceExhaustion of reason: string
-
-    override this.ToString() =
-        match this with
-        | Timeout ms -> $"Timeout ({ms}ms)"
-        | ParentInterrupted id -> $"ParentInterrupted ({id})"
-        | ExplicitInterrupt -> "ExplicitInterrupt"
-        | ResourceExhaustion r -> $"ResourceExhaustion ({r})"
-
-/// <summary>
-/// Exception thrown when a fiber is interrupted during execution.
-/// </summary>
-exception FiberInterruptedException of fiberId: Guid * cause: InterruptionCause * message: string with
-
-    override this.Message =
-        $"Fiber {this.fiberId} interrupted. Cause: {this.cause}. Message: {this.message}"
-
-/// <summary>
 /// Internal continuation representation for effect chaining.
 /// </summary>
 type internal Cont =
@@ -64,36 +36,20 @@ and internal ContStack =
     ResizeArray<ContStackFrame>
 
 /// <summary>
-/// Internal runtime action representing the outcome of effect evaluation.
-/// </summary>
-and internal RuntimeAction =
-    | Skipped
-    | Evaluated
-    | RescheduleForRunning
-    | RescheduleForBlocking of BlockingItem
-
-/// <summary>
-/// Internal representation of items that can block execution.
-/// </summary>
-and internal BlockingItem =
-    | BlockingChannel of Channel<obj>
-    | BlockingFiberContext of FiberContext
-
-/// <summary>
-/// Internal data structure tracking a blocked work item and its blocking resource.
-/// </summary>
-and internal BlockingData =
-    { BlockingItem: BlockingItem
-      WaitingWorkItem: WorkItem }
-
-/// <summary>
 /// Internal work item representing an effect to be executed along with its context and continuation stack.
 /// </summary>
 and internal WorkItem =
     { Eff: FIO<obj, obj>
       FiberContext: FiberContext
-      Stack: ContStack
-      PrevAction: RuntimeAction }
+      Stack: ContStack }
+
+/// <summary>
+/// Discriminated union representing effects that are blocked waiting for resources.
+/// Used by CooperativeRuntime's blocking worker for linear-time polling.
+/// </summary>
+and internal BlockingItem =
+    | BlockingChannel of channel: obj channel * waitingWorkItem: WorkItem
+    | BlockingFiber of fiberContext: FiberContext * waitingWorkItem: WorkItem
 
 /// <summary>
 /// Thread-safe unbounded channel for message passing.
@@ -175,6 +131,7 @@ and [<Sealed>] internal FiberContext () =
     let blockingWorkItemChan = UnboundedChannel<WorkItem>()
     let resTcs = TaskCompletionSource<Result<obj, obj>> TaskCreationOptions.RunContinuationsAsynchronously
     let cts = new CancellationTokenSource()
+    let registrations = ResizeArray<IDisposable>()
     let mutable disposed = false
 
     /// <summary>
@@ -196,11 +153,27 @@ and [<Sealed>] internal FiberContext () =
         cts.Token
 
     /// <summary>
+    /// Adds a disposable registration to be cleaned up when the fiber completes.
+    /// </summary>
+    member internal _.AddRegistration (registration: IDisposable) =
+        lock registrations (fun () -> registrations.Add registration)
+
+    /// <summary>
+    /// Disposes all registrations.
+    /// </summary>
+    member private _.DisposeRegistrations () =
+        lock registrations (fun () ->
+            for registration in registrations do
+                registration.Dispose()
+            registrations.Clear())
+
+    /// <summary>
     /// Completes the fiber with the given result.
     /// </summary>
-    member internal _.Complete res =
+    member internal this.Complete res =
         if Interlocked.CompareExchange(&state, int FiberContextState.Completed, int FiberContextState.Running) = int FiberContextState.Running then
             resTcs.TrySetResult res |> ignore
+            this.DisposeRegistrations()
 
     /// <summary>
     /// Completes the fiber and reschedules blocking work items.
@@ -209,7 +182,9 @@ and [<Sealed>] internal FiberContext () =
         task {
             if Interlocked.CompareExchange(&state, int FiberContextState.Completed, int FiberContextState.Running) = int FiberContextState.Running then
                 if resTcs.TrySetResult res then
-                    do! this.RescheduleBlockingWorkItems activeWorkItemChan
+                    this.DisposeRegistrations()
+                    if blockingWorkItemChan.Count > 0 then
+                        do! this.RescheduleBlockingWorkItems activeWorkItemChan
         }
 
     /// <summary>
@@ -221,11 +196,12 @@ and [<Sealed>] internal FiberContext () =
     /// <summary>
     /// Interrupts the fiber with the specified cause and message.
     /// </summary>
-    member internal _.Interrupt (cause, msg) =
+    member internal this.Interrupt (cause, msg) =
         if Interlocked.CompareExchange(&state, int FiberContextState.Interrupted, int FiberContextState.Running) = int FiberContextState.Running then
             cts.Cancel()
             let interruptError = Error (FiberInterruptedException(id, cause, msg) :> obj)
             resTcs.TrySetResult interruptError |> ignore
+            this.DisposeRegistrations()
 
     /// <summary>
     /// Gets whether the fiber has been interrupted.
