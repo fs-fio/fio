@@ -14,6 +14,7 @@ open System
 open System.Threading
 open System.Threading.Tasks
 open System.Threading.Channels
+open System.Collections.Concurrent
 
 /// <summary>
 /// Internal continuation representation for effect chaining.
@@ -39,9 +40,9 @@ and internal ContStack =
 /// Internal work item representing an effect to be executed along with its context and continuation stack.
 /// </summary>
 and internal WorkItem =
-    { Eff: FIO<obj, obj>
-      FiberContext: FiberContext
-      Stack: ContStack }
+    { mutable Eff: FIO<obj, obj>
+      mutable FiberContext: FiberContext
+      mutable Stack: ContStack }
 
 /// <summary>
 /// Discriminated union representing effects that are blocked waiting for resources.
@@ -131,7 +132,7 @@ and [<Sealed>] internal FiberContext () =
     let blockingWorkItemChan = UnboundedChannel<WorkItem>()
     let resTcs = TaskCompletionSource<Result<obj, obj>> TaskCreationOptions.RunContinuationsAsynchronously
     let cts = new CancellationTokenSource()
-    let registrations = ResizeArray<IDisposable>()
+    let registrations = ConcurrentBag<IDisposable>()
     let mutable disposed = false
 
     /// <summary>
@@ -156,16 +157,15 @@ and [<Sealed>] internal FiberContext () =
     /// Adds a disposable registration to be cleaned up when the fiber completes.
     /// </summary>
     member internal _.AddRegistration (registration: IDisposable) =
-        lock registrations (fun () -> registrations.Add registration)
+        registrations.Add registration
 
     /// <summary>
     /// Disposes all registrations.
     /// </summary>
     member private _.DisposeRegistrations () =
-        lock registrations (fun () ->
-            for registration in registrations do
-                registration.Dispose()
-            registrations.Clear())
+        let mutable registration = Unchecked.defaultof<_>
+        while registrations.TryTake(&registration) do
+            registration.Dispose()
 
     /// <summary>
     /// Completes the fiber with the given result.
@@ -286,7 +286,7 @@ and Fiber<'R, 'E> internal () =
     /// Awaits the fiber's completion and returns its result.
     /// </summary>
     member _.Join<'R, 'E> () : FIO<'R, 'E> =
-        AwaitFiberContext fiberContext
+        JoinFiber fiberContext
 
     /// <summary>
     /// Returns the fiber's result as a Task.
@@ -425,14 +425,14 @@ and FIO<'R, 'E> =
     | Success of res: 'R
     | Failure of err: 'E
     | InterruptFiber of cause: InterruptionCause * msg: string * fiberContext: FiberContext
-    | InterruptEffect of cause: InterruptionCause * msg: string
+    | InterruptSelf of cause: InterruptionCause * msg: string
     | Action of func: (unit -> 'R) * onError: (exn -> 'E)
     | SendChan of msg: 'R * chan: Channel<'R>
     | ReceiveChan of chan: Channel<'R>
-    | ConcurrentEffect of eff: FIO<obj, obj> * fiber: obj * fiberContext: FiberContext
-    | ConcurrentTPLTask of taskFactory: (unit -> Task) * onError: (exn -> 'E) * fiber: obj * fiberContext: FiberContext
-    | ConcurrentGenericTPLTask of taskFactory: (unit -> Task<obj>) * onError: (exn -> 'E) * fiber: obj * fiberContext: FiberContext
-    | AwaitFiberContext of fiberContext: FiberContext
+    | ForkEffect of eff: FIO<obj, obj> * fiber: obj * fiberContext: FiberContext
+    | ForkTPLTask of taskFactory: (unit -> Task) * onError: (exn -> 'E) * fiber: obj * fiberContext: FiberContext
+    | ForkGenericTPLTask of taskFactory: (unit -> Task<obj>) * onError: (exn -> 'E) * fiber: obj * fiberContext: FiberContext
+    | JoinFiber of fiberContext: FiberContext
     | AwaitTPLTask of task: Task * onError: (exn -> 'E)
     | AwaitGenericTPLTask of task: Task<obj> * onError: (exn -> 'E)
     | ChainSuccess of eff: FIO<obj, 'E> * cont: (obj -> FIO<'R, 'E>)
@@ -446,7 +446,7 @@ and FIO<'R, 'E> =
     /// </summary>
     member this.Fork<'R, 'E, 'E1> () : FIO<Fiber<'R, 'E>, 'E1> =
         let fiber = new Fiber<'R, 'E>()
-        ConcurrentEffect(this.Upcast(), fiber, fiber.Internal)
+        ForkEffect(this.Upcast(), fiber, fiber.Internal)
 
     /// <summary>
     /// Chains this effect with a continuation function (monadic bind).
@@ -482,22 +482,22 @@ and FIO<'R, 'E> =
             Failure err
         | InterruptFiber(cause, msg, fiberContext) ->
             InterruptFiber(cause, msg, fiberContext)
-        | InterruptEffect(cause, msg) ->
-            InterruptEffect(cause, msg)
+        | InterruptSelf(cause, msg) ->
+            InterruptSelf(cause, msg)
         | Action(func, onError) ->
             Action(upcastFunc func, onError)
         | SendChan(msg, chan) ->
             SendChan(msg :> obj, chan.Upcast())
         | ReceiveChan chan ->
             ReceiveChan(chan.Upcast())
-        | ConcurrentEffect(eff, fiber, fiberContext) ->
-            ConcurrentEffect(eff, fiber, fiberContext)
-        | ConcurrentTPLTask(taskFactory, onError, fiber, fiberContext) ->
-            ConcurrentTPLTask(taskFactory, onError, fiber, fiberContext)
-        | ConcurrentGenericTPLTask(taskFactory, onError, fiber, fiberContext) ->
-            ConcurrentGenericTPLTask(taskFactory, onError, fiber, fiberContext)
-        | AwaitFiberContext fiberContext ->
-            AwaitFiberContext fiberContext
+        | ForkEffect(eff, fiber, fiberContext) ->
+            ForkEffect(eff, fiber, fiberContext)
+        | ForkTPLTask(taskFactory, onError, fiber, fiberContext) ->
+            ForkTPLTask(taskFactory, onError, fiber, fiberContext)
+        | ForkGenericTPLTask(taskFactory, onError, fiber, fiberContext) ->
+            ForkGenericTPLTask(taskFactory, onError, fiber, fiberContext)
+        | JoinFiber fiberContext ->
+            JoinFiber fiberContext
         | AwaitTPLTask(task, onError) ->
             AwaitTPLTask(task, onError)
         | AwaitGenericTPLTask(task, onError) ->
@@ -518,22 +518,22 @@ and FIO<'R, 'E> =
             Failure(err :> obj)
         | InterruptFiber(cause, msg, fiberContext) ->
             InterruptFiber(cause, msg, fiberContext)
-        | InterruptEffect(cause, msg) ->
-            InterruptEffect(cause, msg)
+        | InterruptSelf(cause, msg) ->
+            InterruptSelf(cause, msg)
         | Action(func, onError) ->
             Action(func, upcastOnError onError)
         | SendChan(msg, chan) ->
             SendChan(msg, chan)
         | ReceiveChan chan ->
             ReceiveChan chan
-        | ConcurrentEffect(eff, fiber, fiberContext) ->
-            ConcurrentEffect(eff, fiber, fiberContext)
-        | ConcurrentTPLTask(taskFactory, onError, fiber, fiberContext) ->
-            ConcurrentTPLTask(taskFactory, upcastOnError onError, fiber, fiberContext)
-        | ConcurrentGenericTPLTask(taskFactory, onError, fiber, fiberContext) ->
-            ConcurrentGenericTPLTask(taskFactory, upcastOnError onError, fiber, fiberContext)
-        | AwaitFiberContext fiberContext ->
-            AwaitFiberContext fiberContext
+        | ForkEffect(eff, fiber, fiberContext) ->
+            ForkEffect(eff, fiber, fiberContext)
+        | ForkTPLTask(taskFactory, onError, fiber, fiberContext) ->
+            ForkTPLTask(taskFactory, upcastOnError onError, fiber, fiberContext)
+        | ForkGenericTPLTask(taskFactory, onError, fiber, fiberContext) ->
+            ForkGenericTPLTask(taskFactory, upcastOnError onError, fiber, fiberContext)
+        | JoinFiber fiberContext ->
+            JoinFiber fiberContext
         | AwaitTPLTask(task, onError) ->
             AwaitTPLTask(task, upcastOnError onError)
         | AwaitGenericTPLTask(task, onError) ->

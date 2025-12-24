@@ -48,7 +48,7 @@ type FIO<'R, 'E> with
     static member Interrupt<'R, 'E> (?cause: InterruptionCause, ?msg: string)  : FIO<'R, 'E> =
         let cause = defaultArg cause ExplicitInterrupt
         let msg = defaultArg msg "Fiber was interrupted."
-        InterruptEffect(cause, msg)
+        InterruptSelf(cause, msg)
 
     /// <summary>
     /// Converts a side-effecting function into an effect.
@@ -154,7 +154,7 @@ type FIO<'R, 'E> with
     /// <param name="onError">A function to map exceptions to the error type.</param>
     static member FromTask<'E> (taskFactory: unit -> Task, onError: exn -> 'E) : FIO<Fiber<unit, 'E>, 'E> =
         let fiber = new Fiber<unit, 'E>()
-        ConcurrentTPLTask(taskFactory, onError, fiber, fiber.Internal)
+        ForkTPLTask(taskFactory, onError, fiber, fiber.Internal)
 
     /// <summary>
     /// Forks a lazily-evaluated Task into a Fiber with exceptions as errors.
@@ -170,7 +170,7 @@ type FIO<'R, 'E> with
     /// <param name="onError">A function to map exceptions to the error type.</param>
     static member FromTask<'R, 'E> (taskFactory: unit -> Task<'R>, onError: exn -> 'E) : FIO<Fiber<'R, 'E>, 'E> =
         let fiber = new Fiber<'R, 'E>()
-        ConcurrentGenericTPLTask(taskFactory >> upcastTask, onError, fiber, fiber.Internal)
+        ForkGenericTPLTask(taskFactory >> upcastTask, onError, fiber, fiber.Internal)
 
     /// <summary>
     /// Forks a lazily-evaluated Task into a Fiber with exceptions as errors.

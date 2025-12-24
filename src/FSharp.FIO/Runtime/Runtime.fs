@@ -62,6 +62,52 @@ type internal ContStackPool private () =
             ContStackPool.pool.Push stack
 
 /// <summary>
+/// Object pool for WorkItems to reduce GC pressure.
+/// Thread-local pooling avoids synchronization overhead.
+/// </summary>
+type internal WorkItemPool private () =
+    // Configuration constants
+    static let MaxPoolSize = 200  // Maximum WorkItems per thread pool
+
+    [<ThreadStatic; DefaultValue>]
+    static val mutable private pool: Stack<WorkItem>
+
+    /// <summary>
+    /// Rents a WorkItem from the pool or creates a new one.
+    /// </summary>
+    static member inline Rent (eff: FIO<obj, obj>, fiberContext: FiberContext, stack: ContStack) : WorkItem =
+        if isNull WorkItemPool.pool then
+            WorkItemPool.pool <- Stack<WorkItem>()
+
+        if WorkItemPool.pool.Count > 0 then
+            let workItem = WorkItemPool.pool.Pop()
+            // Update fields rather than allocating new
+            { workItem with
+                Eff = eff
+                FiberContext = fiberContext
+                Stack = stack }
+        else
+            // Create new if pool empty
+            { Eff = eff; FiberContext = fiberContext; Stack = stack }
+
+    /// <summary>
+    /// Returns a WorkItem to the pool for reuse.
+    /// </summary>
+    static member inline Return (workItem: WorkItem) =
+        if isNull WorkItemPool.pool then
+            WorkItemPool.pool <- Stack<WorkItem>()
+
+        // Only pool if not at capacity
+        if WorkItemPool.pool.Count < MaxPoolSize then
+            // Clear references to help GC (allow collected objects to be freed)
+            let clearedWorkItem =
+                { workItem with
+                    Eff = Unchecked.defaultof<_>
+                    FiberContext = Unchecked.defaultof<_>
+                    Stack = Unchecked.defaultof<_> }
+            WorkItemPool.pool.Push clearedWorkItem
+
+/// <summary>
 /// Represents a functional runtime for interpreting FIO effects.
 /// </summary>
 [<AbstractClass>]

@@ -97,7 +97,7 @@ type DirectRuntime () =
                         | InterruptFiber(cause, msg, fiberContext) ->
                             fiberContext.Interrupt(cause, msg)
                             processSuccess()
-                        | InterruptEffect(cause, msg) ->
+                        | InterruptSelf(cause, msg) ->
                             currentFiberContext.Interrupt(cause, msg)
                             processSuccess()
                         | Action(func, onError) ->
@@ -112,7 +112,7 @@ type DirectRuntime () =
                         | ReceiveChan chan ->
                             let! res = chan.ReceiveAsync()
                             processSuccess res
-                        | ConcurrentEffect(eff, fiber, fiberContext) ->
+                        | ForkEffect(eff, fiber, fiberContext) ->
                             let registration =
                                 currentFiberContext.CancellationToken.Register(
                                     fun () -> fiberContext.Interrupt(ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
@@ -128,7 +128,7 @@ type DirectRuntime () =
                                         registration.Dispose()
                                 } :> Task) |> ignore
                             processSuccess fiber
-                        | ConcurrentTPLTask(taskFactory, onError, fiber, fiberContext) ->
+                        | ForkTPLTask(taskFactory, onError, fiber, fiberContext) ->
                             let registration =
                                 currentFiberContext.CancellationToken.Register(
                                     fun () -> fiberContext.Interrupt(ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
@@ -148,7 +148,7 @@ type DirectRuntime () =
                                         registration.Dispose()
                                 } :> Task) |> ignore
                             processSuccess fiber
-                        | ConcurrentGenericTPLTask(taskFactory, onError, fiber, fiberContext) ->
+                        | ForkGenericTPLTask(taskFactory, onError, fiber, fiberContext) ->
                             let registration =
                                 currentFiberContext.CancellationToken.Register(
                                     fun () -> fiberContext.Interrupt(ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
@@ -168,7 +168,7 @@ type DirectRuntime () =
                                         registration.Dispose()
                                 } :> Task) |> ignore
                             processSuccess fiber
-                        | AwaitFiberContext fiberContext ->
+                        | JoinFiber fiberContext ->
                             let! res = fiberContext.Task
                             processResult res
                         | AwaitTPLTask(task, onError) ->

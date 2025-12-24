@@ -236,7 +236,8 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                         | Error err ->
                             processInterruptError err
                     elif currentEWSteps = 0 then
-                        do! activeWorkItemChan.AddAsync { Eff = currentEff; FiberContext = currentFiberContext; Stack = currentContStack }
+                        let workItem = WorkItemPool.Rent(currentEff, currentFiberContext, currentContStack)
+                        do! activeWorkItemChan.AddAsync workItem
                         completed <- true
                     else
                         currentEWSteps <- currentEWSteps - 1
@@ -248,7 +249,7 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                         | InterruptFiber(cause, msg, fiberContext) ->
                             fiberContext.Interrupt(cause, msg)
                             processSuccess()
-                        | InterruptEffect(cause, msg) ->
+                        | InterruptSelf(cause, msg) ->
                             currentFiberContext.Interrupt(cause, msg)
                             processSuccess()
                         | Action(func, onError) ->
@@ -265,19 +266,18 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                             if chan.UnboundedChannel.TryTake(&res) then
                                 processSuccess res
                             else
+                                let workItem = WorkItemPool.Rent(ReceiveChan chan, currentFiberContext, currentContStack)
                                 do! blockingWorker.RescheduleForBlocking
-                                    <| BlockingChannel (chan, { Eff = ReceiveChan chan; FiberContext = currentFiberContext; Stack = currentContStack })
+                                    <| BlockingChannel (chan, workItem)
                                 completed <- true
-                        | ConcurrentEffect(eff, fiber, fiberContext) ->
+                        | ForkEffect(eff, fiber, fiberContext) ->
                             let registration = currentFiberContext.CancellationToken.Register(fun () ->
                                 fiberContext.Interrupt(ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
                             fiberContext.AddRegistration registration
-                            do! activeWorkItemChan.AddAsync
-                                    { Eff = eff;
-                                      FiberContext = fiberContext;
-                                      Stack = ContStackPool.Rent() }
+                            let workItem = WorkItemPool.Rent(eff, fiberContext, ContStackPool.Rent())
+                            do! activeWorkItemChan.AddAsync workItem
                             processSuccess fiber
-                        | ConcurrentTPLTask(taskFactory, onError, fiber, fiberContext) ->
+                        | ForkTPLTask(taskFactory, onError, fiber, fiberContext) ->
                             let registration = currentFiberContext.CancellationToken.Register(fun () ->
                                 fiberContext.Interrupt (ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
                             do! Task.Run(fun () ->
@@ -296,7 +296,7 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                                         registration.Dispose()
                                 } :> Task)
                             processSuccess fiber
-                        | ConcurrentGenericTPLTask(taskFactory, onError, fiber, fiberContext) ->
+                        | ForkGenericTPLTask(taskFactory, onError, fiber, fiberContext) ->
                             let registration = currentFiberContext.CancellationToken.Register(fun () ->
                                 fiberContext.Interrupt (ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
                             do! Task.Run(fun () ->
@@ -315,13 +315,14 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                                         registration.Dispose()
                                 } :> Task)
                             processSuccess fiber
-                        | AwaitFiberContext fiberContext ->
+                        | JoinFiber fiberContext ->
                             if fiberContext.Completed() then
                                 let! res = fiberContext.Task
                                 processResult res
                             else
+                                let workItem = WorkItemPool.Rent(JoinFiber fiberContext, currentFiberContext, currentContStack)
                                 do! blockingWorker.RescheduleForBlocking
-                                    <| BlockingFiber (fiberContext, { Eff = AwaitFiberContext fiberContext; FiberContext = currentFiberContext; Stack = currentContStack })
+                                    <| BlockingFiber (fiberContext, workItem)
                                 completed <- true
                         | AwaitTPLTask(task, onError) ->
                             try
@@ -345,6 +346,9 @@ and CooperativeRuntime (config: WorkerConfig) as this =
             finally
                 if not completed then
                     ContStackPool.Return currentContStack
+                // Return WorkItem to pool only if fiber completed (not rescheduled, not blocked)
+                elif currentFiberContext.Completed() then
+                    WorkItemPool.Return workItem
         }
 
     /// <summary>
@@ -357,9 +361,7 @@ and CooperativeRuntime (config: WorkerConfig) as this =
     override _.Run<'R, 'E> (eff: FIO<'R, 'E>) : Fiber<'R, 'E> =
         this.Reset()
         let fiber = new Fiber<'R, 'E>()
-        activeWorkItemChan.AddAsync
-            { Eff = eff.Upcast();
-              FiberContext = fiber.Internal;
-              Stack = ContStackPool.Rent() }
+        let workItem = WorkItemPool.Rent(eff.Upcast(), fiber.Internal, ContStackPool.Rent())
+        activeWorkItemChan.AddAsync workItem
         |> ignore
         fiber
