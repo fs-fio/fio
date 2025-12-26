@@ -1,10 +1,4 @@
-﻿(*********************************************************************************************)
-(* FIO - A Type-Safe, Purely Functional Effect System for Asynchronous and Concurrent F#     *)
-(* Copyright (c) 2022-2026 - Daniel Larsen and Technical University of Denmark (DTU)         *)
-(* All rights reserved                                                                       *)
-(*********************************************************************************************)
-
-/// <summary>
+﻿/// <summary>
 /// Provides the computation expression builder for FIO, enabling idiomatic F# computation expression syntax (fio { ... }) for composing functional effects.
 /// </summary>
 [<AutoOpen>]

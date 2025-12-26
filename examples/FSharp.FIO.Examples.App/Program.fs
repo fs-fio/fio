@@ -1,10 +1,4 @@
-﻿(*********************************************************************************************)
-(* FIO - A Type-Safe, Purely Functional Effect System for Asynchronous and Concurrent F#     *)
-(* Copyright (c) 2022-2026 - Daniel Larsen and Technical University of Denmark (DTU)         *)
-(* All rights reserved                                                                       *)
-(*********************************************************************************************)
-
-module private FSharp.FIO.Examples.App
+﻿module private FSharp.FIO.Examples.App
 
 open FSharp.FIO.DSL
 open FSharp.FIO.App

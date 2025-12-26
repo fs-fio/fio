@@ -1,10 +1,4 @@
-﻿(*********************************************************************************************)
-(* FIO - A Type-Safe, Purely Functional Effect System for Asynchronous and Concurrent F#     *)
-(* Copyright (c) 2022-2026 - Daniel Larsen and Technical University of Denmark (DTU)         *)
-(* All rights reserved                                                                       *)
-(*********************************************************************************************)
-
-module internal FSharp.FIO.Benchmarks.Suite.BenchmarkRunner
+﻿module internal FSharp.FIO.Benchmarks.Suite.BenchmarkRunner
 
 open FSharp.FIO.DSL
 open FSharp.FIO.Runtime
@@ -18,9 +12,9 @@ open System
 open System.IO
 open System.Diagnostics
 
-let private writeResultToCsv result savePath =
+let private writeResultToCsv (result, savePath) =
 
-    let rec csvContent (result: BenchmarkResult) allData acc =
+    let rec csvContent (result: BenchmarkResult, allData, acc) =
         match allData with
         | [] -> acc
         | (run, executionTime, memoryUsage) :: ts ->
@@ -32,16 +26,17 @@ let private writeResultToCsv result savePath =
             let avgMemoryUsageTimeStr = string result.AvgMemoryUsage + ","
             let stdMemoryUsageStr = string result.StdMemoryUsage
             let rowStr = $"%-28s{runStr} %-28s{executionTimeStr} %-28s{memoryUsageStr} %-28s{avgExecutionTimeStr} %-28s{stdExecutionTimeStr} %-28s{avgMemoryUsageTimeStr} %s{stdMemoryUsageStr}\n"
-            csvContent result ts (acc + rowStr)
+            csvContent(result, ts, acc + rowStr)
 
     let benchName = result.Config.ToFileString()
     let folderName = $"%s{benchName}-runs-%s{result.Runs.Length.ToString()}"
     let dirPath = savePath + folderName + @"\" + result.RuntimeFileName.ToLower()
 
-    if not <| Directory.Exists dirPath then
+    if not (Directory.Exists dirPath) then
         Directory.CreateDirectory dirPath |> ignore
 
-    let fileName = $"""{folderName}-{result.RuntimeFileName.ToLower()}-{DateTime.Now.ToString("dd_MM_yyyy-HH-mm-ss")}.csv"""
+    let fileName = $"""{folderName}-{result.RuntimeFileName.ToLower()}-{DateTime.Now.ToString 
+        "dd_MM_yyyy-HH-mm-ss"}.csv"""
     let filePath = dirPath + @"\" + fileName
 
     let runHeader = "Run,"
@@ -53,10 +48,11 @@ let private writeResultToCsv result savePath =
     let stdMemoryUsageHeader = "Std. Memory Usage (MB)"
     let csvHeader = $"%-28s{runHeader} %-28s{executionTimeHeader} %-28s{memoryUsageHeader} %-28s{avgExecutionTimeHeader} %-28s{stdExecutionTimeHeader} %-28s{avgMemoryUsageHeader} %s{stdMemoryUsageHeader}\n"
     
-    let allData = List.map3 (fun a b c -> (a, b, c))
-                    result.Runs result.ExecutionTimes result.MemoryUsages
+    let allData = 
+        List.map3 (fun a b c -> a, b, c)
+            result.Runs result.ExecutionTimes result.MemoryUsages
     
-    File.WriteAllText(filePath, csvHeader + csvContent result allData "")
+    File.WriteAllText(filePath, csvHeader + csvContent(result, allData, ""))
     printfn $"\nSaved benchmark result to file: '%s{filePath}'"
 
 let private printResult result =
@@ -70,8 +66,9 @@ let private printResult result =
 │  Run                           Execution Time (ms)           Memory Usage (MB)             │
 │  ────────────────────────────  ────────────────────────────  ────────────────────────────  │\n"
         
-    let allData = List.map3 (fun a b c -> (a, b, c))
-                    result.Runs result.ExecutionTimes result.MemoryUsages
+    let allData = 
+        List.map3 (fun a b c -> a, b, c)
+            result.Runs result.ExecutionTimes result.MemoryUsages
     
     let dataRows =
         let rec dataRows curDataRows acc =
@@ -94,7 +91,7 @@ let private printResult result =
 
     printfn $"%s{header + dataRows}"
 
-let private runBenchmark (runtime: FRuntime) totalRuns (config: BenchmarkConfig) =
+let private runBenchmark (runtime: FRuntime, totalRuns, config: BenchmarkConfig) =
     
     let average onlyTimes =
         onlyTimes |> List.averageBy float
@@ -139,16 +136,16 @@ let private runBenchmark (runtime: FRuntime) totalRuns (config: BenchmarkConfig)
         
         let eff =
             match config with
-            | PingpongConfig roundCount ->
-                createPingpongBenchmark <| PingpongConfig roundCount
-            | ThreadringConfig (actorCount, roundCount) ->
-                createThreadringBenchmark <| ThreadringConfig (actorCount, roundCount)
-            | BigConfig (actorCount, roundCount) ->
-                createBigBenchmark <| BigConfig (actorCount, roundCount)
-            | BangConfig (actorCount, roundCount) ->
-                createBangBenchmark <| BangConfig (actorCount, roundCount)
-            | ForkConfig actorCount ->
-                createForkBenchmark <| ForkConfig actorCount
+            | PingpongConfig rc ->
+                pingpongBenchmark(PingpongConfig rc)
+            | ThreadringConfig(ac, rc) ->
+                threadringBenchmark(ThreadringConfig (ac, rc))
+            | BigConfig(ac, rc) ->
+                bigBenchmark(BigConfig (ac, rc))
+            | BangConfig(ac, rc) ->
+                bangBenchmark(BangConfig (ac, rc))
+            | ForkConfig ac ->
+                forkBenchmark(ForkConfig ac)
             
         let! runs, executionTimes, memoryUsages = executeBenchmark eff
         
@@ -173,7 +170,7 @@ let internal runBenchmarks args =
         let roundInc, roundIncTimes = args.RoundIncrement
         
         if args.Runs < 1 then
-            invalidArg (nameof(args.Runs)) $"BenchmarkRunner: Runs argument must at least be 1. Runs = %i{args.Runs}"
+            invalidArg (nameof args.Runs) $"BenchmarkRunner: Runs argument must at least be 1. Runs = %i{args.Runs}"
         
         let configs =
             args.BenchmarkConfigs
@@ -181,20 +178,20 @@ let internal runBenchmarks args =
                 [ for actorIncTime in 0..actorIncTimes do
                     for roundIncTime in 0..roundIncTimes do
                         match config with
-                        | PingpongConfig rounds -> 
-                            yield PingpongConfig (rounds + (roundInc * roundIncTime))
-                        | ThreadringConfig (actors, rounds) -> 
-                            yield ThreadringConfig (actors + (actorInc * actorIncTime), rounds + (roundInc * roundIncTime))
-                        | BigConfig (actors, rounds) -> 
-                            yield BigConfig (actors + (actorInc * actorIncTime), rounds + (roundInc * roundIncTime))
-                        | BangConfig (actors, rounds) -> 
-                            yield BangConfig (actors + (actorInc * actorIncTime), rounds + (roundInc * roundIncTime))
-                        | ForkConfig actors -> 
-                            yield ForkConfig (actors + (actorInc * actorIncTime)) ])
+                        | PingpongConfig rc -> 
+                            yield PingpongConfig (rc + roundInc * roundIncTime)
+                        | ThreadringConfig(ac, rc) -> 
+                            yield ThreadringConfig (ac + actorInc * actorIncTime, rc + roundInc * roundIncTime)
+                        | BigConfig(ac, rc) -> 
+                            yield BigConfig (ac + actorInc * actorIncTime, rc + roundInc * roundIncTime)
+                        | BangConfig(ac, rc) -> 
+                            yield BangConfig (ac + actorInc * actorIncTime, rc + roundInc * roundIncTime)
+                        | ForkConfig ac -> 
+                            yield ForkConfig (ac + actorInc * actorIncTime) ])
         
         for config in configs do
-            let! result = runBenchmark args.Runtime args.Runs config
+            let! result = runBenchmark(args.Runtime, args.Runs, config)
             printResult result
             if args.SaveToCsv then
-                writeResultToCsv result args.SavePath
+                writeResultToCsv(result, args.SavePath)
     }

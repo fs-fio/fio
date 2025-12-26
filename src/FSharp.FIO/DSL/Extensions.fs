@@ -1,10 +1,4 @@
-﻿(*********************************************************************************************)
-(* FIO - A Type-Safe, Purely Functional Effect System for Asynchronous and Concurrent F#     *)
-(* Copyright (c) 2022-2026 - Daniel Larsen and Technical University of Denmark (DTU)         *)
-(* All rights reserved                                                                       *)
-(*********************************************************************************************)
-
-/// <summary>
+﻿/// <summary>
 /// Provides instance combinator methods for the FIO effect type.
 /// </summary>
 [<AutoOpen>]
@@ -341,10 +335,10 @@ type FIO<'R, 'E> with
             | Some recovery -> recovery
             | None -> FIO.Fail err)
 
-    /// <summary>
-    /// Converts all errors to defects (interruptions), making the effect infallible.
-    /// </summary>
-    /// <param name="toMessage">A function to convert the error to an interruption message.</param>
-    // member inline this.OrInterrupt<'R, 'E, 'E1> (toMessage: 'E -> string) : FIO<'R, 'E1> =
-    //     this.CatchAll(fun err ->
-    //         FIO.Interrupt(ResourceExhaustion (toMessage err), "Fiber interrupted due to unrecoverable error"))
+    // <summary>
+    // Converts all errors to defects (interruptions), making the effect infallible.
+    // </summary>
+    // <param name="toMessage">A function to convert the error to an interruption message.</param>
+    member inline this.OrInterrupt<'R, 'E, 'E1> (toMessage: 'E -> string) : FIO<'R, 'E1> =
+        this.CatchAll(fun err ->
+            FIO.Interrupt(ResourceExhaustion (toMessage err), "Fiber interrupted due to unrecoverable error"))

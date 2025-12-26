@@ -1,15 +1,11 @@
-﻿(*********************************************************************************************)
-(* FIO - A Type-Safe, Purely Functional Effect System for Asynchronous and Concurrent F#     *)
-(* Copyright (c) 2022-2026 - Daniel Larsen and Technical University of Denmark (DTU)         *)
-(* All rights reserved                                                                       *)
-(* ----------------------------------------------------------------------------------------- *)
-(* Threadring benchmark                                                                      *)
-(* Measures: Message sending; Context switching between actors                               *)
-(* Savina benchmark #5                                                                       *)
-(* (http://soft.vub.ac.be/AGERE14/papers/ageresplash2014_submission_19.pdf)                  *)
-(*********************************************************************************************)
+﻿(****************************************************************************)
+(* Threadring benchmark                                                     *)
+(* Measures: Message sending; Context switching between actors              *)
+(* Savina benchmark #5                                                      *)
+(* (http://soft.vub.ac.be/AGERE14/papers/ageresplash2014_submission_19.pdf) *)
+(****************************************************************************)
 
-module internal FSharp.FIO.Benchmarks.Suite.Threadring
+module private FSharp.FIO.Benchmarks.Suite.Threadring
 
 open FSharp.FIO.DSL
 #if DEBUG
@@ -24,7 +20,7 @@ type private Actor =
       SendChan: int channel
       ReceiveChan: int channel }
 
-let private createActor (actor, isLastActor, roundCount, timerChan: TimerMessage<int> channel) =
+let private actorEff (actor, isLastActor, roundCount, timerChan: TimerMessage<int> channel) =
     fio {
         do! timerChan.Send(Start).Unit()
         
@@ -46,15 +42,15 @@ let private createActor (actor, isLastActor, roundCount, timerChan: TimerMessage
         do! timerChan.Send(Stop).Unit()
     }
 
-let private createThreadring (actors: Actor list, roundCount: int, timerChan: TimerMessage<int> channel) =
+let private threadringEff (actors: Actor list, roundCount: int, timerChan: TimerMessage<int> channel) =
     fio {
-        let mutable currentEff = createActor(actors.Head, false, roundCount, timerChan)
+        let mutable currentEff = actorEff(actors.Head, false, roundCount, timerChan)
         do! timerChan.Send(MsgChannel actors.Head.ReceiveChan).Unit()
         
         for index, actor in List.indexed actors.Tail do
             // +2 to compensate for the first actor and 0-indexed for loop
             let isLastActor = index + 2 = actors.Length
-            currentEff <- createActor(actor, isLastActor, roundCount, timerChan)
+            currentEff <- actorEff(actor, isLastActor, roundCount, timerChan)
                           <&&> currentEff
             
         return! currentEff
@@ -74,24 +70,23 @@ let rec private createActors (chans, allChans: Channel<int> list, index, acc) =
                 | index -> allChans.Item(index - 1) }
         createActors (chans', allChans, index + 1, acc @ [actor])
 
-let createThreadringBenchmark config : FIO<int64, exn> =
+let threadringBenchmark config : FIO<int64, exn> =
     fio {
         let! actorCount, roundCount =
             match config with
-            | ThreadringConfig (actorCount, roundCount) -> FIO.Succeed(actorCount, roundCount)
-            | _ -> FIO.Fail(ArgumentException ("Threadring benchmark requires a ThreadringConfig!", nameof config))
+            | ThreadringConfig (ac, rc) -> FIO.Succeed(ac, rc)
+            | _ -> FIO.Fail(ArgumentException("Threadring benchmark failed: Requires a ThreadringConfig", nameof config))
         
         if actorCount < 2 then
-            return! FIO.Fail(ArgumentException ($"Threadring failed: At least 2 actors should be specified. actorCount = %i{actorCount}", nameof actorCount))
+            return! FIO.Fail(ArgumentException($"Threadring benchmark failed: At least 2 actors should be specified. actorCount = %i{actorCount}", nameof actorCount))
         
         if roundCount < 1 then
-            return! FIO.Fail(ArgumentException ($"Threadring failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount))
+            return! FIO.Fail(ArgumentException($"Threadring benchmark failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount))
         
         let chans = [for _ in 1..actorCount -> Channel<int>()]
         let timerChan = Channel<TimerMessage<int>>()
         let actors = createActors(chans, chans, 0, [])
         let! fiber = TimerEff(actorCount, 1, actorCount, timerChan).Fork()
-        do! createThreadring(actors, roundCount, timerChan)
-        let! res = fiber.Join()
-        return res
+        do! threadringEff(actors, roundCount, timerChan)
+        return! fiber.Join()
     }

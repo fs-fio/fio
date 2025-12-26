@@ -1,15 +1,11 @@
-﻿(*********************************************************************************************)
-(* FIO - A Type-Safe, Purely Functional Effect System for Asynchronous and Concurrent F#     *)
-(* Copyright (c) 2022-2026 - Daniel Larsen and Technical University of Denmark (DTU)         *)
-(* All rights reserved                                                                       *)
-(* ----------------------------------------------------------------------------------------- *)
-(* Pingpong benchmark                                                                        *)
-(* Measures: Message delivery overhead                                                       *)
-(* Savina benchmark #1                                                                       *)
-(* (http://soft.vub.ac.be/AGERE14/papers/ageresplash2014_submission_19.pdf)                  *)
-(*********************************************************************************************)
+﻿(****************************************************************************)
+(* Pingpong benchmark                                                       *)
+(* Measures: Message delivery overhead                                      *)
+(* Savina benchmark #1                                                      *)
+(* (http://soft.vub.ac.be/AGERE14/papers/ageresplash2014_submission_19.pdf) *)
+(****************************************************************************)
 
-module internal FSharp.FIO.Benchmarks.Suite.Pingpong
+module private FSharp.FIO.Benchmarks.Suite.Pingpong
 
 open FSharp.FIO.DSL
 #if DEBUG
@@ -24,7 +20,7 @@ type private Actor =
       SendChan: int channel
       ReceiveChan: int channel }
 
-let private createPinger (pinger, ping, roundCount, startChan: int channel, timerChan: TimerMessage<int> channel) =
+let private pingerEff (pinger, ping, roundCount, startChan: int channel, timerChan: TimerMessage<int> channel) =
     fio {
         let mutable currentPing = ping
         do! startChan.Receive().Unit()
@@ -44,7 +40,7 @@ let private createPinger (pinger, ping, roundCount, startChan: int channel, time
         do! timerChan.Send(Stop).Unit()
     }
 
-let private createPonger (ponger, roundCount, startChan: int channel) =
+let private pongerEff (ponger, roundCount, startChan: int channel) =
     fio {
         do! startChan.Send(0).Unit()
         
@@ -60,15 +56,15 @@ let private createPonger (ponger, roundCount, startChan: int channel) =
             return ()
     }
 
-let createPingpongBenchmark config : FIO<int64, exn> =
+let pingpongBenchmark config : FIO<int64, exn> =
     fio {
         let! roundCount =
             match config with
-            | PingpongConfig roundCount -> FIO.Succeed roundCount
-            | _ -> FIO.Fail(ArgumentException ("Pingpong benchmark requires a PingpongConfig!", nameof config))
+            | PingpongConfig rc -> FIO.Succeed rc
+            | _ -> FIO.Fail(ArgumentException("Pingpong benchmark failed: Requires a PingpongConfig", nameof config))
         
         if roundCount < 1 then
-            return! FIO.Fail(ArgumentException ($"Pingpong failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount))
+            return! FIO.Fail(ArgumentException($"Pingpong benchmark failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount))
         
         let startChan = Channel<int>()
         let timerChan = Channel<TimerMessage<int>>()
@@ -86,8 +82,7 @@ let createPingpongBenchmark config : FIO<int64, exn> =
               ReceiveChan = pingSendChan }
 
         let! timerFiber = TimerEff(1, 0, 1, timerChan).Fork()
-        do! createPinger(pinger, 1, roundCount, startChan, timerChan)
-            <&&> createPonger(ponger, roundCount, startChan)
-        let! res = timerFiber.Join()
-        return res
+        do! pingerEff(pinger, 1, roundCount, startChan, timerChan)
+            <&&> pongerEff(ponger, roundCount, startChan)
+        return! timerFiber.Join()
     }

@@ -1,10 +1,4 @@
-﻿(*********************************************************************************************)
-(* FIO - A Type-Safe, Purely Functional Effect System for Asynchronous and Concurrent F#     *)
-(* Copyright (c) 2022-2026 - Daniel Larsen and Technical University of Denmark (DTU)         *)
-(* All rights reserved                                                                       *)
-(*********************************************************************************************)
-
-/// <summary>
+﻿/// <summary>
 /// Core types and primitives for the FIO effect system.
 /// </summary>
 [<AutoOpen>]
@@ -299,6 +293,36 @@ and Fiber<'R, 'E> internal () =
         }
 
     /// <summary>
+    /// Blocks and returns the fiber's result. Unsafe: blocks the calling thread.
+    /// </summary>
+    member _.UnsafeResult<'R, 'E> () =
+        match fiberContext.Task.Result with
+        | Ok res -> Ok(res :?> 'R)
+        | Error err -> Error(err :?> 'E)
+
+    /// <summary>
+    /// Blocks and returns the fiber's success value. Unsafe: blocks and throws on failure.
+    /// </summary>
+    member _.UnsafeSuccess<'R, 'E> () =
+        match fiberContext.Task.Result with
+        | Ok res -> res :?> 'R
+        | Error err -> raise (InvalidOperationException(sprintf "Fiber failed with error: %A" (err :?> 'E)))
+
+    /// <summary>
+    /// Blocks and returns the fiber's error value. Unsafe: blocks and throws on success.
+    /// </summary>
+    member _.UnsafeError<'R, 'E> () =
+        match fiberContext.Task.Result with
+        | Ok res -> raise (InvalidOperationException(sprintf "Fiber succeeded with result: %A" (res :?> 'R)))
+        | Error err -> err :?> 'E
+
+    /// <summary>
+    /// Blocks and prints the fiber's result. Unsafe: blocks the calling thread.
+    /// </summary>
+    member this.UnsafePrintResult<'R, 'E> () =
+        printfn "%A" (this.UnsafeResult<'R, 'E>())
+
+    /// <summary>
     /// Interrupts the fiber with the specified cause and message.
     /// </summary>
     /// <param name="cause">The interruption cause.</param>
@@ -437,9 +461,6 @@ and FIO<'R, 'E> =
     | AwaitGenericTPLTask of task: Task<obj> * onError: (exn -> 'E)
     | ChainSuccess of eff: FIO<obj, 'E> * cont: (obj -> FIO<'R, 'E>)
     | ChainError of eff: FIO<'R, obj> * cont: (obj -> FIO<'R, 'E>)
-
-    static member UnsafePrintFiberResult<'R, 'E> (fiber: Fiber<'R, 'E>) : unit =
-        printfn "%A" (fiber.Task().Result)
 
     /// <summary>
     /// Executes this effect concurrently in a new Fiber.

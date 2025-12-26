@@ -1,10 +1,4 @@
-﻿(*********************************************************************************************)
-(* FIO - A Type-Safe, Purely Functional Effect System for Asynchronous and Concurrent F#     *)
-(* Copyright (c) 2022-2026 - Daniel Larsen and Technical University of Denmark (DTU)         *)
-(* All rights reserved                                                                       *)
-(*********************************************************************************************)
-
-module private FSharp.FIO.Examples
+﻿module private FSharp.FIO.Examples
 
 open FSharp.FIO.DSL
 open FSharp.FIO.Lib.IO
@@ -48,24 +42,24 @@ let helloWorld3 () =
 let helloWorld4 () =
     let hello = FIO.Succeed "Hello world! 🪻"
     let fiber = (new DefaultRuntime()).Run hello
-    FIO.UnsafePrintFiberResult fiber
+    fiber.UnsafePrintResult()
 
 let concurrency1 () =
     let concurrent = FIO.Succeed("Hello, concurrency! 🚀").Fork().FlatMap _.Join()
     let fiber = (new DefaultRuntime()).Run concurrent
-    FIO.UnsafePrintFiberResult fiber
+    fiber.UnsafePrintResult()
 
 let concurrency2 () =
     let concurrent = FIO.Succeed("Hello, concurrency! 🚀").Fork() >>= _.Join()
     let fiber = (new DefaultRuntime()).Run concurrent
-    FIO.UnsafePrintFiberResult fiber
+    fiber.UnsafePrintResult()
 
 let concurrency3 () =
     let taskA = FIO.Succeed "Task A completed! ✅"
     let taskB = FIO.Succeed(200, "Task B OK ✅")
     let concurrent = taskA <&> taskB
     let fiber = (new DefaultRuntime()).Run concurrent
-    FIO.UnsafePrintFiberResult fiber
+    fiber.UnsafePrintResult()
 
 let computationExpression1 () =
     let hello : FIO<string, obj> =
@@ -74,7 +68,7 @@ let computationExpression1 () =
         }
 
     let fiber = (new DefaultRuntime()).Run hello
-    FIO.UnsafePrintFiberResult fiber
+    fiber.UnsafePrintResult()
 
 let computationExpression2 () =
     let hello : FIO<obj, string> =
@@ -83,7 +77,7 @@ let computationExpression2 () =
         }
 
     let fiber = (new DefaultRuntime()).Run hello
-    FIO.UnsafePrintFiberResult fiber
+    fiber.UnsafePrintResult()
 
 let computationExpression3 () =
     let welcome =
@@ -94,12 +88,12 @@ let computationExpression3 () =
         }
 
     let fiber = (new DefaultRuntime()).Run welcome
-    FIO.UnsafePrintFiberResult fiber
+    fiber.UnsafePrintResult()
 
 let unitSuccess () =
     let unit = FIO.Unit()
     let fiber = (new DefaultRuntime()).Run unit
-    FIO.UnsafePrintFiberResult fiber
+    fiber.UnsafePrintResult()
 
 let interruptFiber () = 
     let longRunning =
@@ -119,20 +113,20 @@ let interruptFiber () =
         }
 
     let fiber = (new DefaultRuntime()).Run interrupter
-    FIO.UnsafePrintFiberResult fiber
+    fiber.UnsafePrintResult()
 
 let examples = [
-    // nameof helloWorld1, helloWorld1
-    // nameof helloWorld2, helloWorld2
-    // nameof helloWorld3, helloWorld3
-    // nameof helloWorld4, helloWorld4
-    // nameof concurrency1, concurrency1
-    // nameof concurrency2, concurrency2
-    // nameof concurrency3, concurrency3
-    // nameof computationExpression1, computationExpression1
-    // nameof computationExpression2, computationExpression2
-    // nameof computationExpression3, computationExpression3
-    // nameof unitSuccess, unitSuccess
+    nameof helloWorld1, helloWorld1
+    nameof helloWorld2, helloWorld2
+    nameof helloWorld3, helloWorld3
+    nameof helloWorld4, helloWorld4
+    nameof concurrency1, concurrency1
+    nameof concurrency2, concurrency2
+    nameof concurrency3, concurrency3
+    nameof computationExpression1, computationExpression1
+    nameof computationExpression2, computationExpression2
+    nameof computationExpression3, computationExpression3
+    nameof unitSuccess, unitSuccess
     nameof interruptFiber, interruptFiber
 ]
 

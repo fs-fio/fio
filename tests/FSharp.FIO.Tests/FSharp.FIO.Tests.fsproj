@@ -5,6 +5,7 @@
         <IsPackable>false</IsPackable>
         <IsTestProject>true</IsTestProject>
         <WarningsAsErrors>true</WarningsAsErrors>
+        <GenerateProgramFile>false</GenerateProgramFile>
     </PropertyGroup>
 
 	<PropertyGroup>
@@ -14,8 +15,9 @@
 	</PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="Utilities.fs" />
         <Compile Include="PropertyTests.fs" />
-        <Compile Include="RuntimeTests.fs" />
+        <Compile Include="Program.fs" />
     </ItemGroup>
 
     <ItemGroup>
@@ -28,13 +30,10 @@
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
         <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
-        <PackageReference Include="FsCheck" Version="3.3.2" />
-        <PackageReference Include="FsCheck.Xunit" Version="3.3.2" />
-        <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
-          <PrivateAssets>all</PrivateAssets>
-          <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
-        </PackageReference>
-        <PackageReference Include="xunit" Version="2.9.3" />
+        <PackageReference Include="Expecto" Version="10.2.3" />
+        <PackageReference Include="Expecto.FsCheck" Version="10.2.3" />
+        <PackageReference Include="FsCheck" Version="2.16.6" />
+        <PackageReference Include="YoloDev.Expecto.TestSdk" Version="0.15.5" />
     </ItemGroup>
 
 	<ItemGroup>

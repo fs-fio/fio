@@ -1,10 +1,4 @@
-﻿(*********************************************************************************************)
-(* FIO - A Type-Safe, Purely Functional Effect System for Asynchronous and Concurrent F#     *)
-(* Copyright (c) 2022-2026 - Daniel Larsen and Technical University of Denmark (DTU)         *)
-(* All rights reserved                                                                       *)
-(*********************************************************************************************)
-
-/// <summary>
+﻿/// <summary>
 /// Runtime monitoring tool for observing channel state.
 /// Note: This provides non-destructive monitoring by only reading channel counts
 /// and metadata, without removing items from channels.

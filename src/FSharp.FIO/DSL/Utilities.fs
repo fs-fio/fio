@@ -1,14 +1,8 @@
-﻿(*********************************************************************************************)
-(* FIO - A Type-Safe, Purely Functional Effect System for Asynchronous and Concurrent F#     *)
-(* Copyright (c) 2022-2026 - Daniel Larsen and Technical University of Denmark (DTU)         *)
-(* All rights reserved                                                                       *)
-(*********************************************************************************************)
-
-/// <summary>
+﻿/// <summary>
 /// Internal utilities for type casting and conversion used across the FIO DSL.
 /// </summary>
 [<AutoOpen>]
-module internal FSharp.FIO.DSL.Utilities
+module private FSharp.FIO.DSL.Utilities
 
 [<AutoOpen>]
 module internal Casting =
