@@ -3,7 +3,9 @@
 open FSharp.FIO.DSL
 open FSharp.FIO.App
 open FSharp.FIO.Lib.IO
+open FSharp.FIO.Runtime
 open FSharp.FIO.Lib.Net.FSockets
+open FSharp.FIO.Runtime.Concurrent
 open FSharp.FIO.Lib.Net.FWebSockets
 
 open System
@@ -599,6 +601,95 @@ type WebSocketApp(serverUrl, clientUrl) =
         fio {
             do! client clientUrl <&&> server serverUrl
         }
+type CommandLineArgsApp() =
+    inherit SimpleFIOApp()
+
+    override this.effect =
+        fio {
+            if this.Args.Length = 0 then
+                do! FConsole.PrintLine "No command-line arguments provided"
+                do! FConsole.PrintLine "Try running with: dotnet run -- arg1 arg2 arg3"
+            else
+                do! FConsole.PrintLine $"Received %d{this.Args.Length} argument(s):"
+                for i = 0 to this.Args.Length - 1 do
+                    do! FConsole.PrintLine $"  Arg[%d{i}]: %s{this.Args[i]}"
+        }
+
+type CustomRuntimeApp() =
+    inherit SimpleFIOApp()
+
+    override _.runtime =
+        new ConcurrentRuntime {
+            EWC = Environment.ProcessorCount * 2
+            EWS = 500
+            BWC = 2
+        }
+
+    override _.effect =
+        fio {
+            do! FConsole.PrintLine "Running with custom ConcurrentRuntime configuration:"
+            do! FConsole.PrintLine $"- Evaluation Workers: %d{Environment.ProcessorCount * 2}"
+            do! FConsole.PrintLine "- Evaluation Steps: 500"
+            do! FConsole.PrintLine "- Blocking Workers: 2"
+        }
+
+type ShutdownHookApp() =
+    inherit SimpleFIOApp()
+
+    let mutable resourceAcquired = false
+
+    override _.effect =
+        fio {
+            do! FConsole.PrintLine "Acquiring resource..."
+            resourceAcquired <- true
+            do! FConsole.PrintLine "Resource acquired! Press Ctrl+C to test shutdown hook."
+            do! FIO.Sleep(TimeSpan.FromSeconds 30.0)
+            do! FConsole.PrintLine "Completed normally (no Ctrl+C)"
+        }
+
+    override _.beforeShutdown() =
+        fio {
+            if resourceAcquired then
+                do! FConsole.PrintLine "Shutdown hook: Releasing resource..."
+                do! FIO.Sleep(TimeSpan.FromSeconds 1.0)
+                do! FConsole.PrintLine "Shutdown hook: Resource released!"
+        }
+
+    override _.shutdownTimeout =
+        TimeSpan.FromSeconds 5.0
+
+type CustomExitCodeApp() =
+    inherit FIOApp<int, int>()
+
+    override _.effect =
+        fio {
+            do! FConsole.PrintLineMapError("Enter a number (1-5 for custom exit codes, 0 for success): ", fun _ -> 99)
+            let! input = FConsole.ReadLineMapError(fun _ -> 99)
+            match Int32.TryParse input with
+            | true, 0 -> return 0
+            | true, n when n > 0 && n <= 5 -> return! FIO.Fail n
+            | _ -> return! FIO.Fail 99
+        }
+
+    override _.exitCodeSuccess res =
+        printfn $"Success with value: {res}"
+        0
+
+    override _.exitCodeError err =
+        printfn $"Failed with error code: {err}"
+        err
+
+type DisableThreadPoolConfigApp() =
+    inherit SimpleFIOApp()
+
+    override _.configureThreadPool() =
+        printfn "ThreadPool configuration disabled for this app"
+        ()  // No-op
+
+    override _.effect =
+        fio {
+            do! FConsole.PrintLine "Running without automatic ThreadPool configuration"
+        }
 
 let examples = [
     nameof WelcomeApp, fun () -> WelcomeApp().Run()
@@ -619,11 +710,17 @@ let examples = [
     nameof FiberFromGenericTaskApp, fun () -> FiberFromGenericTaskApp().Run()
     nameof SocketApp, fun () -> SocketApp("127.0.0.1", 5000).Run()
     nameof WebSocketApp, fun () -> WebSocketApp("http://localhost:8080/", "ws://localhost:8080/").Run()
+    nameof CommandLineArgsApp, fun () -> CommandLineArgsApp().Run [| "arg1"; "arg2"; "test" |]
+    nameof CustomRuntimeApp, fun () -> CustomRuntimeApp().Run()
+    nameof ShutdownHookApp, fun () -> ShutdownHookApp().Run()
+    nameof CustomExitCodeApp, fun () -> CustomExitCodeApp().Run()
+    nameof DisableThreadPoolConfigApp, fun () -> DisableThreadPoolConfigApp().Run()
 ]
 
 examples |> List.iteri (fun i (name, example) ->
     printfn $"🔥 Running example: {name}\n"
-    example()
+    let exitCode = example()
+    printfn $"\n🏁 Example '{name}' completed with exit code: %d{exitCode}"
     if i < examples.Length - 1 then
         Console.WriteLine "\n⏩ Press Enter to run next example..."
         Console.ReadLine() |> ignore)

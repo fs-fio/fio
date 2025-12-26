@@ -14,7 +14,7 @@
 		<PackageIcon>fio_logo_wide.png</PackageIcon>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<PackageProjectUrl>https://github.com/fs-fio/FIO</PackageProjectUrl>
-		<Version>0.0.32-alpha</Version>
+		<Version>0.0.33-alpha</Version>
 	</PropertyGroup>
 
 	<PropertyGroup>

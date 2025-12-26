@@ -1,5 +1,5 @@
-﻿/// <summary>
-/// Application-level helpers and the FIOApp base class for running FIO effects.
+/// <summary>
+/// FIOApp base class for running FIO effects.
 /// </summary>
 module FSharp.FIO.App
 
@@ -11,124 +11,212 @@ open System
 open System.Threading
 open System.Threading.Tasks
 
-module private ThreadPoolConfig =
+/// <summary>
+/// Thread pool configuration utilities.
+/// </summary>
+module internal ThreadPoolConfig =
+
+    /// <summary>
+    /// Configures the .NET ThreadPool for FIO workloads.
+    /// </summary>
     let configure () =
         let cores = Environment.ProcessorCount
         let minWorkerThreads = cores * 2
         let maxWorkerThreads = cores * 50
         let minIOThreads = cores
         let maxIOThreads = cores * 10
-        
+
         ThreadPool.SetMinThreads(minWorkerThreads, minIOThreads) |> ignore
         ThreadPool.SetMaxThreads(maxWorkerThreads, maxIOThreads) |> ignore
 
-do ThreadPoolConfig.configure ()
-
-let private defaultRuntime = new DefaultRuntime()
-
 /// <summary>
-/// Applies the appropriate handler based on success or error.
+/// Base class for FIO applications with lifecycle management and shutdown hooks.
 /// </summary>
-/// <param name="onSuccess">Handler to invoke on success.</param>
-/// <param name="onError">Handler to invoke on error.</param>
-let private mergeResult onSuccess onError = function
-    | Ok res -> onSuccess res
-    | Error err -> onError err
-
-/// <summary>
-/// Awaits a fiber and applies the appropriate handler.
-/// </summary>
-/// <param name="onSuccess">Handler to invoke on success.</param>
-/// <param name="onError">Handler to invoke on error.</param>
-/// <param name="fiber">The fiber to await.</param>
-let private mergeFiber onSuccess onError (fiber: Fiber<'R, 'E>) = task {
-    let! res = fiber.Task()
-    return! mergeResult onSuccess onError res
-}
-
-/// <summary>
-/// Default success handler that prints the result in green.
-/// </summary>
-/// <param name="res">The result to print.</param>
-let private defaultOnSuccess res = task {
-    Console.ForegroundColor <- ConsoleColor.DarkGreen
-    Console.WriteLine $"%A{Ok res}"
-    Console.ResetColor()
-}
-
-/// <summary>
-/// Default error handler that prints the error in red.
-/// </summary>
-/// <param name="err">The error to print.</param>
-let private defaultOnError err = task {
-    Console.ForegroundColor <- ConsoleColor.DarkRed
-    Console.WriteLine $"%A{Error err}"
-    Console.ResetColor()
-}
-
-/// <summary>
-/// Default fiber handler using default success and error handlers.
-/// </summary>
-/// <param name="fiber">The fiber to handle.</param>
-let private defaultFiberHandler fiber = mergeFiber defaultOnSuccess defaultOnError fiber
-
-/// <summary>
-/// Abstract base class for FIO applications.
-/// </summary>
-/// <param name="onSuccess">Handler to invoke on success.</param>
-/// <param name="onError">Handler to invoke on error.</param>
-/// <param name="runtime">The runtime to use for interpretation.</param>
+/// <typeparam name="'R">The success result type.</typeparam>
+/// <typeparam name="'E">The error type.</typeparam>
 [<AbstractClass>]
-type FIOApp<'R, 'E> (onSuccess: 'R -> Task<unit>, onError: 'E -> Task<unit>, runtime: FRuntime) =
-    let fiberHandler = mergeFiber onSuccess onError
+type FIOApp<'R, 'E> () =
+
+    let mutable _runtime: FRuntime option = None
+    let mutable _cts: CancellationTokenSource option = None
 
     /// <summary>
-    /// Initializes a new FIOApp with default handlers and runtime.
-    /// </summary>
-    new() = FIOApp(defaultOnSuccess, defaultOnError, defaultRuntime)
-
-    /// <summary>
-    /// The main effect to interpret.
+    /// The main effect to execute. Must be overridden.
     /// </summary>
     abstract member effect: FIO<'R, 'E>
 
     /// <summary>
-    /// Runs the given FIOApp instance.
+    /// Creates the runtime for executing effects. Default: DefaultRuntime.
     /// </summary>
-    /// <param name="app">The FIOApp instance to run.</param>
-    static member Run<'R, 'E> (app: FIOApp<'R, 'E>) =
-        app.Run()
+    /// <returns>The runtime instance.</returns>
+    abstract member runtime: FRuntime
+    default _.runtime =
+        new DefaultRuntime()
 
     /// <summary>
-    /// Runs the given FIO effect using default runtime and handlers.
+    /// Configures the .NET ThreadPool before runtime creation.
     /// </summary>
-    /// <param name="eff">The FIO effect to run.</param>
-    static member Run<'R, 'E> (eff: FIO<'R, 'E>) =
-        let fiber = defaultRuntime.Run eff
-        let task = defaultFiberHandler fiber
-        task.Wait()
+    abstract member configureThreadPool: unit -> unit
+    default _.configureThreadPool() =
+        ThreadPoolConfig.configure()
 
     /// <summary>
-    /// Runs the application effect.
+    /// Maps a successful result to an exit code. Default: 0.
     /// </summary>
-    member this.Run<'R, 'E> () =
-        this.Run runtime
+    abstract member exitCodeSuccess: 'R -> int
+    default _.exitCodeSuccess _ = 0
 
     /// <summary>
-    /// Runs the application effect with the specified runtime.
+    /// Maps an error to an exit code. Default: 1.
     /// </summary>
-    /// <param name="runtime">The runtime to use.</param>
-    member this.Run<'R, 'E> runtime =
-        let fiber = runtime.Run this.effect
-        let task = fiberHandler fiber
-        task.Wait()
+    abstract member exitCodeError: 'E -> int
+    default _.exitCodeError _ = 1
 
     /// <summary>
-    /// Runs the application effect with the specified handlers.
+    /// Handler invoked on successful completion. Default: prints result in green.
     /// </summary>
-    /// <param name="onSuccess">Handler to invoke on success.</param>
-    /// <param name="onError">Handler to invoke on error.</param>
-    member this.Run<'R, 'E, 'F> (onSuccess: 'R -> Task<'F>, onError: 'E -> Task<'F>) =
-        let fiber = runtime.Run this.effect
-        let task = mergeFiber onSuccess onError fiber
-        task.Wait()
+    abstract member onSuccess: 'R -> Task<unit>
+    default _.onSuccess res =
+        task {
+            Console.ForegroundColor <- ConsoleColor.DarkGreen
+            Console.WriteLine $"%A{Ok res}"
+            Console.ResetColor()
+        }
+
+    /// <summary>
+    /// Handler invoked on failure. Default: prints error in red.
+    /// </summary>
+    abstract member onError: 'E -> Task<unit>
+    default _.onError err =
+        task {
+            Console.ForegroundColor <- ConsoleColor.DarkRed
+            Console.WriteLine $"%A{Error err}"
+            Console.ResetColor()
+        }
+
+    /// <summary>
+    /// Cleanup effect run on interruption (Ctrl+C). Default: no-op.
+    /// </summary>
+    abstract member beforeShutdown: unit -> FIO<unit, 'E>
+    default _.beforeShutdown() =
+        FIO.Unit()
+
+    /// <summary>
+    /// Maximum time to wait for shutdown hooks. Default: 10 seconds.
+    /// </summary>
+    abstract member shutdownTimeout: TimeSpan
+    default _.shutdownTimeout =
+        TimeSpan.FromSeconds 10.0
+
+    /// <summary>
+    /// Command-line arguments passed to the application.
+    /// </summary>
+    member val Args: string array =
+        Array.empty with get, set
+
+    /// <summary>
+    /// Gets or creates the runtime instance (lazy initialization).
+    /// </summary>
+    member private this.GetOrCreateRuntime () =
+        match _runtime with
+        | Some rt -> rt
+        | None ->
+            this.configureThreadPool()
+            let rt = this.runtime
+            _runtime <- Some rt
+            rt
+
+    /// <summary>
+    /// Executes the effect with lifecycle management and shutdown hooks.
+    /// </summary>
+    member private this.RunEffect (args: string array) =
+        task {
+            try
+                this.Args <- args
+                let runtime = this.GetOrCreateRuntime()
+                let cts = new CancellationTokenSource()
+                _cts <- Some cts
+
+                let mutable shutdownRequested = false
+                let shutdownHandler = ConsoleCancelEventHandler(fun _ eventArgs ->
+                    if not shutdownRequested then
+                        shutdownRequested <- true
+                        eventArgs.Cancel <- true
+                        printfn "Shutdown requested, cleaning up..."
+                        cts.Cancel()
+                )
+
+                Console.CancelKeyPress.AddHandler shutdownHandler
+                let mutable exitCode = 1
+
+                try
+                    match! runtime.Run(this.effect).Task() with
+                    | Ok res ->
+                        do! this.onSuccess res
+                        exitCode <- this.exitCodeSuccess res
+                    | Error err ->
+                        do! this.onError err
+                        exitCode <- this.exitCodeError err
+                finally
+                    Console.CancelKeyPress.RemoveHandler shutdownHandler
+
+                if shutdownRequested then
+                    try
+                        let shutdownFiber = runtime.Run(this.beforeShutdown())
+                        let shutdownTask = shutdownFiber.Task()
+                        let! shutdownResult = shutdownTask.WaitAsync this.shutdownTimeout
+                        match shutdownResult with
+                        | Ok _ -> printfn "Shutdown completed successfully"
+                        | Error err -> printfn $"Shutdown error: %A{err}"
+                    with
+                    | :? TimeoutException ->
+                        printfn "Shutdown timeout exceeded"
+                    | ex ->
+                        printfn $"Shutdown exception: %s{ex.Message}"
+
+                cts.Dispose()
+                return exitCode
+
+            with ex ->
+                printfn $"Fatal error: %s{ex.Message}"
+                return 1
+        }
+
+    /// <summary>
+    /// Runs the application synchronously.
+    /// </summary>
+    member this.Run () =
+        this.RunAsync(Array.empty).GetAwaiter().GetResult()
+
+    /// <summary>
+    /// Runs the application synchronously with command-line arguments.
+    /// </summary>
+    member this.Run (args: string array) =
+        this.RunAsync(args).GetAwaiter().GetResult()
+
+    /// <summary>
+    /// Runs the application asynchronously.
+    /// </summary>
+    member this.RunAsync () =
+        this.RunEffect Array.empty
+
+    /// <summary>
+    /// Runs the application asynchronously with command-line arguments.
+    /// </summary>
+    member this.RunAsync (args: string array) : Task<int> =
+        this.RunEffect args
+
+/// <summary>
+/// FIOApp variant using 'exn' as the error type.
+/// </summary>
+/// <typeparam name="'R">The success result type.</typeparam>
+[<AbstractClass>]
+type FIOAppDefault<'R> () =
+    inherit FIOApp<'R, exn>()
+
+/// <summary>
+/// FIOApp variant using 'unit' result and 'exn' error types.
+/// </summary>
+[<AbstractClass>]
+type SimpleFIOApp () =
+    inherit FIOApp<unit, exn>()
