@@ -15,7 +15,7 @@ type DirectRuntime () =
     inherit FRuntime ()
 
     override _.Name =
-        "Direct"
+        "DirectRuntime"
 
     /// <summary>
     /// Interprets an FIO effect asynchronously within the given fiber context.

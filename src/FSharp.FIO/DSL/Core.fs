@@ -190,7 +190,9 @@ and [<Sealed>] internal FiberContext () =
     /// <summary>
     /// Interrupts the fiber with the specified cause and message.
     /// </summary>
-    member internal this.Interrupt (cause, msg) =
+    member internal this.Interrupt (?cause, ?msg) =
+        let cause = defaultArg cause ExplicitInterrupt
+        let msg = defaultArg msg "Fiber was interrupted."
         if Interlocked.CompareExchange(&state, int FiberContextState.Interrupted, int FiberContextState.Running) = int FiberContextState.Running then
             cts.Cancel()
             let interruptError = Error (FiberInterruptedException(id, cause, msg) :> obj)
@@ -293,34 +295,73 @@ and Fiber<'R, 'E> internal () =
         }
 
     /// <summary>
-    /// Blocks and returns the fiber's result. Unsafe: blocks the calling thread.
+    /// Synchronously blocks and returns the fiber's result as a Result type.
+    /// This is an unsafe blocking operation that should be used with caution.
+    /// Prefer using Join() within an effect context or Task() for async/await interop.
+    /// Use this when you need to synchronously extract a fiber's result from outside the effect system (e.g., in Main or test assertions).
     /// </summary>
+    /// <returns>Result&lt;'R, 'E&gt; where Ok contains the success value or Error contains the failure value.</returns>
     member _.UnsafeResult<'R, 'E> () =
         match fiberContext.Task.Result with
         | Ok res -> Ok(res :?> 'R)
         | Error err -> Error(err :?> 'E)
 
     /// <summary>
-    /// Blocks and returns the fiber's success value. Unsafe: blocks and throws on failure.
+    /// Synchronously blocks and returns the fiber's success value, or throws if the fiber failed.
+    /// This is an unsafe blocking operation that should be used with caution.
+    /// Prefer using Join() within an effect context or Task() for async/await interop.
+    /// Use this when you need to synchronously extract a successful result and want to fail fast on errors (e.g., in simple CLI tools or test assertions).
     /// </summary>
+    /// <returns>The success value of type 'R.</returns>
+    /// <exception cref="InvalidOperationException">Thrown if the fiber completed with an error.</exception>
     member _.UnsafeSuccess<'R, 'E> () =
         match fiberContext.Task.Result with
         | Ok res -> res :?> 'R
         | Error err -> raise (InvalidOperationException(sprintf "Fiber failed with error: %A" (err :?> 'E)))
 
     /// <summary>
-    /// Blocks and returns the fiber's error value. Unsafe: blocks and throws on success.
+    /// Synchronously blocks and returns the fiber's error value, or throws if the fiber succeeded.
+    /// This is an unsafe blocking operation that should be used with caution.
+    /// Prefer using Join() within an effect context or Task() for async/await interop.
+    /// Use this when you need to synchronously extract an error for testing or debugging purposes.
     /// </summary>
+    /// <returns>The error value of type 'E.</returns>
+    /// <exception cref="InvalidOperationException">Thrown if the fiber completed successfully.</exception>
     member _.UnsafeError<'R, 'E> () =
         match fiberContext.Task.Result with
         | Ok res -> raise (InvalidOperationException(sprintf "Fiber succeeded with result: %A" (res :?> 'R)))
         | Error err -> err :?> 'E
 
     /// <summary>
-    /// Blocks and prints the fiber's result. Unsafe: blocks the calling thread.
+    /// Synchronously blocks and prints the fiber's result to the console.
+    /// This is an unsafe blocking operation that should be used with caution.
+    /// Use this for quick debugging or in simple CLI applications where blocking is acceptable.
+    /// For production code, prefer using Join() with FConsole.PrintLine within the effect system.
     /// </summary>
     member this.UnsafePrintResult<'R, 'E> () =
         printfn "%A" (this.UnsafeResult<'R, 'E>())
+
+    /// <summary>
+    /// Synchronously completes the fiber with the specified result.
+    /// This is an unsafe side-effecting operation that bypasses the FIO effect system.
+    /// Use this when you need to complete a fiber from outside an effect context (e.g., callbacks, interop).
+    /// </summary>
+    /// <param name="res">The result to complete the fiber with (Ok for success, Error for failure).</param>
+    member _.UnsafeComplete (res: Result<'R, 'E>) =
+        match res with
+        | Ok res -> fiberContext.Complete(Ok(res :> obj))
+        | Error err -> fiberContext.Complete(Error(err :> obj))
+
+    /// <summary>
+    /// Synchronously interrupts the fiber with the specified cause and message.
+    /// Unlike Interrupt(), this is an unsafe side-effecting operation that bypasses the FIO effect system.
+    /// Use this when you need to interrupt a fiber from outside an effect context (e.g., event handlers, cancellation callbacks).
+    /// This will cancel the fiber's CancellationToken and complete it with FiberInterruptedException.
+    /// </summary>
+    /// <param name="cause">The interruption cause. Defaults to ExplicitInterrupt.</param>
+    /// <param name="msg">The interruption message. Defaults to "Fiber was interrupted."</param>
+    member _.UnsafeInterrupt<'R, 'E> (?cause: InterruptionCause, ?msg: string) =
+        fiberContext.Interrupt(?cause = cause, ?msg = msg)
 
     /// <summary>
     /// Interrupts the fiber with the specified cause and message.
@@ -337,6 +378,9 @@ and Fiber<'R, 'E> internal () =
     /// </summary>
     member internal _.Internal =
         fiberContext
+
+    override this.ToString () = 
+        this.Id.ToString()
 
     member private _.Dispose disposing =
         if not disposed then

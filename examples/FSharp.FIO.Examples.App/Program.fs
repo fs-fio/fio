@@ -601,18 +601,18 @@ type WebSocketApp(serverUrl, clientUrl) =
         fio {
             do! client clientUrl <&&> server serverUrl
         }
-type CommandLineArgsApp() =
+type CommandLineArgsApp(args: string array) =
     inherit SimpleFIOApp()
 
     override this.effect =
         fio {
-            if this.Args.Length = 0 then
+            if args.Length = 0 then
                 do! FConsole.PrintLine "No command-line arguments provided"
                 do! FConsole.PrintLine "Try running with: dotnet run -- arg1 arg2 arg3"
             else
-                do! FConsole.PrintLine $"Received %d{this.Args.Length} argument(s):"
-                for i = 0 to this.Args.Length - 1 do
-                    do! FConsole.PrintLine $"  Arg[%d{i}]: %s{this.Args[i]}"
+                do! FConsole.PrintLine $"Received %d{args.Length} argument(s):"
+                for i = 0 to args.Length - 1 do
+                    do! FConsole.PrintLine $"  Arg[%d{i}]: %s{args[i]}"
         }
 
 type CustomRuntimeApp() =
@@ -642,12 +642,14 @@ type ShutdownHookApp() =
         fio {
             do! FConsole.PrintLine "Acquiring resource..."
             resourceAcquired <- true
-            do! FConsole.PrintLine "Resource acquired! Press Ctrl+C to test shutdown hook."
-            do! FIO.Sleep(TimeSpan.FromSeconds 30.0)
+            do! FConsole.PrintLine "Resource acquired for 10 seconds! Press Ctrl+C to test shutdown hook."
+            for i in 1..10 do
+                do! FConsole.PrintLine $" - %d{i}..."
+                do! FIO.Sleep(TimeSpan.FromSeconds 1.0)
             do! FConsole.PrintLine "Completed normally (no Ctrl+C)"
         }
 
-    override _.beforeShutdown() =
+    override _.shutdownHook () =
         fio {
             if resourceAcquired then
                 do! FConsole.PrintLine "Shutdown hook: Releasing resource..."
@@ -655,7 +657,7 @@ type ShutdownHookApp() =
                 do! FConsole.PrintLine "Shutdown hook: Resource released!"
         }
 
-    override _.shutdownTimeout =
+    override _.shutdownHookTimeout =
         TimeSpan.FromSeconds 5.0
 
 type CustomExitCodeApp() =
@@ -684,7 +686,7 @@ type DisableThreadPoolConfigApp() =
 
     override _.configureThreadPool() =
         printfn "ThreadPool configuration disabled for this app"
-        ()  // No-op
+        ()
 
     override _.effect =
         fio {
@@ -710,7 +712,7 @@ let examples = [
     nameof FiberFromGenericTaskApp, fun () -> FiberFromGenericTaskApp().Run()
     nameof SocketApp, fun () -> SocketApp("127.0.0.1", 5000).Run()
     nameof WebSocketApp, fun () -> WebSocketApp("http://localhost:8080/", "ws://localhost:8080/").Run()
-    nameof CommandLineArgsApp, fun () -> CommandLineArgsApp().Run [| "arg1"; "arg2"; "test" |]
+    nameof CommandLineArgsApp, fun () -> CommandLineArgsApp([| "arg1"; "arg2"; "test" |]).Run()
     nameof CustomRuntimeApp, fun () -> CustomRuntimeApp().Run()
     nameof ShutdownHookApp, fun () -> ShutdownHookApp().Run()
     nameof CustomExitCodeApp, fun () -> CustomExitCodeApp().Run()

@@ -144,7 +144,7 @@ and CooperativeRuntime (config: WorkerConfig) as this =
             })
 
     override _.Name =
-        "Cooperative"
+        "CooperativeRuntime"
 
     interface IDisposable with
         member _.Dispose () =

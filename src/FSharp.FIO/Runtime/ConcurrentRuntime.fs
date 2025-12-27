@@ -143,7 +143,7 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
             })
 
     override _.Name =
-        "Concurrent"
+        "ConcurrentRuntime"
 
     interface IDisposable with
         member _.Dispose () =
