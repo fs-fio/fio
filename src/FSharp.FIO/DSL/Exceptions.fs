@@ -16,6 +16,8 @@ type InterruptionCause =
     | ParentInterrupted of parentFiberId: Guid
     /// Fiber was explicitly interrupted via Fiber.Interrupt().
     | ExplicitInterrupt
+    /// Fiber was interrupted due to invalid argument or precondition violation.
+    | InvalidArgument of argumentName: string * reason: string
     /// Fiber was interrupted due to resource exhaustion or system limits.
     | ResourceExhaustion of reason: string
 
@@ -24,6 +26,7 @@ type InterruptionCause =
         | Timeout ms -> $"Timeout ({ms}ms)"
         | ParentInterrupted id -> $"ParentInterrupted ({id})"
         | ExplicitInterrupt -> "ExplicitInterrupt"
+        | InvalidArgument (arg, reason) -> $"InvalidArgument ({arg}: {reason})"
         | ResourceExhaustion r -> $"ResourceExhaustion ({r})"
 
 /// <summary>

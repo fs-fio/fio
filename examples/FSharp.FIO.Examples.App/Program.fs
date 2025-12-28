@@ -273,19 +273,19 @@ type ErrorHandlingWithRetryApp() =
 
     let databaseResult : FIO<string, Error> =
         fio {
-            let onRetry retry maxRetries =
-                (FConsole.PrintLine $"Retrying database read (attempt %d{retry + 1} of %d{maxRetries})...")
-                    .CatchAll(fun _ -> FIO.Fail false)
-            return! readFromDatabase.RetryN(4)
+            let onEachRetry (err, retry, maxRetries) =
+                FConsole.PrintLine($"Database read failed with error: %A{err}. Retry attempt %d{retry} of %d{maxRetries}...")
+                 .CatchAll(fun _ -> FIO.Fail false)
+            return! readFromDatabase.Retry(4, onEachRetry)
                 .CatchAll(fun error -> FIO.Fail (DbError error))
         }
 
     let webserviceResult : FIO<char, Error> =
         fio {
-            let onRetry retry maxRetries =
-                (FConsole.PrintLine $"Retrying webservice read (attempt %d{retry + 1} of %d{maxRetries})...")
+            let onEachRetry (err, retry, maxRetries) =
+                FConsole.PrintLine($"Webservice read failed with error: %A{err}. Retry attempt %d{retry} of %d{maxRetries}...")
                     .CatchAll(fun _ -> FIO.Fail 400)
-            return! awaitWebservice.RetryN(4)
+            return! awaitWebservice.Retry(4, onEachRetry)
                 .CatchAll(fun error -> FIO.Fail (WsError error))
         }
 

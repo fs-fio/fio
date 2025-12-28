@@ -644,7 +644,7 @@ let retryOperations =
         <| fun (runtime: FRuntime, res: int) ->
             let mutable attempts = 0
             let eff = FIO.Attempt (fun () -> attempts <- attempts + 1; res)
-            let retried = eff.RetryN 3
+            let retried = eff.Retry 3
 
             let actual = (runtime.Run retried).UnsafeSuccess()
 
@@ -658,7 +658,7 @@ let retryOperations =
                 attempts <- attempts + 1
                 return! FIO.Fail "error"
             }
-            let retried = eff.RetryN 4
+            let retried = eff.Retry 4
 
             let _ = (runtime.Run retried).UnsafeResult()
 
@@ -674,7 +674,7 @@ let retryOperations =
                 else
                     return res
             }
-            let retried = eff.RetryN 5
+            let retried = eff.Retry 5
 
             let actual = (runtime.Run retried).UnsafeSuccess()
 
@@ -684,7 +684,7 @@ let retryOperations =
         testPropertyWithConfig fsCheckPropertyTestsConfig "Retry final failure after max retries"
         <| fun (runtime: FRuntime) ->
             let eff = FIO.Fail "error"
-            let retried = eff.RetryN 2
+            let retried = eff.Retry 2
 
             let actual = (runtime.Run retried).UnsafeError()
 
@@ -697,7 +697,7 @@ let retryOperations =
                 attempts <- attempts + 1
                 if attempts = 1 then failwith "Fail once" else res)
 
-            let retried = eff.RetryN 5
+            let retried = eff.Retry 5
 
             let actual = (runtime.Run retried).UnsafeSuccess()
 

@@ -79,10 +79,10 @@ type FIOApp<'R, 'E> () =
         ThreadPoolConfig.configure()
 
     /// <summary>
-    /// Whether to print verbose lifecycle messages. Default: false.
+    /// Whether to print verbose lifecycle messages.
     /// </summary>
     abstract member verbose: bool
-    default _.verbose = false
+    default _.verbose = true
 
     /// <summary>
     /// Handler invoked on successful completion. Default: prints result in green.

@@ -225,21 +225,50 @@ type FIO<'R, 'E> with
         this.FlatMap(onSuccess).CatchAll onError
 
     /// <summary>
-    /// Retries this effect up to N total attempts on failure.
-    /// For example, RetryN(3) will attempt the effect up to 3 times total.
+    /// Retries this effect up to the specified number of attempts on failure.
     /// </summary>
-    /// <param name="maxAttempts">Maximum total number of attempts (must be >= 1).</param>
-    member inline this.RetryN<'R, 'E> (maxAttempts: int): FIO<'R, 'E> =
+    /// <param name="maxAttempts">The maximum total number of attempts (must be >= 1).</param>
+    /// <param name="onEachRetry">Optional callback executed on each retry with (error, attempt, maxAttempts).</param>
+    member inline this.Retry<'R, 'E> (maxAttempts: int, ?onEachRetry: 'E * int * int -> FIO<unit, 'E>): FIO<'R, 'E> =
         if maxAttempts < 1 then
-            FIO.Fail(ArgumentException "maxAttempts must be >= 1" :> obj :?> 'E)
+            FIO.Interrupt(InvalidArgument ("maxAttempts", "must be >= 1"), "Invalid argument: maxAttempts must be >= 1")
         else
             FIO.Suspend(fun () ->
                 let rec loop attempt =
                     if attempt >= maxAttempts then
                         this
                     else
-                        this.CatchAll(fun _ ->
-                            FIO.Suspend(fun () -> loop(attempt + 1)))
+                        this.CatchAll(fun err ->
+                            match onEachRetry with
+                            | Some callback ->
+                                callback(err, attempt, maxAttempts)
+                                    .FlatMap(fun () -> FIO.Suspend(fun () -> loop(attempt + 1)))
+                            | None ->
+                                FIO.Suspend(fun () -> loop(attempt + 1)))
+                loop 1)
+
+    /// <summary>
+    /// Retries this effect up to the specified number of attempts, falling back on exhaustion.
+    /// </summary>
+    /// <param name="maxAttempts">The maximum total number of attempts (must be >= 1).</param>
+    /// <param name="orElse">The fallback effect to run with the last error if all retries fail.</param>
+    /// <param name="onEachRetry">Optional callback executed on each retry with (error, attempt, maxAttempts).</param>
+    member inline this.RetryOrElse<'R, 'E, 'E1> (maxAttempts: int, orElse: 'E -> FIO<'R, 'E1>, ?onEachRetry: 'E * int * int -> FIO<unit, 'E1>) : FIO<'R, 'E1> =
+        if maxAttempts < 1 then
+            FIO.Interrupt(InvalidArgument ("maxAttempts", "must be >= 1"), "Invalid argument: maxAttempts must be >= 1")
+        else
+            FIO.Suspend(fun () ->
+                let rec loop attempt =
+                    if attempt >= maxAttempts then
+                        this.CatchAll orElse
+                    else
+                        this.CatchAll(fun err ->
+                            match onEachRetry with
+                            | Some callback ->
+                                callback(err, attempt, maxAttempts)
+                                    .FlatMap(fun () -> FIO.Suspend(fun () -> loop(attempt + 1)))
+                            | None ->
+                                FIO.Suspend(fun () -> loop(attempt + 1)))
                 loop 1)
 
     /// <summary>
