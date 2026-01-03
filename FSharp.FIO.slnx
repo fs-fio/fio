@@ -7,8 +7,11 @@
   <Project Path="benchmarks/FSharp.FIO.Benchmarks.Plots/FSharp.FIO.Benchmarks.Plots.fsproj" />
   <Project Path="benchmarks/FSharp.FIO.Benchmarks/FSharp.FIO.Benchmarks.fsproj" />
   <Project Path="examples/FSharp.FIO.Examples.App/FSharp.FIO.Examples.App.fsproj" />
+  <Project Path="examples/FSharp.FIO.Examples.Http/FSharp.FIO.Examples.Http.fsproj" />
+  <Project Path="examples/FSharp.FIO.Examples.PostgreSQL/FSharp.FIO.Examples.PostgreSQL.fsproj" />
   <Project Path="examples/FSharp.FIO.Examples/FSharp.FIO.Examples.fsproj" />
   <Project Path="src/FSharp.FIO.App/FSharp.FIO.App.fsproj" />
+  <Project Path="src/FSharp.FIO.Experimental/FSharp.FIO.Experimental.fsproj" />
   <Project Path="src/FSharp.FIO.Lib/FSharp.FIO.Lib.fsproj" />
   <Project Path="src/FSharp.FIO/FSharp.FIO.fsproj" />
   <Project Path="tests/FSharp.FIO.Tests/FSharp.FIO.Tests.fsproj" />

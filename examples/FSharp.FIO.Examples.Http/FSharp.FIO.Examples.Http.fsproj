@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<OutputType>Exe</OutputType>
+		<TargetFramework>net10.0</TargetFramework>
+		<WarningsAsErrors>true</WarningsAsErrors>
+	</PropertyGroup>
+
+	<PropertyGroup>
+		<LangVersion>preview</LangVersion>
+		<ParallelCompilation>true</ParallelCompilation>
+		<Deterministic>false</Deterministic>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<Compile Include="Program.fs" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\..\src\FSharp.FIO\FSharp.FIO.fsproj" />
+		<ProjectReference Include="..\..\src\FSharp.FIO.Experimental\FSharp.FIO.Experimental.fsproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Update="FSharp.Core" Version="10.0.101" />
+	</ItemGroup>
+
+</Project>

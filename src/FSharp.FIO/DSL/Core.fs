@@ -302,7 +302,10 @@ and Fiber<'R, 'E> internal () =
     /// </summary>
     /// <returns>Result&lt;'R, 'E&gt; where Ok contains the success value or Error contains the failure value.</returns>
     member _.UnsafeResult<'R, 'E> () =
-        match fiberContext.Task.Result with
+        match
+            fiberContext.Task
+            |> Async.AwaitTask
+            |> Async.RunSynchronously with
         | Ok res -> Ok(res :?> 'R)
         | Error err -> Error(err :?> 'E)
 
