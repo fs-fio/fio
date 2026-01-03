@@ -84,10 +84,8 @@ and private BlockingWorker (config: BlockingWorkerConfig) =
     /// <param name="blockingChan">The channel that received an event.</param>
     let processBlockingChannel (blockingChan: Channel<obj>) =
         task {
-            if blockingChan.BlockingWorkItemCount > 0 then
-                do! blockingChan.RescheduleNextBlockingWorkItem
-                    <| config.ActiveWorkItemChan
-            else
+            let! rescheduled = blockingChan.TryRescheduleNextBlockingWorkItem config.ActiveWorkItemChan
+            if not rescheduled || blockingChan.BlockingWorkItemCount > 0 then
                 do! config.ActiveBlockingEventChan.AddAsync blockingChan
         }
 

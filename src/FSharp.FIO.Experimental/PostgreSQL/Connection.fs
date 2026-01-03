@@ -102,10 +102,10 @@ module Conn =
     /// </summary>
     /// <param name="isolationLevel">The isolation level for the transaction.</param>
     /// <param name="conn">The connection to start a transaction on.</param>
-    let beginTransactionWithIsolation (isolationLevel: FSharp.FIO.PostgreSQL.IsolationLevel) (conn: Connection) : FIO<NpgsqlTransaction, exn> =
+    let beginTransactionWithIsolation (isolationLevel: FSharp.FIO.Experimental.PostgreSQL.IsolationLevel) (conn: Connection) : FIO<NpgsqlTransaction, exn> =
         FIO.Attempt(
             (fun () ->
-                let sysLevel = FSharp.FIO.PostgreSQL.IsolationLevel.toSystemIsolationLevel isolationLevel
+                let sysLevel = FSharp.FIO.Experimental.PostgreSQL.IsolationLevel.toSystemIsolationLevel isolationLevel
                 conn.NpgsqlConnection.BeginTransaction(sysLevel)),
             id)
 
@@ -123,9 +123,9 @@ module Conn =
     /// </summary>
     /// <param name="isolationLevel">The isolation level for the transaction.</param>
     /// <param name="conn">The connection to start a transaction on.</param>
-    let beginTransactionAsyncWithIsolation (isolationLevel: FSharp.FIO.PostgreSQL.IsolationLevel) (conn: Connection) : FIO<NpgsqlTransaction, exn> =
+    let beginTransactionAsyncWithIsolation (isolationLevel: FSharp.FIO.Experimental.PostgreSQL.IsolationLevel) (conn: Connection) : FIO<NpgsqlTransaction, exn> =
         fio {
-            let sysLevel = FSharp.FIO.PostgreSQL.IsolationLevel.toSystemIsolationLevel isolationLevel
+            let sysLevel = FSharp.FIO.Experimental.PostgreSQL.IsolationLevel.toSystemIsolationLevel isolationLevel
             return! FIO.AwaitTask(conn.NpgsqlConnection.BeginTransactionAsync(sysLevel).AsTask(), id)
         }
 

@@ -221,6 +221,7 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                 processError err
 
         task {
+            let mutable workItemOwnership = true
             try
                 while not completed do
                     if currentFiberContext.CancellationToken.IsCancellationRequested then
@@ -230,8 +231,9 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                         | Error err ->
                             processInterruptError err
                     elif currentEWSteps = 0 then
-                        let workItem = WorkItemPool.Rent(currentEff, currentFiberContext, currentContStack)
-                        do! activeWorkItemChan.AddAsync workItem
+                        let newWorkItem = WorkItemPool.Rent(currentEff, currentFiberContext, currentContStack)
+                        do! activeWorkItemChan.AddAsync newWorkItem
+                        workItemOwnership <- false
                         completed <- true
                     else
                         currentEWSteps <- currentEWSteps - 1
@@ -260,9 +262,10 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                             if chan.UnboundedChannel.TryTake(&res) then
                                 processSuccess res
                             else
-                                let workItem = WorkItemPool.Rent(ReceiveChan chan, currentFiberContext, currentContStack)
+                                let newWorkItem = WorkItemPool.Rent(ReceiveChan chan, currentFiberContext, currentContStack)
                                 do! blockingWorker.RescheduleForBlocking
-                                    <| BlockingChannel (chan, workItem)
+                                    <| BlockingChannel (chan, newWorkItem)
+                                workItemOwnership <- false
                                 completed <- true
                         | ForkEffect(eff, fiber, fiberContext) ->
                             let registration = currentFiberContext.CancellationToken.Register(fun () ->
@@ -314,9 +317,10 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                                 let! res = fiberContext.Task
                                 processResult res
                             else
-                                let workItem = WorkItemPool.Rent(JoinFiber fiberContext, currentFiberContext, currentContStack)
+                                let newWorkItem = WorkItemPool.Rent(JoinFiber fiberContext, currentFiberContext, currentContStack)
                                 do! blockingWorker.RescheduleForBlocking
-                                    <| BlockingFiber (fiberContext, workItem)
+                                    <| BlockingFiber (fiberContext, newWorkItem)
+                                workItemOwnership <- false
                                 completed <- true
                         | AwaitTPLTask(task, onError) ->
                             try
@@ -340,8 +344,7 @@ and CooperativeRuntime (config: WorkerConfig) as this =
             finally
                 if not completed then
                     ContStackPool.Return currentContStack
-                // Return WorkItem to pool only if fiber completed (not rescheduled, not blocked)
-                elif currentFiberContext.Completed() then
+                if workItemOwnership then
                     WorkItemPool.Return workItem
         }
 

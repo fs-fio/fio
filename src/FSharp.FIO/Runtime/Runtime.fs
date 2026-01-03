@@ -75,11 +75,10 @@ type internal WorkItemPool private () =
 
         if WorkItemPool.pool.Count > 0 then
             let workItem = WorkItemPool.pool.Pop()
-            // Update fields rather than allocating new
-            { workItem with
-                Eff = eff
-                FiberContext = fiberContext
-                Stack = stack }
+            workItem.Eff <- eff
+            workItem.FiberContext <- fiberContext
+            workItem.Stack <- stack
+            workItem
         else
             // Create new if pool empty
             { Eff = eff; FiberContext = fiberContext; Stack = stack }

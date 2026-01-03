@@ -175,10 +175,10 @@ and [<Sealed>] internal FiberContext () =
     member internal this.CompleteAndReschedule (res, activeWorkItemChan) =
         task {
             if Interlocked.CompareExchange(&state, int FiberContextState.Completed, int FiberContextState.Running) = int FiberContextState.Running then
-                if resTcs.TrySetResult res then
-                    this.DisposeRegistrations()
-                    if blockingWorkItemChan.Count > 0 then
-                        do! this.RescheduleBlockingWorkItems activeWorkItemChan
+                resTcs.TrySetResult res |> ignore
+                this.DisposeRegistrations()
+                if blockingWorkItemChan.Count > 0 then
+                    do! this.RescheduleBlockingWorkItems activeWorkItemChan
         }
 
     /// <summary>
@@ -464,6 +464,20 @@ and Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, blockingWorkI
             activeWorkItemChan.AddAsync workItem
         else
             Task.FromResult()
+
+    /// <summary>
+    /// Tries to reschedule next blocking work item if available.
+    /// Returns true if rescheduled, false otherwise.
+    /// </summary>
+    member internal _.TryRescheduleNextBlockingWorkItem (activeWorkItemChan: UnboundedChannel<WorkItem>) =
+        task {
+            let mutable workItem = Unchecked.defaultof<_>
+            if blockingWorkItemChan.TryTake &workItem then
+                do! activeWorkItemChan.AddAsync workItem
+                return true
+            else
+                return false
+        }
 
     /// <summary>
     /// Gets the count of blocking work items (for runtime use only).
