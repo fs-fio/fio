@@ -12,49 +12,19 @@ open System.Threading
 open System.Threading.Tasks
 
 /// <summary>
-/// Thread pool configuration utilities.
-/// </summary>
-module private ThreadPoolConfig =
-
-    /// <summary>
-    /// Configures the .NET ThreadPool for FIO workloads.
-    /// </summary>
-    let configure () =
-        let cores = Environment.ProcessorCount
-        let minWorkerThreads = cores * 2
-        let maxWorkerThreads = cores * 50
-        let minIOThreads = cores
-        let maxIOThreads = cores * 10
-
-        ThreadPool.SetMinThreads(minWorkerThreads, minIOThreads) |> ignore
-        ThreadPool.SetMaxThreads(maxWorkerThreads, maxIOThreads) |> ignore
-
-/// <summary>
-/// Console output utilities.
-/// </summary>
-module private Console =
-
-    /// <summary>
-    /// Prints a message to the console with the specified color.
-    /// </summary>
-    let print (verbose: bool) (color, message: string) =
-        if verbose then
-            Console.ForegroundColor <- color
-            Console.WriteLine message
-            Console.ResetColor()
-        
-
-/// <summary>
 /// Base class for FIO applications with lifecycle management and shutdown hooks.
 /// </summary>
 /// <typeparam name="'R">The success result type.</typeparam>
 /// <typeparam name="'E">The error type.</typeparam>
 [<AbstractClass>]
-type FIOApp<'R, 'E> () =
+type FIOApp<'R, 'E> () as this =
 
     let id = Guid.NewGuid()
-    let syncRoot = obj()
-    let mutable _runtime : FRuntime option = None
+
+    let lazyRuntime = lazy (
+        this.configureThreadPool()
+        this.runtime
+    )
 
     member _.Id = id
 
@@ -63,97 +33,161 @@ type FIOApp<'R, 'E> () =
     /// </summary>
     abstract member effect: FIO<'R, 'E>
 
-    /// <summary>
-    /// Creates the runtime for executing effects. Default: DefaultRuntime.
-    /// </summary>
-    /// <returns>The runtime instance.</returns>
+    /// <summary>Creates the runtime for executing effects. Default: DefaultRuntime.</summary>
     abstract member runtime: FRuntime
     default _.runtime =
         new DefaultRuntime()
 
-    /// <summary>
-    /// Configures the .NET ThreadPool before runtime creation.
-    /// </summary>
+    /// <summary>Configures the .NET ThreadPool before runtime creation.</summary>
     abstract member configureThreadPool: unit -> unit
     default _.configureThreadPool() =
-        ThreadPoolConfig.configure()
+        let cores = Environment.ProcessorCount
+        let minWorkerThreads = cores * 2
+        let maxWorkerThreads = cores * 50
+        let minIOThreads = cores
+        let maxIOThreads = cores * 10
+        ThreadPool.SetMinThreads(minWorkerThreads, minIOThreads) |> ignore
+        ThreadPool.SetMaxThreads(maxWorkerThreads, maxIOThreads) |> ignore
 
-    /// <summary>
-    /// Whether to print verbose lifecycle messages.
-    /// </summary>
+    /// <summary>Whether to print verbose lifecycle messages.</summary>
     abstract member verbose: bool
-    default _.verbose = true
+    default _.verbose = false
 
-    /// <summary>
-    /// Handler invoked on successful completion. Default: prints result in green.
-    /// </summary>
+    /// <summary>Handler invoked when the application starts.</summary>
+    abstract member onStart: unit -> unit
+    default this.onStart () =
+        if this.verbose then
+            Console.ForegroundColor <- ConsoleColor.DarkMagenta
+            Console.WriteLine "starting"
+            Console.ResetColor()
+
+    /// <summary>Handler invoked when the runtime is initialized.</summary>
+    /// <param name="runtime">The runtime instance.</param>
+    abstract member onRuntimeInitialized: FRuntime -> unit
+    default this.onRuntimeInitialized runtime =
+        if this.verbose then
+            Console.ForegroundColor <- ConsoleColor.DarkMagenta
+            Console.WriteLine $"runtime: {runtime.Name}"
+            Console.ResetColor()
+
+    /// <summary>Handler invoked when the fiber starts executing.</summary>
+    abstract member onFiberRunning: unit -> unit
+    default this.onFiberRunning () =
+        if this.verbose then
+            Console.ForegroundColor <- ConsoleColor.DarkMagenta
+            Console.WriteLine "running"
+            Console.ResetColor()
+
+    /// <summary>Handler invoked when the application completes successfully.</summary>
+    /// <param name="res">The success result.</param>
     abstract member onSuccess: 'R -> unit
-    default this.onSuccess res =
-        Console.print this.verbose (ConsoleColor.DarkGreen, $"%A{Ok res}")
+    default _.onSuccess res =
+        if this.verbose then
+            Console.ForegroundColor <- ConsoleColor.DarkGreen
+            Console.WriteLine $"success: %A{res}"
+            Console.ResetColor()
 
-    /// <summary>
-    /// Handler invoked on failure. Default: prints error in red.
-    /// </summary>
+    /// <summary>Handler invoked when the application completes with an error.</summary>
+    /// <param name="err">The error.</param>
     abstract member onError: 'E -> unit
-    default this.onError err =
-        Console.print this.verbose (ConsoleColor.DarkRed, $"%A{Error err}")
+    default _.onError err =
+        Console.ForegroundColor <- ConsoleColor.DarkRed
+        Console.WriteLine $"error: %A{err}"
+        Console.ResetColor()
 
-    /// <summary>
-    /// Handler invoked on interruption. Default: prints interruption in yellow.
-    /// </summary>
-    abstract member onInterrupted: FiberInterruptedException -> unit
+    /// <summary>Handler invoked when the application is interrupted.</summary>
+    /// <param name="exn">The interruption exception.</param>
+    abstract member onInterrupted: exn -> unit
     default this.onInterrupted exn =
-        Console.print this.verbose (ConsoleColor.DarkYellow, $"[FIOApp]: FiberInterruptedException message: {exn.Message}")
+        if this.verbose then
+            Console.ForegroundColor <- ConsoleColor.DarkYellow
+            Console.WriteLine $"interrupted: %s{exn.Message}"
+            Console.ResetColor()
+
+    /// <summary>Handler invoked when a fatal error occurs.</summary>
+    /// <param name="exn">The fatal exception.</param>
+    abstract member onFatalError: exn -> unit
+    default _.onFatalError exn =
+        Console.ForegroundColor <- ConsoleColor.Red
+        Console.WriteLine $"fatal: %s{exn.Message}"
+        Console.ResetColor()
+
+    /// <summary>Handler invoked when shutdown is requested.</summary>
+    abstract member onShutdownRequested: unit -> unit
+    default this.onShutdownRequested () =
+        if this.verbose then
+            Console.ForegroundColor <- ConsoleColor.DarkCyan
+            Console.WriteLine "shutdown"
+            Console.ResetColor()
+
+    /// <summary>Handler invoked when shutdown hook completes successfully.</summary>
+    abstract member onShutdownHookSuccess: unit -> unit
+    default this.onShutdownHookSuccess () =
+        if this.verbose then
+            Console.ForegroundColor <- ConsoleColor.DarkCyan
+            Console.WriteLine "cleanup done"
+            Console.ResetColor()
+
+    /// <summary>Handler invoked when shutdown hook completes with an error.</summary>
+    /// <param name="err">The error.</param>
+    abstract member onShutdownHookError: 'E -> unit
+    default _.onShutdownHookError err =
+        Console.ForegroundColor <- ConsoleColor.DarkRed
+        Console.WriteLine $"cleanup error: %A{err}"
+        Console.ResetColor()
+
+    /// <summary>Handler invoked when shutdown hook times out.</summary>
+    /// <param name="timeout">The timeout duration.</param>
+    abstract member onShutdownHookTimeout: TimeSpan -> unit
+    default _.onShutdownHookTimeout timeout =
+        Console.ForegroundColor <- ConsoleColor.DarkCyan
+        Console.WriteLine $"cleanup timeout ({timeout.TotalSeconds}s)"
+        Console.ResetColor()
 
     /// <summary>
-    /// Maps a successful result to an exit code. Default: 0.
-    /// </summary>
+    /// Handler invoked when shutdown hook fails with an exception.
+    /// Default: Always prints exception (ignores verbose flag) - exceptions indicate failure.
+    /// Override this to integrate with logging frameworks or custom lifecycle management.
+    /// <summary>Handler invoked when shutdown hook fails with an exception.</summary>
+    /// <param name="exn">The exception.</param>
+    abstract member onShutdownHookException: exn -> unit
+    default _.onShutdownHookException exn =
+        Console.ForegroundColor <- ConsoleColor.Red
+        Console.WriteLine $"cleanup failed: %s{exn.Message}"
+        Console.ResetColor()
+
+    /// <summary>Maps a successful result to an exit code.</summary>
+    /// <param name="res">The success result.</param>
     abstract member exitCodeSuccess: 'R -> int
     default _.exitCodeSuccess _ = 0
 
-    /// <summary>
-    /// Maps an error to an exit code. Default: 1.
-    /// </summary>
+    /// <summary>Maps an error to an exit code.</summary>
+    /// <param name="err">The error.</param>
     abstract member exitCodeError: 'E -> int
     default _.exitCodeError _ = 1
 
-    /// <summary>
-    /// Maps an interruption to an exit code. Default: 130 (SIGINT).
-    /// </summary>
+    /// <summary>Maps an exception to an exit code.</summary>
+    /// <param name="exn">The exception.</param>
+    abstract member exitCodeFatalError: exn -> int
+    default _.exitCodeFatalError _ = 2
+
+    /// <summary>Maps an interruption to an exit code.</summary>
+    /// <param name="exn">The interruption exception.</param>
     abstract member exitCodeInterrupted: FiberInterruptedException -> int
     default _.exitCodeInterrupted _ = 130
 
-    /// <summary>
-    /// Cleanup effect run on interruption (Ctrl+C). Default: no-op.
-    /// </summary>
+    /// <summary>Cleanup effect run on interruption.</summary>
     abstract member shutdownHook: unit -> FIO<unit, 'E>
     default _.shutdownHook() =
         FIO.Unit()
 
-    /// <summary>
-    /// Maximum time to wait for shutdown hooks. Default: 10 seconds.
-    /// </summary>
+    /// <summary>Maximum time to wait for shutdown hooks.</summary>
     abstract member shutdownHookTimeout: TimeSpan
     default _.shutdownHookTimeout =
         TimeSpan.FromSeconds 10.0
 
-    /// <summary>
-    /// Gets or creates the runtime instance (thread-safe lazy initialization).
-    /// </summary>
-    member private this.GetOrCreateRuntime () =
-        lock syncRoot (fun () ->
-            match _runtime with
-            | Some runtime -> runtime
-            | None ->
-                this.configureThreadPool()
-                let runtime = this.runtime
-                _runtime <- Some runtime
-                runtime
-        )
-
-    /// <summary>
-    /// Runs shutdown cleanup hooks.
-    /// </summary>
+    /// <summary>Runs shutdown cleanup hooks.</summary>
+    /// <param name="runtime">The runtime instance.</param>
     member private this.RunShutdownHook(runtime: FRuntime) =
         task {
             try
@@ -162,86 +196,78 @@ type FIOApp<'R, 'E> () =
                 let! shutdownResult = shutdownTask.WaitAsync this.shutdownHookTimeout
                 match shutdownResult with
                 | Ok _ ->
-                    Console.print this.verbose (ConsoleColor.DarkYellow, "[FIOApp]: Shutdown hook completed successfully")
+                    this.onShutdownHookSuccess()
                 | Error err ->
-                    Console.print this.verbose (ConsoleColor.DarkRed, $"[FIOApp]: Shutdown hook completed with error: %A{err}")
+                    this.onShutdownHookError err
             with
             | :? TimeoutException ->
-                Console.print this.verbose (ConsoleColor.DarkYellow, $"[FIOApp]: Shutdown hook timed out {this.shutdownHookTimeout.TotalSeconds} seconds")
+                this.onShutdownHookTimeout this.shutdownHookTimeout
             | exn ->
-                Console.print this.verbose (ConsoleColor.DarkRed, $"[FIOApp]: Shutdown hook failed with exception: %s{exn.Message}")
+                this.onShutdownHookException exn
         }
 
-    /// <summary>
-    /// Executes the effect with lifecycle management and shutdown hooks.
-    /// </summary>
+    /// <summary>Executes the effect with lifecycle management and shutdown hooks.</summary>
     member private this.RunEffect () =
         task {
+            let mutable shutdownHandler = Unchecked.defaultof<ConsoleCancelEventHandler>
+            let mutable handlerRegistered = false
             try
-                Console.print this.verbose (ConsoleColor.DarkMagenta, $"[FIOApp]: Starting FIO application: {this.Id}")
+                try
+                    this.onStart()
 
-                let runtime = this.GetOrCreateRuntime()
-                Console.print this.verbose (ConsoleColor.DarkMagenta, $"[FIOApp]: Runtime initialized: {runtime}")
+                    let runtime = lazyRuntime.Value
+                    this.onRuntimeInitialized runtime
 
-                let fiber = runtime.Run this.effect
-                Console.print this.verbose (ConsoleColor.DarkMagenta, $"[FIOApp]: Executing fiber: {fiber}")
+                    let fiber = runtime.Run this.effect
+                    this.onFiberRunning()
 
-                let mutable shutdownRequested = false
-                let shutdownHandler = ConsoleCancelEventHandler(fun _ eventArgs ->
-                    if not shutdownRequested then
-                        shutdownRequested <- true
-                        eventArgs.Cancel <- true
-                        Console.print this.verbose (ConsoleColor.DarkYellow, $"[FIOApp]: FIO application shutdown requested. Interrupting Fiber: {fiber}")
-                        fiber.UnsafeInterrupt(ExplicitInterrupt, "Application shutdown requested")
-                )
-                Console.CancelKeyPress.AddHandler shutdownHandler
-                
-                let! exitCode =
-                    task {
-                        try
+                    let mutable shutdownRequested = false
+                    shutdownHandler <- ConsoleCancelEventHandler(fun _ eventArgs ->
+                        if not shutdownRequested then
+                            shutdownRequested <- true
+                            eventArgs.Cancel <- true
+                            this.onShutdownRequested()
+                            fiber.UnsafeInterrupt(ExplicitInterrupt, "Application shutdown requested from console.")
+                    )
+                    Console.CancelKeyPress.AddHandler shutdownHandler
+                    handlerRegistered <- true
+
+                    let! exitCode =
+                        task {
                             match! fiber.Task() with
                             | Ok res ->
                                 this.onSuccess res
-                                Console.print this.verbose (ConsoleColor.DarkMagenta, $"[FIOApp]: FIO application completed with success: {this.Id}")
                                 return this.exitCodeSuccess res
                             | Error err ->
                                 match box err with
                                 | :? FiberInterruptedException as exn ->
                                     this.onInterrupted exn
-                                    Console.print this.verbose (ConsoleColor.DarkMagenta, $"[FIOApp]: FIO application was interrupted: {this.Id}")
                                     return this.exitCodeInterrupted exn
                                 | _ ->
                                     this.onError err
-                                    Console.print this.verbose (ConsoleColor.DarkMagenta, $"[FIOApp]: FIO application completed with error: {this.Id}")
                                     return this.exitCodeError err
-                        finally
-                            Console.CancelKeyPress.RemoveHandler shutdownHandler
-                    }
+                        }
 
-                if shutdownRequested then
                     do! this.RunShutdownHook runtime
-
-                return exitCode
-
-            with ex ->
-                printfn $"Fatal error: %s{ex.Message}"
-                return 1
+                    return exitCode
+                with exn ->
+                    this.onFatalError exn
+                    return this.exitCodeFatalError exn
+            finally
+                if handlerRegistered then
+                    Console.CancelKeyPress.RemoveHandler shutdownHandler
         }
 
-    /// <summary>
-    /// Runs the application synchronously.
-    /// </summary>
+    /// <summary>Runs the application synchronously.</summary>
     member this.Run () =
         this.RunAsync().GetAwaiter().GetResult()
 
-    /// <summary>
-    /// Runs the application asynchronously.
-    /// </summary>
+    /// <summary>Runs the application asynchronously.</summary>
     member this.RunAsync () : Task<int> =
         this.RunEffect()
 
-    override this.ToString() =
-        $"FIOApp(Id={this.Id})"
+    override _.ToString() =
+        id.ToString()
 
 /// <summary>
 /// FIOApp variant using 'exn' as the error type.
