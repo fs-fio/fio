@@ -11,12 +11,13 @@ open FSharp.FIO.Lib.Net.FWebSockets
 open System
 open System.IO
 open System.Net
+open System.Text.Json
 open System.Net.Sockets
 open System.Globalization
 open System.Net.WebSockets
 
 type WelcomeApp() =
-    inherit FIOApp<unit, exn>()
+    inherit SimpleFIOApp()
 
     override _.effect : FIO<unit, exn> =
         fio {
@@ -80,7 +81,7 @@ type TryWithFinallyApp() =
         }
 
 type ForApp() =
-    inherit FIOApp<unit, exn>()
+    inherit SimpleFIOApp()
 
     override _.effect =
         fio {
@@ -120,7 +121,7 @@ type GuessNumberApp() =
         }
 
 type PingPongApp() =
-    inherit FIOApp<unit, exn>()
+    inherit SimpleFIOApp()
 
     let pinger (chan1: string channel) (chan2: string channel) =
         chan1.Send "ping" >>= fun ping ->
@@ -142,7 +143,7 @@ type PingPongApp() =
         pinger chan1 chan2 <&&> ponger chan1 chan2
 
 type PingPongCEApp() =
-    inherit FIOApp<unit, exn>()
+    inherit SimpleFIOApp()
 
     let pinger (chan1: string channel) (chan2: string channel) =
         fio {
@@ -168,36 +169,36 @@ type PingPongCEApp() =
         }
 
 type Message =
-    | Ping
-    | Pong
+    | PingMsg
+    | PongMsg
 
 type PingPongMatchApp() =
     inherit FIOApp<unit, string>()
 
     let pinger (chan1: Message channel) (chan2: Message channel) =
         fio {
-            let! ping = chan1.Send Ping
+            let! ping = chan1.Send PingMsg
             do! FConsole.PrintLineMapError($"pinger sent: %A{ping}", _.Message)
             
             match! chan2.Receive() with
-            | Pong ->
-                do! FConsole.PrintLineMapError($"pinger received: %A{Pong}", _.Message)
-            | Ping ->
-                return! FIO.Fail $"pinger received %A{Ping} when %A{Pong} was expected!"
+            | PongMsg ->
+                do! FConsole.PrintLineMapError($"pinger received: %A{PongMsg}", _.Message)
+            | PingMsg ->
+                return! FIO.Fail $"pinger received %A{PingMsg} when %A{PongMsg} was expected!"
         }
 
     let ponger (chan1: Message channel) (chan2: Message channel) =
         fio {
             match! chan1.Receive() with
-            | Ping ->
-                do! FConsole.PrintLineMapError($"ponger received: %A{Ping}", _.Message)
-            | Pong ->
-                return! FIO.Fail $"ponger received %A{Pong} when %A{Ping} was expected!"
+            | PingMsg ->
+                do! FConsole.PrintLineMapError($"ponger received: %A{PingMsg}", _.Message)
+            | PongMsg ->
+                return! FIO.Fail $"ponger received %A{PongMsg} when %A{PingMsg} was expected!"
             
             let! sentMsg =
                 match Random().Next(0, 2) with
-                | 0 -> chan2.Send Pong
-                | _ -> chan2.Send Ping
+                | 0 -> chan2.Send PongMsg
+                | _ -> chan2.Send PingMsg
             do! FConsole.PrintLineMapError($"ponger sent: %A{sentMsg}", _.Message)
         }
 
@@ -332,7 +333,7 @@ type AsyncErrorHandlingApp() =
         }
 
 type HighlyConcurrentApp() =
-    inherit FIOApp<unit, exn>()
+    inherit SimpleFIOApp()
 
     let sender (chan: int channel) id (rand: Random) =
         fio {
@@ -372,7 +373,7 @@ type HighlyConcurrentApp() =
         }
 
 type FiberFromTaskApp() =
-    inherit FIOApp<unit, exn>()
+    inherit SimpleFIOApp()
 
     let fibonacci n =
         FIO.FromTask<unit>(fun () ->
@@ -414,7 +415,7 @@ type FiberFromTaskApp() =
         }
 
 type FiberFromGenericTaskApp() =
-    inherit FIOApp<unit, exn>()
+    inherit SimpleFIOApp()
 
     let fibonacci n =
         FIO.FromTask<unit>(fun () ->
@@ -455,7 +456,7 @@ type FiberFromGenericTaskApp() =
         }
 
 type SocketApp(ip: string, port: int) =
-    inherit FIOApp<unit, exn>()
+    inherit SimpleFIOApp()
 
     let server (ip: string) (port: int) =
     
@@ -531,76 +532,92 @@ type SocketApp(ip: string, port: int) =
         }
 
 type WebSocketApp(serverUrl, clientUrl) =
-    inherit FIOApp<unit, exn>()
+    inherit SimpleFIOApp()
 
     let server url =
-
-        let receiveAndSendASCII (clientSocket: FWebSocket<int, string, exn>) =
+        let receiveAndSendASCII (ws: WebSocket<exn>, server: WebSocketServer<exn>) =
             fio {
-                let! state = clientSocket.State()
-                while state = WebSocketState.Open do
-                    let! msg = clientSocket.Receive()
-                    do! FConsole.PrintLine $"Server received message: %s{msg}"
-                    
-                    let! ascii =
-                        if msg.Length > 0 then
-                            FIO.Attempt (fun () -> msg.Chars 0) >>= fun c ->
-                            FIO.Succeed (int c)
-                        else
-                            FIO.Succeed -1
-                    do! clientSocket.Send ascii
-                    do! FConsole.PrintLine $"Server sent ASCII: %i{ascii}"
+                let mutable loop = true
+                while loop do
+                    match! ws.ReceiveMessage() with
+                    | Frame(Text text) ->
+                        do! FConsole.PrintLine $"Server received message: %s{text}"
+                        let! ascii =
+                            if text.Length > 0 then
+                                FIO.Attempt(fun () -> text.Chars 0) >>= fun c ->
+                                FIO.Succeed(int c)
+                            else
+                                FIO.Succeed -1
+                        do! ws.SendJson ascii
+                        do! FConsole.PrintLine $"Server sent ASCII: %i{ascii}"
+                    | ConnectionClosed(status, desc) ->
+                        do! FConsole.PrintLine $"Server connection closed. Status: {status}, Description: {desc}"
+                        do! ws.Close(WebSocketCloseStatus.NormalClosure, "Server closing connection")
+                        do! server.Close()
+                        loop <- false
+                    | msg ->
+                        do! FConsole.PrintLine $"Server received and ignored message: %A{msg}"
             }
 
-        let handleClient (clientSocket: FWebSocket<int, string, exn>) =
+        let handleClient (ws: WebSocket<exn>, server: WebSocketServer<exn>) =
             fio {
-                let! remoteEndPoint = clientSocket.RemoteEndPoint()
-                let! endPoint = FIO.Attempt <| fun () -> remoteEndPoint.ToString()
-                do! FConsole.PrintLine $"Client connected from %s{endPoint}"
-                do! receiveAndSendASCII(clientSocket).Fork().Unit()
+                do! FConsole.PrintLine "Client connected"
+                do! receiveAndSendASCII(ws, server).Fork().Unit()
             }
 
         fio {
-            let! serverSocket = FServerWebSocket.Create<int, string, exn>()
-            do! serverSocket.Start url
+            let! server = WebSocketServer<exn>.Create()
+            do! server.Start url
             do! FConsole.PrintLine $"Server listening on %s{url}..."
             
             while true do
-                let! clientSocket = serverSocket.Accept()
-                do! handleClient clientSocket
+                let! ws = server.Accept().CatchAll(fun _ ->
+                    FIO.Fail (Exception "Failed to accept WebSocket connection"))
+                do! handleClient(ws, server)
         }
 
     let client url =
-
-        let send (clientSocket: FClientWebSocket<string, int, exn>) =
+        let send (ws: WebSocket<exn>) =
             fio {
-                while true do
-                    do! FConsole.Print "Enter a message ('exit' to quit): "
+                let mutable loop = true
+                while loop do
+                    do! FConsole.Print "Enter a message ('exit' to quit application): "
                     let! msg = FConsole.ReadLine
                     if msg = "exit" then
                         do! FConsole.PrintLine "Client exiting..."
-                        return! FIO.Fail (Exception "Client exited.")
-                    do! clientSocket.Send msg
-                    do! FConsole.Print $"Client sent message: %s{msg}"
+                        do! ws.Close(WebSocketCloseStatus.NormalClosure, "Client exiting")
+                        loop <- false
+                    else
+                        do! ws.SendText msg
+                        do! FConsole.PrintLine $"Client sent message: %s{msg}"
             }
 
-        let receive (clientSocket: FClientWebSocket<string, int, exn>) =
+        let receive (ws: WebSocket<exn>) =
             fio {
-                while true do
-                    let! ascii = clientSocket.Receive()
-                    do! FConsole.PrintLine $"Client received ASCII: %i{ascii}"
+                let mutable loop = true
+                while loop do
+                    match! ws.ReceiveMessage() with
+                    | Frame(Text text) ->
+                        let! ascii = FIO.Attempt (fun () -> JsonSerializer.Deserialize<int> text)
+                        do! FConsole.PrintLine $"Client received ASCII: %i{ascii}"
+                    | ConnectionClosed(status, desc) ->
+                        do! FConsole.PrintLine $"Client connection closed. Status: {status}, Description: {desc}"
+                        loop <- false
+                    | msg ->
+                        do! FConsole.PrintLine $"Client received and ignored message: %A{msg}"
             }
 
         fio {
-            let! clientSocket = FClientWebSocket.Create<string, int, exn>()
-            do! clientSocket.Connect url
-            do! send clientSocket <&> receive clientSocket
+            let! client = WebSocketClient<exn>.Create()
+            let! ws = client.Connect(Uri url)
+            do! send ws <&> receive ws
         }
 
     override _.effect =
         fio {
             do! client clientUrl <&&> server serverUrl
         }
+
 type CommandLineArgsApp(args: string array) =
     inherit SimpleFIOApp()
 

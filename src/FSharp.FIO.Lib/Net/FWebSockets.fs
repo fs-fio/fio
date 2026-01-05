@@ -8,18 +8,44 @@ open FSharp.FIO.DSL
 open System
 open System.Net
 open System.Text
+open System.Buffers
 open System.Text.Json
 open System.Threading
 open System.Net.WebSockets
 open System.Threading.Tasks
 
 /// <summary>
-/// A functional, effectful, and type-safe abstraction over a .NET WebSocket connection (server-side).
+/// Represents all WebSocket frame types.
 /// </summary>
-type FWebSocket<'S, 'R, 'E> private (ctx: HttpListenerWebSocketContext, listenerCtx: HttpListenerContext, onError: exn -> 'E, options: JsonSerializerOptions) =
+type WebSocketFrame =
+    /// Text frame containing UTF-8 encoded string data
+    | Text of string
+    /// Binary frame containing raw byte data
+    | Binary of byte[]
+    /// Close frame with status code and reason
+    | Close of WebSocketCloseStatus * string
+    /// Ping frame for keep-alive (contains payload data)
+    | Ping of byte[]
+    /// Pong frame responding to ping (contains payload data)
+    | Pong of byte[]
 
-    // Partially applied functions as it is the same
-    // onError function used everywhere in the type
+/// <summary>
+/// Messages received from a WebSocket connection.
+/// Distinguishes between frames and connection closure events.
+/// </summary>
+type WebSocketMessage =
+    /// A WebSocket frame was received
+    | Frame of WebSocketFrame
+    /// The connection was closed (with optional status and description)
+    | ConnectionClosed of WebSocketCloseStatus option * string
+
+/// <summary>
+/// A functional, effectful, and type-safe abstraction over a WebSocket connection.
+/// Works for both client and server connections after establishment.
+/// </summary>
+type WebSocket<'E> internal (socket: WebSockets.WebSocket, onError: exn -> 'E) =
+
+    // Partially applied functions for consistent error handling
     let fromFunc (func: unit -> 'T) : FIO<'T, 'E> =
         FIO.Attempt (func, onError)
 
@@ -30,574 +56,477 @@ type FWebSocket<'S, 'R, 'E> private (ctx: HttpListenerWebSocketContext, listener
         FIO.AwaitTask (task, onError)
 
     /// <summary>
-    /// Creates a new functional WebSocket from an existing context with custom error handling and JSON options.
+    /// Receives a complete message from the WebSocket, handling fragmentation automatically.
+    /// Uses buffer pooling to minimize GC pressure.
     /// </summary>
-    /// <param name="ctx">The underlying .NET WebSocket context.</param>
-    /// <param name="listenerCtx">The underlying .NET HttpListener context.</param>
-    /// <param name="onError">A function to map exceptions to the error type.</param>
-    /// <param name="options">The JSON serializer options.</param>
-    static member Create<'S, 'R, 'E> (ctx, listenerCtx, onError: exn -> 'E, options) : FIO<FWebSocket<'S, 'R, 'E>, 'E> =
+    /// <param name="cancellationToken">Optional cancellation token.</param>
+    /// <returns>A WebSocketMessage containing either a frame or connection closed event.</returns>
+    member _.ReceiveMessage (cancellationToken: CancellationToken) : FIO<WebSocketMessage, 'E> =
         fio {
-            return FWebSocket (ctx, listenerCtx, onError, options)
+            let bufferSize = 4096
+            let buffer = ArrayPool<byte>.Shared.Rent bufferSize
+
+            let! result = fio {
+                let fragments = ResizeArray<byte>()
+                let mutable endOfMessage = false
+                let mutable messageType = WebSocketMessageType.Text
+                let mutable isCloseFrame = false
+
+                while not endOfMessage do
+                    let! receiveTask = fromFunc <| fun () ->
+                        socket.ReceiveAsync(ArraySegment(buffer, 0, bufferSize), cancellationToken)
+                    let! receiveResult = awaitTaskT receiveTask
+
+                    messageType <- receiveResult.MessageType
+                    endOfMessage <- receiveResult.EndOfMessage
+
+                    if messageType = WebSocketMessageType.Close then
+                        isCloseFrame <- true
+                        endOfMessage <- true
+                    else
+                        fragments.AddRange(buffer.[0..receiveResult.Count-1])
+
+                if isCloseFrame then
+                    let status = Option.ofNullable socket.CloseStatus
+                    let desc = socket.CloseStatusDescription
+                    return ConnectionClosed (status, desc)
+                else
+                    let data = fragments.ToArray()
+                    let frame =
+                        match messageType with
+                        | WebSocketMessageType.Text ->
+                            let text = Encoding.UTF8.GetString data
+                            Text text
+                        | WebSocketMessageType.Binary ->
+                            Binary data
+                        | _ ->
+                            failwith "Unexpected message type"
+
+                    return Frame frame
+            }
+
+            do! fromFunc <| fun () -> ArrayPool<byte>.Shared.Return buffer
+            return result
         }
-    
-    /// <summary>
-    /// Creates a new functional WebSocket from an existing context with default error handling.
-    /// </summary>
-    /// <param name="ctx">The underlying .NET WebSocket context.</param>
-    /// <param name="listenerCtx">The underlying .NET HttpListener context.</param>
-    /// <param name="options">The JSON serializer options.</param>
-    static member Create<'S, 'R, 'E> (ctx, listenerCtx, options) : FIO<FWebSocket<'S, 'R, exn>, exn> =
-        FWebSocket.Create<'S, 'R, exn> (ctx, listenerCtx, id, options)
-    
-    /// <summary>
-    /// Creates a new functional WebSocket from an existing context with custom error handling.
-    /// </summary>
-    /// <param name="ctx">The underlying .NET WebSocket context.</param>
-    /// <param name="listenerCtx">The underlying .NET HttpListener context.</param>
-    /// <param name="onError">A function to map exceptions to the error type.</param>
-    static member Create<'S, 'R, 'E> (ctx, listenerCtx, onError: exn -> 'E) : FIO<FWebSocket<'S, 'R, 'E>, 'E> =
-        FWebSocket.Create<'S, 'R, 'E> (ctx, listenerCtx, onError, JsonSerializerOptions())
-    
-    /// <summary>
-    /// Creates a new functional WebSocket from an existing context with default settings.
-    /// </summary>
-    /// <param name="ctx">The underlying .NET WebSocket context.</param>
-    /// <param name="listenerCtx">The underlying .NET HttpListener context.</param>
-    static member Create<'S, 'R, 'E> (ctx, listenerCtx) : FIO<FWebSocket<'S, 'R, exn>, exn> =
-        FWebSocket.Create<'S, 'R, exn> (ctx, listenerCtx, id, JsonSerializerOptions())
 
     /// <summary>
-    /// Sends a value over the WebSocket as a JSON-serialized string.
+    /// Receives a complete message from the WebSocket with no cancellation.
     /// </summary>
-    /// <param name="msg">The value to send.</param>
-    /// <param name="messageType">The type of message to send.</param>
-    /// <param name="endOfMessage">Indicates if this is the last message to send.</param>
-    /// <param name="cancellationToken">A cancellation token for the operation.</param>
-    member _.Send<'S, 'E> (msg: 'S, messageType: WebSocketMessageType, endOfMessage: bool, cancellationToken: CancellationToken) : FIO<unit, 'E> =
+    member this.ReceiveMessage () : FIO<WebSocketMessage, 'E> =
+        this.ReceiveMessage CancellationToken.None
+
+    // ------------------------------------------------------------------------
+    // Send Operations
+    // ------------------------------------------------------------------------
+
+    /// <summary>
+    /// Sends a WebSocket frame.
+    /// </summary>
+    /// <param name="frame">The frame to send.</param>
+    /// <param name="cancellationToken">Optional cancellation token.</param>
+    member _.SendFrame (frame: WebSocketFrame, cancellationToken: CancellationToken) : FIO<unit, 'E> =
         fio {
-            let! json = fromFunc <| fun () -> JsonSerializer.Serialize(msg, options)
-            let! buffer = fromFunc <| fun () -> Encoding.UTF8.GetBytes json
-            let! sendTask = fromFunc <| fun () -> ctx.WebSocket.SendAsync(ArraySegment<byte> buffer, messageType, endOfMessage, cancellationToken)
-            do! awaitTask sendTask
-        }
+            match frame with
+            | Text text ->
+                let! buffer = fromFunc <| fun () -> Encoding.UTF8.GetBytes text
+                let! sendTask = fromFunc <| fun () ->
+                    socket.SendAsync(
+                        ArraySegment buffer,
+                        WebSocketMessageType.Text,
+                        true,
+                        cancellationToken)
+                do! awaitTask sendTask
 
-    /// <summary>
-    /// Sends a value over the WebSocket with default message type.
-    /// </summary>
-    /// <param name="msg">The value to send.</param>
-    /// <param name="endOfMessage">Indicates if this is the last message to send.</param>
-    /// <param name="cancellationToken">A cancellation token for the operation.</param>
-    member this.Send<'S, 'E> (msg: 'S, endOfMessage: bool, cancellationToken: CancellationToken) : FIO<unit, 'E> =
-        this.Send (msg, WebSocketMessageType.Text, endOfMessage, cancellationToken)
+            | Binary data ->
+                let! sendTask = fromFunc <| fun () ->
+                    socket.SendAsync(
+                        ArraySegment data,
+                        WebSocketMessageType.Binary,
+                        true,
+                        cancellationToken)
+                do! awaitTask sendTask
 
-    /// <summary>
-    /// Sends a value over the WebSocket with default endOfMessage.
-    /// </summary>
-    /// <param name="msg">The value to send.</param>
-    /// <param name="cancellationToken">A cancellation token for the operation.</param>
-    member this.Send<'S, 'E> (msg: 'S, cancellationToken: CancellationToken) : FIO<unit, 'E> =
-        this.Send (msg, true, cancellationToken)
-
-    /// <summary>
-    /// Sends a value over the WebSocket with default settings.
-    /// </summary>
-    /// <param name="msg">The value to send.</param>
-    member this.Send<'S, 'E> (msg: 'S) : FIO<unit, 'E> =
-        this.Send (msg, true, CancellationToken.None)
-
-    /// <summary>
-    /// Receives a value from the WebSocket, deserializing from JSON.
-    /// </summary>
-    /// <param name="cancellationToken">A cancellation token for the operation.</param>
-    /// <param name="bufferSize">The size of the buffer to use for receiving.</param>
-    member _.Receive<'R, 'E> (cancellationToken: CancellationToken, bufferSize: int) : FIO<'R, 'E> =
-        fio {
-            let! buffer = fromFunc <| fun () -> Array.zeroCreate bufferSize
-            let! receiveTask = fromFunc <| fun () -> ctx.WebSocket.ReceiveAsync(ArraySegment<byte> buffer, cancellationToken)
-            let! receiveResult = awaitTaskT receiveTask
-            
-            if receiveResult.MessageType = WebSocketMessageType.Close then
-                let! closeTask = fromFunc <| fun () -> ctx.WebSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Received Close message", CancellationToken.None)
+            | Close (status, description) ->
+                let! closeTask = fromFunc <| fun () ->
+                    socket.CloseAsync(status, description, cancellationToken)
                 do! awaitTask closeTask
-                return! FIO.Fail (onError <| Exception "Received Close message")
-            else
-                let! json = fromFunc <| fun () -> Encoding.UTF8.GetString(buffer, 0, receiveResult.Count)
-                let! msg = fromFunc <| fun () -> JsonSerializer.Deserialize<'R>(json, options)
-                return msg
+
+            | Ping data ->
+                // Note: .NET WebSockets don't have explicit ping/pong at the API level
+                // They're handled automatically by the implementation
+                // We send as binary for now - users can implement custom ping/pong if needed
+                let! sendTask = fromFunc <| fun () ->
+                    socket.SendAsync(
+                        ArraySegment data,
+                        WebSocketMessageType.Binary,
+                        true,
+                        cancellationToken)
+                do! awaitTask sendTask
+
+            | Pong data ->
+                // Same as Ping - .NET handles this automatically
+                let! sendTask = fromFunc <| fun () ->
+                    socket.SendAsync(
+                        ArraySegment data,
+                        WebSocketMessageType.Binary,
+                        true,
+                        cancellationToken)
+                do! awaitTask sendTask
         }
 
     /// <summary>
-    /// Receives a value from the WebSocket with default buffer size.
+    /// Sends a WebSocket frame with no cancellation.
     /// </summary>
-    /// <param name="cancellationToken">A cancellation token for the operation.</param>
-    member this.Receive<'R, 'E> (cancellationToken: CancellationToken) : FIO<'R, 'E> =
-        this.Receive (cancellationToken, 1024)
-        
-    /// <summary>
-    /// Receives a value from the WebSocket with default settings.
-    /// </summary>
-    member this.Receive<'R, 'E> () : FIO<'R, 'E> =
-        this.Receive (CancellationToken.None, 1024)
+    member this.SendFrame (frame: WebSocketFrame) : FIO<unit, 'E> =
+        this.SendFrame(frame, CancellationToken.None)
 
     /// <summary>
-    /// Closes the WebSocket with the specified status, description and cancellation.
+    /// Sends a text frame.
     /// </summary>
-    /// <param name="closeStatus">The status to close with.</param>
+    /// <param name="text">The text to send.</param>
+    /// <param name="cancellationToken">Optional cancellation token.</param>
+    member this.SendText (text: string, cancellationToken: CancellationToken) : FIO<unit, 'E> =
+        this.SendFrame(Text text, cancellationToken)
+
+    /// <summary>
+    /// Sends a text frame with no cancellation.
+    /// </summary>
+    member this.SendText (text: string) : FIO<unit, 'E> =
+        this.SendText(text, CancellationToken.None)
+
+    /// <summary>
+    /// Sends a binary frame.
+    /// </summary>
+    /// <param name="data">The binary data to send.</param>
+    /// <param name="cancellationToken">Optional cancellation token.</param>
+    member this.SendBinary (data: byte[], cancellationToken: CancellationToken) : FIO<unit, 'E> =
+        this.SendFrame(Binary data, cancellationToken)
+
+    /// <summary>
+    /// Sends a binary frame with no cancellation.
+    /// </summary>
+    member this.SendBinary (data: byte[]) : FIO<unit, 'E> =
+        this.SendBinary(data, CancellationToken.None)
+
+    /// <summary>
+    /// Sends a ping frame.
+    /// Note: .NET WebSockets handle ping/pong automatically in most cases.
+    /// </summary>
+    /// <param name="data">Optional payload data.</param>
+    /// <param name="cancellationToken">Optional cancellation token.</param>
+    member this.SendPing (data: byte[], cancellationToken: CancellationToken) : FIO<unit, 'E> =
+        this.SendFrame(Ping data, cancellationToken)
+
+    /// <summary>
+    /// Sends a ping frame with no cancellation.
+    /// </summary>
+    member this.SendPing (data: byte[]) : FIO<unit, 'E> =
+        this.SendPing(data, CancellationToken.None)
+
+    /// <summary>
+    /// Sends a ping frame with empty payload.
+    /// </summary>
+    member this.SendPing () : FIO<unit, 'E> =
+        this.SendPing(Array.empty, CancellationToken.None)
+
+    /// <summary>
+    /// Sends a pong frame in response to a ping.
+    /// Note: .NET WebSockets handle ping/pong automatically in most cases.
+    /// </summary>
+    /// <param name="data">The payload data (typically echoing the ping payload).</param>
+    /// <param name="cancellationToken">Optional cancellation token.</param>
+    member this.SendPong (data: byte[], cancellationToken: CancellationToken) : FIO<unit, 'E> =
+        this.SendFrame(Pong data, cancellationToken)
+
+    /// <summary>
+    /// Sends a pong frame with no cancellation.
+    /// </summary>
+    member this.SendPong (data: byte[]) : FIO<unit, 'E> =
+        this.SendPong(data, CancellationToken.None)
+
+    /// <summary>
+    /// Closes the WebSocket connection with the specified status and description.
+    /// </summary>
+    /// <param name="closeStatus">The WebSocket close status.</param>
     /// <param name="statusDescription">A description for the close status.</param>
-    /// <param name="cancellationToken">A cancellation token for the operation.</param>
-    member _.Close<'E> (closeStatus: WebSocketCloseStatus, statusDescription: string, cancellationToken: CancellationToken) : FIO<unit, 'E> =
+    /// <param name="cancellationToken">Optional cancellation token.</param>
+    member _.Close (closeStatus: WebSocketCloseStatus, statusDescription: string, cancellationToken: CancellationToken) : FIO<unit, 'E> =
         fio {
-            let! closeTask = fromFunc <| fun () -> ctx.WebSocket.CloseAsync(closeStatus, statusDescription, cancellationToken)
+            let! closeTask = fromFunc <| fun () ->
+                socket.CloseAsync(closeStatus, statusDescription, cancellationToken)
             do! awaitTask closeTask
         }
 
     /// <summary>
-    /// Closes the WebSocket with the specified status and description.
+    /// Closes the WebSocket connection with the specified status and description.
     /// </summary>
-    /// <param name="closeStatus">The status to close with.</param>
-    /// <param name="statusDescription">A description for the close status.</param>
-    member this.Close<'E> (closeStatus: WebSocketCloseStatus, statusDescription: string) : FIO<unit, 'E> =
-        this.Close (closeStatus, statusDescription, CancellationToken.None)
+    member this.Close (closeStatus: WebSocketCloseStatus, statusDescription: string) : FIO<unit, 'E> =
+        this.Close(closeStatus, statusDescription, CancellationToken.None)
 
     /// <summary>
-    /// Closes the WebSocket with normal closure.
+    /// Closes the WebSocket connection with normal closure.
     /// </summary>
-    /// <param name="cancellationToken">A cancellation token for the operation.</param>
-    member this.Close<'E> (cancellationToken: CancellationToken) : FIO<unit, 'E> =
-        this.Close (WebSocketCloseStatus.NormalClosure, "Normal Closure", cancellationToken)
+    member this.Close (cancellationToken: CancellationToken) : FIO<unit, 'E> =
+        this.Close(WebSocketCloseStatus.NormalClosure, "Normal closure", cancellationToken)
 
     /// <summary>
-    /// Closes the WebSocket with normal closure.
+    /// Closes the WebSocket connection with normal closure.
     /// </summary>
-    member this.Close<'E> () : FIO<unit, 'E> =
+    member this.Close () : FIO<unit, 'E> =
         this.Close CancellationToken.None
 
     /// <summary>
-    /// Aborts the WebSocket connection.
+    /// Closes the outgoing side of the WebSocket connection (half-close).
     /// </summary>
-    member _.Abort<'E> () : FIO<unit, 'E> =
+    /// <param name="closeStatus">The WebSocket close status.</param>
+    /// <param name="statusDescription">A description for the close status.</param>
+    /// <param name="cancellationToken">Optional cancellation token.</param>
+    member _.CloseOutput (closeStatus: WebSocketCloseStatus, statusDescription: string, cancellationToken: CancellationToken) : FIO<unit, 'E> =
         fio {
-            do! fromFunc <| fun () -> ctx.WebSocket.Abort ()
+            let! closeTask = fromFunc <| fun () ->
+                socket.CloseOutputAsync(closeStatus, statusDescription, cancellationToken)
+            do! awaitTask closeTask
         }
 
     /// <summary>
-    /// Gets the remote endpoint of the WebSocket connection.
+    /// Closes the outgoing side of the WebSocket connection.
     /// </summary>
-    member _.RemoteEndPoint<'E> () : FIO<IPEndPoint, 'E> =
+    member this.CloseOutput (closeStatus: WebSocketCloseStatus, statusDescription: string) : FIO<unit, 'E> =
+        this.CloseOutput(closeStatus, statusDescription, CancellationToken.None)
+
+    /// <summary>
+    /// Closes the outgoing side with normal closure.
+    /// </summary>
+    member this.CloseOutput () : FIO<unit, 'E> =
+        this.CloseOutput(WebSocketCloseStatus.NormalClosure, "Normal closure", CancellationToken.None)
+
+    /// <summary>
+    /// Aborts the WebSocket connection immediately.
+    /// </summary>
+    member _.Abort () : FIO<unit, 'E> =
         fio {
-            return! fromFunc <| fun () -> listenerCtx.Request.RemoteEndPoint
+            do! fromFunc <| fun () -> socket.Abort()
+        }
+    
+    /// <summary>
+    /// Gets the current state of the WebSocket connection.
+    /// </summary>
+    member _.State () : FIO<WebSocketState, 'E> =
+        fio {
+            return! fromFunc <| fun () -> socket.State
         }
 
     /// <summary>
-    /// Gets the local endpoint of the WebSocket connection.
+    /// Gets the close status if the connection is closed.
     /// </summary>
-    member _.LocalEndPoint<'E> () : FIO<IPEndPoint, 'E> =
+    member _.CloseStatus () : FIO<WebSocketCloseStatus option, 'E> =
         fio {
-            return! fromFunc <| fun () -> listenerCtx.Request.LocalEndPoint
+            return! fromFunc <| fun () -> Option.ofNullable socket.CloseStatus
         }
 
     /// <summary>
-    /// Gets the state of the WebSocket.
+    /// Gets the close status description if the connection is closed.
     /// </summary>
-    member _.State<'E> () : FIO<WebSocketState, 'E> =
+    member _.CloseStatusDescription () : FIO<string, 'E> =
         fio {
-            return! fromFunc <| fun () -> ctx.WebSocket.State
+            return! fromFunc <| fun () -> socket.CloseStatusDescription
         }
 
     /// <summary>
     /// Gets the negotiated subprotocol, if any.
     /// </summary>
-    member _.Subprotocol<'E> () : FIO<string, 'E> =
+    member _.Subprotocol () : FIO<string, 'E> =
         fio {
-            return! fromFunc <| fun () -> ctx.WebSocket.SubProtocol
-        }
-
-    /// <summary>
-    /// Closes the outgoing side of the WebSocket connection.
-    /// </summary>
-    /// <param name="closeStatus">The status to close with.</param>
-    /// <param name="statusDescription">A description for the close status.</param>
-    /// <param name="cancellationToken">A cancellation token for the operation.</param>
-    member _.CloseOutput<'E> (closeStatus: WebSocketCloseStatus, statusDescription: string, cancellationToken: CancellationToken) : FIO<unit, 'E> =
-        fio {
-            let! closeTask = fromFunc <| fun () -> ctx.WebSocket.CloseOutputAsync(closeStatus, statusDescription, cancellationToken)
-            do! awaitTask closeTask
-        }
-
-    /// <summary>
-    /// Closes the outgoing side of the WebSocket connection.
-    /// </summary>
-    /// <param name="closeStatus">The status to close with.</param>
-    /// <param name="statusDescription">A description for the close status.</param>
-    member this.CloseOutput<'E> (closeStatus: WebSocketCloseStatus, statusDescription: string) : FIO<unit, 'E> =
-        this.CloseOutput (closeStatus, statusDescription, CancellationToken.None)
-
-    /// <summary>
-    /// Closes the outgoing side of the WebSocket connection with normal closure.
-    /// </summary>
-    member this.CloseOutput<'E> () : FIO<unit, 'E> =
-        this.CloseOutput (WebSocketCloseStatus.NormalClosure, "Normal Closure", CancellationToken.None)
-
-    /// <summary>
-    /// Gets the close status of the WebSocket connection, if closed.
-    /// </summary>
-    member _.CloseStatus<'E> () : FIO<WebSocketCloseStatus option, 'E> =
-        fio {
-            return! fromFunc <| fun () -> Option.ofNullable ctx.WebSocket.CloseStatus
-        }
-
-    /// <summary>
-    /// Gets the close status description of the WebSocket connection.
-    /// </summary>
-    member _.CloseStatusDescription<'E> () : FIO<string, 'E> =
-        fio {
-            return! fromFunc <| fun () -> ctx.WebSocket.CloseStatusDescription
+            return! fromFunc <| fun () -> socket.SubProtocol
         }
 
     /// <summary>
     /// Disposes the underlying WebSocket.
     /// </summary>
-    member _.Dispose<'E> () : FIO<unit, 'E> =
+    member _.Dispose () : FIO<unit, 'E> =
         fio {
-            do! fromFunc <| fun () -> (ctx.WebSocket :> IDisposable).Dispose ()
+            do! fromFunc <| fun () -> socket.Dispose()
         }
+
+    /// Internal accessor for JSON extensions
+    member internal _.OnError = onError
 
 /// <summary>
-/// A functional, effectful, and type-safe abstraction over a .NET server-side WebSocket listener.
+/// A WebSocket client for establishing outgoing connections.
 /// </summary>
-type FServerWebSocket<'S, 'R, 'E> private (listener: HttpListener, onError: exn -> 'E, options: JsonSerializerOptions) =
-
-    // Partially applied functions as it is the same
-    // onError function used everywhere in the type
-    let fromFunc (func: unit -> 'T) : FIO<'T, 'E> =
-        FIO.Attempt (func, onError)
-
-    let awaitTask (task: Task) : FIO<unit, 'E> =
-        FIO.AwaitTask (task, onError)
-
-    let awaitTaskT (task: Task<'T>) : FIO<'T, 'E> =
-        FIO.AwaitTask (task, onError)
+type WebSocketClient<'E> private (clientSocket: ClientWebSocket, onError: exn -> 'E) =
 
     /// <summary>
-    /// Creates a new functional server WebSocket listener.
+    /// Creates a new WebSocket client.
     /// </summary>
-    /// <param name="onError">A function to map exceptions to the error type.</param>
-    /// <param name="options">The JSON serializer options.</param>
-    static member Create<'S, 'R, 'E> (onError: exn -> 'E, options: JsonSerializerOptions) : FIO<FServerWebSocket<'S, 'R, 'E>, 'E> =
+    /// <param name="onError">Function to map exceptions to the error type.</param>
+    static member Create (onError: exn -> 'E) : FIO<WebSocketClient<'E>, 'E> =
         fio {
-            let! listener = FIO.Attempt ((fun () -> new HttpListener()), onError)
-            return FServerWebSocket (listener, onError, options)
+            let! clientSocket = FIO.Attempt((fun () -> new ClientWebSocket()), onError)
+            return WebSocketClient(clientSocket, onError)
         }
-    
-    /// <summary>
-    /// Creates a new functional server WebSocket listener with default error handling.
-    /// </summary>
-    /// <param name="options">The JSON serializer options.</param>
-    static member Create<'S, 'R, 'E> (options: JsonSerializerOptions) : FIO<FServerWebSocket<'S, 'R, exn>, exn> =
-        FServerWebSocket.Create<'S, 'R, exn> (id, options)
-    
-    /// <summary>
-    /// Creates a new functional server WebSocket listener with custom error handling.
-    /// </summary>
-    /// <param name="onError">A function to map exceptions to the error type.</param>
-    static member Create<'S, 'R, 'E> (onError: exn -> 'E) : FIO<FServerWebSocket<'S, 'R, 'E>, 'E> =
-        FServerWebSocket.Create<'S, 'R, 'E> (onError, JsonSerializerOptions())
 
     /// <summary>
-    /// Creates a new functional server WebSocket listener with default settings.
+    /// Creates a new WebSocket client with default error handling (exn).
     /// </summary>
-    static member Create<'S, 'R, 'E> () : FIO<FServerWebSocket<'S, 'R, exn>, exn> =
-        FServerWebSocket.Create<'S, 'R, exn> (id, JsonSerializerOptions())
+    static member Create () : FIO<WebSocketClient<exn>, exn> =
+        WebSocketClient<exn>.Create id
 
     /// <summary>
-    /// Starts the HTTP listener for accepting WebSocket connections.
+    /// Connects to a WebSocket server at the specified URI.
     /// </summary>
-    /// <param name="url">The URL to listen on.</param>
-    member _.Start<'E> url : FIO<unit, 'E> =
+    /// <param name="uri">The WebSocket server URI.</param>
+    /// <param name="cancellationToken">Optional cancellation token.</param>
+    /// <returns>A connected WebSocket.</returns>
+    member _.Connect (uri: Uri, cancellationToken: CancellationToken) : FIO<WebSocket<'E>, 'E> =
         fio {
-            do! fromFunc <| fun () -> listener.Prefixes.Add url
-            do! fromFunc <| fun () -> listener.Start()
+            let! connectTask = FIO.Attempt((fun () -> clientSocket.ConnectAsync(uri, cancellationToken)), onError)
+            do! FIO.AwaitTask(connectTask, onError)
+            return WebSocket<'E>(clientSocket :> WebSockets.WebSocket, onError)
+        }
+
+    /// <summary>
+    /// Connects to a WebSocket server at the specified URI.
+    /// </summary>
+    member this.Connect (uri: Uri) : FIO<WebSocket<'E>, 'E> =
+        this.Connect(uri, CancellationToken.None)
+
+    /// <summary>
+    /// Connects to a WebSocket server at the specified URL.
+    /// </summary>
+    /// <param name="url">The WebSocket server URL.</param>
+    /// <parameter name="cancellationToken">Optional cancellation token.</param>
+    member this.Connect (url: string, cancellationToken: CancellationToken) : FIO<WebSocket<'E>, 'E> =
+        fio {
+            let! uri = FIO.Attempt((fun () -> Uri url), onError)
+            return! this.Connect(uri, cancellationToken)
+        }
+
+    /// <summary>
+    /// Connects to a WebSocket server at the specified URL.
+    /// </summary>
+    member this.Connect (url: string) : FIO<WebSocket<'E>, 'E> =
+        this.Connect(url, CancellationToken.None)
+/// <summary>
+/// A WebSocket server for accepting incoming connections.
+/// </summary>
+type WebSocketServer<'E> private (listener: HttpListener, onError: exn -> 'E) =
+
+    /// <summary>
+    /// Creates a new WebSocket server.
+    /// </summary>
+    /// <param name="onError">Function to map exceptions to the error type.</param>
+    static member Create (onError: exn -> 'E) : FIO<WebSocketServer<'E>, 'E> =
+        fio {
+            let! listener = FIO.Attempt((fun () -> new HttpListener()), onError)
+            return WebSocketServer(listener, onError)
+        }
+
+    /// <summary>
+    /// Creates a new WebSocket server with default error handling (exn).
+    /// </summary>
+    static member Create () : FIO<WebSocketServer<exn>, exn> =
+        WebSocketServer<exn>.Create id
+
+    /// <summary>
+    /// Starts the server listening on the specified URL prefix.
+    /// </summary>
+    /// <param name="url">The URL prefix to listen on (e.g., "http://localhost:8080/").</param>
+    member _.Start (url: string) : FIO<unit, 'E> =
+        fio {
+            do! FIO.Attempt((fun () -> listener.Prefixes.Add url), onError)
+            do! FIO.Attempt((fun () -> listener.Start()), onError)
         }
 
     /// <summary>
     /// Accepts an incoming WebSocket connection.
     /// </summary>
-    /// <param name="subProtocol">The subprotocol to negotiate, or null.</param>
-    member _.Accept<'S, 'R, 'E> (subProtocol: string | null) : FIO<FWebSocket<'S, 'R, 'E>, 'E> =
+    /// <param name="subProtocol">Optional subprotocol to negotiate.</param>
+    /// <returns>A connected WebSocket.</returns>
+    member _.Accept (subProtocol: string option) : FIO<WebSocket<'E>, 'E> =
         fio {
-            let! listenerCtxTask = fromFunc <| fun () -> listener.GetContextAsync()
-            let! listenerCtx = awaitTaskT listenerCtxTask
-            
+            let! listenerCtxTask = FIO.Attempt((fun () -> listener.GetContextAsync()), onError)
+            let! listenerCtx = FIO.AwaitTask(listenerCtxTask, onError)
+
             if listenerCtx.Request.IsWebSocketRequest then
-                let! ctxTask = fromFunc <| fun () -> listenerCtx.AcceptWebSocketAsync subProtocol
-                let! ctx = awaitTaskT ctxTask
-                return! FWebSocket.Create<'S, 'R, 'E> (ctx, listenerCtx, onError, options)
+                let subProto = match subProtocol with | Some s -> s | None -> null
+                let! ctxTask = FIO.Attempt((fun () -> listenerCtx.AcceptWebSocketAsync subProto), onError)
+                let! ctx = FIO.AwaitTask(ctxTask, onError)
+                return WebSocket<'E>(ctx.WebSocket, onError)
             else
-                do! fromFunc <| fun () -> listenerCtx.Response.StatusCode <- 400
-                do! fromFunc <| fun () -> listenerCtx.Response.Close()
-                let! error = FIO.Fail (onError <| Exception "Not a WebSocket request")
-                return error
+                do! FIO.Attempt((fun () -> listenerCtx.Response.StatusCode <- 400), onError)
+                do! FIO.Attempt((fun () -> listenerCtx.Response.Close()), onError)
+                return! FIO.Fail (onError <| Exception "Not a WebSocket request")
         }
-    
+
     /// <summary>
     /// Accepts an incoming WebSocket connection with no subprotocol.
     /// </summary>
-    member this.Accept<'S, 'R, 'E> () : FIO<FWebSocket<'S, 'R, 'E>, 'E> =
-        this.Accept<'S, 'R, 'E> null
+    member this.Accept () : FIO<WebSocket<'E>, 'E> =
+        this.Accept None
 
     /// <summary>
-    /// Stops the HTTP listener.
+    /// Stops the server.
     /// </summary>
-    member _.Close<'E> () : FIO<unit, 'E> =
+    member _.Close () : FIO<unit, 'E> =
         fio {
-            do! fromFunc <| fun () -> listener.Stop ()
+            do! FIO.Attempt((fun () -> listener.Stop()), onError)
         }
 
     /// <summary>
-    /// Aborts the HTTP listener.
+    /// Aborts the server immediately.
     /// </summary>
-    member _.Abort<'E> () : FIO<unit, 'E> =
+    member _.Abort () : FIO<unit, 'E> =
         fio {
-            do! fromFunc <| fun () -> listener.Abort ()
+            do! FIO.Attempt((fun () -> listener.Abort()), onError)
         }
 
 /// <summary>
-/// A functional, effectful, and type-safe abstraction over a .NET client WebSocket.
+/// Optional extension methods for JSON serialization over WebSockets.
+/// Provides convenient SendJson/ReceiveJson methods on top of the frame-based API.
 /// </summary>
-type FClientWebSocket<'S, 'R, 'E> private (clientWebSocket: ClientWebSocket, onError: exn -> 'E, options: JsonSerializerOptions) =
+[<AutoOpen>]
+module WebSocketJsonExtensions =
 
-    // Partially applied functions as it is the same
-    // onError function used everywhere in the type
-    let fromFunc (func: unit -> 'T) : FIO<'T, 'E> =
-        FIO.Attempt (func, onError)
+    type WebSocket<'E> with
 
-    let awaitTask (task: Task) : FIO<unit, 'E> =
-        FIO.AwaitTask (task, onError)
+        /// <summary>
+        /// Sends a value as JSON over the WebSocket.
+        /// Serializes the value to JSON and sends as a Text frame.
+        /// </summary>
+        /// <param name="value">The value to send.</param>
+        /// <param name="options">Optional JSON serializer options.</param>
+        /// <param name="cancellationToken">Optional cancellation token.</param>
+        member this.SendJson<'T> (value: 'T, ?options: JsonSerializerOptions, ?cancellationToken: CancellationToken) : FIO<unit, 'E> =
+            fio {
+                let opts = defaultArg options (JsonSerializerOptions())
+                let ct = defaultArg cancellationToken CancellationToken.None
+                let! json = FIO.Attempt((fun () -> JsonSerializer.Serialize(value, opts)), this.OnError)
+                do! this.SendText(json, ct)
+            }
 
-    let awaitTaskT (task: Task<'T>) : FIO<'T, 'E> =
-        FIO.AwaitTask (task, onError)
+        /// <summary>
+        /// Receives and deserializes a JSON value from the WebSocket.
+        /// Waits for a Text frame and deserializes it as JSON.
+        /// </summary>
+        /// <param name="options">Optional JSON serializer options.</param>
+        /// <param name="cancellationToken">Optional cancellation token.</param>
+        /// <returns>The deserialized value.</returns>
+        member this.ReceiveJson<'T> (?options: JsonSerializerOptions, ?cancellationToken: CancellationToken) : FIO<'T, 'E> =
+            fio {
+                let opts = defaultArg options (JsonSerializerOptions())
+                let ct = defaultArg cancellationToken CancellationToken.None
+                let! msg = this.ReceiveMessage ct
 
-    /// <summary>
-    /// Creates a new functional client WebSocket.
-    /// </summary>
-    /// <param name="onError">A function to map exceptions to the error type.</param>
-    /// <param name="options">The JSON serializer options.</param>
-    static member Create<'S, 'R, 'E> (onError: exn -> 'E, options: JsonSerializerOptions) : FIO<FClientWebSocket<'S, 'R, 'E>, 'E> =
-        fio {
-            let! clientWebSocket = FIO.Attempt ((fun () -> new ClientWebSocket()), onError)
-            return FClientWebSocket (clientWebSocket, onError, options)
-        }
-    
-    /// <summary>
-    /// Creates a new functional client WebSocket with default error handling.
-    /// </summary>
-    /// <param name="options">The JSON serializer options.</param>
-    static member Create<'S, 'R, 'E> (options: JsonSerializerOptions) : FIO<FClientWebSocket<'S, 'R, exn>, exn> =
-        FClientWebSocket.Create<'S, 'R, exn> (id, options)
-    
-    /// <summary>
-    /// Creates a new functional client WebSocket with custom error handling.
-    /// </summary>
-    /// <param name="onError">A function to map exceptions to the error type.</param>
-    static member Create<'S, 'R, 'E> (onError: exn -> 'E) : FIO<FClientWebSocket<'S, 'R, 'E>, 'E> =
-        FClientWebSocket.Create<'S, 'R, 'E> (onError, JsonSerializerOptions())
-
-    /// <summary>
-    /// Creates a new functional client WebSocket with default settings.
-    /// </summary>
-    static member Create<'S, 'R, 'E> () : FIO<FClientWebSocket<'S, 'R, exn>, exn> =
-        FClientWebSocket.Create<'S, 'R, exn> (id, JsonSerializerOptions())
-    
-    /// <summary>
-    /// Connects the client WebSocket to the specified URL.
-    /// </summary>
-    /// <param name="url">The URL to connect to.</param>
-    /// <param name="cancellationToken">A cancellation token for the operation.</param>
-    member _.Connect<'E> (url, cancellationToken: CancellationToken) : FIO<unit, 'E> =
-        fio {
-            let! uri = fromFunc <| fun () -> Uri url
-            let! connectTask = fromFunc <| fun () -> clientWebSocket.ConnectAsync(uri, cancellationToken)
-            do! awaitTask connectTask
-        }
-
-    /// <summary>
-    /// Connects the client WebSocket to the specified URL.
-    /// </summary>
-    /// <param name="url">The URL to connect to.</param>
-    member this.Connect<'E> url : FIO<unit, 'E> =
-        this.Connect (url, CancellationToken.None)
-        
-    /// <summary>
-    /// Sends a value over the client WebSocket as a JSON-serialized string.
-    /// </summary>
-    /// <param name="msg">The value to send.</param>
-    /// <param name="messageType">The type of message to send.</param>
-    /// <param name="endOfMessage">Indicates if this is the last message to send.</param>
-    /// <param name="cancellationToken">A cancellation token for the operation.</param>
-    member _.Send<'S, 'E> (msg: 'S, messageType: WebSocketMessageType, endOfMessage: bool, cancellationToken: CancellationToken) : FIO<unit, 'E> =
-        fio {
-            let! json = fromFunc <| fun () -> JsonSerializer.Serialize(msg, options)
-            let! buffer = fromFunc <| fun () -> Encoding.UTF8.GetBytes json
-            let! sendTask = fromFunc <| fun () -> clientWebSocket.SendAsync(ArraySegment buffer, messageType, endOfMessage, cancellationToken)
-            do! awaitTask sendTask
-        }
-
-    /// <summary>
-    /// Sends a value over the client WebSocket with default message type.
-    /// </summary>
-    /// <param name="msg">The value to send.</param>
-    /// <param name="endOfMessage">Indicates if this is the last message to send.</param>
-    /// <param name="cancellationToken">A cancellation token for the operation.</param>
-    member this.Send<'S, 'E> (msg: 'S, endOfMessage: bool, cancellationToken: CancellationToken) : FIO<unit, 'E> =
-        this.Send (msg, WebSocketMessageType.Text, endOfMessage, cancellationToken)
-
-    /// <summary>
-    /// Sends a value over the client WebSocket with default endOfMessage.
-    /// </summary>
-    /// <param name="msg">The value to send.</param>
-    /// <param name="cancellationToken">A cancellation token for the operation.</param>
-    member this.Send<'S, 'E> (msg: 'S, cancellationToken: CancellationToken) : FIO<unit, 'E> =
-        this.Send (msg, true, cancellationToken)
-
-    /// <summary>
-    /// Sends a value over the client WebSocket with default settings.
-    /// </summary>
-    /// <param name="msg">The value to send.</param>
-    member this.Send<'S, 'E> (msg: 'S) : FIO<unit, 'E> =
-        this.Send (msg, true, CancellationToken.None)
-
-    /// <summary>
-    /// Receives a value from the client WebSocket, deserializing from JSON.
-    /// </summary>
-    /// <param name="cancellationToken">A cancellation token for the operation.</param>
-    /// <param name="bufferSize">The size of the buffer to use for receiving.</param>
-    member _.Receive<'R, 'E> (cancellationToken: CancellationToken, bufferSize: int) : FIO<'R, 'E> =
-        fio {
-            let! buffer = fromFunc <| fun () -> Array.zeroCreate bufferSize
-            let! receiveTask = fromFunc <| fun () -> clientWebSocket.ReceiveAsync(ArraySegment buffer, cancellationToken)
-            let! receiveResult = awaitTaskT receiveTask
-            let! json = fromFunc <| fun () -> Encoding.UTF8.GetString(buffer, 0, receiveResult.Count)
-            let! msg = fromFunc <| fun () -> JsonSerializer.Deserialize<'R>(json, options)
-            return msg
-        }
-
-    /// <summary>
-    /// Receives a value from the client WebSocket with default buffer size.
-    /// </summary>
-    /// <param name="cancellationToken">A cancellation token for the operation.</param>
-    member this.Receive<'R, 'E> (cancellationToken: CancellationToken) : FIO<'R, 'E> =
-        this.Receive (cancellationToken, 1024)
-    
-    /// <summary>
-    /// Receives a value from the client WebSocket with default settings.
-    /// </summary>
-    member this.Receive<'R, 'E> () : FIO<'R, 'E> =
-        this.Receive (CancellationToken.None, 1024)
-
-    /// <summary>
-    /// Closes the client WebSocket with the specified status, description and cancellation.
-    /// </summary>
-    /// <param name="closeStatus">The status to close with.</param>
-    /// <param name="statusDescription">A description for the close status.</param>
-    /// <param name="cancellationToken">A cancellation token for the operation.</param>
-    member _.Close<'E> (closeStatus: WebSocketCloseStatus, statusDescription: string, cancellationToken: CancellationToken) : FIO<unit, 'E> =
-        fio {
-            let! closeTask = fromFunc <| fun () -> clientWebSocket.CloseAsync(closeStatus, statusDescription, cancellationToken)
-            do! awaitTask closeTask
-        }
-
-    /// <summary>
-    /// Closes the client WebSocket with the specified status and description.
-    /// </summary>
-    /// <param name="closeStatus">The status to close with.</param>
-    /// <param name="statusDescription">A description for the close status.</param>
-    member this.Close<'E> (closeStatus: WebSocketCloseStatus, statusDescription: string) : FIO<unit, 'E> =
-        this.Close (closeStatus, statusDescription, CancellationToken.None)
-
-    /// <summary>
-    /// Closes the client WebSocket with normal closure.
-    /// </summary>
-    /// <param name="cancellationToken">A cancellation token for the operation.</param>
-    member this.Close<'E> (cancellationToken: CancellationToken) : FIO<unit, 'E> =
-        this.Close (WebSocketCloseStatus.NormalClosure, "Normal Closure", cancellationToken)
-
-    /// <summary>
-    /// Closes the client WebSocket with normal closure.
-    /// </summary>
-    member this.Close<'E> () : FIO<unit, 'E> =
-        this.Close CancellationToken.None
-
-    /// <summary>
-    /// Aborts the client WebSocket connection.
-    /// </summary>
-    member _.Abort<'E> () : FIO<unit, 'E> =
-        fio {
-            do! fromFunc <| fun () -> clientWebSocket.Abort()
-        }
-
-    /// <summary>
-    /// Gets the state of the WebSocket.
-    /// </summary>
-    member _.State<'E> () : FIO<WebSocketState, 'E> =
-        fio {
-            return! fromFunc <| fun () -> clientWebSocket.State
-        }
-
-    /// <summary>
-    /// Gets the negotiated subprotocol, if any.
-    /// </summary>
-    member _.Subprotocol<'E> () : FIO<string, 'E> =
-        fio {
-            return! fromFunc <| fun () -> clientWebSocket.SubProtocol
-        }
-
-    /// <summary>
-    /// Closes the outgoing side of the client WebSocket connection.
-    /// </summary>
-    /// <param name="closeStatus">The status to close with.</param>
-    /// <param name="statusDescription">A description for the close status.</param>
-    /// <param name="cancellationToken">A cancellation token for the operation.</param>
-    member _.CloseOutput<'E> (closeStatus: WebSocketCloseStatus, statusDescription: string, cancellationToken: CancellationToken) : FIO<unit, 'E> =
-        fio {
-            let! closeTask = fromFunc <| fun () -> clientWebSocket.CloseOutputAsync(closeStatus, statusDescription, cancellationToken)
-            do! awaitTask closeTask
-        }
-
-    /// <summary>
-    /// Closes the outgoing side of the client WebSocket connection.
-    /// </summary>
-    /// <param name="closeStatus">The status to close with.</param>
-    /// <param name="statusDescription">A description for the close status.</param>
-    member this.CloseOutput<'E> (closeStatus: WebSocketCloseStatus, statusDescription: string) : FIO<unit, 'E> =
-        this.CloseOutput (closeStatus, statusDescription, CancellationToken.None)
-
-    /// <summary>
-    /// Closes the outgoing side of the client WebSocket connection with normal closure.
-    /// </summary>
-    member this.CloseOutput<'E> () : FIO<unit, 'E> =
-        this.CloseOutput (WebSocketCloseStatus.NormalClosure, "Normal Closure", CancellationToken.None)
-
-    /// <summary>
-    /// Gets the close status of the client WebSocket connection, if closed.
-    /// </summary>
-    member _.CloseStatus<'E> () : FIO<WebSocketCloseStatus option, 'E> =
-        fio {
-            return! fromFunc <| fun () -> Option.ofNullable clientWebSocket.CloseStatus
-        }
-
-    /// <summary>
-    /// Gets the close status description of the client WebSocket connection.
-    /// </summary>
-    member _.CloseStatusDescription<'E> () : FIO<string, 'E> =
-        fio {
-            return! fromFunc <| fun () -> clientWebSocket.CloseStatusDescription
-        }
-
-    /// <summary>
-    /// Disposes the underlying client WebSocket.
-    /// </summary>
-    member _.Dispose<'E> () : FIO<unit, 'E> =
-        fio {
-            do! fromFunc <| fun () -> (clientWebSocket :> IDisposable).Dispose ()
-        }
+                match msg with
+                | Frame (Text json) ->
+                    return! FIO.Attempt((fun () -> JsonSerializer.Deserialize<'T>(json, opts)), this.OnError)
+                | Frame (Binary _) ->
+                    return! FIO.Fail (this.OnError (Exception "Expected text frame for JSON, got binary"))
+                | Frame (Close _) ->
+                    return! FIO.Fail (this.OnError (Exception "Connection closed while waiting for JSON"))
+                | Frame (Ping _) | Frame (Pong _) ->
+                    return! FIO.Fail (this.OnError (Exception "Expected text frame for JSON, got control frame"))
+                | ConnectionClosed (status, desc) ->
+                    return! FIO.Fail (this.OnError (Exception $"Connection closed. Status: {status}, Description: {desc}"))
+            }
