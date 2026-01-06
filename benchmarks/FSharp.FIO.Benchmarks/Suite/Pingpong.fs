@@ -1,4 +1,4 @@
-﻿(****************************************************************************)
+(****************************************************************************)
 (* Pingpong benchmark                                                       *)
 (* Measures: Message delivery overhead                                      *)
 (* Savina benchmark #1                                                      *)
@@ -9,7 +9,7 @@ module private FSharp.FIO.Benchmarks.Suite.Pingpong
 
 open FSharp.FIO.DSL
 #if DEBUG
-open FSharp.FIO.Lib.IO
+open FSharp.FIO
 #endif
 open FSharp.FIO.Benchmarks.Tools.Timer
 
@@ -29,11 +29,11 @@ let private pingerEff (pinger, ping, roundCount, startChan: int channel, timerCh
         for _ in 1..roundCount do
             do! pinger.SendChan.Send(currentPing).Unit()
             #if DEBUG
-            do! FConsole.PrintLine $"[DEBUG]: %s{pinger.Name} sent ping: %i{currentPing}"
+            do! Console.PrintLine $"[DEBUG]: %s{pinger.Name} sent ping: %i{currentPing}"
             #endif
             let! pong = pinger.ReceiveChan.Receive()
             #if DEBUG
-            do! FConsole.PrintLine $"[DEBUG]: %s{pinger.Name} received pong: %i{pong}"
+            do! Console.PrintLine $"[DEBUG]: %s{pinger.Name} received pong: %i{pong}"
             #endif
             currentPing <- pong + 1
             
@@ -47,11 +47,11 @@ let private pongerEff (ponger, roundCount, startChan: int channel) =
         for _ in 1..roundCount do
             let! ping = ponger.ReceiveChan.Receive()
             #if DEBUG
-            do! FConsole.PrintLine $"[DEBUG]: %s{ponger.Name} received ping: %i{ping}"
+            do! Console.PrintLine $"[DEBUG]: %s{ponger.Name} received ping: %i{ping}"
             #endif
             let! pong = ponger.SendChan.Send(ping + 1)
             #if DEBUG
-            do! FConsole.PrintLine $"[DEBUG]: %s{ponger.Name} sent pong: %i{pong}"
+            do! Console.PrintLine $"[DEBUG]: %s{ponger.Name} sent pong: %i{pong}"
             #endif
             return ()
     }

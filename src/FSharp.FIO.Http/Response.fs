@@ -1,7 +1,7 @@
 /// <summary>
 /// Pre-built HTTP response factory functions.
 /// </summary>
-namespace FSharp.FIO.Experimental.Http
+namespace FSharp.FIO.Http
 
 /// <summary>
 /// Convenience functions for creating HTTP responses.

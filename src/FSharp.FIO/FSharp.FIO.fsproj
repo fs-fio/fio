@@ -68,8 +68,12 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<None Include="..\FSharp.FIO.Lib\bin\$(Configuration)\net10.0\FSharp.FIO.Lib.dll" Pack="true" PackagePath="lib\net10.0\" />
 		<None Include="..\FSharp.FIO.App\bin\$(Configuration)\net10.0\FSharp.FIO.App.dll" Pack="true" PackagePath="lib\net10.0\" />
+		<None Include="..\FSharp.FIO.Console\bin\$(Configuration)\net10.0\FSharp.FIO.Console.dll" Pack="true" PackagePath="lib\net10.0\" />
+		<None Include="..\FSharp.FIO.Http\bin\$(Configuration)\net10.0\FSharp.FIO.Http.dll" Pack="true" PackagePath="lib\net10.0\" />
+		<None Include="..\FSharp.FIO.PostgreSQL\bin\$(Configuration)\net10.0\FSharp.FIO.PostgreSQL.dll" Pack="true" PackagePath="lib\net10.0\" />
+		<None Include="..\FSharp.FIO.Sockets\bin\$(Configuration)\net10.0\FSharp.FIO.Sockets.dll" Pack="true" PackagePath="lib\net10.0\" />
+		<None Include="..\FSharp.FIO.WebSockets\bin\$(Configuration)\net10.0\FSharp.FIO.WebSockets.dll" Pack="true" PackagePath="lib\net10.0\" />
 	</ItemGroup>
 
 	<ItemGroup>

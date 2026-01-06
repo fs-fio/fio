@@ -1,7 +1,7 @@
 /// <summary>
 /// PostgreSQL transaction management with FIO effects.
 /// </summary>
-namespace FSharp.FIO.Experimental.PostgreSQL
+namespace FSharp.FIO.PostgreSQL
 
 open FSharp.FIO.DSL
 
@@ -46,7 +46,7 @@ module Transaction =
     /// <param name="isolationLevel">The isolation level for the transaction.</param>
     /// <param name="action">The action to run in the transaction.</param>
     /// <param name="conn">The connection to use for the transaction.</param>
-    let runWithIsolation (isolationLevel: FSharp.FIO.Experimental.PostgreSQL.IsolationLevel) (action: Connection -> FIO<'R, 'E>) (conn: Connection) : FIO<'R, 'E> =
+    let runWithIsolation (isolationLevel: FSharp.FIO.PostgreSQL.IsolationLevel) (action: Connection -> FIO<'R, 'E>) (conn: Connection) : FIO<'R, 'E> =
         fio {
             // Begin transaction with isolation level
             let! transaction =

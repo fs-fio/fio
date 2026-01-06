@@ -1,7 +1,7 @@
 /// <summary>
 /// HTTP middleware types and combinators for request/response pipeline.
 /// </summary>
-namespace FSharp.FIO.Experimental.Http
+namespace FSharp.FIO.Http
 
 open FSharp.FIO.DSL
 

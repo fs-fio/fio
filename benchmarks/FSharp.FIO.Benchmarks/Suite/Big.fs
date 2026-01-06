@@ -1,4 +1,4 @@
-﻿(****************************************************************************)
+(****************************************************************************)
 (* Big benchmark                                                            *)
 (* Measures: Contention on mailbox; Many-to-Many message passing            *)
 (* Savina benchmark #7                                                      *)
@@ -9,7 +9,7 @@ module private FSharp.FIO.Benchmarks.Suite.Big
 
 open FSharp.FIO.DSL
 #if DEBUG
-open FSharp.FIO.Lib.IO
+open FSharp.FIO
 #endif
 open FSharp.FIO.Benchmarks.Tools.Timer
 
@@ -31,7 +31,7 @@ let rec private sendPingsEff (actor, roundCount, ping, chans: Message channel li
         for chan in chans do
             do! chan.Send(Ping(ping, actor.PongReceiveChan)).Unit()
             #if DEBUG
-            do! FConsole.PrintLine $"DEBUG: %s{actor.Name} sent ping: %i{ping}"
+            do! Console.PrintLine $"DEBUG: %s{actor.Name} sent ping: %i{ping}"
             #endif
         
         return! receivePingsEff(actor, roundCount, actor.SendingChans.Length, ping, timerChan)
@@ -43,12 +43,12 @@ and private receivePingsEff (actor, rounds, receiveCount, msg, timerChan) : FIO<
             match! actor.PingReceiveChan.Receive() with
             | Ping (ping, replyChan) ->
                 #if DEBUG
-                do! FConsole.PrintLine $"DEBUG: %s{actor.Name} received ping: %i{ping}"
+                do! Console.PrintLine $"DEBUG: %s{actor.Name} received ping: %i{ping}"
                 #endif
                 match! replyChan.Send(Pong(ping + 1)) with
                 | Pong pong ->
                     #if DEBUG
-                    do! FConsole.PrintLine $"DEBUG: %s{actor.Name} sent pong: %i{pong}"
+                    do! Console.PrintLine $"DEBUG: %s{actor.Name} sent pong: %i{pong}"
                     #endif
                     return ()
                 | Ping _ ->
@@ -65,7 +65,7 @@ and private receivePongsEff (actor, roundCount, receiveCount, msg, timerChan: Ti
             match! actor.PongReceiveChan.Receive() with
             | Pong pong -> 
                 #if DEBUG
-                do! FConsole.PrintLine $"DEBUG: %s{actor.Name} received pong: %i{pong}"
+                do! Console.PrintLine $"DEBUG: %s{actor.Name} received pong: %i{pong}"
                 #endif
                 return ()
             | _ ->

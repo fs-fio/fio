@@ -131,15 +131,15 @@ Create a new F# file and open the DSL, IO and Concurrent runtime modules:
 module DirectUsage
 
 open FSharp.FIO.DSL
-open FSharp.FIO.Lib.IO
+open FSharp.FIO.Console
 open FSharp.FIO.Runtime.Concurrent
 
 [<EntryPoint>]
 let main _ =
     let askForName = fio {
-        do! FConsole.PrintLine "Hello! What is your name?"
-        let! name = FConsole.ReadLine ()
-        do! FConsole.PrintLine $"Hello, %s{name}! Welcome to FIO! 🪻💜"
+        do! Console.PrintLine "Hello! What is your name?"
+        let! name = Console.ReadLine ()
+        do! Console.PrintLine $"Hello, %s{name}! Welcome to FIO! 🪻💜"
     }
     
     Runtime().Run askForName
@@ -173,16 +173,16 @@ Wrap your effect in a `FIOApp` to simplify boilerplate. Open the App module:
 module FIOAppUsage
 
 open FSharp.FIO.DSL
-open FSharp.FIO.Lib.IO
+open FSharp.FIO
 open FSharp.FIO.App
 
 type WelcomeApp() =
     inherit FIOApp<unit, exn> ()
 
     override _.effect = fio {
-        do! FConsole.PrintLine "Hello! What is your name?"
-        let! name = FConsole.ReadLine ()
-        do! FConsole.PrintLine $"Hello, %s{name}! Welcome to FIO! 🪻💜"
+        do! Console.PrintLine "Hello! What is your name?"
+        let! name = Console.ReadLine ()
+        do! Console.PrintLine $"Hello, %s{name}! Welcome to FIO! 🪻💜"
     }
 
 WelcomeApp().Run()
@@ -211,12 +211,12 @@ Prefer DSL chaining? Use bind (>>=) directly:
 module DSLOnly
 
 open FSharp.FIO.DSL
-open FSharp.FIO.Lib.IO
+open FSharp.FIO
 
 let askForName =
-    FConsole.PrintLine "Hello! What is your name?" >>= fun _ ->
-    FConsole.ReadLine () >>= fun name ->
-    FConsole.PrintLine $"Hello, %s{name}, welcome to FIO! 🪻💜"
+    Console.PrintLine "Hello! What is your name?" >>= fun _ ->
+    Console.ReadLine () >>= fun name ->
+    Console.PrintLine $"Hello, %s{name}, welcome to FIO! 🪻💜"
 ```
 
 

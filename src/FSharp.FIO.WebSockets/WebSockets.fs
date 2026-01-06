@@ -1,7 +1,7 @@
 /// <summary>
 /// Provides functional, effectful, and type-safe abstractions over .NET WebSockets for FIO.
 /// </summary>
-module FSharp.FIO.Lib.Net.FWebSockets
+module FSharp.FIO.WebSockets
 
 open FSharp.FIO.DSL
 

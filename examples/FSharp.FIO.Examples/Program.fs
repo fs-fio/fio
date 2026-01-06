@@ -1,7 +1,7 @@
 ﻿module private FSharp.FIO.Examples
 
 open FSharp.FIO.DSL
-open FSharp.FIO.Lib.IO
+open FSharp.FIO
 open FSharp.FIO.Runtime.Default
 
 open System
@@ -82,9 +82,9 @@ let computationExpression2 () =
 let computationExpression3 () =
     let welcome =
         fio {
-            do! FConsole.PrintLine "Hello! What is your name?"
-            let! name = FConsole.ReadLine
-            do! FConsole.PrintLine $"Hello, %s{name}! Welcome to FIO! 🪻💜"
+            do! Console.PrintLine "Hello! What is your name?"
+            let! name = Console.ReadLine
+            do! Console.PrintLine $"Hello, %s{name}! Welcome to FIO! 🪻💜"
         }
 
     let fiber = (new DefaultRuntime()).Run welcome
@@ -95,21 +95,21 @@ let unitSuccess () =
     let fiber = (new DefaultRuntime()).Run unit
     fiber.UnsafePrintResult()
 
-let interruptFiber () = 
+let interruptFiber () =
     let longRunning =
         fio {
-            do! FConsole.PrintLine "Started long-running task for 10 seconds."
+            do! Console.PrintLine "Started long-running task for 10 seconds."
             do! FIO.Sleep (TimeSpan.FromSeconds 10.0)
-            do! FConsole.PrintLine "Long-running task completed!"
+            do! Console.PrintLine "Long-running task completed!"
         }
 
     let interrupter =
         fio {
             let! longRunningFiber = longRunning.Fork()
-            do! FConsole.PrintLine "Press Enter to interrupt the long-running task..."
-            do! FConsole.ReadLine.Unit()
+            do! Console.PrintLine "Press Enter to interrupt the long-running task..."
+            do! Console.ReadLine.Unit()
             do! longRunningFiber.Interrupt()
-            do! FConsole.PrintLine "Interrupted long-running task."
+            do! Console.PrintLine "Interrupted long-running task."
         }
 
     let fiber = (new DefaultRuntime()).Run interrupter
@@ -134,8 +134,8 @@ examples |> List.iteri (fun i (name, example) ->
     printfn $"🔥 Running example: {name}\n"
     example()
     if i < examples.Length - 1 then
-        Console.WriteLine "\n⏩ Press Enter to run next example..."
-        Console.ReadLine() |> ignore)
+        System.Console.WriteLine "\n⏩ Press Enter to run next example..."
+        System.Console.ReadLine() |> ignore)
 
-Console.WriteLine "\n✅ All examples completed. Press Enter to exit."
-Console.ReadLine() |> ignore
+System.Console.WriteLine "\n✅ All examples completed. Press Enter to exit."
+System.Console.ReadLine() |> ignore

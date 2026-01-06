@@ -1,7 +1,7 @@
 /// <summary>
 /// Bridge between ASP.NET Core Kestrel and FIO HTTP types.
 /// </summary>
-namespace FSharp.FIO.Experimental.Http
+namespace FSharp.FIO.Http
 
 open System
 open System.Text
@@ -18,7 +18,7 @@ module KestrelBridge =
     /// Converts an ASP.NET Core HttpContext to an FIO HttpRequest.
     /// </summary>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
-    let convertRequest (ctx: HttpContext) : FSharp.FIO.Experimental.Http.HttpRequest =
+    let convertRequest (ctx: HttpContext) : FSharp.FIO.Http.HttpRequest =
         let method = HttpMethod.FromString ctx.Request.Method
         let path = ctx.Request.Path.Value
 
@@ -63,7 +63,7 @@ module KestrelBridge =
     /// </summary>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
     /// <param name="response">The FIO HTTP response to write.</param>
-    let writeResponse (ctx: HttpContext) (response: FSharp.FIO.Experimental.Http.HttpResponse) : Task =
+    let writeResponse (ctx: HttpContext) (response: FSharp.FIO.Http.HttpResponse) : Task =
         task {
             ctx.Response.StatusCode <- int response.Status
 

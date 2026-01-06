@@ -1,7 +1,7 @@
 /// <summary>
 /// Route collection types for HTTP routing.
 /// </summary>
-namespace FSharp.FIO.Experimental.Http
+namespace FSharp.FIO.Http
 
 open FSharp.FIO.DSL
 

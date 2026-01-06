@@ -1,7 +1,7 @@
 /// <summary>
 /// Provides functional, effectful, and type-safe abstractions over .NET TCP Sockets for FIO.
 /// </summary>
-module FSharp.FIO.Lib.Net.FSockets
+module FSharp.FIO.Sockets
 
 open FSharp.FIO.DSL
 
@@ -14,7 +14,7 @@ open System.Net.Sockets
 /// <summary>
 /// A functional, effectful, and type-safe abstraction over a .NET TCP Socket.
 /// </summary>
-type FSocket<'S, 'R, 'E> private (socket: Socket, reader: StreamReader, writer: StreamWriter, networkStream: NetworkStream, onError: exn -> 'E, options: JsonSerializerOptions) =
+type Socket<'S, 'R, 'E> private (socket: System.Net.Sockets.Socket, reader: StreamReader, writer: StreamWriter, networkStream: NetworkStream, onError: exn -> 'E, options: JsonSerializerOptions) =
 
     let mutable disposed = false
 
@@ -51,13 +51,13 @@ type FSocket<'S, 'R, 'E> private (socket: Socket, reader: StreamReader, writer: 
     /// <param name="socket">The underlying .NET Socket instance.</param>
     /// <param name="onError">A function to map exceptions to the error type.</param>
     /// <param name="options">The JSON serializer options.</param>
-    static member Create<'S, 'R, 'E> (socket: Socket, onError: exn -> 'E, options: JsonSerializerOptions) : FIO<FSocket<'S, 'R, 'E>, 'E> =
+    static member Create<'S, 'R, 'E> (socket: System.Net.Sockets.Socket, onError: exn -> 'E, options: JsonSerializerOptions) : FIO<Socket<'S, 'R, 'E>, 'E> =
         fio {
             let! networkStream = FIO.Attempt ((fun () -> new NetworkStream (socket)), onError)
             let! writer = FIO.Attempt ((fun _ -> new StreamWriter (networkStream)), onError)
             let! reader = FIO.Attempt ((fun () -> new StreamReader (networkStream)), onError)
             do! FIO.Attempt ((fun () -> writer.AutoFlush <- true), onError)
-            return new FSocket<'S, 'R, 'E> (socket, reader, writer, networkStream, onError, options)
+            return new Socket<'S, 'R, 'E> (socket, reader, writer, networkStream, onError, options)
         }
 
     /// <summary>
@@ -65,23 +65,23 @@ type FSocket<'S, 'R, 'E> private (socket: Socket, reader: StreamReader, writer: 
     /// </summary>
     /// <param name="socket">The underlying .NET Socket instance.</param>
     /// <param name="options">The JSON serializer options.</param>
-    static member Create<'S, 'R, 'E> (socket: Socket, options: JsonSerializerOptions) : FIO<FSocket<'S, 'R, exn>, exn> =
-        FSocket.Create<'S, 'R, exn> (socket, id, options)
+    static member Create<'S, 'R, 'E> (socket: System.Net.Sockets.Socket, options: JsonSerializerOptions) : FIO<Socket<'S, 'R, exn>, exn> =
+        Socket.Create<'S, 'R, exn> (socket, id, options)
 
     /// <summary>
     /// Creates a new functional socket from an existing .NET Socket with custom error handling.
     /// </summary>
     /// <param name="socket">The underlying .NET Socket instance.</param>
     /// <param name="onError">A function to map exceptions to the error type.</param>
-    static member Create<'S, 'R, 'E> (socket: Socket, onError: exn -> 'E) : FIO<FSocket<'S, 'R, 'E>, 'E> =
-        FSocket.Create<'S, 'R, 'E> (socket, onError, JsonSerializerOptions())
+    static member Create<'S, 'R, 'E> (socket: System.Net.Sockets.Socket, onError: exn -> 'E) : FIO<Socket<'S, 'R, 'E>, 'E> =
+        Socket.Create<'S, 'R, 'E> (socket, onError, JsonSerializerOptions())
 
     /// <summary>
     /// Creates a new functional socket from an existing .NET Socket with default settings.
     /// </summary>
     /// <param name="socket">The underlying .NET Socket instance.</param>
-    static member Create<'S, 'R, 'E> (socket: Socket) : FIO<FSocket<'S, 'R, exn>, exn> =
-        FSocket.Create<'S, 'R, exn> (socket, id, JsonSerializerOptions())
+    static member Create<'S, 'R, 'E> (socket: System.Net.Sockets.Socket) : FIO<Socket<'S, 'R, exn>, exn> =
+        Socket.Create<'S, 'R, exn> (socket, id, JsonSerializerOptions())
 
     /// <summary>
     /// Creates a new functional socket and connects to the specified host and port.
@@ -91,12 +91,12 @@ type FSocket<'S, 'R, 'E> private (socket: Socket, reader: StreamReader, writer: 
     /// <param name="port">The remote port to connect to.</param>
     /// <param name="onError">A function to map exceptions to the error type.</param>
     /// <param name="options">The JSON serializer options.</param>
-    static member Create<'S, 'R, 'E> (socket: Socket, host: string, port: int, onError: exn -> 'E, options: JsonSerializerOptions) : FIO<FSocket<'S, 'R, 'E>, 'E> =
+    static member Create<'S, 'R, 'E> (socket: System.Net.Sockets.Socket, host: string, port: int, onError: exn -> 'E, options: JsonSerializerOptions) : FIO<Socket<'S, 'R, 'E>, 'E> =
         fio {
             do! FIO.Attempt ((fun () -> socket.Connect(host, port)), onError)
-            return! FSocket.Create<'S, 'R, 'E> (socket, onError, options)
+            return! Socket.Create<'S, 'R, 'E> (socket, onError, options)
         }
-        
+
     /// <summary>
     /// Creates a new functional socket and connects to the specified host and port with default error handling.
     /// </summary>
@@ -104,9 +104,9 @@ type FSocket<'S, 'R, 'E> private (socket: Socket, reader: StreamReader, writer: 
     /// <param name="host">The remote host to connect to.</param>
     /// <param name="port">The remote port to connect to.</param>
     /// <param name="options">The JSON serializer options.</param>
-    static member Create<'S, 'R, 'E> (socket: Socket, host: string, port: int, options: JsonSerializerOptions) : FIO<FSocket<'S, 'R, exn>, exn> =
-        FSocket.Create<'S, 'R, exn> (socket, host, port, id, options)
-        
+    static member Create<'S, 'R, 'E> (socket: System.Net.Sockets.Socket, host: string, port: int, options: JsonSerializerOptions) : FIO<Socket<'S, 'R, exn>, exn> =
+        Socket.Create<'S, 'R, exn> (socket, host, port, id, options)
+
     /// <summary>
     /// Creates a new functional socket and connects to the specified host and port with custom error handling.
     /// </summary>
@@ -114,17 +114,17 @@ type FSocket<'S, 'R, 'E> private (socket: Socket, reader: StreamReader, writer: 
     /// <param name="host">The remote host to connect to.</param>
     /// <param name="port">The remote port to connect to.</param>
     /// <param name="onError">A function to map exceptions to the error type.</param>
-    static member Create<'S, 'R, 'E> (socket: Socket, host: string, port: int, onError: exn -> 'E) : FIO<FSocket<'S, 'R, 'E>, 'E> =
-        FSocket.Create<'S, 'R, 'E> (socket, host, port, onError, JsonSerializerOptions())
-        
+    static member Create<'S, 'R, 'E> (socket: System.Net.Sockets.Socket, host: string, port: int, onError: exn -> 'E) : FIO<Socket<'S, 'R, 'E>, 'E> =
+        Socket.Create<'S, 'R, 'E> (socket, host, port, onError, JsonSerializerOptions())
+
     /// <summary>
     /// Creates a new functional socket and connects to the specified host and port with default settings.
     /// </summary>
     /// <param name="socket">The underlying .NET Socket instance.</param>
     /// <param name="host">The remote host to connect to.</param>
     /// <param name="port">The remote port to connect to.</param>
-    static member Create<'S, 'R, 'E> (socket: Socket, host: string, port: int) : FIO<FSocket<'S, 'R, exn>, exn> =
-        FSocket.Create<'S, 'R, exn> (socket, host, port, id, JsonSerializerOptions())
+    static member Create<'S, 'R, 'E> (socket: System.Net.Sockets.Socket, host: string, port: int) : FIO<Socket<'S, 'R, exn>, exn> =
+        Socket.Create<'S, 'R, exn> (socket, host, port, id, JsonSerializerOptions())
 
     /// <summary>
     /// Sends a value over the socket as a JSON-serialized string.
@@ -150,7 +150,7 @@ type FSocket<'S, 'R, 'E> private (socket: Socket, reader: StreamReader, writer: 
                 let! msg = fromFunc <| fun () -> JsonSerializer.Deserialize<'R>(jsonStr, options)
                 return msg
         }
-    
+
     /// <summary>
     /// Disconnects the socket, optionally allowing reuse.
     /// </summary>
@@ -173,7 +173,7 @@ type FSocket<'S, 'R, 'E> private (socket: Socket, reader: StreamReader, writer: 
         fio {
             do! fromFunc <| fun () -> socket.Close()
         }
-    
+
     /// <summary>
     /// Gets the remote endpoint of the socket.
     /// </summary>
@@ -181,7 +181,7 @@ type FSocket<'S, 'R, 'E> private (socket: Socket, reader: StreamReader, writer: 
         fio {
             return! fromFunc <| fun () -> socket.RemoteEndPoint
         }
-    
+
     /// <summary>
     /// Gets the address family of the socket.
     /// </summary>

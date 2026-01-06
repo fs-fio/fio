@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <WarningsAsErrors>true</WarningsAsErrors>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <LangVersion>preview</LangVersion>
+        <ParallelCompilation>true</ParallelCompilation>
+        <Deterministic>false</Deterministic>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="Types.fs" />
+        <Compile Include="Results.fs" />
+        <Compile Include="Connection.fs" />
+        <Compile Include="ConnectionPool.fs" />
+        <Compile Include="Query.fs" />
+        <Compile Include="Command.fs" />
+        <Compile Include="Transaction.fs" />
+        <Compile Include="Dsl.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\FSharp.FIO\FSharp.FIO.fsproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Update="FSharp.Core" Version="10.0.101" />
+        <PackageReference Include="Npgsql" Version="8.0.5" />
+    </ItemGroup>
+
+</Project>

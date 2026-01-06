@@ -1,4 +1,4 @@
-﻿namespace FSharp.FIO.Benchmarks.Suite
+namespace FSharp.FIO.Benchmarks.Suite
 
 open FSharp.FIO.Runtime
 

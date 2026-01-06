@@ -1,8 +1,8 @@
-﻿module internal FSharp.FIO.Benchmarks.Tools.Timer
+module internal FSharp.FIO.Benchmarks.Tools.Timer
 
 open FSharp.FIO.DSL
 #if DEBUG
-open FSharp.FIO.Lib.IO
+open FSharp.FIO
 #endif
 
 open System.Diagnostics
@@ -23,14 +23,14 @@ let private startLoop (startCount, timerChan: TimerMessage<int> channel, stopwat
             match! timerChan.Receive() with
             | Start ->
                 #if DEBUG
-                do! FConsole.PrintLine $"[DEBUG]: Timer received Start message (%i{startCount - currentCount + 1}/%i{startCount})"
+                do! Console.PrintLine $"[DEBUG]: Timer received Start message (%i{startCount - currentCount + 1}/%i{startCount})"
                 #endif
                 currentCount <- currentCount - 1
             | _ -> ()
         
         do! FIO.Attempt(fun () -> stopwatch.Start())
         #if DEBUG
-        do! FConsole.PrintLine "[DEBUG]: Timer started"
+        do! Console.PrintLine "[DEBUG]: Timer started"
         #endif
     }
 
@@ -45,7 +45,7 @@ let private msgLoop (msgCount, msg, msgChan: int channel) =
         while currentCount > 0 do
             do! msgChan.Send(msg).Unit()
             #if DEBUG
-            do! FConsole.PrintLine $"[DEBUG]: Timer sent %i{msg} to MsgChannel (%i{msgCount - currentCount + 1}/%i{msgCount})"
+            do! Console.PrintLine $"[DEBUG]: Timer sent %i{msg} to MsgChannel (%i{msgCount - currentCount + 1}/%i{msgCount})"
             #endif
             currentCount <- currentCount - 1
             currentMsg <- currentMsg + 1
@@ -62,14 +62,14 @@ let private stopLoop (stopCount, timerChan: TimerMessage<int> channel, stopwatch
             match! timerChan.Receive() with
             | Stop ->
                 #if DEBUG
-                do! FConsole.PrintLine $"[DEBUG]: Timer received Stop message (%i{stopCount - currentCount + 1}/%i{stopCount})"
+                do! Console.PrintLine $"[DEBUG]: Timer received Stop message (%i{stopCount - currentCount + 1}/%i{stopCount})"
                 #endif
                 currentCount <- currentCount - 1
             | _ -> ()
             
         do! FIO.Attempt(fun () -> stopwatch.Stop())
         #if DEBUG
-        do! FConsole.PrintLine "[DEBUG]: Timer stopped"
+        do! Console.PrintLine "[DEBUG]: Timer stopped"
         #endif
     }
 

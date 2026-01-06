@@ -1,12 +1,12 @@
-﻿module private FSharp.FIO.Examples.App
+module private FSharp.FIO.Examples.App
 
 open FSharp.FIO.DSL
 open FSharp.FIO.App
-open FSharp.FIO.Lib.IO
+open FSharp.FIO
 open FSharp.FIO.Runtime
-open FSharp.FIO.Lib.Net.FSockets
+open FSharp.FIO.Sockets
 open FSharp.FIO.Runtime.Concurrent
-open FSharp.FIO.Lib.Net.FWebSockets
+open FSharp.FIO.WebSockets
 
 open System
 open System.IO
@@ -21,9 +21,9 @@ type WelcomeApp() =
 
     override _.effect : FIO<unit, exn> =
         fio {
-            do! FConsole.PrintLine "Hello! What is your name?"
-            let! name = FConsole.ReadLine
-            do! FConsole.PrintLine $"Hello, %s{name}! Welcome to FIO! 🪻💜"
+            do! Console.PrintLine "Hello! What is your name?"
+            let! name = Console.ReadLine
+            do! Console.PrintLine $"Hello, %s{name}! Welcome to FIO! ????"
         }
 
 type EnterNumberApp() =
@@ -31,8 +31,8 @@ type EnterNumberApp() =
 
     override _.effect =
         fio {
-            do! FConsole.Print "Enter a number: "
-            let! input = FConsole.ReadLine
+            do! Console.Print "Enter a number: "
+            let! input = Console.ReadLine
 
             match! FIO.Attempt(fun () -> Int32.TryParse input) with
             | true, number ->
@@ -62,7 +62,7 @@ type TryFinallyApp() =
                 do! FIO.Fail 1
                 return "Successfully completed!"
             finally
-                FConsole.PrintLineMapError("Running finalizer, always executes", (fun _ -> -2))
+                Console.PrintLineMapError("Running finalizer, always executes", (fun _ -> -2))
         }
 
 type TryWithFinallyApp() =
@@ -77,7 +77,7 @@ type TryWithFinallyApp() =
                 with errorCode ->
                     return! FIO.Fail errorCode
             finally
-                FConsole.PrintLineMapError("Running finalizer, always executes", (fun _ -> -2))
+                Console.PrintLineMapError("Running finalizer, always executes", (fun _ -> -2))
         }
 
 type ForApp() =
@@ -88,9 +88,9 @@ type ForApp() =
             for number in 1..10 do
                 match number % 2 = 0 with
                 | true ->
-                    do! FConsole.PrintLine $"%i{number} is even!"
+                    do! Console.PrintLine $"%i{number} is even!"
                 | false -> 
-                    do! FConsole.PrintLine $"%i{number} is odd!"
+                    do! Console.PrintLine $"%i{number} is odd!"
         }
 
 type GuessNumberApp() =
@@ -102,20 +102,20 @@ type GuessNumberApp() =
             let mutable guess = -1
 
             while guess <> numberToGuess do
-                do! FConsole.Print "Guess a number: "
-                let! input = FConsole.ReadLine
+                do! Console.Print "Guess a number: "
+                let! input = Console.ReadLine
 
                 match Int32.TryParse input with
                 | true, parsedInput ->
                     guess <- parsedInput
                     if guess < numberToGuess then
-                        do! FConsole.PrintLine "Too low! Try again."
+                        do! Console.PrintLine "Too low! Try again."
                     elif guess > numberToGuess then
-                        do! FConsole.PrintLine "Too high! Try again."
+                        do! Console.PrintLine "Too high! Try again."
                     else
-                        do! FConsole.PrintLine "Congratulations! You guessed the number!"
+                        do! Console.PrintLine "Congratulations! You guessed the number!"
                 | _ ->
-                    do! FConsole.PrintLine "Invalid input. Please enter a number."
+                    do! Console.PrintLine "Invalid input. Please enter a number."
 
             return guess
         }
@@ -125,16 +125,16 @@ type PingPongApp() =
 
     let pinger (chan1: string channel) (chan2: string channel) =
         chan1.Send "ping" >>= fun ping ->
-        FConsole.PrintLine $"pinger sent: %s{ping}" >>= fun _ ->
+        Console.PrintLine $"pinger sent: %s{ping}" >>= fun _ ->
         chan2.Receive() >>= fun pong ->
-        FConsole.PrintLine $"pinger received: %s{pong}" >>= fun _ ->
+        Console.PrintLine $"pinger received: %s{pong}" >>= fun _ ->
         FIO.Unit()
 
     let ponger (chan1: string channel) (chan2: string channel) =
         chan1.Receive() >>= fun ping ->
-        FConsole.PrintLine $"ponger received: %s{ping}" >>= fun _ ->
+        Console.PrintLine $"ponger received: %s{ping}" >>= fun _ ->
         chan2.Send "pong" >>= fun pong ->
-        FConsole.PrintLine $"ponger sent: %s{pong}" >>= fun _ ->
+        Console.PrintLine $"ponger sent: %s{pong}" >>= fun _ ->
         FIO.Unit()
         
     override _.effect =
@@ -148,17 +148,17 @@ type PingPongCEApp() =
     let pinger (chan1: string channel) (chan2: string channel) =
         fio {
             let! ping = chan1.Send "ping"
-            do! FConsole.PrintLine $"pinger sent: %s{ping}"
+            do! Console.PrintLine $"pinger sent: %s{ping}"
             let! pong = chan2.Receive()
-            do! FConsole.PrintLine $"pinger received: %s{pong}"
+            do! Console.PrintLine $"pinger received: %s{pong}"
         }
 
     let ponger (chan1: string channel) (chan2: string channel) =
         fio {
             let! ping = chan1.Receive()
-            do! FConsole.PrintLine $"ponger received: %s{ping}"
+            do! Console.PrintLine $"ponger received: %s{ping}"
             let! pong = chan2.Send "pong"
-            do! FConsole.PrintLine $"ponger sent: %s{pong}"
+            do! Console.PrintLine $"ponger sent: %s{pong}"
         }
 
     override _.effect =
@@ -178,11 +178,11 @@ type PingPongMatchApp() =
     let pinger (chan1: Message channel) (chan2: Message channel) =
         fio {
             let! ping = chan1.Send PingMsg
-            do! FConsole.PrintLineMapError($"pinger sent: %A{ping}", _.Message)
+            do! Console.PrintLineMapError($"pinger sent: %A{ping}", _.Message)
             
             match! chan2.Receive() with
             | PongMsg ->
-                do! FConsole.PrintLineMapError($"pinger received: %A{PongMsg}", _.Message)
+                do! Console.PrintLineMapError($"pinger received: %A{PongMsg}", _.Message)
             | PingMsg ->
                 return! FIO.Fail $"pinger received %A{PingMsg} when %A{PongMsg} was expected!"
         }
@@ -191,7 +191,7 @@ type PingPongMatchApp() =
         fio {
             match! chan1.Receive() with
             | PingMsg ->
-                do! FConsole.PrintLineMapError($"ponger received: %A{PingMsg}", _.Message)
+                do! Console.PrintLineMapError($"ponger received: %A{PingMsg}", _.Message)
             | PongMsg ->
                 return! FIO.Fail $"ponger received %A{PongMsg} when %A{PingMsg} was expected!"
             
@@ -199,7 +199,7 @@ type PingPongMatchApp() =
                 match Random().Next(0, 2) with
                 | 0 -> chan2.Send PongMsg
                 | _ -> chan2.Send PingMsg
-            do! FConsole.PrintLineMapError($"ponger sent: %A{sentMsg}", _.Message)
+            do! Console.PrintLineMapError($"ponger sent: %A{sentMsg}", _.Message)
         }
 
     override _.effect =
@@ -275,7 +275,7 @@ type ErrorHandlingWithRetryApp() =
     let databaseResult : FIO<string, Error> =
         fio {
             let onEachRetry (err, retry, maxRetries) =
-                FConsole.PrintLine($"Database read failed with error: %A{err}. Retry attempt %d{retry} of %d{maxRetries}...")
+                Console.PrintLine($"Database read failed with error: %A{err}. Retry attempt %d{retry} of %d{maxRetries}...")
                  .CatchAll(fun _ -> FIO.Fail false)
             return! readFromDatabase.Retry(4, onEachRetry)
                 .CatchAll(fun error -> FIO.Fail (DbError error))
@@ -284,7 +284,7 @@ type ErrorHandlingWithRetryApp() =
     let webserviceResult : FIO<char, Error> =
         fio {
             let onEachRetry (err, retry, maxRetries) =
-                FConsole.PrintLine($"Webservice read failed with error: %A{err}. Retry attempt %d{retry} of %d{maxRetries}...")
+                Console.PrintLine($"Webservice read failed with error: %A{err}. Retry attempt %d{retry} of %d{maxRetries}...")
                     .CatchAll(fun _ -> FIO.Fail 400)
             return! awaitWebservice.Retry(4, onEachRetry)
                 .CatchAll(fun error -> FIO.Fail (WsError error))
@@ -339,17 +339,17 @@ type HighlyConcurrentApp() =
         fio {
             let! msg = FIO.Succeed(rand.Next(100, 501))
             do! chan.Send(msg).Unit()
-            do! FConsole.PrintLine $"Sender[%i{id}] sent: %i{msg}"
+            do! Console.PrintLine $"Sender[%i{id}] sent: %i{msg}"
         }
 
     let rec receiver (chan: int channel) count (max: int) =
         fio {
             if count = 0 then
                 let! maxFibers = FIO.Succeed(max.ToString("N0", CultureInfo "en-US"))
-                do! FConsole.PrintLine $"Successfully received a message from all %s{maxFibers} fibers!"
+                do! Console.PrintLine $"Successfully received a message from all %s{maxFibers} fibers!"
             else
                 let! msg = chan.Receive()
-                do! FConsole.PrintLine $"Receiver received: %i{msg}"
+                do! Console.PrintLine $"Receiver received: %i{msg}"
                 return! receiver chan (count - 1) max
         }
 
@@ -442,7 +442,7 @@ type FiberFromGenericTaskApp() =
         let awaitAndPrint (fiber: Fiber<string, exn>) =
             fio {
                  let! res = fiber.Join()
-                 do! FConsole.PrintLine $"%s{res}"
+                 do! Console.PrintLine $"%s{res}"
             }
             
         fio {
@@ -460,11 +460,11 @@ type SocketApp(ip: string, port: int) =
 
     let server (ip: string) (port: int) =
     
-        let receiveAndSendASCII (socket: FSocket<int, string, exn>) =
+        let receiveAndSendASCII (socket: Socket<int, string, exn>) =
             fio {
                 while true do
                     let! msg = socket.Receive()
-                    do! FConsole.PrintLine $"Server received message: %s{msg}"
+                    do! Console.PrintLine $"Server received message: %s{msg}"
                     
                     let! ascii =
                         if msg.Length > 0 then
@@ -473,14 +473,14 @@ type SocketApp(ip: string, port: int) =
                         else
                             FIO.Succeed -1
                     do! socket.Send ascii
-                    do! FConsole.PrintLine $"Server sent ASCII: %i{ascii}"
+                    do! Console.PrintLine $"Server sent ASCII: %i{ascii}"
             }
 
-        let handleClient (clientSocket: FSocket<int, string, exn>) =
+        let handleClient (clientSocket: Socket<int, string, exn>) =
             fio {
                 let! remoteEndPoint = clientSocket.RemoteEndPoint()
                 let! endPoint = FIO.Attempt(fun () -> remoteEndPoint.ToString())
-                do! FConsole.PrintLine $"Client connected from %s{endPoint}"
+                do! Console.PrintLine $"Client connected from %s{endPoint}"
                 do! receiveAndSendASCII(clientSocket).Fork().Unit()
             }
         
@@ -488,41 +488,41 @@ type SocketApp(ip: string, port: int) =
             let! listener = FIO.Attempt(fun () ->
                 new TcpListener(IPAddress.Parse ip, port))
             do! FIO.Attempt(fun () -> listener.Start())
-            do! FConsole.PrintLine $"Server listening on %s{ip}:%i{port}..."
+            do! Console.PrintLine $"Server listening on %s{ip}:%i{port}..."
             
             while true do
                 let! internalSocket = FIO.Attempt(fun () -> listener.AcceptSocket())
-                let! clientSocket = FSocket.Create<int, string, exn> internalSocket
+                let! clientSocket = Socket.Create<int, string, exn> internalSocket
                 do! handleClient clientSocket
         }
 
     let client (ip: string) (port: int) =
 
-        let send (socket: FSocket<string, int, exn>) =
+        let send (socket: Socket<string, int, exn>) =
             fio {
                 while true do
-                    do! FConsole.Print "Enter a message ('exit' to quit): "
-                    let! msg = FConsole.ReadLine
+                    do! Console.Print "Enter a message ('exit' to quit): "
+                    let! msg = Console.ReadLine
                     if msg = "exit" then
-                        do! FConsole.PrintLine "Client exiting..."
+                        do! Console.PrintLine "Client exiting..."
                         return! FIO.Fail (Exception "Client exited.")
                     do! socket.Send msg
-                    do! FConsole.Print $"Client sent message: %s{msg}"
+                    do! Console.Print $"Client sent message: %s{msg}"
             }
 
-        let receive (socket: FSocket<string, int, exn>) =
+        let receive (socket: Socket<string, int, exn>) =
             fio {
                 while true do
                     let! ascii = socket.Receive()
-                    do! FConsole.PrintLine $"Client received ASCII: %i{ascii}"
+                    do! Console.PrintLine $"Client received ASCII: %i{ascii}"
             }
     
         fio {
-            do! FConsole.PrintLine $"Connecting to %s{ip}:%i{port}..."
+            do! Console.PrintLine $"Connecting to %s{ip}:%i{port}..."
             let! internalSocket = FIO.Attempt(fun () ->
                 new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
-            let! socket = FSocket<string, int, exn>.Create(internalSocket, ip, port)
-            do! FConsole.PrintLine $"Connected to %s{ip}:%i{port}"
+            let! socket = Socket<string, int, exn>.Create(internalSocket, ip, port)
+            do! Console.PrintLine $"Connected to %s{ip}:%i{port}"
             do! send socket <&&> receive socket
         }
 
@@ -541,7 +541,7 @@ type WebSocketApp(serverUrl, clientUrl) =
                 while loop do
                     match! ws.ReceiveMessage() with
                     | Frame(Text text) ->
-                        do! FConsole.PrintLine $"Server received message: %s{text}"
+                        do! Console.PrintLine $"Server received message: %s{text}"
                         let! ascii =
                             if text.Length > 0 then
                                 FIO.Attempt(fun () -> text.Chars 0) >>= fun c ->
@@ -549,26 +549,26 @@ type WebSocketApp(serverUrl, clientUrl) =
                             else
                                 FIO.Succeed -1
                         do! ws.SendJson ascii
-                        do! FConsole.PrintLine $"Server sent ASCII: %i{ascii}"
+                        do! Console.PrintLine $"Server sent ASCII: %i{ascii}"
                     | ConnectionClosed(status, desc) ->
-                        do! FConsole.PrintLine $"Server connection closed. Status: {status}, Description: {desc}"
+                        do! Console.PrintLine $"Server connection closed. Status: {status}, Description: {desc}"
                         do! ws.Close(WebSocketCloseStatus.NormalClosure, "Server closing connection")
                         do! server.Close()
                         loop <- false
                     | msg ->
-                        do! FConsole.PrintLine $"Server received and ignored message: %A{msg}"
+                        do! Console.PrintLine $"Server received and ignored message: %A{msg}"
             }
 
         let handleClient (ws: WebSocket<exn>, server: WebSocketServer<exn>) =
             fio {
-                do! FConsole.PrintLine "Client connected"
+                do! Console.PrintLine "Client connected"
                 do! receiveAndSendASCII(ws, server).Fork().Unit()
             }
 
         fio {
             let! server = WebSocketServer<exn>.Create()
             do! server.Start url
-            do! FConsole.PrintLine $"Server listening on %s{url}..."
+            do! Console.PrintLine $"Server listening on %s{url}..."
             
             while true do
                 let! ws = server.Accept().CatchAll(fun _ ->
@@ -581,15 +581,15 @@ type WebSocketApp(serverUrl, clientUrl) =
             fio {
                 let mutable loop = true
                 while loop do
-                    do! FConsole.Print "Enter a message ('exit' to quit application): "
-                    let! msg = FConsole.ReadLine
+                    do! Console.Print "Enter a message ('exit' to quit application): "
+                    let! msg = Console.ReadLine
                     if msg = "exit" then
-                        do! FConsole.PrintLine "Client exiting..."
+                        do! Console.PrintLine "Client exiting..."
                         do! ws.Close(WebSocketCloseStatus.NormalClosure, "Client exiting")
                         loop <- false
                     else
                         do! ws.SendText msg
-                        do! FConsole.PrintLine $"Client sent message: %s{msg}"
+                        do! Console.PrintLine $"Client sent message: %s{msg}"
             }
 
         let receive (ws: WebSocket<exn>) =
@@ -599,12 +599,12 @@ type WebSocketApp(serverUrl, clientUrl) =
                     match! ws.ReceiveMessage() with
                     | Frame(Text text) ->
                         let! ascii = FIO.Attempt (fun () -> JsonSerializer.Deserialize<int> text)
-                        do! FConsole.PrintLine $"Client received ASCII: %i{ascii}"
+                        do! Console.PrintLine $"Client received ASCII: %i{ascii}"
                     | ConnectionClosed(status, desc) ->
-                        do! FConsole.PrintLine $"Client connection closed. Status: {status}, Description: {desc}"
+                        do! Console.PrintLine $"Client connection closed. Status: {status}, Description: {desc}"
                         loop <- false
                     | msg ->
-                        do! FConsole.PrintLine $"Client received and ignored message: %A{msg}"
+                        do! Console.PrintLine $"Client received and ignored message: %A{msg}"
             }
 
         fio {
@@ -624,12 +624,12 @@ type CommandLineArgsApp(args: string array) =
     override this.effect =
         fio {
             if args.Length = 0 then
-                do! FConsole.PrintLine "No command-line arguments provided"
-                do! FConsole.PrintLine "Try running with: dotnet run -- arg1 arg2 arg3"
+                do! Console.PrintLine "No command-line arguments provided"
+                do! Console.PrintLine "Try running with: dotnet run -- arg1 arg2 arg3"
             else
-                do! FConsole.PrintLine $"Received %d{args.Length} argument(s):"
+                do! Console.PrintLine $"Received %d{args.Length} argument(s):"
                 for i = 0 to args.Length - 1 do
-                    do! FConsole.PrintLine $"  Arg[%d{i}]: %s{args[i]}"
+                    do! Console.PrintLine $"  Arg[%d{i}]: %s{args[i]}"
         }
 
 type CustomRuntimeApp() =
@@ -644,10 +644,10 @@ type CustomRuntimeApp() =
 
     override _.effect =
         fio {
-            do! FConsole.PrintLine "Running with custom ConcurrentRuntime configuration:"
-            do! FConsole.PrintLine $"- Evaluation Workers: %d{Environment.ProcessorCount * 2}"
-            do! FConsole.PrintLine "- Evaluation Steps: 500"
-            do! FConsole.PrintLine "- Blocking Workers: 2"
+            do! Console.PrintLine "Running with custom ConcurrentRuntime configuration:"
+            do! Console.PrintLine $"- Evaluation Workers: %d{Environment.ProcessorCount * 2}"
+            do! Console.PrintLine "- Evaluation Steps: 500"
+            do! Console.PrintLine "- Blocking Workers: 2"
         }
 
 type ShutdownHookApp() =
@@ -657,21 +657,21 @@ type ShutdownHookApp() =
 
     override _.effect =
         fio {
-            do! FConsole.PrintLine "Acquiring resource..."
+            do! Console.PrintLine "Acquiring resource..."
             resourceAcquired <- true
-            do! FConsole.PrintLine "Resource acquired for 10 seconds! Press Ctrl+C to test shutdown hook."
+            do! Console.PrintLine "Resource acquired for 10 seconds! Press Ctrl+C to test shutdown hook."
             for i in 1..10 do
-                do! FConsole.PrintLine $" - %d{i}..."
+                do! Console.PrintLine $" - %d{i}..."
                 do! FIO.Sleep(TimeSpan.FromSeconds 1.0)
-            do! FConsole.PrintLine "Completed normally (no Ctrl+C)"
+            do! Console.PrintLine "Completed normally (no Ctrl+C)"
         }
 
     override _.shutdownHook () =
         fio {
             if resourceAcquired then
-                do! FConsole.PrintLine "Shutdown hook: Releasing resource..."
+                do! Console.PrintLine "Shutdown hook: Releasing resource..."
                 do! FIO.Sleep(TimeSpan.FromSeconds 1.0)
-                do! FConsole.PrintLine "Shutdown hook: Resource released!"
+                do! Console.PrintLine "Shutdown hook: Resource released!"
         }
 
     override _.shutdownHookTimeout =
@@ -682,8 +682,8 @@ type CustomExitCodeApp() =
 
     override _.effect =
         fio {
-            do! FConsole.PrintLineMapError("Enter a number (1-5 for custom exit codes, 0 for success): ", fun _ -> 99)
-            let! input = FConsole.ReadLineMapError(fun _ -> 99)
+            do! Console.PrintLineMapError("Enter a number (1-5 for custom exit codes, 0 for success): ", fun _ -> 99)
+            let! input = Console.ReadLineMapError(fun _ -> 99)
             match Int32.TryParse input with
             | true, 0 -> return 0
             | true, n when n > 0 && n <= 5 -> return! FIO.Fail n
@@ -707,7 +707,7 @@ type DisableThreadPoolConfigApp() =
 
     override _.effect =
         fio {
-            do! FConsole.PrintLine "Running without automatic ThreadPool configuration"
+            do! Console.PrintLine "Running without automatic ThreadPool configuration"
         }
 
 let examples = [
@@ -737,12 +737,12 @@ let examples = [
 ]
 
 examples |> List.iteri (fun i (name, example) ->
-    printfn $"🔥 Running example: {name}\n"
+    printfn $"?? Running example: {name}\n"
     let exitCode = example()
-    printfn $"\n🏁 Example '{name}' completed with exit code: %d{exitCode}"
+    printfn $"\n?? Example '{name}' completed with exit code: %d{exitCode}"
     if i < examples.Length - 1 then
-        Console.WriteLine "\n⏩ Press Enter to run next example..."
-        Console.ReadLine() |> ignore)
+        System.Console.WriteLine "\n? Press Enter to run next example..."
+        System.Console.ReadLine() |> ignore)
 
-Console.WriteLine "\n✅ All examples completed. Press Enter to exit."
-Console.ReadLine() |> ignore
+System.Console.WriteLine "\n? All examples completed. Press Enter to exit."
+System.Console.ReadLine() |> ignore

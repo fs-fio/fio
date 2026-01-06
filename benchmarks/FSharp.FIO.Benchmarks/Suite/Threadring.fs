@@ -1,4 +1,4 @@
-﻿(****************************************************************************)
+(****************************************************************************)
 (* Threadring benchmark                                                     *)
 (* Measures: Message sending; Context switching between actors              *)
 (* Savina benchmark #5                                                      *)
@@ -9,7 +9,7 @@ module private FSharp.FIO.Benchmarks.Suite.Threadring
 
 open FSharp.FIO.DSL
 #if DEBUG
-open FSharp.FIO.Lib.IO
+open FSharp.FIO
 #endif
 open FSharp.FIO.Benchmarks.Tools.Timer
 
@@ -27,7 +27,7 @@ let private actorEff (actor, isLastActor, roundCount, timerChan: TimerMessage<in
         for round in 1..roundCount do
             let! receivedMsg = actor.ReceiveChan.Receive()
             #if DEBUG
-            do! FConsole.PrintLine $"[DEBUG]: %s{actor.Name} received: %i{receivedMsg}"
+            do! Console.PrintLine $"[DEBUG]: %s{actor.Name} received: %i{receivedMsg}"
             #endif
             if isLastActor && round = roundCount then
                 // The last actor of the last round should not send a message
@@ -35,7 +35,7 @@ let private actorEff (actor, isLastActor, roundCount, timerChan: TimerMessage<in
             else
                 let! sentMsg = actor.SendChan.Send(receivedMsg + 1)
                 #if DEBUG
-                do! FConsole.PrintLine $"[DEBUG]: %s{actor.Name} sent: %i{sentMsg}"
+                do! Console.PrintLine $"[DEBUG]: %s{actor.Name} sent: %i{sentMsg}"
                 #endif
                 return ()
         

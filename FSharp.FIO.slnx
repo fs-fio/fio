@@ -11,8 +11,11 @@
   <Project Path="examples/FSharp.FIO.Examples.PostgreSQL/FSharp.FIO.Examples.PostgreSQL.fsproj" />
   <Project Path="examples/FSharp.FIO.Examples/FSharp.FIO.Examples.fsproj" />
   <Project Path="src/FSharp.FIO.App/FSharp.FIO.App.fsproj" />
-  <Project Path="src/FSharp.FIO.Experimental/FSharp.FIO.Experimental.fsproj" />
-  <Project Path="src/FSharp.FIO.Lib/FSharp.FIO.Lib.fsproj" />
+  <Project Path="src/FSharp.FIO.Console/FSharp.FIO.Console.fsproj" />
+  <Project Path="src/FSharp.FIO.Http/FSharp.FIO.Http.fsproj" />
+  <Project Path="src/FSharp.FIO.PostgreSQL/FSharp.FIO.PostgreSQL.fsproj" />
+  <Project Path="src/FSharp.FIO.Sockets/FSharp.FIO.Sockets.fsproj" />
+  <Project Path="src/FSharp.FIO.WebSockets/FSharp.FIO.WebSockets.fsproj" />
   <Project Path="src/FSharp.FIO/FSharp.FIO.fsproj" />
   <Project Path="tests/FSharp.FIO.Tests/FSharp.FIO.Tests.fsproj" />
 </Solution>

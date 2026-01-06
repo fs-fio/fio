@@ -1,7 +1,7 @@
 /// <summary>
 /// Route pattern types for HTTP request matching.
 /// </summary>
-namespace FSharp.FIO.Experimental.Http
+namespace FSharp.FIO.Http
 
 open System
 

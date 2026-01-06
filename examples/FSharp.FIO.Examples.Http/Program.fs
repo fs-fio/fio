@@ -1,8 +1,8 @@
 open FSharp.FIO.DSL
 open FSharp.FIO.Runtime.Default
-open FSharp.FIO.Experimental.Http
-open FSharp.FIO.Experimental.Http.RoutesOperators
-open FSharp.FIO.Experimental.Http.MiddlewareOperators
+open FSharp.FIO.Http
+open FSharp.FIO.Http.RoutesOperators
+open FSharp.FIO.Http.MiddlewareOperators
 
 open System
 

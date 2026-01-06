@@ -1,7 +1,7 @@
 /// <summary>
 /// FIO HTTP server types and functions.
 /// </summary>
-namespace FSharp.FIO.Experimental.Http
+namespace FSharp.FIO.Http
 
 open FSharp.FIO.DSL
 open FSharp.FIO.Runtime.Default

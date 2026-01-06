@@ -18,7 +18,7 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\..\src\FSharp.FIO\FSharp.FIO.fsproj" />
-		<ProjectReference Include="..\..\src\FSharp.FIO.Experimental\FSharp.FIO.Experimental.fsproj" />
+		<ProjectReference Include="..\..\src\FSharp.FIO.Http\FSharp.FIO.Http.fsproj" />
 	</ItemGroup>
 
 	<ItemGroup>

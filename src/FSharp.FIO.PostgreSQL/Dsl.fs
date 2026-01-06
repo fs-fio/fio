@@ -1,7 +1,7 @@
 /// <summary>
 /// High-level DSL functions for FIO PostgreSQL integration.
 /// </summary>
-namespace FSharp.FIO.Experimental.PostgreSQL
+namespace FSharp.FIO.PostgreSQL
 
 open FSharp.FIO.DSL
 

@@ -1,7 +1,7 @@
 /// <summary>
 /// Core HTTP types for the FIO HTTP server.
 /// </summary>
-namespace FSharp.FIO.Experimental.Http
+namespace FSharp.FIO.Http
 
 open System
 open System.IO

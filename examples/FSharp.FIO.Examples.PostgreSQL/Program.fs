@@ -17,7 +17,7 @@ module FSharp.FIO.Examples.PostgreSQL.Program
 
 open FSharp.FIO.DSL
 open FSharp.FIO.App
-open FSharp.FIO.Experimental.PostgreSQL
+open FSharp.FIO.PostgreSQL
 
 // Domain model
 type User = {

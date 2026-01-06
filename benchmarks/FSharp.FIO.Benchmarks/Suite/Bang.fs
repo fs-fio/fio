@@ -1,4 +1,4 @@
-﻿(*****************************************************)
+(*****************************************************)
 (* Bang benchmark                                    *)
 (* Measures: Many-to-One message passing             *)
 (* A Scalability Benchmark Suite for Erlang/OTP      *)
@@ -9,7 +9,7 @@ module private FSharp.FIO.Benchmarks.Suite.Bang
 
 open FSharp.FIO.DSL
 #if DEBUG
-open FSharp.FIO.Lib.IO
+open FSharp.FIO
 #endif
 open FSharp.FIO.Benchmarks.Tools.Timer
 
@@ -27,7 +27,7 @@ let private sendingActorEff (actor, roundCount, msg, timerChan: TimerMessage<int
         for _ in 1..roundCount do
             do! actor.Chan.Send(msg).Unit()
             #if DEBUG
-            do! FConsole.PrintLine $"[DEBUG]: %s{actor.Name} sent: %i{msg}"
+            do! Console.PrintLine $"[DEBUG]: %s{actor.Name} sent: %i{msg}"
             #endif
     }
 
@@ -39,7 +39,7 @@ let private receivingActorEff (actor, roundCount, timerChan: TimerMessage<int> c
         for _ in 1..roundCount do
             let! msg = actor.Chan.Receive()
             #if DEBUG
-            do! FConsole.PrintLine $"[DEBUG]: %s{actor.Name} received: %i{msg}"
+            do! Console.PrintLine $"[DEBUG]: %s{actor.Name} received: %i{msg}"
             #endif
             return ()
             

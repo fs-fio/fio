@@ -1,7 +1,7 @@
 /// <summary>
 /// PostgreSQL query execution for SELECT statements.
 /// </summary>
-namespace FSharp.FIO.Experimental.PostgreSQL
+namespace FSharp.FIO.PostgreSQL
 
 open FSharp.FIO.DSL
 

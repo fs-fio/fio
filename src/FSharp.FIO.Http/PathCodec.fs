@@ -1,7 +1,7 @@
 /// <summary>
 /// Path codec types for type-safe URL path parsing and generation.
 /// </summary>
-namespace FSharp.FIO.Experimental.Http
+namespace FSharp.FIO.Http
 
 open System
 

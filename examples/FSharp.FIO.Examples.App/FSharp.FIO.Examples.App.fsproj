@@ -18,7 +18,9 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\..\src\FSharp.FIO\FSharp.FIO.fsproj" />
-		<ProjectReference Include="..\..\src\FSharp.FIO.Lib\FSharp.FIO.Lib.fsproj" />
+		<ProjectReference Include="..\..\src\FSharp.FIO.Console\FSharp.FIO.Console.fsproj" />
+		<ProjectReference Include="..\..\src\FSharp.FIO.Sockets\FSharp.FIO.Sockets.fsproj" />
+		<ProjectReference Include="..\..\src\FSharp.FIO.WebSockets\FSharp.FIO.WebSockets.fsproj" />
 		<ProjectReference Include="..\..\src\FSharp.FIO.App\FSharp.FIO.App.fsproj" />
 	</ItemGroup>
 
