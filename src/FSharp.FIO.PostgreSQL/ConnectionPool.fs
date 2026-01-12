@@ -1,6 +1,3 @@
-/// <summary>
-/// PostgreSQL connection pool management using NpgsqlDataSource.
-/// </summary>
 namespace FSharp.FIO.PostgreSQL
 
 open FSharp.FIO.DSL

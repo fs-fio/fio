@@ -1,6 +1,3 @@
-/// <summary>
-/// Route collection types for HTTP routing.
-/// </summary>
 namespace FSharp.FIO.Http
 
 open FSharp.FIO.DSL
@@ -25,6 +22,7 @@ type Route<'E> =
 
 /// <summary>
 /// Represents a collection of routes with a fallback handler.
+/// Internally maintains an index for O(1) exact route lookups.
 /// </summary>
 type Routes<'E> =
     private
@@ -33,6 +31,10 @@ type Routes<'E> =
             RouteList: Route<'E> list
             /// <summary>The handler for unmatched requests.</summary>
             NotFoundHandler: HttpHandler<'E>
+            /// <summary>Index for exact path matches (Method * Path -> Handler).</summary>
+            ExactMatchIndex: Map<HttpMethod * string, obj list -> HttpHandler<'E>>
+            /// <summary>Routes with parameters that require pattern matching.</summary>
+            ParameterizedRoutes: Route<'E> list
         }
 
 /// <summary>
@@ -41,12 +43,47 @@ type Routes<'E> =
 module Routes =
 
     /// <summary>
+    /// Helper to determine if a route pattern is an exact match (no parameters).
+    /// </summary>
+    let private isExactMatch (pattern: RoutePattern) : bool =
+        match pattern.Path with
+        | Exact _ -> true
+        | _ -> false
+
+    /// <summary>
+    /// Helper to extract the exact path from a route pattern.
+    /// </summary>
+    let private getExactPath (pattern: RoutePattern) : string option =
+        match pattern.Path with
+        | Exact segments -> Some ("/" + String.concat "/" segments)
+        | _ -> None
+
+    /// <summary>
+    /// Builds the index and parameterized route lists from a route list.
+    /// </summary>
+    let private buildIndex (routes: Route<'E> list) =
+        let exactMatches, parameterized =
+            routes |> List.partition (fun r -> isExactMatch r.Pattern)
+
+        let index =
+            exactMatches
+            |> List.choose (fun route ->
+                match getExactPath route.Pattern with
+                | Some path -> Some ((route.Pattern.Method, path), route.Handler)
+                | None -> None)
+            |> Map.ofList
+
+        index, parameterized
+
+    /// <summary>
     /// Creates an empty route collection.
     /// </summary>
     let empty<'E> : Routes<'E> =
         {
             RouteList = []
             NotFoundHandler = HttpHandler.notFound
+            ExactMatchIndex = Map.empty
+            ParameterizedRoutes = []
         }
 
     /// <summary>
@@ -55,9 +92,13 @@ module Routes =
     /// <param name="pattern">The route pattern.</param>
     /// <param name="handler">The handler receiving extracted parameters.</param>
     let single (pattern: RoutePattern) (handler: obj list -> HttpHandler<'E>) : Routes<'E> =
+        let route = { Pattern = pattern; Handler = handler }
+        let index, parameterized = buildIndex [route]
         {
-            RouteList = [{ Pattern = pattern; Handler = handler }]
+            RouteList = [route]
             NotFoundHandler = HttpHandler.notFound
+            ExactMatchIndex = index
+            ParameterizedRoutes = parameterized
         }
 
     /// <summary>
@@ -74,9 +115,13 @@ module Routes =
     /// <param name="routes1">The first route collection.</param>
     /// <param name="routes2">The second route collection.</param>
     let combine (routes1: Routes<'E>) (routes2: Routes<'E>) : Routes<'E> =
+        let combinedRoutes = routes1.RouteList @ routes2.RouteList
+        let index, parameterized = buildIndex combinedRoutes
         {
-            RouteList = routes1.RouteList @ routes2.RouteList
+            RouteList = combinedRoutes
             NotFoundHandler = routes1.NotFoundHandler
+            ExactMatchIndex = index
+            ParameterizedRoutes = parameterized
         }
 
     /// <summary>
@@ -89,21 +134,27 @@ module Routes =
 
     /// <summary>
     /// Dispatches a request to the matching route.
+    /// Uses O(1) hash map lookup for exact matches, falls back to O(n) for parameterized routes.
     /// </summary>
     /// <param name="request">The HTTP request.</param>
     /// <param name="routes">The route collection.</param>
     let dispatch (request: HttpRequest) (routes: Routes<'E>) : FIO<HttpResponse, 'E> =
-        let rec tryRoutes routeList =
-            match routeList with
-            | [] -> routes.NotFoundHandler request
-            | route :: rest ->
-                match RoutePattern.tryMatch route.Pattern request with
-                | Some parameters ->
-                    route.Handler parameters request
-                | None ->
-                    tryRoutes rest
+        let key = request.Method, request.Path
+        match Map.tryFind key routes.ExactMatchIndex with
+        | Some handler ->
+            handler [] request
+        | None ->
+            let rec tryRoutes routeList =
+                match routeList with
+                | [] -> routes.NotFoundHandler request
+                | route :: rest ->
+                    match RoutePattern.tryMatch route.Pattern request with
+                    | Some parameters ->
+                        route.Handler parameters request
+                    | None ->
+                        tryRoutes rest
 
-        tryRoutes routes.RouteList
+            tryRoutes routes.ParameterizedRoutes
 
     /// <summary>
     /// Adds a parameterized route to a route collection.
@@ -112,9 +163,14 @@ module Routes =
     /// <param name="handler">The handler receiving extracted parameters.</param>
     /// <param name="routes">The route collection.</param>
     let add (pattern: RoutePattern) (handler: obj list -> HttpHandler<'E>) (routes: Routes<'E>) : Routes<'E> =
+        let newRoute = { Pattern = pattern; Handler = handler }
+        let updatedRoutes = routes.RouteList @ [newRoute]
+        let index, parameterized = buildIndex updatedRoutes
         {
             routes with
-                RouteList = routes.RouteList @ [{ Pattern = pattern; Handler = handler }]
+                RouteList = updatedRoutes
+                ExactMatchIndex = index
+                ParameterizedRoutes = parameterized
         }
 
     /// <summary>
@@ -131,9 +187,13 @@ module Routes =
     /// </summary>
     /// <param name="routes">The list of pattern-handler pairs.</param>
     let ofList (routes: (RoutePattern * HttpHandler<'E>) list) : Routes<'E> =
+        let routeList = routes |> List.map (fun (pattern, handler) -> { Pattern = pattern; Handler = fun _ -> handler })
+        let index, parameterized = buildIndex routeList
         {
-            RouteList = routes |> List.map (fun (pattern, handler) -> { Pattern = pattern; Handler = fun _ -> handler })
+            RouteList = routeList
             NotFoundHandler = HttpHandler.notFound
+            ExactMatchIndex = index
+            ParameterizedRoutes = parameterized
         }
 
     /// <summary>
@@ -142,10 +202,15 @@ module Routes =
     /// <param name="f">The transformation function.</param>
     /// <param name="routes">The route collection.</param>
     let map (f: HttpHandler<'E> -> HttpHandler<'E>) (routes: Routes<'E>) : Routes<'E> =
-        {
-            RouteList = routes.RouteList |> List.map (fun route ->
+        let transformedRoutes =
+            routes.RouteList |> List.map (fun route ->
                 { route with Handler = fun parameters -> f (route.Handler parameters) })
+        let index, parameterized = buildIndex transformedRoutes
+        {
+            RouteList = transformedRoutes
             NotFoundHandler = f routes.NotFoundHandler
+            ExactMatchIndex = index
+            ParameterizedRoutes = parameterized
         }
 
     /// <summary>

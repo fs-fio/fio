@@ -1,6 +1,3 @@
-/// <summary>
-/// FIO HTTP server types and functions.
-/// </summary>
 namespace FSharp.FIO.Http
 
 open FSharp.FIO.DSL
@@ -19,6 +16,8 @@ type ServerConfig = {
     Host: string
     /// <summary>The port to listen on.</summary>
     Port: int
+    /// <summary>Maximum request body size in bytes. Default is 30MB (30 * 1024 * 1024).</summary>
+    MaxRequestBodySize: int64
 }
 
 /// <summary>
@@ -27,11 +26,12 @@ type ServerConfig = {
 module ServerConfig =
 
     /// <summary>
-    /// Default server configuration (127.0.0.1:8080).
+    /// Default server configuration (127.0.0.1:8080, 30MB max body size).
     /// </summary>
     let defaultConfig = {
         Host = "127.0.0.1"
         Port = 8080
+        MaxRequestBodySize = 30L * 1024L * 1024L // 30MB
     }
 
     /// <summary>
@@ -42,6 +42,16 @@ module ServerConfig =
     let create host port = {
         Host = host
         Port = port
+        MaxRequestBodySize = 30L * 1024L * 1024L // 30MB default
+    }
+
+    /// <summary>
+    /// Sets the maximum request body size.
+    /// </summary>
+    /// <param name="maxSize">Maximum body size in bytes.</param>
+    /// <param name="config">The configuration to modify.</param>
+    let withMaxBodySize maxSize config = {
+        config with MaxRequestBodySize = maxSize
     }
 
 /// <summary>
@@ -51,7 +61,7 @@ type FIOServer = private {
     Config: ServerConfig
     Routes: Routes<exn>
     Runtime: DefaultRuntime
-    mutable Host: IHost option
+    Host: IHost option
 }
 
 /// <summary>
@@ -60,28 +70,34 @@ type FIOServer = private {
 module Server =
 
     /// <summary>
-    /// Creates a new FIO HTTP server.
+    /// Creates a new FIO HTTP server with a provided runtime.
+    /// </summary>
+    /// <param name="config">The server configuration.</param>
+    /// <param name="routes">The routes to serve.</param>
+    /// <param name="runtime">The FIO runtime to use for executing effects.</param>
+    let createWithRuntime (config: ServerConfig) (routes: Routes<exn>) (runtime: DefaultRuntime) : FIO<FIOServer, exn> =
+        FIO.Attempt((fun () ->
+            {
+                Config = config
+                Routes = routes
+                Runtime = runtime
+                Host = None
+            }), id)
+
+    /// <summary>
+    /// Creates a new FIO HTTP server with default runtime.
     /// </summary>
     /// <param name="config">The server configuration.</param>
     /// <param name="routes">The routes to serve.</param>
     let create (config: ServerConfig) (routes: Routes<exn>) : FIO<FIOServer, exn> =
-        FIO.Attempt(
-            (fun () ->
-                {
-                    Config = config
-                    Routes = routes
-                    Runtime = new DefaultRuntime()
-                    Host = None
-                }),
-            id)
+        createWithRuntime config routes (new DefaultRuntime())
 
     /// <summary>
     /// Starts the HTTP server.
     /// </summary>
     /// <param name="server">The server to start.</param>
-    let start (server: FIOServer) : FIO<unit, exn> =
+    let start (server: FIOServer) : FIO<FIOServer, exn> =
         fio {
-            // Build the web application
             let builder = WebApplication.CreateBuilder()
 
             builder.WebHost.ConfigureKestrel(fun options ->
@@ -91,71 +107,91 @@ module Server =
             let app = builder.Build()
 
             app.Run(fun ctx ->
-                KestrelBridge.handleRequest server.Runtime server.Routes ctx
+                KestrelBridge.handleRequest server.Runtime server.Routes server.Config.MaxRequestBodySize ctx
             ) |> ignore
 
-            // Start the server asynchronously and wait for it to be ready
-            do! FIO.AwaitTask(app.StartAsync(), id)
-
-            server.Host <- Some app
-
+            let! startResult =
+                try
+                    FIO.AwaitTask(app.StartAsync(), id)
+                with exn ->
+                    app.DisposeAsync().AsTask() |> Async.AwaitTask |> Async.RunSynchronously
+                    raise exn
+   
             printfn $"FIO HTTP Server listening on http://{server.Config.Host}:{server.Config.Port}"
+            return { server with Host = Some app }
         }
 
     /// <summary>
-    /// Stops the HTTP server.
+    /// Stops the HTTP server and disposes resources.
     /// </summary>
     /// <param name="server">The server to stop.</param>
-    let stop (server: FIOServer) : FIO<unit, exn> =
-        FIO.Attempt(
-            (fun () ->
-                match server.Host with
-                | Some host ->
-                    host.StopAsync() |> Async.AwaitTask |> Async.RunSynchronously
-                    server.Host <- None
-                    printfn "FIO HTTP Server stopped"
-                | None ->
-                    printfn "FIO HTTP Server not running"
-            ),
-            id)
+    let stop (server: FIOServer) : FIO<FIOServer, exn> =
+        fio {
+            match server.Host with
+            | Some host ->
+                do! FIO.AwaitTask(host.StopAsync(), id)
+                // IHost uses synchronous Dispose, not DisposeAsync
+                do! FIO.Attempt((fun () -> host.Dispose()), id)
+                printfn "FIO HTTP Server stopped"
+                return { server with Host = None }
+            | None ->
+                printfn "FIO HTTP Server not running"
+                return server
+        }
 
     /// <summary>
     /// Waits for the server to shut down.
     /// </summary>
     /// <param name="server">The server to wait on.</param>
     let run (server: FIOServer) : FIO<unit, exn> =
-        FIO.Attempt(
-            (fun () ->
-                match server.Host with
-                | Some host ->
-                    host.WaitForShutdownAsync() |> Async.AwaitTask |> Async.RunSynchronously
-                | None ->
-                    failwith "FIO HTTP Server not started. Call Server.start first."
-            ),
-            id)
+        fio {
+            match server.Host with
+            | Some host ->
+                do! FIO.AwaitTask(host.WaitForShutdownAsync(), id)
+            | None ->
+                return! FIO.Fail(exn "FIO HTTP Server not started. Call Server.start first.")
+        }
 
     /// <summary>
-    /// Creates and starts a server in one operation.
+    /// Creates and starts a server in one operation with a provided runtime.
+    /// </summary>
+    /// <param name="config">The server configuration.</param>
+    /// <param name="routes">The routes to serve.</param>
+    /// <param name="runtime">The FIO runtime to use for executing effects.</param>
+    let startServerWithRuntime (config: ServerConfig) (routes: Routes<exn>) (runtime: DefaultRuntime) : FIO<FIOServer, exn> =
+        fio {
+            let! server = createWithRuntime config routes runtime
+            let! startedServer = start server
+            return startedServer
+        }
+
+    /// <summary>
+    /// Creates and starts a server in one operation with default runtime.
     /// </summary>
     /// <param name="config">The server configuration.</param>
     /// <param name="routes">The routes to serve.</param>
     let startServer (config: ServerConfig) (routes: Routes<exn>) : FIO<FIOServer, exn> =
+        startServerWithRuntime config routes (new DefaultRuntime())
+
+    /// <summary>
+    /// Creates, starts, and runs a server until shutdown (blocking) with a provided runtime.
+    /// </summary>
+    /// <param name="config">The server configuration.</param>
+    /// <param name="routes">The routes to serve.</param>
+    /// <param name="runtime">The FIO runtime to use for executing effects.</param>
+    let runServerWithRuntime (config: ServerConfig) (routes: Routes<exn>) (runtime: DefaultRuntime) : FIO<unit, exn> =
         fio {
-            let! server = create config routes
-            do! start server
-            return server
+            let! server = startServerWithRuntime config routes runtime
+            do! run server
         }
 
     /// <summary>
-    /// Creates, starts, and runs a server until shutdown (blocking).
+    /// Creates, starts, and runs a server until shutdown (blocking) with default runtime.
     /// </summary>
     /// <param name="config">The server configuration.</param>
     /// <param name="routes">The routes to serve.</param>
     let runServer (config: ServerConfig) (routes: Routes<exn>) : FIO<unit, exn> =
-        fio {
-            let! server = startServer config routes
-            do! run server
-        }
+        runServerWithRuntime config routes (new DefaultRuntime())
 
 /// <summary>
 /// Fluent builder functions for server configuration.

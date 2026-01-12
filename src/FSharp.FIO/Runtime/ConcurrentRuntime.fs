@@ -170,6 +170,7 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
         let mutable currentFiberContext = workItem.FiberContext
         let mutable completionAction = NoCompletion
         let mutable completed = false
+        let mutable shouldReturnWorkItem = true  // Track if we should return the original workItem
 
         let inline processSuccess res =
             let mutable loop = true
@@ -227,8 +228,9 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
                         | Error err ->
                             processInterruptError err
                     elif currentEWSteps = 0 then
-                        let workItem = WorkItemPool.Rent(currentEff, currentFiberContext, currentContStack)
-                        do! activeWorkItemChan.AddAsync workItem
+                        let newWorkItem = WorkItemPool.Rent(currentEff, currentFiberContext, currentContStack)
+                        do! activeWorkItemChan.AddAsync newWorkItem
+                        shouldReturnWorkItem <- false  // New workItem rented, don't return original
                         completed <- true
                     else
                         currentEWSteps <- currentEWSteps - 1
@@ -258,8 +260,9 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
                             if chan.UnboundedChannel.TryTake(&res) then
                                 processSuccess res
                             else
-                                let workItem = WorkItemPool.Rent(ReceiveChan chan, currentFiberContext, currentContStack)
-                                do! chan.AddBlockingWorkItem workItem
+                                let newWorkItem = WorkItemPool.Rent(ReceiveChan chan, currentFiberContext, currentContStack)
+                                do! chan.AddBlockingWorkItem newWorkItem
+                                shouldReturnWorkItem <- false  // New workItem rented, don't return original
                                 completed <- true
                         | ForkEffect(eff, fiber, fiberContext) ->
                             let registration = currentFiberContext.CancellationToken.Register(fun () ->
@@ -271,6 +274,7 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
                         | ForkTPLTask(taskFactory, onError, fiber, fiberContext) ->
                             let registration = currentFiberContext.CancellationToken.Register(fun () ->
                                 fiberContext.Interrupt (ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
+                            fiberContext.AddRegistration registration
                             do! Task.Run(fun () ->
                                 task {
                                     let t = taskFactory()
@@ -291,6 +295,7 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
                         | ForkGenericTPLTask(taskFactory, onError, fiber, fiberContext) ->
                             let registration = currentFiberContext.CancellationToken.Register(fun () ->
                                 fiberContext.Interrupt (ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
+                            fiberContext.AddRegistration registration
                             do! Task.Run(fun () ->
                                 task {
                                     let t = taskFactory()
@@ -313,9 +318,10 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
                                 let! res = fiberContext.Task
                                 processResult res
                             else
-                                let workItem = WorkItemPool.Rent(JoinFiber fiberContext, currentFiberContext, currentContStack)
-                                do! fiberContext.AddBlockingWorkItem workItem
+                                let newWorkItem = WorkItemPool.Rent(JoinFiber fiberContext, currentFiberContext, currentContStack)
+                                do! fiberContext.AddBlockingWorkItem newWorkItem
                                 do fiberContext.TryRescheduleBlockingWorkItems activeWorkItemChan |> ignore
+                                shouldReturnWorkItem <- false  // New workItem rented, don't return original
                                 completed <- true
                         | AwaitTPLTask(task, onError) ->
                             try
@@ -347,8 +353,8 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
             finally
                 if not completed then
                     ContStackPool.Return currentContStack
-                // Return WorkItem to pool only if fiber completed (not rescheduled, not blocked)
-                if completed && completionAction <> NoCompletion then
+                // Return WorkItem to pool only if we still own it and fiber completed
+                if shouldReturnWorkItem && completed && completionAction <> NoCompletion then
                     WorkItemPool.Return workItem
         }
 

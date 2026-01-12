@@ -110,6 +110,7 @@ type DirectRuntime () =
                             let registration =
                                 currentFiberContext.CancellationToken.Register(
                                     fun () -> fiberContext.Interrupt(ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
+                            fiberContext.AddRegistration registration
                             Task.Run(fun () ->
                                 task {
                                     try
@@ -126,6 +127,7 @@ type DirectRuntime () =
                             let registration =
                                 currentFiberContext.CancellationToken.Register(
                                     fun () -> fiberContext.Interrupt(ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
+                            fiberContext.AddRegistration registration
                             Task.Run(fun () ->
                                 task {
                                     try
@@ -146,6 +148,7 @@ type DirectRuntime () =
                             let registration =
                                 currentFiberContext.CancellationToken.Register(
                                     fun () -> fiberContext.Interrupt(ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
+                            fiberContext.AddRegistration registration
                             Task.Run(fun () ->
                                 task {
                                     try

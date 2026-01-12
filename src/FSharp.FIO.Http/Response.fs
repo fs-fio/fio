@@ -1,6 +1,3 @@
-/// <summary>
-/// Pre-built HTTP response factory functions.
-/// </summary>
 namespace FSharp.FIO.Http
 
 /// <summary>
@@ -56,11 +53,15 @@ module Response =
 
     /// <summary>
     /// Creates an HTTP 200 OK response with stream body.
+    /// IMPORTANT: The caller is responsible for disposing the stream after the response is sent.
+    /// The stream will not be automatically disposed by the framework.
     /// </summary>
-    /// <param name="stream">The stream to send.</param>
+    /// <param name="stream">The stream to send. Must not be null.</param>
     /// <param name="length">The optional content length.</param>
     /// <param name="contentType">The content type header value.</param>
     let okStream stream length contentType =
+        if isNull stream then
+            invalidArg "stream" "Stream cannot be null"
         HttpResponse.create HttpStatusCode.OK
         |> HttpResponse.withHeader "Content-Type" contentType
         |> HttpResponse.withBody (Stream (stream, length))

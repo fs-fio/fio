@@ -1,13 +1,9 @@
-/// <summary>
-/// Result set handling and mapping for PostgreSQL queries.
-/// </summary>
 namespace FSharp.FIO.PostgreSQL
 
 open FSharp.FIO.DSL
 
 open Npgsql
 open System
-open System.Data
 
 /// <summary>
 /// Functions for working with query result sets.

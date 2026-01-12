@@ -72,8 +72,8 @@ and [<Sealed>] internal UnboundedChannel<'R> (id: Guid) =
     /// </summary>
     member internal _.AddAsync (msg: 'R) =
         task {
-            do! chan.Writer.WriteAsync msg
             Interlocked.Increment &count |> ignore
+            do! chan.Writer.WriteAsync msg
         }
 
     /// <summary>
@@ -81,8 +81,8 @@ and [<Sealed>] internal UnboundedChannel<'R> (id: Guid) =
     /// </summary>
     member internal _.TakeAsync () =
         task {
-            let! res = chan.Reader.ReadAsync()
             Interlocked.Decrement &count |> ignore
+            let! res = chan.Reader.ReadAsync()
             return res
         }
 
@@ -159,26 +159,35 @@ and [<Sealed>] internal FiberContext () =
     member private _.DisposeRegistrations () =
         let mutable registration = Unchecked.defaultof<_>
         while registrations.TryTake(&registration) do
-            registration.Dispose()
+            try
+                registration.Dispose()
+            with _ ->
+                () // Swallow disposal errors to ensure all registrations are attempted
 
     /// <summary>
     /// Completes the fiber with the given result.
     /// </summary>
     member internal this.Complete res =
-        if Interlocked.CompareExchange(&state, int FiberContextState.Completed, int FiberContextState.Running) = int FiberContextState.Running then
+        let oldState = Interlocked.CompareExchange(&state, int FiberContextState.Completed, int FiberContextState.Running)
+        if oldState = int FiberContextState.Running then
             resTcs.TrySetResult res |> ignore
             this.DisposeRegistrations()
+        elif oldState = int FiberContextState.Interrupted then
+            resTcs.TrySetResult res |> ignore
 
     /// <summary>
     /// Completes the fiber and reschedules blocking work items.
     /// </summary>
     member internal this.CompleteAndReschedule (res, activeWorkItemChan) =
         task {
-            if Interlocked.CompareExchange(&state, int FiberContextState.Completed, int FiberContextState.Running) = int FiberContextState.Running then
+            let oldState = Interlocked.CompareExchange(&state, int FiberContextState.Completed, int FiberContextState.Running)
+            if oldState = int FiberContextState.Running then
                 resTcs.TrySetResult res |> ignore
                 this.DisposeRegistrations()
                 if blockingWorkItemChan.Count > 0 then
                     do! this.RescheduleBlockingWorkItems activeWorkItemChan
+            elif oldState = int FiberContextState.Interrupted then
+                resTcs.TrySetResult res |> ignore
         }
 
     /// <summary>
@@ -276,7 +285,7 @@ and Fiber<'R, 'E> internal () =
     /// Gets whether the fiber has been interrupted.
     /// </summary>
     member _.Interrupted =
-        fiberContext.Interrupted
+        fiberContext.Interrupted()
 
     /// <summary>
     /// Awaits the fiber's completion and returns its result.
@@ -549,7 +558,10 @@ and FIO<'R, 'E> =
     /// </summary>
     /// <param name="finalizer">The finalizer effect to run.</param>
     member this.Ensuring<'R, 'E> (finalizer: FIO<unit, 'E>) : FIO<'R, 'E> =
-        let runFinalizer outcome = finalizer.CatchAll(fun _ -> Success()).FlatMap(fun _ -> outcome)
+        let runFinalizer outcome =
+            finalizer
+                .CatchAll(fun _ -> Success())
+                .FlatMap(fun _ -> outcome)
         this.FlatMap(fun res -> runFinalizer(Success res))
             .CatchAll(fun err -> runFinalizer(Failure err))
 

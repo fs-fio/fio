@@ -1,6 +1,3 @@
-/// <summary>
-/// Path codec types for type-safe URL path parsing and generation.
-/// </summary>
 namespace FSharp.FIO.Http
 
 open System
@@ -98,7 +95,10 @@ module PathCodec =
                     match Int32.TryParse head with
                     | true, value ->
                         match next.Match tail with
-                        | Match(rest, remaining) -> Match((fun i -> rest), remaining)
+                        | Match(rest, remaining) ->
+                            // Return a function that provides the parsed value to rest if rest is a function
+                            // The type 'T could be a function type that expects this int
+                            Match((fun _ -> rest), remaining)
                         | NoMatch -> NoMatch
                     | false, _ -> NoMatch
                 | [] -> NoMatch)
@@ -156,12 +156,12 @@ module PathCodec =
     /// <param name="codec2">The second codec.</param>
     let combine (codec1: PathCodec<'A -> 'B>) (codec2: PathCodec<'A>) : PathCodec<'B> =
         create
-            (fun value ->
+            (fun _ ->
                 invalidOp "PathCodec encoding is not supported for combined parameterized paths. Use this codec for URL matching/decoding only.")
             (fun segments ->
-                match codec1.Match(segments) with
+                match codec1.Match segments with
                 | Match(f, remaining) ->
-                    match codec2.Match(remaining) with
+                    match codec2.Match remaining with
                     | Match(value, final) -> Match(f value, final)
                     | NoMatch -> NoMatch
                 | NoMatch -> NoMatch)
@@ -296,7 +296,7 @@ module RoutePath =
 
             match matchBefore before segments with
             | Some (param :: remaining) ->
-                match Int32.TryParse(param) with
+                match Int32.TryParse param with
                 | true, value -> matchAfter after remaining [box value]
                 | false, _ -> None
             | _ -> None)

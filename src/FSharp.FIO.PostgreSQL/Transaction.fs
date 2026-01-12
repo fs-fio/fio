@@ -1,6 +1,3 @@
-/// <summary>
-/// PostgreSQL transaction management with FIO effects.
-/// </summary>
 namespace FSharp.FIO.PostgreSQL
 
 open FSharp.FIO.DSL

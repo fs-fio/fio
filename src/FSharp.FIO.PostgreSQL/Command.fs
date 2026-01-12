@@ -1,12 +1,6 @@
-/// <summary>
-/// PostgreSQL command execution for INSERT, UPDATE, DELETE statements.
-/// </summary>
 namespace FSharp.FIO.PostgreSQL
 
 open FSharp.FIO.DSL
-
-open Npgsql
-open System
 
 /// <summary>
 /// Functions for executing PostgreSQL commands (non-query operations).

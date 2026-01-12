@@ -241,18 +241,22 @@ type FIO<'R, 'E> with
             let effList = Seq.toList effSeq
             match effList with
             | [] -> FIO.Succeed []
+            | [single] -> single.FlatMap(fun r -> FIO.Succeed [r])
             | _ ->
-                // Fork all effects in parallel first
-                let forkAll =
+                let forkAllFibers =
                     effList
                     |> List.map (fun eff -> eff.Fork())
-                    |> FIO.CollectAll
 
-                // Then await all fibers in parallel
-                forkAll.FlatMap(fun fibers ->
-                    fibers
-                    |> List.map (fun fiber -> fiber.Join())
-                    |> FIO.CollectAll))
+                let rec joinAllFibers (fibers: Fiber<'R, 'E> list) (acc: 'R list) : FIO<'R list, 'E> =
+                    match fibers with
+                    | [] -> FIO.Succeed(List.rev acc)
+                    | fiber :: rest ->
+                        fiber.Join().FlatMap(fun res ->
+                            joinAllFibers rest (res :: acc))
+
+                forkAllFibers
+                |> FIO.CollectAll
+                |> fun forkEff -> forkEff.FlatMap(fun fibers -> joinAllFibers fibers []))
 
     /// <summary>
     /// Maps each item in a collection to an effect, then sequences all effects sequentially.

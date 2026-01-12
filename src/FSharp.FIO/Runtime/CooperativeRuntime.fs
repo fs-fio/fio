@@ -277,6 +277,7 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                         | ForkTPLTask(taskFactory, onError, fiber, fiberContext) ->
                             let registration = currentFiberContext.CancellationToken.Register(fun () ->
                                 fiberContext.Interrupt (ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
+                            fiberContext.AddRegistration registration
                             do! Task.Run(fun () ->
                                 task {
                                     let t = taskFactory()
@@ -296,6 +297,7 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                         | ForkGenericTPLTask(taskFactory, onError, fiber, fiberContext) ->
                             let registration = currentFiberContext.CancellationToken.Register(fun () ->
                                 fiberContext.Interrupt (ParentInterrupted currentFiberContext.Id, "Parent fiber was interrupted."))
+                            fiberContext.AddRegistration registration
                             do! Task.Run(fun () ->
                                 task {
                                     let t = taskFactory()
@@ -344,8 +346,9 @@ and CooperativeRuntime (config: WorkerConfig) as this =
             finally
                 if not completed then
                     ContStackPool.Return currentContStack
-                if workItemOwnership then
-                    WorkItemPool.Return workItem
+                // Always return the original workItem when done with it
+                // When we created a new WorkItem, it goes to the blocking queue with a new ContStack
+                WorkItemPool.Return workItem
         }
 
     /// <summary>

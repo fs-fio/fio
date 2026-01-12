@@ -1,6 +1,3 @@
-/// <summary>
-/// HTTP handler types and combinators for FIO-based request processing.
-/// </summary>
 namespace FSharp.FIO.Http
 
 open FSharp.FIO.DSL

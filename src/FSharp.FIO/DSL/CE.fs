@@ -120,17 +120,20 @@ type FIOBuilder internal () =
     /// <param name="sequence">The sequence to iterate over.</param>
     /// <param name="body">The function to run for each element.</param>
     member inline _.For<'T, 'E> (sequence: seq<'T>, body: 'T -> FIO<unit, 'E>) : FIO<unit, 'E> =
-        FIO.Unit().FlatMap(fun () ->
+        FIO.Suspend(fun () ->
             let enumerator = sequence.GetEnumerator()
+            try
+                let rec loop () =
+                    if enumerator.MoveNext() then
+                        body(enumerator.Current).FlatMap(fun _ -> loop())
+                    else
+                        FIO.Unit()
 
-            let rec loop () =
-                if enumerator.MoveNext() then
-                    body(enumerator.Current).FlatMap(fun _ -> loop())
-                else
-                    FIO.Unit()
-
-            let dispose = FIO.Unit().FlatMap(fun () -> enumerator.Dispose(); FIO.Unit())
-            loop().Ensuring dispose)
+                let dispose = FIO.Suspend(fun () -> enumerator.Dispose(); FIO.Unit())
+                loop().Ensuring dispose
+            with _ ->
+                enumerator.Dispose()
+                reraise())
 
     /// <summary>
     /// Enables <c>while...do</c> expressions in computation expressions.
@@ -151,8 +154,8 @@ type FIOBuilder internal () =
     /// <param name="resource">The disposable resource.</param>
     /// <param name="body">The function to run with the resource.</param>
     member inline _.Using<'T, 'R, 'E when 'T :> IDisposable> (resource: 'T, body: 'T -> FIO<'R, 'E>) : FIO<'R, 'E> =
-        (body resource).Ensuring(FIO.Unit().FlatMap(
-            fun () -> resource.Dispose(); FIO.Unit()))
+        let dispose = FIO.Suspend(fun () -> resource.Dispose(); FIO.Unit())
+        (body resource).Ensuring dispose
 
     /// <summary>
     /// Enables pattern matching in computation expressions.

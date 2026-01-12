@@ -1,0 +1,193 @@
+namespace FSharp.FIO.Sockets
+
+open FSharp.FIO.DSL
+
+open System.Net
+
+/// <summary>
+/// Low-level server socket operations.
+/// </summary>
+[<RequireQualifiedAccess>]
+module SocketServer =
+
+    /// <summary>
+    /// Internal: Logs an error and suppresses it.
+    /// Used for cleanup operations where errors should not propagate.
+    /// </summary>
+    let private logAndSuppress (context: string) (err: SocketError) : FIO<unit, SocketError> =
+        fio {
+            let str = SocketError.ToString err
+            do! FIO.Attempt((fun () ->
+                eprintfn $"[SocketServer] Error during {context}: {str}"), SocketError.FromException)
+            return ()
+        }
+
+    /// <summary>
+    /// Binds to a local address and starts listening for connections.
+    /// </summary>
+    /// <param name="config">Server socket configuration.</param>
+    let bind (config: ServerSocketConfig) : FIO<ServerSocket, SocketError> =
+        fio {
+            let! netSocket = FIO.Attempt((fun () ->
+                new Sockets.Socket(config.AddressFamily, config.SocketType, config.ProtocolType)),
+                SocketError.FromException)
+
+            let! endpoint = FIO.Attempt((fun () ->
+                IPEndPoint(IPAddress.Parse config.BindAddress, config.BindPort) :> EndPoint),
+                SocketError.FromException)
+
+            do! FIO.Attempt((fun () ->
+                netSocket.Bind endpoint
+                netSocket.Listen config.Backlog),
+                fun exn -> BindFailed(config.BindAddress, config.BindPort, exn))
+
+            return
+                { NetSocket = netSocket
+                  Config = config }
+        }
+
+    /// <summary>
+    /// Closes the server socket.
+    /// </summary>
+    /// <param name="serverSocket">The server socket to close.</param>
+    let close (serverSocket: ServerSocket) : FIO<unit, FSharp.FIO.Sockets.SocketError> =
+        FIO.Attempt((fun () ->
+            serverSocket.NetSocket.Close()
+            serverSocket.NetSocket.Dispose()),
+            SocketError.FromException
+        ).CatchAll(logAndSuppress "server socket close")
+
+    /// <summary>
+    /// Acquires a server socket.
+    /// Use with release for manual resource management.
+    /// </summary>
+    /// <param name="config">Server socket configuration.</param>
+    let acquire (config: ServerSocketConfig) : FIO<ServerSocket, SocketError> =
+        bind config
+
+    /// <summary>
+    /// Releases a server socket.
+    /// Suppresses errors during cleanup to avoid masking original failures.
+    /// </summary>
+    /// <param name="serverSocket">The server socket to release.</param>
+    let release (serverSocket: ServerSocket) : FIO<unit, SocketError> =
+        close serverSocket
+
+    /// <summary>
+    /// Executes an action with a server socket, automatically closing it.
+    /// This is the FIO-idiomatic way to use server sockets with guaranteed cleanup.
+    /// </summary>
+    /// <param name="config">Server socket configuration.</param>
+    /// <param name="action">Action to execute with the server socket.</param>
+    let withServerSocket (config: ServerSocketConfig, action: ServerSocket -> FIO<'R, SocketError>) : FIO<'R, SocketError> =
+        FIO.AcquireRelease(acquire config, release, action)
+
+    /// <summary>
+    /// Accepts a single incoming connection.
+    /// Returns a connected Socket.
+    /// </summary>
+    /// <param name="serverSocket">The server socket to accept from.</param>
+    let accept (serverSocket: ServerSocket) : FIO<Socket, SocketError> =
+        fio {
+            let! netSocket = FIO.AwaitTask(serverSocket.NetSocket.AcceptAsync(), AcceptFailed)
+            let config =
+                match serverSocket.Config.AcceptedSocketConfig with
+                | Some cfg -> cfg
+                | None ->
+                    { Host = "" // Not applicable for accepted socket
+                      Port = 0 // Not applicable
+                      AddressFamily = netSocket.AddressFamily
+                      SocketType = netSocket.SocketType
+                      ProtocolType = netSocket.ProtocolType
+                      SendBufferSize = netSocket.SendBufferSize
+                      ReceiveBufferSize = netSocket.ReceiveBufferSize
+                      SendTimeout = netSocket.SendTimeout
+                      ReceiveTimeout = netSocket.ReceiveTimeout
+                      NoDelay = netSocket.NoDelay }
+            return new Socket(netSocket, config)
+        }
+
+    /// <summary>
+    /// Accept loop: accepts connections and processes them with the given handler.
+    /// Each connection is handled concurrently via Fork.
+    /// Runs until interrupted.
+    /// </summary>
+    /// <param name="handler">Handler to process each accepted connection.</param>
+    /// <param name="serverSocket">The server socket to accept from.</param>
+    let acceptLoop (handler: Socket -> FIO<unit, SocketError>, serverSocket: ServerSocket) : FIO<unit, SocketError> =
+        let rec loop () =
+            fio {
+                let! socket = accept serverSocket
+                let handlerWithCleanup =
+                    FIO.AcquireRelease(
+                        FIO.Succeed socket,
+                        (fun s -> s.Close().CatchAll(logAndSuppress "accepted socket close")),
+                        handler)
+                let! _fiber = handlerWithCleanup.Fork()
+                return! loop ()
+            }
+        loop ()
+
+    /// <summary>
+    /// Gets the server socket configuration.
+    /// </summary>
+    /// <param name="serverSocket">The server socket to query.</param>
+    let getConfig (serverSocket: ServerSocket) : ServerSocketConfig =
+        serverSocket.Config
+
+    /// <summary>
+    /// Gets the local endpoint the server socket is bound to.
+    /// </summary>
+    /// <param name="serverSocket">The server socket to query.</param>
+    let getLocalEndPoint (serverSocket: ServerSocket) : FIO<EndPoint, SocketError> =
+        FIO.Attempt((fun () ->
+            serverSocket.NetSocket.LocalEndPoint), SocketError.FromException)
+
+    /// <summary>
+    /// Starts a server and processes connections with the given handler.
+    /// Runs until interrupted.
+    /// </summary>
+    /// <param name="config">Server socket configuration.</param>
+    /// <param name="handler">Handler to process each accepted connection.</param>
+    let serve (config: ServerSocketConfig, handler: Socket -> FIO<unit, SocketError>) : FIO<unit, SocketError> =
+        withServerSocket(config, fun serverSocket -> acceptLoop (handler, serverSocket))
+
+    /// <summary>
+    /// Starts a server with a codec-based request/response handler with configurable buffer size.
+    /// Receives a request using requestCodec, processes it, and sends response using responseCodec.
+    /// </summary>
+    /// <param name="requestCodec">Codec for decoding requests.</param>
+    /// <param name="responseCodec">Codec for encoding responses.</param>
+    /// <param name="handler">Handler that processes requests and returns responses.</param>
+    /// <param name="config">Server socket configuration.</param>
+    /// <param name="bufferSize">Buffer size for receiving requests.</param>
+    let serveWithBufferSize<'Req, 'Resp>
+        (requestCodec: SocketCodec<'Req>,
+         responseCodec: SocketCodec<'Resp>,
+         handler: 'Req -> FIO<'Resp, SocketError>,
+         config: ServerSocketConfig,
+         bufferSize: int)
+         : FIO<unit, SocketError> =
+        let connectionHandler (socket: Socket) = fio {
+            let! request = socket.Receive(requestCodec, bufferSize)
+            let! response = handler request
+            do! socket.Send(responseCodec, response)
+        }
+        serve(config, connectionHandler)
+
+    /// <summary>
+    /// Starts a server with a codec-based request/response handler.
+    /// Receives a request using requestCodec, processes it, and sends response using responseCodec.
+    /// Uses a buffer size of 8192 bytes for receiving requests.
+    /// </summary>
+    /// <param name="requestCodec">Codec for decoding requests.</param>
+    /// <param name="responseCodec">Codec for encoding responses.</param>
+    /// <param name="handler">Handler that processes requests and returns responses.</param>
+    /// <param name="config">Server socket configuration.</param>
+    let serveWith<'Req, 'Resp>
+        (requestCodec: SocketCodec<'Req>,
+         responseCodec: SocketCodec<'Resp>,
+         handler: 'Req -> FIO<'Resp, SocketError>,
+         config: ServerSocketConfig)
+         : FIO<unit, SocketError> =
+        serveWithBufferSize(requestCodec, responseCodec, handler, config, 8192)

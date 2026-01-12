@@ -13,7 +13,13 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="Sockets.fs" />
+        <Compile Include="Types.fs" />
+        <Compile Include="Codec.fs" />
+        <Compile Include="Socket.fs" />
+        <Compile Include="SocketClient.fs" />
+        <Compile Include="ServerSocket.fs" />
+        <Compile Include="SocketPool.fs" />
+        <Compile Include="Extensions.fs" />
     </ItemGroup>
 
     <ItemGroup>

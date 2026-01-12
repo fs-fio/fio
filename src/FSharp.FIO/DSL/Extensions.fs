@@ -89,7 +89,7 @@ type FIO<'R, 'E> with
     /// </summary>
     /// <param name="effOnError">The effect to execute on the error value.</param>
     member inline this.TapError<'R, 'R1, 'E> (effOnError: 'E -> FIO<'R1, 'E>) : FIO<'R, 'E> =
-        this.CatchAll(fun err -> effOnError(err).Map(fun _ -> err).FlatMap FIO.Fail)
+        this.CatchAll(fun err -> effOnError(err).FlatMap(fun _ -> FIO.Fail err))
 
     /// <summary>
     /// Executes an effect on both success and error, for side effects.
@@ -190,9 +190,11 @@ type FIO<'R, 'E> with
     /// <param name="eff">The effect to run concurrently with this effect.</param>
     member inline this.ZipParError<'R, 'E, 'E1> (eff: FIO<'R, 'E1>) : FIO<'R, 'E * 'E1> =
         eff.Fork().FlatMap(fun fiber ->
-            this.CatchAll(fun err ->
-                fiber.Join().MapError(fun err' ->
-                    err, err')))
+            (this.FlatMap(fun res ->
+                fiber.Join().CatchAll(fun _ -> FIO.Succeed res).FlatMap(fun _ -> FIO.Succeed res)))
+                .CatchAll(fun err ->
+                    fiber.Join().CatchAll(fun err' ->
+                        FIO.Fail(err, err'))))
 
     /// <summary>
     /// Executes two effects in parallel, returning the result of the second.
@@ -228,23 +230,24 @@ type FIO<'R, 'E> with
     /// Retries this effect up to the specified number of attempts on failure.
     /// </summary>
     /// <param name="maxAttempts">The maximum total number of attempts (must be >= 1).</param>
-    /// <param name="onEachRetry">Optional callback executed on each retry with (error, attempt, maxAttempts).</param>
+    /// <param name="onEachRetry">Optional callback executed after each failure before retrying with (error, attemptNumber, maxAttempts).</param>
     member inline this.Retry<'R, 'E> (maxAttempts: int, ?onEachRetry: 'E * int * int -> FIO<unit, 'E>): FIO<'R, 'E> =
         if maxAttempts < 1 then
             FIO.Interrupt(InvalidArgument ("maxAttempts", "must be >= 1"), "Invalid argument: maxAttempts must be >= 1")
         else
             FIO.Suspend(fun () ->
-                let rec loop attempt =
-                    if attempt >= maxAttempts then
-                        this
-                    else
-                        this.CatchAll(fun err ->
+                let rec loop attemptNumber =
+                    this.CatchAll(fun err ->
+                        if attemptNumber < maxAttempts then
                             match onEachRetry with
                             | Some callback ->
-                                callback(err, attempt, maxAttempts)
-                                    .FlatMap(fun () -> FIO.Suspend(fun () -> loop(attempt + 1)))
+                                callback(err, attemptNumber, maxAttempts)
+                                    .FlatMap(fun () -> FIO.Suspend(fun () -> loop(attemptNumber + 1)))
                             | None ->
-                                FIO.Suspend(fun () -> loop(attempt + 1)))
+                                FIO.Suspend(fun () -> loop(attemptNumber + 1))
+                        else
+                            // Final attempt failed, propagate error
+                            FIO.Fail err)
                 loop 1)
 
     /// <summary>
@@ -295,21 +298,22 @@ type FIO<'R, 'E> with
                 eff.Fork().FlatMap(fun fiber2 ->
                     let resultChan = new Channel<Choice<Result<'R, 'E>, Result<'R, 'E>>>()
 
-                    let sendResult choice =
-                        resultChan.Send(choice).CatchAll(fun _ -> FIO.Succeed choice).Unit()
-
                     let waiter1 =
                         fiber1.Join()
-                            .Map(fun r -> Ok r)
-                            .CatchAll(fun e -> FIO.Succeed(Error e))
-                            .FlatMap(fun result -> sendResult(Choice1Of2 result))
+                            .FlatMap(fun r ->
+                                resultChan.Send(Choice1Of2 (Ok r)))
+                            .CatchAll(fun e ->
+                                resultChan.Send(Choice1Of2 (Error e)))
+                            .CatchAll(fun _ -> FIO.Succeed Unchecked.defaultof<_>) // 
                             .Fork()
 
                     let waiter2 =
                         fiber2.Join()
-                            .Map(fun r -> Ok r)
-                            .CatchAll(fun e -> FIO.Succeed(Error e))
-                            .FlatMap(fun result -> sendResult(Choice2Of2 result))
+                            .FlatMap(fun r ->
+                                resultChan.Send(Choice2Of2 (Ok r)))
+                            .CatchAll(fun e ->
+                                resultChan.Send(Choice2Of2 (Error e)))
+                            .CatchAll(fun _ -> FIO.Succeed Unchecked.defaultof<_>)
                             .Fork()
 
                     waiter1.FlatMap(fun _ ->

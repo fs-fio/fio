@@ -26,8 +26,8 @@ type InterruptionCause =
         | Timeout ms -> $"Timeout ({ms}ms)"
         | ParentInterrupted id -> $"ParentInterrupted ({id})"
         | ExplicitInterrupt -> "ExplicitInterrupt"
-        | InvalidArgument (arg, reason) -> $"InvalidArgument ({arg}: {reason})"
-        | ResourceExhaustion r -> $"ResourceExhaustion ({r})"
+        | InvalidArgument(arg, reason) -> $"InvalidArgument ({arg}: {reason})"
+        | ResourceExhaustion reason -> $"ResourceExhaustion ({reason})"
 
 /// <summary>
 /// Exception thrown when a fiber is interrupted during execution.

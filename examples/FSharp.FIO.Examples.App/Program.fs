@@ -1,18 +1,16 @@
 module private FSharp.FIO.Examples.App
 
+open FSharp.FIO
 open FSharp.FIO.DSL
 open FSharp.FIO.App
-open FSharp.FIO
 open FSharp.FIO.Runtime
 open FSharp.FIO.Sockets
-open FSharp.FIO.Runtime.Concurrent
 open FSharp.FIO.WebSockets
+open FSharp.FIO.Runtime.Concurrent
 
 open System
 open System.IO
-open System.Net
 open System.Text.Json
-open System.Net.Sockets
 open System.Globalization
 open System.Net.WebSockets
 
@@ -23,7 +21,7 @@ type WelcomeApp() =
         fio {
             do! Console.PrintLine "Hello! What is your name?"
             let! name = Console.ReadLine
-            do! Console.PrintLine $"Hello, %s{name}! Welcome to FIO! ????"
+            do! Console.PrintLine $"Hello, %s{name}! Welcome to FIO! 🪻💜"
         }
 
 type EnterNumberApp() =
@@ -455,173 +453,171 @@ type FiberFromGenericTaskApp() =
                 awaitAndPrint fiber45
         }
 
-type SocketApp(ip: string, port: int) =
-    inherit SimpleFIOApp()
+type SocketApp(host: string, port: int) =
+    inherit FIOApp<unit, SocketError>()
 
-    let server (ip: string) (port: int) =
-    
-        let receiveAndSendASCII (socket: Socket<int, string, exn>) =
+    let server host port =
+        let sendAndReceiveASCII (socket: Socket) =
             fio {
                 while true do
-                    let! msg = socket.Receive()
-                    do! Console.PrintLine $"Server received message: %s{msg}"
-                    
-                    let! ascii =
-                        if msg.Length > 0 then
-                            FIO.Attempt(fun () -> msg.Chars 0) >>= fun c ->
-                            FIO.Succeed(int c)
-                        else
-                            FIO.Succeed -1
-                    do! socket.Send ascii
-                    do! Console.PrintLine $"Server sent ASCII: %i{ascii}"
+                    let! msg = socket.ReceiveString 1024
+                    if msg = "__SHUTDOWN__" then
+                        do! Console.PrintLineMapError("Server exiting", SocketError.FromException)
+                        do! socket.Close()
+                        do! socket.Dispose()
+                    else
+                        do! Console.PrintLineMapError($"Server received message: %s{msg}", SocketError.FromException)
+                        let ascii =
+                            if msg.Length > 0 then
+                                int (msg.Chars 0)
+                            else
+                                -1
+                        do! socket.SendJson ascii
+                        do! Console.PrintLineMapError($"Server sent ASCII: %i{ascii}", SocketError.FromException)
             }
 
-        let handleClient (clientSocket: Socket<int, string, exn>) =
+        let handleClient (socket: Socket) =
             fio {
-                let! remoteEndPoint = clientSocket.RemoteEndPoint()
-                let! endPoint = FIO.Attempt(fun () -> remoteEndPoint.ToString())
-                do! Console.PrintLine $"Client connected from %s{endPoint}"
-                do! receiveAndSendASCII(clientSocket).Fork().Unit()
+                let! endPoint = socket.GetRemoteEndPoint() >>= fun remoteEndPoint ->
+                    FIO.Succeed(remoteEndPoint.ToString())
+                do! Console.PrintLineMapError($"Client connected from %s{endPoint}", SocketError.FromException)
+                do! sendAndReceiveASCII socket
             }
-        
+
         fio {
-            let! listener = FIO.Attempt(fun () ->
-                new TcpListener(IPAddress.Parse ip, port))
-            do! FIO.Attempt(fun () -> listener.Start())
-            do! Console.PrintLine $"Server listening on %s{ip}:%i{port}..."
-            
-            while true do
-                let! internalSocket = FIO.Attempt(fun () -> listener.AcceptSocket())
-                let! clientSocket = Socket.Create<int, string, exn> internalSocket
-                do! handleClient clientSocket
+            let! config = ServerSocketConfig.create(host, port)
+            do! Console.PrintLineMapError($"Server listening on %s{host}:%i{port}", SocketError.FromException)
+            do! SocketServer.serve(config, handleClient)
         }
 
-    let client (ip: string) (port: int) =
-
-        let send (socket: Socket<string, int, exn>) =
-            fio {
-                while true do
-                    do! Console.Print "Enter a message ('exit' to quit): "
-                    let! msg = Console.ReadLine
-                    if msg = "exit" then
-                        do! Console.PrintLine "Client exiting..."
-                        return! FIO.Fail (Exception "Client exited.")
-                    do! socket.Send msg
-                    do! Console.Print $"Client sent message: %s{msg}"
-            }
-
-        let receive (socket: Socket<string, int, exn>) =
-            fio {
-                while true do
-                    let! ascii = socket.Receive()
-                    do! Console.PrintLine $"Client received ASCII: %i{ascii}"
-            }
-    
+    let client host port =
         fio {
-            do! Console.PrintLine $"Connecting to %s{ip}:%i{port}..."
-            let! internalSocket = FIO.Attempt(fun () ->
-                new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
-            let! socket = Socket<string, int, exn>.Create(internalSocket, ip, port)
-            do! Console.PrintLine $"Connected to %s{ip}:%i{port}"
-            do! send socket <&&> receive socket
+            let! config = SocketConfig.create(host, port)
+            do! SocketClient.withConnection config <| fun socket ->
+               fio {
+                   do! Console.PrintLineMapError($"Connected to %s{host}:%i{port}", SocketError.FromException)
+
+                   let send () =
+                       fio {
+                           while true do
+                               do! Console.PrintMapError("Enter a message ('exit' to quit): ", SocketError.FromException)
+                               let! input = Console.ReadLineMapError SocketError.FromException
+                               if input = "exit" then
+                                   do! Console.PrintLineMapError("Client exiting", SocketError.FromException)
+                                   do! socket.SendString "__SHUTDOWN__"
+                                   do! socket.Close()
+                                   do! socket.Dispose()
+                               else
+                                   do! socket.SendString input
+                                   do! Console.PrintLineMapError($"Client sent message: %s{input}", SocketError.FromException)
+                       }
+
+                   let receive () =
+                       fio {
+                           while true do
+                               let! ascii = socket.ReceiveJson<int> 1024
+                               do! Console.PrintLineMapError($"Client received ASCII: %i{ascii}", SocketError.FromException)
+                       }
+
+                   return! send () <&&> receive ()
+               }
         }
 
     override _.effect =
         fio {
-            do! client ip port <&&> server ip port
+            do! client host port <&&> server host port
         }
 
-type WebSocketApp(serverUrl, clientUrl) =
-    inherit SimpleFIOApp()
+type WebSocketApp(host: string, port: string) =
+    inherit FIOApp<unit, WsError>()
 
     let server url =
-        let receiveAndSendASCII (ws: WebSocket<exn>, server: WebSocketServer<exn>) =
+        let receiveAndSendASCII (ws: WebSockets.WebSocket, server: WebSocketServer) =
             fio {
-                let mutable loop = true
-                while loop do
+                while true do
                     match! ws.ReceiveMessage() with
                     | Frame(Text text) ->
-                        do! Console.PrintLine $"Server received message: %s{text}"
-                        let! ascii =
-                            if text.Length > 0 then
-                                FIO.Attempt(fun () -> text.Chars 0) >>= fun c ->
-                                FIO.Succeed(int c)
-                            else
-                                FIO.Succeed -1
-                        do! ws.SendJson ascii
-                        do! Console.PrintLine $"Server sent ASCII: %i{ascii}"
+                        do! Console.PrintLineMapError($"Server received message: %s{text}", WsError.FromException)
+                        if text = "__SHUTDOWN__" then
+                            do! Console.PrintLineMapError("Server exiting", WsError.FromException)
+                            do! ws.Close(WebSocketCloseStatus.NormalClosure, "Server closing connection")
+                            do! ws.Dispose()
+                        else 
+                            let ascii =
+                                if text.Length > 0 then
+                                    int (text.Chars 0)
+                                else
+                                    -1
+                            do! ws.SendJson ascii
+                            do! Console.PrintLineMapError($"Server sent ASCII: %i{ascii}", WsError.FromException)
                     | ConnectionClosed(status, desc) ->
-                        do! Console.PrintLine $"Server connection closed. Status: {status}, Description: {desc}"
+                        do! Console.PrintLineMapError($"Server connection closed. Status: {status}, Description: {desc}", WsError.FromException)
                         do! ws.Close(WebSocketCloseStatus.NormalClosure, "Server closing connection")
                         do! server.Close()
-                        loop <- false
+                        do! ws.Dispose()
                     | msg ->
-                        do! Console.PrintLine $"Server received and ignored message: %A{msg}"
+                        do! Console.PrintLineMapError($"Server received and ignored message: %A{msg}", WsError.FromException)
             }
 
-        let handleClient (ws: WebSocket<exn>, server: WebSocketServer<exn>) =
+        let handleClient (ws: WebSockets.WebSocket, server: WebSocketServer) =
             fio {
-                do! Console.PrintLine "Client connected"
+                do! Console.PrintLineMapError($"Connected to %s{host}:%s{port}", WsError.FromException)
                 do! receiveAndSendASCII(ws, server).Fork().Unit()
             }
 
         fio {
-            let! server = WebSocketServer<exn>.Create()
+            let! server = WebSocketServer.Create()
             do! server.Start url
-            do! Console.PrintLine $"Server listening on %s{url}..."
-            
+            do! Console.PrintLineMapError($"Server listening on %s{url}", WsError.FromException)
             while true do
-                let! ws = server.Accept().CatchAll(fun _ ->
-                    FIO.Fail (Exception "Failed to accept WebSocket connection"))
+                let! ws = server.Accept()
                 do! handleClient(ws, server)
         }
 
     let client url =
-        let send (ws: WebSocket<exn>) =
+        let send (ws: WebSockets.WebSocket) =
             fio {
-                let mutable loop = true
-                while loop do
-                    do! Console.Print "Enter a message ('exit' to quit application): "
-                    let! msg = Console.ReadLine
+                while true do
+                    do! Console.PrintLineMapError("Enter a message ('exit' to quit): ", WsError.FromException)
+                    let! msg = Console.ReadLineMapError WsError.FromException
                     if msg = "exit" then
-                        do! Console.PrintLine "Client exiting..."
-                        do! ws.Close(WebSocketCloseStatus.NormalClosure, "Client exiting")
-                        loop <- false
+                        do! Console.PrintLineMapError("Client exiting", WsError.FromException)
+                        do! ws.SendText "__SHUTDOWN__"
+                        do! ws.Close()
+                        do! ws.Dispose()
                     else
                         do! ws.SendText msg
-                        do! Console.PrintLine $"Client sent message: %s{msg}"
+                        do! Console.PrintLineMapError($"Client sent message: %s{msg}", WsError.FromException)
             }
 
-        let receive (ws: WebSocket<exn>) =
+        let receive (ws: WebSockets.WebSocket) =
             fio {
-                let mutable loop = true
-                while loop do
+                while true do
                     match! ws.ReceiveMessage() with
                     | Frame(Text text) ->
-                        let! ascii = FIO.Attempt (fun () -> JsonSerializer.Deserialize<int> text)
-                        do! Console.PrintLine $"Client received ASCII: %i{ascii}"
+                        let! ascii =
+                            FIO.Attempt(fun () -> JsonSerializer.Deserialize<int> text)
+                                .CatchAll(fun exn -> FIO.Fail(WsError.GeneralError exn.Message))
+                        do! Console.PrintLineMapError($"Client received ASCII: %i{ascii}", WsError.FromException)
                     | ConnectionClosed(status, desc) ->
-                        do! Console.PrintLine $"Client connection closed. Status: {status}, Description: {desc}"
-                        loop <- false
+                        do! Console.PrintLineMapError($"Client connection closed. Status: {status}, Description: {desc}", WsError.FromException)
                     | msg ->
-                        do! Console.PrintLine $"Client received and ignored message: %A{msg}"
+                        do! Console.PrintLineMapError($"Client received and ignored message: %A{msg}", WsError.FromException)
             }
 
         fio {
-            let! client = WebSocketClient<exn>.Create()
+            let! client = WebSocketClient.Create()
             let! ws = client.Connect(Uri url)
             do! send ws <&> receive ws
         }
 
     override _.effect =
-        fio {
-            do! client clientUrl <&&> server serverUrl
-        }
+        client $"ws://%s{host}:%s{port}/" <&&> server $"http://%s{host}:%s{port}/"
 
 type CommandLineArgsApp(args: string array) =
     inherit SimpleFIOApp()
 
-    override this.effect =
+    override _.effect =
         fio {
             if args.Length = 0 then
                 do! Console.PrintLine "No command-line arguments provided"
@@ -728,7 +724,7 @@ let examples = [
     nameof FiberFromTaskApp, fun () -> FiberFromTaskApp().Run()
     nameof FiberFromGenericTaskApp, fun () -> FiberFromGenericTaskApp().Run()
     nameof SocketApp, fun () -> SocketApp("127.0.0.1", 5000).Run()
-    nameof WebSocketApp, fun () -> WebSocketApp("http://localhost:8080/", "ws://localhost:8080/").Run()
+    nameof WebSocketApp, fun () -> WebSocketApp("localhost", "8080").Run()
     nameof CommandLineArgsApp, fun () -> CommandLineArgsApp([| "arg1"; "arg2"; "test" |]).Run()
     nameof CustomRuntimeApp, fun () -> CustomRuntimeApp().Run()
     nameof ShutdownHookApp, fun () -> ShutdownHookApp().Run()
@@ -737,12 +733,12 @@ let examples = [
 ]
 
 examples |> List.iteri (fun i (name, example) ->
-    printfn $"?? Running example: {name}\n"
+    printfn $"🔥 Running example: {name}\n"
     let exitCode = example()
-    printfn $"\n?? Example '{name}' completed with exit code: %d{exitCode}"
+    printfn $"\n🏁 Example '{name}' completed with exit code: %d{exitCode}"
     if i < examples.Length - 1 then
-        System.Console.WriteLine "\n? Press Enter to run next example..."
+        System.Console.WriteLine "\n⏩ Press Enter to run next example..."
         System.Console.ReadLine() |> ignore)
 
-System.Console.WriteLine "\n? All examples completed. Press Enter to exit."
+System.Console.WriteLine "\n✅ All examples completed. Press Enter to exit."
 System.Console.ReadLine() |> ignore

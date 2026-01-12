@@ -1,6 +1,3 @@
-/// <summary>
-/// Core types for FIO PostgreSQL integration.
-/// </summary>
 namespace FSharp.FIO.PostgreSQL
 
 open Npgsql

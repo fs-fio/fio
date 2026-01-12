@@ -1,12 +1,8 @@
-/// <summary>
-/// PostgreSQL query execution for SELECT statements.
-/// </summary>
 namespace FSharp.FIO.PostgreSQL
 
 open FSharp.FIO.DSL
 
 open Npgsql
-open System
 
 /// <summary>
 /// Functions for executing PostgreSQL queries.

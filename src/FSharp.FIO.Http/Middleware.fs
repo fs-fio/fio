@@ -1,6 +1,3 @@
-/// <summary>
-/// HTTP middleware types and combinators for request/response pipeline.
-/// </summary>
 namespace FSharp.FIO.Http
 
 open FSharp.FIO.DSL
@@ -161,25 +158,25 @@ module Middleware =
                 if not isAllowed then
                     FIO.Succeed Response.forbidden
                 else
-                    // Handle preflight OPTIONS requests without calling the handler
-                    if request.Method = HttpMethod.OPTIONS then
-                        let preflightResponse =
-                            Response.ok
+                    fio {
+                        let! response = handler request
+
+                        // Add CORS headers to all responses
+                        let withCors =
+                            response
                             |> HttpResponse.withHeader "Access-Control-Allow-Origin" (origin |> Option.defaultValue "*")
                             |> HttpResponse.withHeader "Access-Control-Allow-Methods" (String.concat ", " allowedMethods)
                             |> HttpResponse.withHeader "Access-Control-Allow-Headers" (String.concat ", " allowedHeaders)
-                            |> HttpResponse.withHeader "Access-Control-Max-Age" "86400"
-                        FIO.Succeed preflightResponse
-                    else
-                        fio {
-                            let! response = handler request
-                            let withCors =
-                                response
-                                |> HttpResponse.withHeader "Access-Control-Allow-Origin" (origin |> Option.defaultValue "*")
-                                |> HttpResponse.withHeader "Access-Control-Allow-Methods" (String.concat ", " allowedMethods)
-                                |> HttpResponse.withHeader "Access-Control-Allow-Headers" (String.concat ", " allowedHeaders)
-                            return withCors
-                        })
+
+                        // Add preflight-specific headers for OPTIONS requests
+                        let finalResponse =
+                            if request.Method = HttpMethod.OPTIONS then
+                                withCors |> HttpResponse.withHeader "Access-Control-Max-Age" "86400"
+                            else
+                                withCors
+
+                        return finalResponse
+                    })
 
     /// <summary>
     /// Creates HTTP Basic authentication middleware.
@@ -216,7 +213,7 @@ module Middleware =
             fun request ->
                 fio {
                     match HttpRequest.header "Authorization" request with
-                    | Some authHeader when authHeader.StartsWith "Bearer " ->
+                    | Some authHeader when authHeader.StartsWith "Bearer " && authHeader.Length > 7 ->
                         let token = authHeader.Substring 7
                         let! userOpt = authenticate token
                         match userOpt with
@@ -227,19 +224,6 @@ module Middleware =
                             return Response.unauthorized
                     | _ ->
                         return Response.unauthorized
-                })
-
-    /// <summary>
-    /// Creates compression middleware (placeholder implementation).
-    /// </summary>
-    /// <param name="level">The compression level.</param>
-    let compression (level: int) : Middleware<'E> =
-        create (fun handler ->
-            fun request ->
-                fio {
-                    let! response = handler request
-                    // Actual compression would go here
-                    return HttpResponse.withHeader "Content-Encoding" "identity" response
                 })
 
     /// <summary>

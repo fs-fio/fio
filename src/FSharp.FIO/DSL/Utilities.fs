@@ -4,10 +4,10 @@
 [<AutoOpen>]
 module private FSharp.FIO.DSL.Utilities
 
+open System.Threading.Tasks
+
 [<AutoOpen>]
 module internal Casting =
-
-    open System.Threading.Tasks
 
     /// <summary>
     /// Upcasts an error mapping function to work with obj types.

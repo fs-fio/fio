@@ -13,7 +13,13 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="WebSockets.fs" />
+        <Compile Include="Types.fs" />
+        <Compile Include="Codec.fs" />
+        <Compile Include="WebSocket.fs" />
+        <Compile Include="WebSocketClient.fs" />
+        <Compile Include="WebSocketServer.fs" />
+        <Compile Include="WebSocketPool.fs" />
+        <Compile Include="Extensions.fs" />
     </ItemGroup>
 
     <ItemGroup>

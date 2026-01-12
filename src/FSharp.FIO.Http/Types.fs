@@ -1,6 +1,3 @@
-/// <summary>
-/// Core HTTP types for the FIO HTTP server.
-/// </summary>
 namespace FSharp.FIO.Http
 
 open System
@@ -155,6 +152,8 @@ type RequestBody =
 
 /// <summary>
 /// Represents the body of an HTTP response.
+/// Note: For Stream bodies, the caller is responsible for disposing the stream.
+/// Streams must not be null.
 /// </summary>
 type ResponseBody =
     | Empty
