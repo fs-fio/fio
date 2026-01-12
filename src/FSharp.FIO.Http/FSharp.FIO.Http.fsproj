@@ -7,6 +7,21 @@
     </PropertyGroup>
 
     <PropertyGroup>
+        <PackageId>FSharp.FIO.Http</PackageId>
+        <Version>0.0.35-alpha</Version>
+        <Title>FSharp.FIO.Http</Title>
+        <Description>HTTP server library for FSharp.FIO built on ASP.NET Core Kestrel. Provides composable routes, handlers, and middleware for building functional web servers.</Description>
+        <Authors>Daniel Larsen</Authors>
+        <Copyright>Copyright (c) 2022-2026 Daniel Larsen and Technical University of Denmark (DTU)</Copyright>
+        <PackageTags>fsharp;effect;http;web;kestrel;server;functional</PackageTags>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <RepositoryUrl>https://github.com/fs-fio/fio</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageProjectUrl>https://github.com/fs-fio/fio</PackageProjectUrl>
+        <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
+    </PropertyGroup>
+
+    <PropertyGroup>
         <LangVersion>preview</LangVersion>
         <ParallelCompilation>true</ParallelCompilation>
         <Deterministic>false</Deterministic>

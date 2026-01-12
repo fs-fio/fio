@@ -7,6 +7,21 @@
     </PropertyGroup>
 
     <PropertyGroup>
+        <PackageId>FSharp.FIO.WebSockets</PackageId>
+        <Version>0.0.35-alpha</Version>
+        <Title>FSharp.FIO.WebSockets</Title>
+        <Description>WebSocket library for FSharp.FIO. Provides WebSocket client, server, connection pooling, and codec functionality for building functional real-time applications.</Description>
+        <Authors>Daniel Larsen</Authors>
+        <Copyright>Copyright (c) 2022-2026 Daniel Larsen and Technical University of Denmark (DTU)</Copyright>
+        <PackageTags>fsharp;effect;websockets;realtime;networking;functional</PackageTags>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <RepositoryUrl>https://github.com/fs-fio/fio</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageProjectUrl>https://github.com/fs-fio/fio</PackageProjectUrl>
+        <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
+    </PropertyGroup>
+
+    <PropertyGroup>
         <LangVersion>preview</LangVersion>
         <ParallelCompilation>true</ParallelCompilation>
         <Deterministic>false</Deterministic>

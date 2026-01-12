@@ -18,13 +18,6 @@
   <h3 align="center">🪻 A Type-Safe, Purely Functional Effect System for Asynchronous and Concurrent F#</h3>
 
   <p align="center">
-    <!-- An awesome README template to jumpstart your projects! -->
-    <!--
-    <br />
-    <a href="https://github.com/fio-fsharp/fio"><strong>Explore the docs »</strong></a>
-    <br />
-    <br />
-    -->
     <a href="https://itsdaniel.dk/projects/fio/">View Project Post</a>
     &middot;
     <a href="https://github.com/fs-fio/fio/issues/new?labels=bug&template=bug-report---.md">Report Bug</a>
@@ -98,8 +91,8 @@ Inspired by [**ZIO**](https://zio.dev/) and [**Cats Effect**](https://typelevel.
 
 **FIO** was developed as part of a master’s thesis in Computer Science at [**DTU**](https://www.dtu.dk/english).
 
-> **Note:** FIO is under active development. Contributions, feedback, and questions are very welcome!  
-> Feel free to report bugs, request features or [**reach out**](mailto:hey@itsdaniel.dk).
+> **Note:** FIO is under active development. Contributions, feedback, and questions are welcome.
+> Please report bugs and request features through [GitHub Issues](https://github.com/fio-fsharp/fio/issues), or contact the maintainer at [hey@itsdaniel.dk](mailto:hey@itsdaniel.dk).
 
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
@@ -109,13 +102,63 @@ Inspired by [**ZIO**](https://zio.dev/) and [**Cats Effect**](https://typelevel.
 <!-- GETTING STARTED -->
 ## Getting Started
 
-Getting started with **FIO** is simple:
+### Installation
+
+**FIO** is distributed as five NuGet packages:
+
+#### Core Package (Required)
+
+```bash
+dotnet add package FSharp.FIO
+```
+
+The core package includes:
+- **Core effect system** - FIO monad, fibers, channels, and three runtime implementations
+- **App framework** - FIOApp base class for simplified application entry points
+- **Console I/O** - Functional console operations
+
+#### Optional Extension Packages
+
+##### TCP Sockets
+
+```bash
+dotnet add package FSharp.FIO.Sockets
+```
+
+Provides TCP socket operations with client, server, and connection pooling functionality.
+
+##### WebSockets
+
+```bash
+dotnet add package FSharp.FIO.WebSockets
+```
+
+Provides WebSocket client and server functionality with connection pooling.
+
+##### HTTP Server
+
+```bash
+dotnet add package FSharp.FIO.Http
+```
+
+Provides composable HTTP server functionality built on ASP.NET Core Kestrel, including routes, handlers, and middleware.
+
+##### PostgreSQL Database
+
+```bash
+dotnet add package FSharp.FIO.PostgreSQL
+```
+
+Provides PostgreSQL database operations built on Npgsql, including connection pooling, query execution, and transactions.
+
+### Quick Start
+
+To get started with **FIO**:
 
 1. Install [**.NET**](https://dotnet.microsoft.com/en-us/)
-2. Use an editor like [**VS Code**](https://code.visualstudio.com/), [**Visual Studio**](https://visualstudio.microsoft.com/downloads/), or [**Rider**](https://www.jetbrains.com/rider/download/) (or even vim)
-3. Clone this repository
-4. Open it in your editor
-5. Explore the [**FSharp.FIO.Examples**](https://github.com/fs-fio/FIO/tree/main/examples/FSharp.FIO.Examples) project or create your own F# file
+2. Use an editor like [**VS Code**](https://code.visualstudio.com/), [**Visual Studio**](https://visualstudio.microsoft.com/downloads/), [**Rider**](https://www.jetbrains.com/rider/download/), or any F#-compatible editor
+3. Install the FSharp.FIO package (see above)
+4. Explore the [**FSharp.FIO.Examples**](https://github.com/fs-fio/FIO/tree/main/examples/FSharp.FIO.Examples) project or create your own F# file
 
 ### Usage
 
@@ -139,7 +182,7 @@ let main _ =
     let askForName = fio {
         do! Console.PrintLine "Hello! What is your name?"
         let! name = Console.ReadLine ()
-        do! Console.PrintLine $"Hello, %s{name}! Welcome to FIO! 🪻💜"
+        do! Console.PrintLine $"Hello, {name}! Welcome to FIO! 🪻💜"
     }
     
     Runtime().Run askForName
@@ -161,7 +204,7 @@ And you'll see the following output:
 ```
 Hello! What is your name?
 Daniel
-Hello, Daniel, welcome to FIO! 🪻💜
+Hello, Daniel! Welcome to FIO! 🪻💜
 Ok ()
 ```
 
@@ -182,7 +225,7 @@ type WelcomeApp() =
     override _.effect = fio {
         do! Console.PrintLine "Hello! What is your name?"
         let! name = Console.ReadLine ()
-        do! Console.PrintLine $"Hello, %s{name}! Welcome to FIO! 🪻💜"
+        do! Console.PrintLine $"Hello, {name}! Welcome to FIO! 🪻💜"
     }
 
 WelcomeApp().Run()
@@ -199,7 +242,7 @@ and same output as well:
 ```
 Hello! What is your name?
 Daniel
-Hello, Daniel, welcome to FIO! 🪻💜
+Hello, Daniel! Welcome to FIO! 🪻💜
 Ok ()
 ```
 
@@ -216,7 +259,7 @@ open FSharp.FIO
 let askForName =
     Console.PrintLine "Hello! What is your name?" >>= fun _ ->
     Console.ReadLine () >>= fun name ->
-    Console.PrintLine $"Hello, %s{name}, welcome to FIO! 🪻💜"
+    Console.PrintLine $"Hello, {name}! Welcome to FIO! 🪻💜"
 ```
 
 
@@ -339,7 +382,7 @@ See the [**open issues**](https://github.com/fio-fsharp/fio/issues) for a full l
 
 Contributions are welcome and appreciated!
 
-Got an idea or improvement? Feel free to:
+We welcome contributions! To contribute:
 - Star the repository
 - Open an issue (tag it with `enhancement`)
 - Fork the project and submit a pull request
@@ -404,7 +447,7 @@ Alceste Scalas ([**people.compute.dtu.dk**](https://people.compute.dtu.dk/alcsc/
 [linkedin-url]: https://linkedin.com/in/itsdanieldk
 [product-screenshot]: images/screenshot.png
 [nuget-shield]: https://img.shields.io/nuget/v/FSharp.FIO.svg?style=for-the-badge
-[nuget-url]: https://www.nuget.org/packages/FSharp.FIO/0.0.30-alpha
+[nuget-url]: https://www.nuget.org/packages/FSharp.FIO/0.0.35-alpha
 [FSharp]: https://img.shields.io/badge/F%23-378BBA?style=for-the-badge&logo=.NET&logoColor=white
 [FSharp-url]: https://fsharp.org/
 [.NET]: https://img.shields.io/badge/.NET-5C2D91?style=for-the-badge&logo=.NET&logoColor=white

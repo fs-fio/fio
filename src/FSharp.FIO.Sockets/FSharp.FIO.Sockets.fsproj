@@ -7,6 +7,21 @@
     </PropertyGroup>
 
     <PropertyGroup>
+        <PackageId>FSharp.FIO.Sockets</PackageId>
+        <Version>0.0.35-alpha</Version>
+        <Title>FSharp.FIO.Sockets</Title>
+        <Description>TCP socket library for FSharp.FIO. Provides socket client, server socket, connection pooling, and codec functionality for building functional network applications.</Description>
+        <Authors>Daniel Larsen</Authors>
+        <Copyright>Copyright (c) 2022-2026 Daniel Larsen and Technical University of Denmark (DTU)</Copyright>
+        <PackageTags>fsharp;effect;sockets;tcp;networking;functional</PackageTags>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <RepositoryUrl>https://github.com/fs-fio/fio</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageProjectUrl>https://github.com/fs-fio/fio</PackageProjectUrl>
+        <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
+    </PropertyGroup>
+
+    <PropertyGroup>
         <LangVersion>preview</LangVersion>
         <ParallelCompilation>true</ParallelCompilation>
         <Deterministic>false</Deterministic>

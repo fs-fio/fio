@@ -5,7 +5,7 @@
 		<WarningsAsErrors>true</WarningsAsErrors>
 		<GenerateDocumentationFile>true</GenerateDocumentationFile>
 		<Title>FSharp.FIO</Title>
-		<Description>FIO is a type-safe, purely functional effect system for F#, designed for building highly concurrent and asynchronous applications. It provides a lightweight DSL for writing composable programs using functional effects.</Description>
+		<Description>FIO is a type-safe, purely functional effect system for F#, designed for building highly concurrent and asynchronous applications. It provides a lightweight DSL for writing composable programs using functional effects. Includes: Core effect system, App framework, and Console I/O.</Description>
 		<Authors>Daniel Larsen</Authors>
 		<Copyright>Copyright (c) 2022-2026 Daniel Larsen and Technical University of Denmark (DTU)</Copyright>
 		<PackageTags>fsharp;effects;async;concurrent;functional;zio;fibers</PackageTags>
@@ -70,10 +70,6 @@
 	<ItemGroup>
 		<None Include="..\FSharp.FIO.App\bin\$(Configuration)\net10.0\FSharp.FIO.App.dll" Pack="true" PackagePath="lib\net10.0\" />
 		<None Include="..\FSharp.FIO.Console\bin\$(Configuration)\net10.0\FSharp.FIO.Console.dll" Pack="true" PackagePath="lib\net10.0\" />
-		<None Include="..\FSharp.FIO.Http\bin\$(Configuration)\net10.0\FSharp.FIO.Http.dll" Pack="true" PackagePath="lib\net10.0\" />
-		<None Include="..\FSharp.FIO.PostgreSQL\bin\$(Configuration)\net10.0\FSharp.FIO.PostgreSQL.dll" Pack="true" PackagePath="lib\net10.0\" />
-		<None Include="..\FSharp.FIO.Sockets\bin\$(Configuration)\net10.0\FSharp.FIO.Sockets.dll" Pack="true" PackagePath="lib\net10.0\" />
-		<None Include="..\FSharp.FIO.WebSockets\bin\$(Configuration)\net10.0\FSharp.FIO.WebSockets.dll" Pack="true" PackagePath="lib\net10.0\" />
 	</ItemGroup>
 
 	<ItemGroup>
