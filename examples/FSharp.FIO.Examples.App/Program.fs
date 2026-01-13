@@ -1,8 +1,8 @@
 module private FSharp.FIO.Examples.App
 
-open FSharp.FIO
 open FSharp.FIO.DSL
 open FSharp.FIO.App
+open FSharp.FIO.Console
 open FSharp.FIO.Runtime
 open FSharp.FIO.Sockets
 open FSharp.FIO.WebSockets
@@ -12,7 +12,6 @@ open System
 open System.IO
 open System.Text.Json
 open System.Globalization
-open System.Net.WebSockets
 
 type WelcomeApp() =
     inherit SimpleFIOApp()
@@ -532,7 +531,7 @@ type WebSocketApp(host: string, port: string) =
     inherit FIOApp<unit, WsError>()
 
     let server url =
-        let receiveAndSendASCII (ws: WebSockets.WebSocket, server: WebSocketServer) =
+        let receiveAndSendASCII (ws: WebSocket, server: WebSocketServer) =
             fio {
                 while true do
                     match! ws.ReceiveMessage() with
@@ -540,7 +539,7 @@ type WebSocketApp(host: string, port: string) =
                         do! Console.PrintLineMapError($"Server received message: %s{text}", WsError.FromException)
                         if text = "__SHUTDOWN__" then
                             do! Console.PrintLineMapError("Server exiting", WsError.FromException)
-                            do! ws.Close(WebSocketCloseStatus.NormalClosure, "Server closing connection")
+                            do! ws.Close()
                             do! ws.Dispose()
                         else 
                             let ascii =
@@ -552,14 +551,14 @@ type WebSocketApp(host: string, port: string) =
                             do! Console.PrintLineMapError($"Server sent ASCII: %i{ascii}", WsError.FromException)
                     | ConnectionClosed(status, desc) ->
                         do! Console.PrintLineMapError($"Server connection closed. Status: {status}, Description: {desc}", WsError.FromException)
-                        do! ws.Close(WebSocketCloseStatus.NormalClosure, "Server closing connection")
+                        do! ws.Close()
                         do! server.Close()
                         do! ws.Dispose()
                     | msg ->
                         do! Console.PrintLineMapError($"Server received and ignored message: %A{msg}", WsError.FromException)
             }
 
-        let handleClient (ws: WebSockets.WebSocket, server: WebSocketServer) =
+        let handleClient (ws: WebSocket, server: WebSocketServer) =
             fio {
                 do! Console.PrintLineMapError($"Connected to %s{host}:%s{port}", WsError.FromException)
                 do! receiveAndSendASCII(ws, server).Fork().Unit()
@@ -575,7 +574,7 @@ type WebSocketApp(host: string, port: string) =
         }
 
     let client url =
-        let send (ws: WebSockets.WebSocket) =
+        let send (ws: WebSocket) =
             fio {
                 while true do
                     do! Console.PrintLineMapError("Enter a message ('exit' to quit): ", WsError.FromException)
@@ -590,7 +589,7 @@ type WebSocketApp(host: string, port: string) =
                         do! Console.PrintLineMapError($"Client sent message: %s{msg}", WsError.FromException)
             }
 
-        let receive (ws: WebSockets.WebSocket) =
+        let receive (ws: WebSocket) =
             fio {
                 while true do
                     match! ws.ReceiveMessage() with

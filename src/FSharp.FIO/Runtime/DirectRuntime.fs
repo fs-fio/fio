@@ -12,7 +12,10 @@ open System.Threading.Tasks
 /// The direct runtime for FIO, interpreting effects on the current thread.
 /// </summary>
 type DirectRuntime () =
-    inherit FRuntime ()
+    inherit FIORuntime ()
+
+    let mutable currentFiber: FiberContext option = None
+    let runLock = obj()
 
     override _.Name =
         "DirectRuntime"
@@ -192,7 +195,20 @@ type DirectRuntime () =
         }
 
     override this.Run<'R, 'E> (eff: FIO<'R, 'E>) : Fiber<'R, 'E> =
+        lock runLock (fun () ->
+            match currentFiber with
+            | Some fiberContext when not (fiberContext.Completed()) ->
+                fiberContext.Task
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+                |> ignore
+            | _ -> ())
+
         let fiber = new Fiber<'R, 'E>()
+
+        lock runLock (fun () ->
+            currentFiber <- Some fiber.Internal)
+
         task {
             try
                 let! res = this.InterpretAsync (eff.Upcast(), fiber.Internal)

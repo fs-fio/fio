@@ -34,7 +34,7 @@ type FIOApp<'R, 'E> () as this =
     abstract member effect: FIO<'R, 'E>
 
     /// <summary>Creates the runtime for executing effects. Default: DefaultRuntime.</summary>
-    abstract member runtime: FRuntime
+    abstract member runtime: FIORuntime
     default _.runtime =
         new DefaultRuntime()
 
@@ -63,7 +63,7 @@ type FIOApp<'R, 'E> () as this =
 
     /// <summary>Handler invoked when the runtime is initialized.</summary>
     /// <param name="runtime">The runtime instance.</param>
-    abstract member onRuntimeInitialized: FRuntime -> unit
+    abstract member onRuntimeInitialized: FIORuntime -> unit
     default this.onRuntimeInitialized runtime =
         if this.verbose then
             Console.ForegroundColor <- ConsoleColor.DarkMagenta
@@ -188,7 +188,7 @@ type FIOApp<'R, 'E> () as this =
 
     /// <summary>Runs shutdown cleanup hooks.</summary>
     /// <param name="runtime">The runtime instance.</param>
-    member private this.RunShutdownHook(runtime: FRuntime) =
+    member private this.RunShutdownHook(runtime: FIORuntime) =
         task {
             try
                 let shutdownFiber = runtime.Run(this.shutdownHook())
@@ -274,7 +274,7 @@ type FIOApp<'R, 'E> () as this =
 /// </summary>
 /// <typeparam name="'R">The success result type.</typeparam>
 [<AbstractClass>]
-type FIOAppDefault<'R> () =
+type DefaultFIOApp<'R> () =
     inherit FIOApp<'R, exn>()
 
 /// <summary>

@@ -13,9 +13,9 @@ module FsCheckProperties =
     type Generators =
         static member Runtime() =
             Gen.oneof [
-                Gen.constant (new DirectRuntime() :> FRuntime)
-                Gen.constant (new CooperativeRuntime() :> FRuntime)
-                Gen.constant (new ConcurrentRuntime() :> FRuntime)
+                Gen.constant (new DirectRuntime() :> FIORuntime)
+                Gen.constant (new CooperativeRuntime() :> FIORuntime)
+                Gen.constant (new ConcurrentRuntime() :> FIORuntime)
             ] |> Arb.fromGen
 
     let fsCheckPropertyTestsConfig =

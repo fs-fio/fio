@@ -60,11 +60,11 @@ let private printResult result =
     let header =
         $"
 +--------------------------------------------------------------------------------------------+
-¦  Benchmark:  %-50s{result.Config.ToString()}                            ¦
-¦  Runtime:    %-50s{result.RuntimeName}                            ¦
-+--------------------------------------------------------------------------------------------¦
-¦  Run                           Execution Time (ms)           Memory Usage (MB)             ¦
-¦  ----------------------------  ----------------------------  ----------------------------  ¦\n"
+ï¿½  Benchmark:  %-50s{result.Config.ToString()}                            ï¿½
+ï¿½  Runtime:    %-50s{result.RuntimeName}                            ï¿½
++--------------------------------------------------------------------------------------------ï¿½
+ï¿½  Run                           Execution Time (ms)           Memory Usage (MB)             ï¿½
+ï¿½  ----------------------------  ----------------------------  ----------------------------  ï¿½\n"
         
     let allData = 
         List.map3 (fun a b c -> a, b, c)
@@ -75,23 +75,23 @@ let private printResult result =
             match curDataRows with
             | [] ->
                 acc
-                    + "¦                                                                                            ¦\n"
-                    + "¦                                Avg. Execution Time (ms)      Avg. Memory Usage (MB)        ¦\n"
-                    + "¦                                ----------------------------  ----------------------------  ¦\n"
-                   + $"¦                                %-28f{result.AvgExecutionTime}  %-28f{result.AvgMemoryUsage}  ¦\n"
-                    + "¦                                                                                            ¦\n"                   
-                    + "¦                                Std. Execution Time (ms)      Std. Memory Usage (MB)        ¦\n"
-                    + "¦                                ----------------------------  ----------------------------  ¦\n"
-                   + $"¦                                %-28f{result.StdExecutionTime}  %-28f{result.StdMemoryUsage}  ¦\n"
+                    + "ï¿½                                                                                            ï¿½\n"
+                    + "ï¿½                                Avg. Execution Time (ms)      Avg. Memory Usage (MB)        ï¿½\n"
+                    + "ï¿½                                ----------------------------  ----------------------------  ï¿½\n"
+                   + $"ï¿½                                %-28f{result.AvgExecutionTime}  %-28f{result.AvgMemoryUsage}  ï¿½\n"
+                    + "ï¿½                                                                                            ï¿½\n"                   
+                    + "ï¿½                                Std. Execution Time (ms)      Std. Memory Usage (MB)        ï¿½\n"
+                    + "ï¿½                                ----------------------------  ----------------------------  ï¿½\n"
+                   + $"ï¿½                                %-28f{result.StdExecutionTime}  %-28f{result.StdMemoryUsage}  ï¿½\n"
                     + "+--------------------------------------------------------------------------------------------+"
             | (run, executionTime, memoryUsage) :: ts ->
-                let str = $"¦  #%-27i{run}  %-28i{executionTime}  %-28i{memoryUsage}  ¦\n"
+                let str = $"ï¿½  #%-27i{run}  %-28i{executionTime}  %-28i{memoryUsage}  ï¿½\n"
                 dataRows ts (acc + str)
         dataRows allData ""
 
     printfn $"%s{header + dataRows}"
 
-let private runBenchmark (runtime: FRuntime, totalRuns, config: BenchmarkConfig) =
+let private runBenchmark (runtime: FIORuntime, totalRuns, config: BenchmarkConfig) =
     
     let average onlyTimes =
         onlyTimes |> List.averageBy float

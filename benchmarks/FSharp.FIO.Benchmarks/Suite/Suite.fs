@@ -58,11 +58,11 @@ type internal BenchmarkResult =
       AvgMemoryUsage: float
       StdMemoryUsage: float }
 
-type internal BenchmarkArgs = 
-    { Runtime: FRuntime
+type internal BenchmarkArgs =
+    { Runtime: FIORuntime
       Runs: int
       ActorIncrement: int * int
       RoundIncrement: int * int
       BenchmarkConfigs: BenchmarkConfig list
-      SaveToCsv: bool 
+      SaveToCsv: bool
       SavePath: string }

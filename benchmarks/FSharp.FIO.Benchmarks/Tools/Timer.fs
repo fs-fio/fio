@@ -2,7 +2,7 @@ module internal FSharp.FIO.Benchmarks.Tools.Timer
 
 open FSharp.FIO.DSL
 #if DEBUG
-open FSharp.FIO
+open FSharp.FIO.Console
 #endif
 
 open System.Diagnostics

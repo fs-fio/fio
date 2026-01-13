@@ -66,7 +66,7 @@ let printArgs args =
 let parseArgs args =
     let results = parser.Parse args
 
-    let runtime: FRuntime =
+    let runtime: FIORuntime =
         if results.Contains Direct_Runtime then
             new DirectRuntime()
         elif results.Contains Cooperative_Runtime then

@@ -9,7 +9,7 @@ module private FSharp.FIO.Benchmarks.Suite.Pingpong
 
 open FSharp.FIO.DSL
 #if DEBUG
-open FSharp.FIO
+open FSharp.FIO.Console
 #endif
 open FSharp.FIO.Benchmarks.Tools.Timer
 

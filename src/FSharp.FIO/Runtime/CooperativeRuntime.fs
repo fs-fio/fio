@@ -123,10 +123,12 @@ and internal BlockingWorker (config: BlockingWorkerConfig) =
 /// The cooperative runtime for FIO, interpreting effects concurrently using work-stealing.
 /// </summary>
 and CooperativeRuntime (config: WorkerConfig) as this =
-    inherit FWorkerRuntime(config)
+    inherit FIOWorkerRuntime(config)
 
     let activeWorkItemChan = UnboundedChannel<WorkItem>()
     let activeBlockingItemChan = UnboundedChannel<BlockingItem>()
+    let mutable currentFiber: FiberContext option = None
+    let runLock = obj()
 
     let blockingWorker =
         new BlockingWorker({
@@ -359,8 +361,21 @@ and CooperativeRuntime (config: WorkerConfig) as this =
         activeBlockingItemChan.Clear()
 
     override _.Run<'R, 'E> (eff: FIO<'R, 'E>) : Fiber<'R, 'E> =
+        lock runLock (fun () ->
+            match currentFiber with
+            | Some fiberContext when not (fiberContext.Completed()) ->
+                fiberContext.Task
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
+                |> ignore
+            | _ -> ())
+
         this.Reset()
         let fiber = new Fiber<'R, 'E>()
+
+        lock runLock (fun () ->
+            currentFiber <- Some fiber.Internal)
+
         let workItem = WorkItemPool.Rent(eff.Upcast(), fiber.Internal, ContStackPool.Rent())
         activeWorkItemChan.AddAsync workItem
         |> ignore

@@ -37,16 +37,35 @@
     <li>
       <a href="#getting-started">Getting Started</a>
       <ul>
-        <li><a href="#usage">Usage</a></li>
-        <ul>
-          <li><a href="#direct-usage">Direct Usage</a></li>
-          <li><a href="#using-fioapp-recommended">Using FIOApp (Recommended)</a></li>
-          <li><a href="#alternative-dsl-only-style">Alternative: DSL-Only Style</a></li>
-        </ul>
+        <li><a href="#installation">Installation</a></li>
+        <li><a href="#quick-start">Quick Start</a></li>
       </ul>
     </li>
     <li>
-      <a href="#Benchmarks">Benchmarks</a>
+      <a href="#core-concepts">Core Concepts</a>
+      <ul>
+        <li><a href="#effect-composition">Effect Composition</a></li>
+      </ul>
+    </li>
+    <li>
+      <a href="#usage">Usage</a>
+      <ul>
+        <li><a href="#direct-usage">Direct Usage</a></li>
+        <li><a href="#using-fioapp-recommended">Using FIOApp (Recommended)</a></li>
+        <li><a href="#alternative-dsl-only-style">Alternative: DSL-Only Style</a></li>
+      </ul>
+    </li>
+    <li>
+      <a href="#extension-packages">Extension Packages</a>
+      <ul>
+        <li><a href="#http-server">HTTP Server</a></li>
+        <li><a href="#postgresql">PostgreSQL</a></li>
+        <li><a href="#tcp-sockets">TCP Sockets</a></li>
+        <li><a href="#websockets">WebSockets</a></li>
+      </ul>
+    </li>
+    <li>
+      <a href="#benchmarks">Benchmarks</a>
       <ul>
         <li><a href="#benchmark-overview">Benchmark Overview</a></li>
         <li><a href="#running-benchmarks">Running Benchmarks</a></li>
@@ -114,7 +133,7 @@ dotnet add package FSharp.FIO
 
 The core package includes:
 - **Core effect system** - FIO monad, fibers, channels, and three runtime implementations
-- **App framework** - FIOApp base class for simplified application entry points
+- **App framework** - FIOApp base classes for simplified application entry points
 - **Console I/O** - Functional console operations
 
 #### Optional Extension Packages
@@ -135,7 +154,7 @@ dotnet add package FSharp.FIO.WebSockets
 
 Provides WebSocket client and server functionality with connection pooling.
 
-##### HTTP Server
+##### HTTP Server (experimental)
 
 ```bash
 dotnet add package FSharp.FIO.Http
@@ -143,7 +162,7 @@ dotnet add package FSharp.FIO.Http
 
 Provides composable HTTP server functionality built on ASP.NET Core Kestrel, including routes, handlers, and middleware.
 
-##### PostgreSQL Database
+##### PostgreSQL Database (experimental)
 
 ```bash
 dotnet add package FSharp.FIO.PostgreSQL
@@ -160,7 +179,179 @@ To get started with **FIO**:
 3. Install the FSharp.FIO package (see above)
 4. Explore the [**FSharp.FIO.Examples**](https://github.com/fs-fio/FIO/tree/main/examples/FSharp.FIO.Examples) project or create your own F# file
 
-### Usage
+## Core Concepts
+
+### Effect Composition
+
+**FIO** effects are composable values that can be combined using operators, similar to how `Result` or `Option` types can be composed in functional programming. These operators enable you to build complex concurrent programs from simple building blocks.
+
+#### Sequential Composition
+
+**Bind Operator (>>=)**
+
+The bind operator chains effects sequentially, giving you access to previous results:
+
+```fsharp
+// Using computation expression
+let getUserData userId =
+    fio {
+        let! user = fetchUser userId
+        let! orders = fetchOrders user.Id
+        return (user, orders)
+    }
+
+// Equivalent using >>= operator
+let getUserData userId =
+    fetchUser userId >>= fun user ->
+    fetchOrders user.Id >>= fun orders ->
+    FIO.Succeed (user, orders)
+```
+
+**Zip Operators (<*>, *>, <*)**
+
+Combine effects sequentially with different result handling:
+
+```fsharp
+// <*> - Combine results into tuple
+let combined = fetchUser() <*> fetchSettings()
+// Returns: FIO<User * Settings, 'E>
+
+// *> - Run both, keep second result
+let compute =
+    Console.PrintLine "Starting computation..."
+    *> calculateResult()
+// Returns: FIO<CalculationResult, 'E>
+
+// <* - Run both, keep first result
+let withLogging =
+    performAction()
+    <* Console.PrintLine "Action completed!"
+// Returns: FIO<ActionResult, 'E>
+```
+
+#### Parallel Composition
+
+**Parallel Zip (<&>)**
+
+Execute effects concurrently and wait for both to complete:
+
+```fsharp
+// Execute two effects in parallel
+let fetchUserAndOrders userId =
+    fetchUser userId <&> fetchOrders userId
+    <!> fun (user, orders) ->
+        { User = user; Orders = orders }
+// Both fetches run concurrently
+
+// Multiple parallel API calls
+let dashboard =
+    getProfile() <&> getNotifications() <&> getActivity()
+    <!> fun ((profile, notifications), activity) ->
+        { Profile = profile
+          Notifications = notifications
+          Activity = activity }
+```
+
+**Parallel Operators (&>, <&, <&&>)**
+
+```fsharp
+// &> - Run in parallel, keep second result
+let warmupThenCompute = warmupCache() &> calculateResult()
+
+// <& - Run in parallel, keep first result
+let computeWithBackground = calculateResult() <& logMetrics()
+
+// <&&> - Run in parallel, discard both results
+let fireAndForget =
+    sendEmail() <&&> updateMetrics() <&&> logActivity()
+    // All run concurrently, returns FIO<unit, 'E>
+```
+
+#### Error Handling
+
+**OrElse Operator (<|>)**
+
+Try the first effect, fallback to the second if it fails:
+
+```fsharp
+// Simple fallback
+let fetchData = fetchFromCache() <|> fetchFromDatabase()
+
+// Chain multiple fallbacks
+let robustFetch =
+    fetchFromPrimary()
+    <|> fetchFromSecondary()
+    <|> fetchFromCache()
+    <|> FIO.Succeed(defaultValue)
+```
+
+**Map Operator (<!>)**
+
+Transform the success value without affecting errors:
+
+```fsharp
+// Transform a single value
+let doubled = computeValue() <!> fun x -> x * 2
+
+// Chain transformations
+let pipeline =
+    fetchNumber()
+    <!> fun n -> n * 2
+    <!> fun n -> n + 10
+    <!> fun n -> $"Result: {n}"
+```
+
+#### Computation Expressions vs Operators
+
+**Use computation expressions** for complex logic with branching, loops, or multiple let bindings:
+
+```fsharp
+let processOrders = fio {
+    let! orders = fetchOrders()
+    let mutable processed = 0
+
+    for order in orders do
+        if order.Total > 100.0 then
+            do! applyDiscount order
+
+        do! processOrder order
+        processed <- processed + 1
+
+    return processed
+}
+```
+
+**Use operators** for simple pipelines and functional composition:
+
+```fsharp
+let pipeline =
+    fetchData()
+    <!> validateData
+    >>= enrichData
+    >>= saveData
+    <* Console.PrintLine "Pipeline completed!"
+```
+
+#### Operator Quick Reference
+
+| Operator | Execution | Returns | Use Case |
+|----------|-----------|---------|----------|
+| `>>=` | Sequential | Result of function | Chain with access to previous value |
+| `<*>` | Sequential | Tuple | Combine two results |
+| `*>` | Sequential | Second | Side effect then main result |
+| `<*` | Sequential | First | Main result then side effect |
+| `<&>` | Parallel | Tuple | Concurrent execution |
+| `&>` | Parallel | Second | Concurrent, prefer second |
+| `<&` | Parallel | First | Concurrent, prefer first |
+| `<&&>` | Parallel | Unit | Fire-and-forget parallel tasks |
+| `<\|>` | Sequential | First success | Error recovery with fallback |
+| `<!>` | N/A | Transformed | Map over success value |
+
+For more examples of operator usage, see [**FSharp.FIO.Examples**](https://github.com/fs-fio/FIO/tree/main/examples/FSharp.FIO.Examples).
+
+
+
+## Usage
 
 You can use **FIO** in two ways:  
 - Directly by creating and running effects manually (examples in [**FSharp.FIO.Examples**](https://github.com/fs-fio/FIO/tree/main/examples/FSharp.FIO.Examples))
@@ -175,21 +366,18 @@ module DirectUsage
 
 open FSharp.FIO.DSL
 open FSharp.FIO.Console
-open FSharp.FIO.Runtime.Concurrent
+open FSharp.FIO.Runtime.Default
 
 [<EntryPoint>]
 let main _ =
     let askForName = fio {
         do! Console.PrintLine "Hello! What is your name?"
-        let! name = Console.ReadLine ()
+        let! name = Console.ReadLine
         do! Console.PrintLine $"Hello, {name}! Welcome to FIO! 🪻💜"
     }
-    
-    Runtime().Run askForName
-    |> fun fiber -> fiber.Task ()
-    |> Async.AwaitTask
-    |> Async.RunSynchronously
-    |> printfn "%A"
+
+    let fiber = (new DefaultRuntime()).Run askForName
+    fiber.UnsafePrintResult()
     0
 ```
 
@@ -210,41 +398,81 @@ Ok ()
 
 #### Using FIOApp (Recommended)
 
-Wrap your effect in a `FIOApp` to simplify boilerplate. Open the App module:
+FIOApp provides a high-level framework for running FIO effects with lifecycle management, shutdown hooks, and automatic exit codes. It comes in three variants to suit different needs.
+
+##### FIOApp Variants
+
+**FIOApp** comes in three variants to suit different needs:
+
+**1. SimpleFIOApp**
+
+`SimpleFIOApp` is a type alias for `FIOApp<unit, exn>`, used when your effect performs actions without returning a meaningful result.
 
 ```fsharp
-module FIOAppUsage
-
-open FSharp.FIO.DSL
-open FSharp.FIO
-open FSharp.FIO.App
-
+// SimpleFIOApp = FIOApp<unit, exn>
 type WelcomeApp() =
-    inherit FIOApp<unit, exn> ()
+    inherit SimpleFIOApp()
 
     override _.effect = fio {
         do! Console.PrintLine "Hello! What is your name?"
-        let! name = Console.ReadLine ()
+        let! name = Console.ReadLine
         do! Console.PrintLine $"Hello, {name}! Welcome to FIO! 🪻💜"
     }
-
-WelcomeApp().Run()
 ```
 
-Same execution as before:
+**2. DefaultFIOApp<'R>**
 
-```
-$ dotnet run
+`DefaultFIOApp<'R>` is a type alias for `FIOApp<'R, exn>`, used when you need to return a specific value but use standard exceptions for errors.
+
+```fsharp
+// DefaultFIOApp<'R> = FIOApp<'R, exn>
+type RandomNumberApp() =
+    inherit DefaultFIOApp<int>()
+
+    override _.effect = fio {
+        let! randomNumber = FIO.Attempt(fun () -> Random().Next(1, 100))
+        do! Console.PrintLine $"Generated: {randomNumber}"
+        return randomNumber  // Returns int
+    }
 ```
 
-and same output as well:
+**3. FIOApp<'R, 'E>**
 
+The generic `FIOApp<'R, 'E>` base class provides full control over both result and error types, enabling type-safe domain-specific error handling.
+
+```fsharp
+type AppError =
+    | ValidationError of string
+    | NotFound
+    | DatabaseError of string
+
+type UserLookupApp() =
+    inherit FIOApp<string, AppError>()
+
+    override _.effect = fio {
+        do! Console.Print "Enter user ID: "
+        let! userId = Console.ReadLine
+
+        if userId = "" then
+            return! FIO.Fail(ValidationError "User ID cannot be empty")
+        else
+            return $"User: {userId}"
+    }
+
+    // Optional: Override exit code mappings
+    override _.exitCodeError = function
+        | ValidationError _ -> 2
+        | NotFound -> 3
+        | DatabaseError _ -> 4
 ```
-Hello! What is your name?
-Daniel
-Hello, Daniel! Welcome to FIO! 🪻💜
-Ok ()
-```
+
+##### Choosing Your Variant
+
+- **Use SimpleFIOApp** when your effect returns `unit` and uses standard exceptions (most CLI apps)
+- **Use DefaultFIOApp<'R>** when you need a custom result type but standard exceptions
+- **Use FIOApp<'R, 'E>** when you need custom error types for domain-specific error handling
+
+For more examples, see [**FSharp.FIO.Examples.App**](https://github.com/fs-fio/FIO/tree/main/examples/FSharp.FIO.Examples.App).
 
 #### Alternative: DSL-Only Style
 
@@ -254,13 +482,88 @@ Prefer DSL chaining? Use bind (>>=) directly:
 module DSLOnly
 
 open FSharp.FIO.DSL
-open FSharp.FIO
+open FSharp.FIO.Console
+open FSharp.FIO.Runtime.Default
 
 let askForName =
     Console.PrintLine "Hello! What is your name?" >>= fun _ ->
-    Console.ReadLine () >>= fun name ->
+    Console.ReadLine >>= fun name ->
     Console.PrintLine $"Hello, {name}! Welcome to FIO! 🪻💜"
+
+[<EntryPoint>]
+let main _ =
+    let fiber = (new DefaultRuntime()).Run askForName
+    fiber.UnsafePrintResult()
+    0
 ```
+
+## Extension Packages
+
+FIO provides optional packages for common scenarios:
+
+### HTTP Server
+
+Build HTTP servers with composable routes and middleware:
+
+```fsharp
+open FSharp.FIO.Http
+open FSharp.FIO.Http.RoutesOperators
+open FSharp.FIO.Http.MiddlewareOperators
+
+// Define handlers
+let helloHandler : HttpHandler<exn> =
+    HttpHandler.text "Hello from FIO!"
+
+let jsonHandler : HttpHandler<exn> =
+    HttpHandler.okJson {| message = "JSON response" |}
+
+// Compose routes
+let routes =
+    GET "/" helloHandler
+    ++ GET "/json" jsonHandler
+
+// Run server
+let config = ServerConfig.defaultConfig  // localhost:8080
+Server.runServer config routes
+```
+
+For complete examples, see [**FSharp.FIO.Examples.Http**](https://github.com/fs-fio/FIO/tree/main/examples/FSharp.FIO.Examples.Http).
+
+### PostgreSQL
+
+Connect to PostgreSQL databases with connection pooling:
+
+```fsharp
+open FSharp.FIO.PostgreSQL
+
+// Configure connection pool
+let config = {
+    ConnectionString = "Host=localhost;Database=mydb;Username=user;Password=pass"
+    MinPoolSize = 5
+    MaxPoolSize = 20
+    ConnectionLifetime = 300
+    CommandTimeout = 30
+}
+
+let pool = Pool.create config
+
+// Query with parameters
+let getUserById id = fio {
+    let sql = "SELECT id, name, email FROM users WHERE id = @id"
+    let parameters = ["id" @= id]
+    return! Dsl.queryFirstWithParams sql parameters userMapper pool
+}
+```
+
+For complete examples, see [**FSharp.FIO.Examples.PostgreSQL**](https://github.com/fs-fio/FIO/tree/main/examples/FSharp.FIO.Examples.PostgreSQL).
+
+### TCP Sockets
+
+TCP socket client and server functionality. See [**FSharp.FIO.Sockets**](https://www.nuget.org/packages/FSharp.FIO.Sockets) for documentation.
+
+### WebSockets
+
+WebSocket client and server functionality. See [**FSharp.FIO.WebSockets**](https://www.nuget.org/packages/FSharp.FIO.WebSockets) for documentation.
 
 
 
@@ -380,14 +683,12 @@ See the [**open issues**](https://github.com/fio-fsharp/fio/issues) for a full l
 <!-- CONTRIBUTING -->
 ## Contributing
 
-Contributions are welcome and appreciated!
-
 We welcome contributions! To contribute:
 - Star the repository
 - Open an issue (tag it with `enhancement`)
 - Fork the project and submit a pull request
 
-### Quick Start
+### Contributing Guide
 
 1. Fork the repository
 2. Create a branch: `git checkout -b feature/AmazingFeature`
@@ -408,7 +709,7 @@ We welcome contributions! To contribute:
 <!-- LICENSE -->
 ## License
 
-Distributed under the MIT License See [**LICENSE.md**](LICENSE.md) for more information.
+Distributed under the MIT License. See [**LICENSE.md**](LICENSE.md) for more information.
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 

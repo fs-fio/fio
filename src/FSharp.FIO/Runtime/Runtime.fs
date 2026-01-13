@@ -104,7 +104,7 @@ type internal WorkItemPool private () =
 /// Represents a functional runtime for interpreting FIO effects.
 /// </summary>
 [<AbstractClass>]
-type FRuntime internal () =
+type FIORuntime internal () =
     /// <summary>
     /// Gets the name of the runtime.
     /// </summary>
@@ -150,8 +150,8 @@ type WorkerConfig =
 /// Represents a functional worker runtime for interpreting FIO effects.
 /// </summary>
 [<AbstractClass>]
-type FWorkerRuntime internal (config: WorkerConfig) as this =
-    inherit FRuntime ()
+type FIOWorkerRuntime internal (config: WorkerConfig) as this =
+    inherit FIORuntime ()
 
     let validateWorkerConfiguration () =
         if config.EWC <= 0 ||

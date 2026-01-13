@@ -1,7 +1,7 @@
 ﻿module private FSharp.FIO.Examples
 
 open FSharp.FIO.DSL
-open FSharp.FIO
+open FSharp.FIO.Console
 open FSharp.FIO.Runtime.Default
 
 open System
