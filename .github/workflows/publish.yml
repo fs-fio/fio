@@ -38,11 +38,11 @@ jobs:
 
       - name: Pack NuGet packages
         run: |
-          dotnet pack src/FSharp.FIO/FSharp.FIO.fsproj -c Release --no-build -o ./nupkgs
-          dotnet pack src/FSharp.FIO.Sockets/FSharp.FIO.Sockets.fsproj -c Release --no-build -o ./nupkgs
-          dotnet pack src/FSharp.FIO.WebSockets/FSharp.FIO.WebSockets.fsproj -c Release --no-build -o ./nupkgs
-          dotnet pack src/FSharp.FIO.Http/FSharp.FIO.Http.fsproj -c Release --no-build -o ./nupkgs
-          dotnet pack src/FSharp.FIO.PostgreSQL/FSharp.FIO.PostgreSQL.fsproj -c Release --no-build -o ./nupkgs
+          dotnet pack src/FSharp.FIO/FSharp.FIO.fsproj -c Release -o ./nupkgs
+          dotnet pack src/FSharp.FIO.Sockets/FSharp.FIO.Sockets.fsproj -c Release -o ./nupkgs
+          dotnet pack src/FSharp.FIO.WebSockets/FSharp.FIO.WebSockets.fsproj -c Release -o ./nupkgs
+          dotnet pack src/FSharp.FIO.Http/FSharp.FIO.Http.fsproj -c Release -o ./nupkgs
+          dotnet pack src/FSharp.FIO.PostgreSQL/FSharp.FIO.PostgreSQL.fsproj -c Release -o ./nupkgs
 
       - name: Upload packages as artifacts
         uses: actions/upload-artifact@v4
