@@ -748,7 +748,7 @@ Alceste Scalas ([**people.compute.dtu.dk**](https://people.compute.dtu.dk/alcsc/
 [linkedin-url]: https://linkedin.com/in/itsdanieldk
 [product-screenshot]: images/screenshot.png
 [nuget-shield]: https://img.shields.io/nuget/v/FSharp.FIO.svg?style=for-the-badge
-[nuget-url]: https://www.nuget.org/packages/FSharp.FIO/0.0.36-alpha
+[nuget-url]: https://www.nuget.org/packages/FSharp.FIO/0.0.38-alpha
 [FSharp]: https://img.shields.io/badge/F%23-378BBA?style=for-the-badge&logo=.NET&logoColor=white
 [FSharp-url]: https://fsharp.org/
 [.NET]: https://img.shields.io/badge/.NET-5C2D91?style=for-the-badge&logo=.NET&logoColor=white
