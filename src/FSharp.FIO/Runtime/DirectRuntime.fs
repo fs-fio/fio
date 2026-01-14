@@ -40,7 +40,7 @@ type DirectRuntime () =
                     completed <- true
                     loop <- false
                 else
-                    let stackFrame = pop currentContStack
+                    let stackFrame = currentContStack.Pop()
                     match stackFrame.Cont with
                     | SuccessCont cont ->
                         currentEff <- cont res
@@ -56,7 +56,7 @@ type DirectRuntime () =
                     completed <- true
                     loop <- false
                 else
-                    let stackFrame = pop currentContStack
+                    let stackFrame = currentContStack.Pop()
                     match stackFrame.Cont with
                     | SuccessCont _ ->
                         ()
@@ -185,10 +185,10 @@ type DirectRuntime () =
                                 processError(onError exn)
                         | ChainSuccess(eff, cont) ->
                             currentEff <- eff
-                            currentContStack.Add(ContStackFrame (SuccessCont cont))
+                            currentContStack.Push(ContStackFrame (SuccessCont cont))
                         | ChainError(eff, cont) ->
                             currentEff <- eff
-                            currentContStack.Add(ContStackFrame (FailureCont cont))
+                            currentContStack.Push(ContStackFrame (FailureCont cont))
                 return result
             finally
                 ContStackPool.Return currentContStack

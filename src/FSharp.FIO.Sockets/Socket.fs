@@ -3,6 +3,7 @@ namespace FSharp.FIO.Sockets
 open FSharp.FIO.DSL
 
 open System
+open System.Buffers
 open System.Net
 
 /// <summary>
@@ -56,13 +57,23 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
             if not netSocket.Connected then
                 return! FIO.Fail(ConnectionClosed "Socket is not connected")
 
-            let buffer = Array.zeroCreate<byte> maxBytes
-            let! bytesRead = awaitTaskT (stream.ReadAsync(buffer, 0, maxBytes))
+            // Use ArrayPool for efficient buffer management
+            let! pooledBuffer = fromFunc (fun () -> ArrayPool<byte>.Shared.Rent maxBytes)
 
-            if bytesRead = 0 then
-                return! FIO.Fail(ConnectionClosed "Connection closed by peer")
+            let readAndCopy = fio {
+                let! bytesRead = awaitTaskT (stream.ReadAsync(pooledBuffer, 0, maxBytes))
 
-            return buffer, bytesRead
+                if bytesRead = 0 then
+                    return! FIO.Fail(ConnectionClosed "Connection closed by peer")
+
+                // Copy exact bytes to result array (can't return pooled buffer)
+                let result = Array.zeroCreate<byte> bytesRead
+                Buffer.BlockCopy(pooledBuffer, 0, result, 0, bytesRead)
+                return result, bytesRead
+            }
+
+            // Ensure buffer is returned to pool even on error
+            return! readAndCopy.Ensuring(fromFunc (fun () -> ArrayPool<byte>.Shared.Return pooledBuffer))
         }
 
     /// <summary>
@@ -75,18 +86,28 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
             if numBytes <= 0 then
                 return! FIO.Fail(InvalidState("positive byte count", $"{numBytes}"))
 
-            let buffer = Array.zeroCreate<byte> numBytes
-            let mutable totalRead = 0
+            // Use ArrayPool for efficient buffer management
+            let! pooledBuffer = fromFunc (fun () -> ArrayPool<byte>.Shared.Rent numBytes)
 
-            while totalRead < numBytes do
-                let! bytesRead = awaitTaskT (stream.ReadAsync(buffer, totalRead, numBytes - totalRead))
+            let readLoop = fio {
+                let mutable totalRead = 0
 
-                if bytesRead = 0 then
-                    return! FIO.Fail(ConnectionClosed $"Connection closed after {totalRead} of {numBytes} bytes")
+                while totalRead < numBytes do
+                    let! bytesRead = awaitTaskT (stream.ReadAsync(pooledBuffer, totalRead, numBytes - totalRead))
 
-                totalRead <- totalRead + bytesRead
+                    if bytesRead = 0 then
+                        return! FIO.Fail(ConnectionClosed $"Connection closed after {totalRead} of {numBytes} bytes")
 
-            return buffer
+                    totalRead <- totalRead + bytesRead
+
+                // Copy exact bytes to result array (pooled buffer may be larger)
+                let result = Array.zeroCreate<byte> numBytes
+                Buffer.BlockCopy(pooledBuffer, 0, result, 0, numBytes)
+                return result
+            }
+
+            // Ensure buffer is returned to pool even on error
+            return! readLoop.Ensuring(fromFunc (fun () -> ArrayPool<byte>.Shared.Return pooledBuffer))
         }
 
     /// <summary>

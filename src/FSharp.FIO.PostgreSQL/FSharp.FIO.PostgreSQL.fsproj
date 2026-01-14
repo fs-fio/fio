@@ -8,7 +8,7 @@
 
     <PropertyGroup>
         <PackageId>FSharp.FIO.PostgreSQL</PackageId>
-        <Version>0.0.35-alpha</Version>
+        <Version>0.0.36-alpha</Version>
         <Title>FSharp.FIO.PostgreSQL</Title>
         <Description>PostgreSQL database library for FSharp.FIO built on Npgsql. Provides connection pooling, query execution, transactions, and a functional DSL for database operations.</Description>
         <Authors>Daniel Larsen</Authors>

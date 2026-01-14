@@ -109,10 +109,11 @@ let private runBenchmark (runtime: FIORuntime, totalRuns, config: BenchmarkConfi
     
     let rec executeBenchmark (eff: FIO<int64, exn>) =
         task {
-            let mutable runs = []
-            let mutable executionTimes = []
-            let mutable memoryUsages = []
-            
+            // Use ResizeArray for O(1) append instead of O(n) List.append
+            let runs = ResizeArray<int64>(int totalRuns)
+            let executionTimes = ResizeArray<int64>(int totalRuns)
+            let memoryUsages = ResizeArray<int64>(int totalRuns)
+
             for currentRun in 1L..totalRuns do
                 printfn $"[FIO.Benchmarks]: Executing: %s{config.ToString()}, Runtime: %s{runtime.ToString()}, Run (%i{currentRun}/%i{totalRuns})"
                 let! benchRes = runtime.Run(eff).Task()
@@ -122,13 +123,13 @@ let private runBenchmark (runtime: FIORuntime, totalRuns, config: BenchmarkConfi
                     match benchRes with
                     | Ok time -> time
                     | Error err -> invalidOp $"BenchmarkRunner: Failed executing benchmark with error: %A{err}"
-                        
+
                 printfn $"[FIO.Benchmarks]: Execution completed: Execution Time: %i{executionTime}ms, Memory Usage: %i{memoryUsage}MB, Run (%i{currentRun}/%i{totalRuns})"
-                runs <- List.append runs [currentRun]
-                executionTimes <- List.append executionTimes [executionTime]
-                memoryUsages <- List.append memoryUsages [memoryUsage]
-                
-            return runs, executionTimes, memoryUsages
+                runs.Add currentRun
+                executionTimes.Add executionTime
+                memoryUsages.Add memoryUsage
+
+            return Seq.toList runs, Seq.toList executionTimes, Seq.toList memoryUsages
         }
     
     task {

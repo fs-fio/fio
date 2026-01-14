@@ -8,6 +8,7 @@ open System
 open System.Threading
 open System.Threading.Tasks
 open System.Threading.Channels
+open System.Collections.Generic
 open System.Collections.Concurrent
 
 /// <summary>
@@ -28,7 +29,7 @@ and [<Struct>] internal ContStackFrame =
 /// Internal stack of continuations for effect execution.
 /// </summary>
 and internal ContStack =
-    ResizeArray<ContStackFrame>
+    Stack<ContStackFrame>
 
 /// <summary>
 /// Internal work item representing an effect to be executed along with its context and continuation stack.
@@ -50,7 +51,6 @@ and internal BlockingItem =
 /// Thread-safe unbounded channel for message passing.
 /// </summary>
 and [<Sealed>] internal UnboundedChannel<'R> (id: Guid) =
-    let mutable count = 0L
     let chan = Channel.CreateUnbounded<'R>()
 
     new() = UnboundedChannel (Guid.NewGuid())
@@ -65,35 +65,25 @@ and [<Sealed>] internal UnboundedChannel<'R> (id: Guid) =
     /// Gets the current message count.
     /// </summary>
     member internal _.Count =
-        Volatile.Read &count
+        chan.Reader.Count
 
     /// <summary>
     /// Adds a message asynchronously.
     /// </summary>
     member internal _.AddAsync (msg: 'R) =
-        task {
-            Interlocked.Increment &count |> ignore
-            do! chan.Writer.WriteAsync msg
-        }
+        chan.Writer.WriteAsync(msg).AsTask()
 
     /// <summary>
     /// Takes a message asynchronously.
     /// </summary>
     member internal _.TakeAsync () =
-        task {
-            Interlocked.Decrement &count |> ignore
-            let! res = chan.Reader.ReadAsync()
-            return res
-        }
+        chan.Reader.ReadAsync().AsTask()
 
     /// <summary>
     /// Tries to take a message without blocking.
     /// </summary>
     member internal _.TryTake (res: byref<'R>) =
-        let success = chan.Reader.TryRead &res
-        if success then
-            Interlocked.Decrement &count |> ignore
-        success
+        chan.Reader.TryRead &res
 
     /// <summary>
     /// Waits asynchronously until a message is available.
@@ -107,7 +97,7 @@ and [<Sealed>] internal UnboundedChannel<'R> (id: Guid) =
     member internal _.Clear () =
         let mutable item = Unchecked.defaultof<'R>
         while chan.Reader.TryRead &item do
-            Interlocked.Decrement &count |> ignore
+            ()
 
 /// <summary>
 /// Internal state of a fiber's execution context lifecycle.

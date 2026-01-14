@@ -1,6 +1,7 @@
 namespace FSharp.FIO.Http
 
 open System
+open System.Buffers
 open System.IO
 open System.Web
 open System.Text
@@ -80,9 +81,23 @@ module KestrelBridge =
                     let! body =
                         task {
                             if ctx.Request.ContentLength.HasValue && ctx.Request.ContentLength.Value > 0L then
-                                use ms = new MemoryStream()
-                                do! ctx.Request.Body.CopyToAsync ms
-                                return RequestBody.Bytes (ms.ToArray())
+                                // Use ArrayPool for efficient buffer management
+                                let length = int ctx.Request.ContentLength.Value
+                                let buffer = ArrayPool<byte>.Shared.Rent(length)
+                                try
+                                    let mutable totalRead = 0
+                                    while totalRead < length do
+                                        let! bytesRead = ctx.Request.Body.ReadAsync(buffer, totalRead, length - totalRead)
+                                        if bytesRead = 0 then
+                                            totalRead <- length // Exit loop on EOF
+                                        else
+                                            totalRead <- totalRead + bytesRead
+                                    // Copy exact bytes needed (avoid returning pooled buffer)
+                                    let result = Array.zeroCreate<byte> totalRead
+                                    Buffer.BlockCopy(buffer, 0, result, 0, totalRead)
+                                    return RequestBody.Bytes result
+                                finally
+                                    ArrayPool<byte>.Shared.Return(buffer)
                             else
                                 return RequestBody.Empty
                         }
@@ -120,7 +135,8 @@ module KestrelBridge =
                     | Bytes bytes ->
                         return Some bytes
                     | Json obj ->
-                        use ms = new MemoryStream()
+                        // Pre-allocate with reasonable initial capacity for JSON
+                        use ms = new MemoryStream(256)
                         do! JsonSerializer.SerializeAsync(ms, obj)
                         return Some (ms.ToArray())
                     | Stream _ ->
