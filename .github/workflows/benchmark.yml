@@ -1,0 +1,126 @@
+name: Performance Benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore ./FSharp.FIO.slnx
+
+      - name: Run benchmarks (DirectRuntime)
+        run: |
+          dotnet run -c Release --project benchmarks/FSharp.FIO.Benchmarks -- \
+            --direct-runtime \
+            --runs 5 \
+            --pingpong 50000 \
+            --save true \
+            --savepath ./benchmark-direct.csv
+
+      - name: Run benchmarks (CooperativeRuntime)
+        run: |
+          dotnet run -c Release --project benchmarks/FSharp.FIO.Benchmarks -- \
+            --cooperative-runtime 4 200 1 \
+            --runs 5 \
+            --pingpong 50000 \
+            --save true \
+            --savepath ./benchmark-cooperative.csv
+
+      - name: Run benchmarks (ConcurrentRuntime)
+        run: |
+          dotnet run -c Release --project benchmarks/FSharp.FIO.Benchmarks -- \
+            --concurrent-runtime 4 200 1 \
+            --runs 5 \
+            --pingpong 50000 \
+            --save true \
+            --savepath ./benchmark-concurrent.csv
+
+      - name: Display benchmark summary
+        run: |
+          echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### DirectRuntime" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat ./benchmark-direct.csv >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### CooperativeRuntime" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat ./benchmark-cooperative.csv >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### ConcurrentRuntime" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat ./benchmark-concurrent.csv >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Convert results to benchmark JSON
+        run: |
+          # Extract average execution times from each runtime's CSV and create JSON for tracking
+          # Format: [{ "name": "Runtime - Benchmark", "unit": "ms", "value": avg_time }]
+          echo "[" > benchmark-results.json
+
+          # DirectRuntime
+          direct_avg=$(awk -F',' 'NR==2 {gsub(/[[:space:]]/, "", $4); print $4}' ./benchmark-direct.csv)
+          echo "  { \"name\": \"DirectRuntime - Pingpong\", \"unit\": \"ms\", \"value\": $direct_avg }," >> benchmark-results.json
+
+          # CooperativeRuntime
+          coop_avg=$(awk -F',' 'NR==2 {gsub(/[[:space:]]/, "", $4); print $4}' ./benchmark-cooperative.csv)
+          echo "  { \"name\": \"CooperativeRuntime - Pingpong\", \"unit\": \"ms\", \"value\": $coop_avg }," >> benchmark-results.json
+
+          # ConcurrentRuntime
+          conc_avg=$(awk -F',' 'NR==2 {gsub(/[[:space:]]/, "", $4); print $4}' ./benchmark-concurrent.csv)
+          echo "  { \"name\": \"ConcurrentRuntime - Pingpong\", \"unit\": \"ms\", \"value\": $conc_avg }" >> benchmark-results.json
+
+          echo "]" >> benchmark-results.json
+
+          echo "### Benchmark JSON for tracking:" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
+          cat benchmark-results.json >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+
+      - name: Store benchmark results
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: 'customSmallerIsBetter'
+          output-file-path: benchmark-results.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          comment-on-alert: true
+          alert-threshold: '150%'
+          fail-on-alert: false
+          alert-comment-cc-users: '@${{ github.actor }}'
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            ./benchmark-*.csv
+            ./benchmark-results.json

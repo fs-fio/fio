@@ -39,4 +39,17 @@ jobs:
         run: dotnet build --no-restore ./FSharp.FIO.slnx
 
       - name: Run tests
+        if: matrix.os != 'ubuntu-latest'
         run: dotnet test --no-build --verbosity normal ./FSharp.FIO.slnx
+
+      - name: Run tests with coverage
+        if: matrix.os == 'ubuntu-latest'
+        run: dotnet test --no-build --verbosity normal --collect:"XPlat Code Coverage" --results-directory ./coverage ./FSharp.FIO.slnx
+
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest'
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/**/coverage.cobertura.xml
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
