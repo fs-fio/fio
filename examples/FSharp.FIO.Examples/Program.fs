@@ -1,7 +1,7 @@
 ﻿module private FSharp.FIO.Examples
 
+open FSharp.FIO
 open FSharp.FIO.DSL
-open FSharp.FIO.Console
 open FSharp.FIO.Runtime.Default
 
 open System
@@ -15,7 +15,7 @@ let helloWorld1 () =
         match result with
         | Ok result -> printfn $"Success: %s{result}"
         | Error error -> printfn $"Error: %A{error}"
-    } |> _.Wait()
+    } |> _.GetAwaiter().GetResult()
 
 let helloWorld2 () =
     let hello: FIO<string, obj> = FIO.Succeed "Hello world! 🪻"
@@ -26,7 +26,7 @@ let helloWorld2 () =
         match result with
         | Ok result -> printfn $"Success: %s{result}"
         | Error error -> printfn $"Error: %A{error}"
-    } |> _.Wait()
+    } |> _.GetAwaiter().GetResult()
 
 let helloWorld3 () =
     let hello: FIO<obj, string> = FIO.Fail "Hello world! 🪻"
@@ -37,7 +37,7 @@ let helloWorld3 () =
         match result with
         | Ok result -> printfn $"Success: %A{result}"
         | Error error -> printfn $"Error: %s{error}"
-    } |> _.Wait()
+    } |> _.GetAwaiter().GetResult()
 
 let helloWorld4 () =
     let hello = FIO.Succeed "Hello world! 🪻"
@@ -90,11 +90,6 @@ let computationExpression3 () =
     let fiber = (new DefaultRuntime()).Run welcome
     fiber.UnsafePrintResult()
 
-let unitSuccess () =
-    let unit = FIO.Unit()
-    let fiber = (new DefaultRuntime()).Run unit
-    fiber.UnsafePrintResult()
-
 let interruptFiber () =
     let longRunning =
         fio {
@@ -126,7 +121,6 @@ let examples = [
     nameof computationExpression1, computationExpression1
     nameof computationExpression2, computationExpression2
     nameof computationExpression3, computationExpression3
-    nameof unitSuccess, unitSuccess
     nameof interruptFiber, interruptFiber
 ]
 

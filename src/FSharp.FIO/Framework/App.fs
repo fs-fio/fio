@@ -11,6 +11,8 @@ open System
 open System.Threading
 open System.Threading.Tasks
 
+type private SysConsole = System.Console
+
 /// <summary>
 /// Base class for FIO applications with lifecycle management and shutdown hooks.
 /// </summary>
@@ -26,7 +28,49 @@ type FIOApp<'R, 'E> () as this =
         this.runtime
     )
 
+    /// <summary>Gets the unique identifier for this application instance.</summary>
     member _.Id = id
+
+    /// <summary>
+    /// Human-readable name of the application.
+    /// Default: The type name of the application class.
+    /// </summary>
+    abstract member name: string
+    default _.name = this.GetType().Name
+
+    /// <summary>
+    /// Version string of the application.
+    /// Default: Assembly version or "0.0.0" if not available.
+    /// </summary>
+    abstract member version: string
+    default _.version =
+        let asm = this.GetType().Assembly
+        let version = asm.GetName().Version
+        if isNull version then "0.0.0" else version.ToString()
+
+    /// <summary>
+    /// Description of the application.
+    /// Default: Empty string.
+    /// </summary>
+    abstract member description: string
+    default _.description = ""
+
+    /// <summary>
+    /// Whether to display a startup banner when the application starts.
+    /// Default: false.
+    /// </summary>
+    abstract member showBanner: bool
+    default _.showBanner = false
+
+    /// <summary>
+    /// The startup banner text displayed when showBanner is true.
+    /// Default: Auto-generated banner with name, version, and runtime info.
+    /// Override to provide a custom banner.
+    /// </summary>
+    abstract member banner: string
+    default _.banner =
+        let separator = String.replicate (this.name.Length + this.version.Length + 12) "─"
+        $"┌{separator}┐\n│  {this.name} v{this.version}  │\n└{separator}┘"
 
     /// <summary>
     /// The main effect to execute. Must be overridden.
@@ -56,93 +100,95 @@ type FIOApp<'R, 'E> () as this =
     /// <summary>Handler invoked when the application starts.</summary>
     abstract member onStart: unit -> unit
     default this.onStart () =
+        if this.showBanner then
+            SysConsole.WriteLine this.banner
         if this.verbose then
-            Console.ForegroundColor <- ConsoleColor.DarkMagenta
-            Console.WriteLine "starting"
-            Console.ResetColor()
+            SysConsole.ForegroundColor <- ConsoleColor.DarkMagenta
+            SysConsole.WriteLine "starting"
+            SysConsole.ResetColor()
 
     /// <summary>Handler invoked when the runtime is initialized.</summary>
     /// <param name="runtime">The runtime instance.</param>
     abstract member onRuntimeInitialized: FIORuntime -> unit
     default this.onRuntimeInitialized runtime =
         if this.verbose then
-            Console.ForegroundColor <- ConsoleColor.DarkMagenta
-            Console.WriteLine $"runtime: {runtime.Name}"
-            Console.ResetColor()
+            SysConsole.ForegroundColor <- ConsoleColor.DarkMagenta
+            SysConsole.WriteLine $"runtime: {runtime.Name}"
+            SysConsole.ResetColor()
 
     /// <summary>Handler invoked when the fiber starts executing.</summary>
     abstract member onFiberRunning: unit -> unit
     default this.onFiberRunning () =
         if this.verbose then
-            Console.ForegroundColor <- ConsoleColor.DarkMagenta
-            Console.WriteLine "running"
-            Console.ResetColor()
+            SysConsole.ForegroundColor <- ConsoleColor.DarkMagenta
+            SysConsole.WriteLine "running"
+            SysConsole.ResetColor()
 
     /// <summary>Handler invoked when the application completes successfully.</summary>
     /// <param name="res">The success result.</param>
     abstract member onSuccess: 'R -> unit
     default _.onSuccess res =
         if this.verbose then
-            Console.ForegroundColor <- ConsoleColor.DarkGreen
-            Console.WriteLine $"success: %A{res}"
-            Console.ResetColor()
+            SysConsole.ForegroundColor <- ConsoleColor.DarkGreen
+            SysConsole.WriteLine $"success: %A{res}"
+            SysConsole.ResetColor()
 
     /// <summary>Handler invoked when the application completes with an error.</summary>
     /// <param name="err">The error.</param>
     abstract member onError: 'E -> unit
     default _.onError err =
-        Console.ForegroundColor <- ConsoleColor.DarkRed
-        Console.WriteLine $"error: %A{err}"
-        Console.ResetColor()
+        SysConsole.ForegroundColor <- ConsoleColor.DarkRed
+        SysConsole.WriteLine $"error: %A{err}"
+        SysConsole.ResetColor()
 
     /// <summary>Handler invoked when the application is interrupted.</summary>
     /// <param name="exn">The interruption exception.</param>
     abstract member onInterrupted: exn -> unit
     default this.onInterrupted exn =
         if this.verbose then
-            Console.ForegroundColor <- ConsoleColor.DarkYellow
-            Console.WriteLine $"interrupted: %s{exn.Message}"
-            Console.ResetColor()
+            SysConsole.ForegroundColor <- ConsoleColor.DarkYellow
+            SysConsole.WriteLine $"interrupted: %s{exn.Message}"
+            SysConsole.ResetColor()
 
     /// <summary>Handler invoked when a fatal error occurs.</summary>
     /// <param name="exn">The fatal exception.</param>
     abstract member onFatalError: exn -> unit
     default _.onFatalError exn =
-        Console.ForegroundColor <- ConsoleColor.Red
-        Console.WriteLine $"fatal: %s{exn.Message}"
-        Console.ResetColor()
+        SysConsole.ForegroundColor <- ConsoleColor.Red
+        SysConsole.WriteLine $"fatal: %s{exn.Message}"
+        SysConsole.ResetColor()
 
     /// <summary>Handler invoked when shutdown is requested.</summary>
     abstract member onShutdownRequested: unit -> unit
     default this.onShutdownRequested () =
         if this.verbose then
-            Console.ForegroundColor <- ConsoleColor.DarkCyan
-            Console.WriteLine "shutdown"
-            Console.ResetColor()
+            SysConsole.ForegroundColor <- ConsoleColor.DarkCyan
+            SysConsole.WriteLine "shutdown"
+            SysConsole.ResetColor()
 
     /// <summary>Handler invoked when shutdown hook completes successfully.</summary>
     abstract member onShutdownHookSuccess: unit -> unit
     default this.onShutdownHookSuccess () =
         if this.verbose then
-            Console.ForegroundColor <- ConsoleColor.DarkCyan
-            Console.WriteLine "cleanup done"
-            Console.ResetColor()
+            SysConsole.ForegroundColor <- ConsoleColor.DarkCyan
+            SysConsole.WriteLine "cleanup done"
+            SysConsole.ResetColor()
 
     /// <summary>Handler invoked when shutdown hook completes with an error.</summary>
     /// <param name="err">The error.</param>
     abstract member onShutdownHookError: 'E -> unit
     default _.onShutdownHookError err =
-        Console.ForegroundColor <- ConsoleColor.DarkRed
-        Console.WriteLine $"cleanup error: %A{err}"
-        Console.ResetColor()
+        SysConsole.ForegroundColor <- ConsoleColor.DarkRed
+        SysConsole.WriteLine $"cleanup error: %A{err}"
+        SysConsole.ResetColor()
 
     /// <summary>Handler invoked when shutdown hook times out.</summary>
     /// <param name="timeout">The timeout duration.</param>
     abstract member onShutdownHookTimeout: TimeSpan -> unit
     default _.onShutdownHookTimeout timeout =
-        Console.ForegroundColor <- ConsoleColor.DarkCyan
-        Console.WriteLine $"cleanup timeout ({timeout.TotalSeconds}s)"
-        Console.ResetColor()
+        SysConsole.ForegroundColor <- ConsoleColor.DarkCyan
+        SysConsole.WriteLine $"cleanup timeout ({timeout.TotalSeconds}s)"
+        SysConsole.ResetColor()
 
     /// <summary>
     /// Handler invoked when shutdown hook fails with an exception.
@@ -152,9 +198,9 @@ type FIOApp<'R, 'E> () as this =
     /// <param name="exn">The exception.</param>
     abstract member onShutdownHookException: exn -> unit
     default _.onShutdownHookException exn =
-        Console.ForegroundColor <- ConsoleColor.Red
-        Console.WriteLine $"cleanup failed: %s{exn.Message}"
-        Console.ResetColor()
+        SysConsole.ForegroundColor <- ConsoleColor.Red
+        SysConsole.WriteLine $"cleanup failed: %s{exn.Message}"
+        SysConsole.ResetColor()
 
     /// <summary>Maps a successful result to an exit code.</summary>
     /// <param name="res">The success result.</param>
@@ -229,7 +275,7 @@ type FIOApp<'R, 'E> () as this =
                             this.onShutdownRequested()
                             fiber.UnsafeInterrupt(ExplicitInterrupt, "Application shutdown requested from console.")
                     )
-                    Console.CancelKeyPress.AddHandler shutdownHandler
+                    SysConsole.CancelKeyPress.AddHandler shutdownHandler
                     handlerRegistered <- true
 
                     let! exitCode =
@@ -255,7 +301,7 @@ type FIOApp<'R, 'E> () as this =
                     return this.exitCodeFatalError exn
             finally
                 if handlerRegistered then
-                    Console.CancelKeyPress.RemoveHandler shutdownHandler
+                    SysConsole.CancelKeyPress.RemoveHandler shutdownHandler
         }
 
     /// <summary>Runs the application synchronously.</summary>
@@ -266,8 +312,8 @@ type FIOApp<'R, 'E> () as this =
     member this.RunAsync () : Task<int> =
         this.RunEffect()
 
-    override _.ToString() =
-        id.ToString()
+    override this.ToString() =
+        $"{this.name} ({id})"
 
 /// <summary>
 /// FIOApp variant using 'exn' as the error type.

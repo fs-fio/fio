@@ -9,7 +9,7 @@ module private FSharp.FIO.Benchmarks.Suite.Bang
 
 open FSharp.FIO.DSL
 #if DEBUG
-open FSharp.FIO.Console
+open FSharp.FIO
 #endif
 open FSharp.FIO.Benchmarks.Tools.Timer
 
@@ -70,13 +70,13 @@ let bangBenchmark config : FIO<int64, exn> =
         let! actorCount, roundCount =
             match config with
             | BangConfig(ac, rc) -> FIO.Succeed(ac, rc)
-            | _ -> FIO.Fail(ArgumentException("Bang benchmark failed: Requires a BangConfig", nameof config))
+            | _ -> FIO.Fail(ArgumentException("Bang benchmark initialization failed: Requires a BangConfig", nameof config))
         
         if actorCount < 1 then
-            return! FIO.Fail(ArgumentException($"Bang benchmark failed: At least 1 actor should be specified. actorCount = %i{actorCount}", nameof actorCount))
+            return! FIO.Fail(ArgumentException($"Bang benchmark initialization failed: At least 1 actor should be specified. actorCount = %i{actorCount}", nameof actorCount))
         
         if roundCount < 1 then
-            return! FIO.Fail(ArgumentException($"Bang benchmark failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount))
+            return! FIO.Fail(ArgumentException($"Bang benchmark initialization failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount))
         
         let timerChan = Channel<TimerMessage<int>>()
         let startChan = Channel<int>()

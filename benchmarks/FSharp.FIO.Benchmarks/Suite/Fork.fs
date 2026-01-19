@@ -1,7 +1,3 @@
-(******************)
-(* Fork benchmark *)
-(******************)
-
 module private FSharp.FIO.Benchmarks.Suite.Fork
 
 open FSharp.FIO.DSL
@@ -29,10 +25,10 @@ let forkBenchmark config : FIO<int64, exn> =
         let! actorCount =
             match config with
             | ForkConfig ac -> FIO.Succeed ac
-            | _ -> FIO.Fail(ArgumentException("Fork benchmark failed: Requires a ForkConfig", nameof config))
+            | _ -> FIO.Fail(ArgumentException("Fork benchmark initialization failed: Requires a ForkConfig", nameof config))
             
         if actorCount < 1 then
-            return! FIO.Fail(ArgumentException($"Fork benchmark failed: At least 1 actor should be specified. actorCount = %i{actorCount}", nameof actorCount))
+            return! FIO.Fail(ArgumentException($"Fork benchmark initialization failed: At least 1 actor should be specified. actorCount = %i{actorCount}", nameof actorCount))
             
         let timerChan = Channel<TimerMessage<int>>()
         let! timerFiber = TimerEff(1, 0, actorCount, timerChan).Fork()

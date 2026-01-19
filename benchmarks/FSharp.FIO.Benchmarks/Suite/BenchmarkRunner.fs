@@ -67,7 +67,7 @@ let private printResult result =
 │  ────────────────────────────  ────────────────────────────  ────────────────────────────  │\n"
         
     let allData =
-        List.map3 (fun a b c -> (a, b, c))
+        List.map3 (fun a b c -> a, b, c)
             result.Runs result.ExecutionTimes result.MemoryUsages
     
     let dataRows =
@@ -109,7 +109,6 @@ let private runBenchmark (runtime: FIORuntime, totalRuns, config: BenchmarkConfi
     
     let rec executeBenchmark (eff: FIO<int64, exn>) =
         task {
-            // Use ResizeArray for O(1) append instead of O(n) List.append
             let runs = ResizeArray<int64>(int totalRuns)
             let executionTimes = ResizeArray<int64>(int totalRuns)
             let memoryUsages = ResizeArray<int64>(int totalRuns)

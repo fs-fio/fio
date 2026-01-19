@@ -9,7 +9,7 @@ module private FSharp.FIO.Benchmarks.Suite.Big
 
 open FSharp.FIO.DSL
 #if DEBUG
-open FSharp.FIO.Console
+open FSharp.FIO
 #endif
 open FSharp.FIO.Benchmarks.Tools.Timer
 
@@ -134,13 +134,13 @@ let bigBenchmark config : FIO<int64, exn> =
         let! actorCount, roundCount =
             match config with
             | BigConfig(ac, rc) -> FIO.Succeed(ac, rc)
-            | _ -> FIO.Fail(ArgumentException("Big benchmark failed: Requires a BigConfig", nameof config))
+            | _ -> FIO.Fail(ArgumentException("Big benchmark initialization failed: Requires a BigConfig", nameof config))
         
         if actorCount < 2 then
-            return! FIO.Fail(ArgumentException($"Big benchmark failed: At least 2 actors should be specified. actorCount = %i{actorCount}", nameof actorCount))
+            return! FIO.Fail(ArgumentException($"Big benchmark initialization failed: At least 2 actors should be specified. actorCount = %i{actorCount}", nameof actorCount))
         
         if roundCount < 1 then
-            return! FIO.Fail(ArgumentException($"Big benchmark failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount))
+            return! FIO.Fail(ArgumentException($"Big benchmark initialization failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount))
         
         let timerChan = Channel<TimerMessage<int>>()
         let startChan = Channel<int>()

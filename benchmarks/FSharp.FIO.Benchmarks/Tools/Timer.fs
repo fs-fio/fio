@@ -2,9 +2,10 @@ module internal FSharp.FIO.Benchmarks.Tools.Timer
 
 open FSharp.FIO.DSL
 #if DEBUG
-open FSharp.FIO.Console
+open FSharp.FIO
 #endif
 
+open System
 open System.Diagnostics
 
 type internal TimerMessage<'R> =
@@ -12,10 +13,10 @@ type internal TimerMessage<'R> =
     | Stop
     | MsgChannel of 'R channel
 
-let private startLoop (startCount, timerChan: TimerMessage<int> channel, stopwatch: Stopwatch) =
+let private startLoop (startCount, timerChan: TimerMessage<int> channel, stopwatch: Stopwatch) : FIO<unit, exn> =
     fio {
         if startCount < 0 then
-            return! FIO.Fail(invalidArg "startCount" $"Timer: startCount must be non-negative! startCount = %i{startCount}")
+            return! FIO.Fail(ArgumentException($"Timer initialization failed: startCount must be non-negative. startCount = %i{startCount}", nameof startCount))
         
         let mutable currentCount = startCount
         
@@ -26,7 +27,8 @@ let private startLoop (startCount, timerChan: TimerMessage<int> channel, stopwat
                 do! Console.PrintLine $"[DEBUG]: Timer received Start message (%i{startCount - currentCount + 1}/%i{startCount})"
                 #endif
                 currentCount <- currentCount - 1
-            | _ -> ()
+            | _ ->
+                ()
         
         do! FIO.Attempt(fun () -> stopwatch.Start())
         #if DEBUG
@@ -34,10 +36,10 @@ let private startLoop (startCount, timerChan: TimerMessage<int> channel, stopwat
         #endif
     }
 
-let private msgLoop (msgCount, msg, msgChan: int channel) =
+let private msgLoop (msgCount, msg, msgChan: int channel) : FIO<unit, exn> =
     fio {
         if msgCount < 0 then
-            return! FIO.Fail(invalidArg "msgCount" $"Timer: msgCount must be non-negative! msgCount = %i{msgCount}")
+            return! FIO.Fail(ArgumentException($"Timer initialization failed: msgCount must be non-negative. msgCount = %i{msgCount}", nameof msgCount))
         
         let mutable currentCount = msgCount
         let mutable currentMsg = msg
@@ -51,10 +53,10 @@ let private msgLoop (msgCount, msg, msgChan: int channel) =
             currentMsg <- currentMsg + 1
     }
 
-let private stopLoop (stopCount, timerChan: TimerMessage<int> channel, stopwatch: Stopwatch) =
+let private stopLoop (stopCount, timerChan: TimerMessage<int> channel, stopwatch: Stopwatch) : FIO<unit, exn> =
     fio {
         if stopCount < 0 then
-            return! FIO.Fail(invalidArg "stopCount" $"Timer: stopCount must be non-negative! stopCount = %i{stopCount}")
+            return! FIO.Fail(ArgumentException($"Timer initialization failed: stopCount must be non-negative. stopCount = %i{stopCount}", nameof stopCount))
                
         let mutable currentCount = stopCount
         
@@ -65,7 +67,8 @@ let private stopLoop (stopCount, timerChan: TimerMessage<int> channel, stopwatch
                 do! Console.PrintLine $"[DEBUG]: Timer received Stop message (%i{stopCount - currentCount + 1}/%i{stopCount})"
                 #endif
                 currentCount <- currentCount - 1
-            | _ -> ()
+            | _ ->
+                ()
             
         do! FIO.Attempt(fun () -> stopwatch.Stop())
         #if DEBUG
@@ -73,7 +76,7 @@ let private stopLoop (stopCount, timerChan: TimerMessage<int> channel, stopwatch
         #endif
     }
 
-let TimerEff (startCount, msgCount, stopCount, timerChan: TimerMessage<int> channel) =
+let TimerEff (startCount, msgCount, stopCount, timerChan: TimerMessage<int> channel) : FIO<int64, exn> =
     fio {
         let mutable msgChan = Channel<int>()
         let! stopwatch = FIO.Attempt(fun () -> Stopwatch())
@@ -83,7 +86,7 @@ let TimerEff (startCount, msgCount, stopCount, timerChan: TimerMessage<int> chan
             | MsgChannel chan ->
                 msgChan <- chan
             | _ ->
-                return! FIO.Fail(invalidOp "Timer: Did not receive MsgChannel as first message when msgCount > 0!")
+                return! FIO.Fail(InvalidOperationException "Timer: Did not receive MsgChannel as first message when msgCount > 0!")
         else
             return ()
 

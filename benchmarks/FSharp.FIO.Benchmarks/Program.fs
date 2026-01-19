@@ -17,7 +17,7 @@ module private ThreadPoolConfig =
         ThreadPool.SetMinThreads(minWorkerThreads, minIOThreads) |> ignore
         ThreadPool.SetMaxThreads(maxWorkerThreads, maxIOThreads) |> ignore
 
-do ThreadPoolConfig.configure ()
+do ThreadPoolConfig.configure()
 
 [<EntryPoint>]
 let main args =
@@ -25,5 +25,5 @@ let main args =
     let task =
         runBenchmarks
         <| parseArgs args
-    task.Wait ()
+    task.GetAwaiter().GetResult()
     0

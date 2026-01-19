@@ -56,6 +56,15 @@
       </ul>
     </li>
     <li>
+      <a href="#library-modules">Library Modules</a>
+      <ul>
+        <li><a href="#console">Console</a></li>
+        <li><a href="#clock">Clock</a></li>
+        <li><a href="#environment">Environment</a></li>
+        <li><a href="#random">Random</a></li>
+      </ul>
+    </li>
+    <li>
       <a href="#extension-packages">Extension Packages</a>
       <ul>
         <li><a href="#http-server">HTTP Server</a></li>
@@ -134,7 +143,7 @@ dotnet add package FSharp.FIO
 The core package includes:
 - **Core effect system** - FIO monad, fibers, channels, and three runtime implementations
 - **App framework** - FIOApp base classes for simplified application entry points
-- **Console I/O** - Functional console operations
+- **Library modules** - Console, Clock, Environment, and Random operations
 
 #### Optional Extension Packages
 
@@ -472,6 +481,40 @@ type UserLookupApp() =
 - **Use DefaultFIOApp<'R>** when you need a custom result type but standard exceptions
 - **Use FIOApp<'R, 'E>** when you need custom error types for domain-specific error handling
 
+##### FIOApp Customization
+
+FIOApp supports extensive customization through overridable properties:
+
+```fsharp
+type MyApp() =
+    inherit SimpleFIOApp()
+
+    // Application metadata
+    override _.name = "My Application"
+    override _.version = "1.0.0"
+    override _.description = "A sample FIO application"
+
+    // Show startup banner
+    override _.showBanner = true
+
+    // Cleanup on shutdown (Ctrl+C or completion)
+    override _.shutdownHook() = fio {
+        do! Console.PrintLine "Cleaning up resources..."
+    }
+
+    // Custom runtime configuration
+    override _.runtime =
+        new ConcurrentRuntime { EWC = 8; EWS = 500; BWC = 2 }
+
+    override _.effect = fio { ... }
+```
+
+**Available customizations:**
+- **Metadata**: `name`, `version`, `description`, `showBanner`, `banner`
+- **Lifecycle**: `shutdownHook()`, `shutdownHookTimeout`, `onStart()`, `onSuccess()`, `onError()`
+- **Runtime**: `runtime`, `configureThreadPool()`
+- **Exit codes**: `exitCodeSuccess`, `exitCodeError`, `exitCodeFatalError`
+
 For more examples, see [**FSharp.FIO.Examples.App**](https://github.com/fs-fio/FIO/tree/main/examples/FSharp.FIO.Examples.App).
 
 #### Alternative: DSL-Only Style
@@ -496,6 +539,127 @@ let main _ =
     fiber.UnsafePrintResult()
     0
 ```
+
+## Library Modules
+
+The core package includes four library modules for common effectful operations. All modules use qualified access (e.g., `Console.PrintLine`).
+
+### Console
+
+Provides functional console I/O operations including input/output, colors, cursor control, and more.
+
+```fsharp
+open FSharp.FIO.Console
+
+let effect = fio {
+    do! Console.PrintLine "Enter your name:"
+    let! name = Console.ReadLine
+    do! Console.PrintLine $"Hello, {name}!"
+
+    // Read password with masked input
+    do! Console.Print "Password: "
+    let! password = Console.ReadPassword
+
+    // Colored output (automatically restores original color)
+    do! Console.WithForegroundColor(ConsoleColor.Green,
+        Console.PrintLine "Success!")
+}
+```
+
+**Key functions:**
+- I/O: `Print`, `PrintLine`, `ReadLine`, `ReadKey`, `ReadPassword`
+- Stderr: `PrintError`, `PrintErrorLine`, `WriteError`, `WriteErrorLine`
+- Colors: `SetForegroundColor`, `SetBackgroundColor`, `WithForegroundColor`, `WithColors`
+- Cursor: `SetCursorPosition`, `GetCursorPosition`, `Clear`
+- Properties: `GetTitle`, `SetTitle`, `GetWindowWidth`, `GetWindowHeight`
+
+### Clock
+
+Provides time and date operations including timestamps and performance measurement.
+
+```fsharp
+open FSharp.FIO.Clock
+
+let effect = fio {
+    let! now = Clock.Now()
+    let! utcNow = Clock.UtcNow()
+
+    // Unix timestamps
+    let! timestamp = Clock.Timestamp()        // seconds
+    let! timestampMs = Clock.TimestampMillis() // milliseconds
+
+    // Measure execution time
+    let! (result, elapsed) = Clock.Timed(someExpensiveOperation)
+    do! Console.PrintLine $"Completed in {elapsed.TotalMilliseconds}ms"
+}
+```
+
+**Key functions:**
+- Time queries: `Now()`, `UtcNow()`, `Today()`, `NowOffset()`, `UtcNowOffset()`
+- Timestamps: `Timestamp()`, `TimestampMillis()`, `ToTimestamp`, `FromTimestamp`
+- Measurement: `Timed(effect)`, `GetTimestamp()`, `GetElapsedTime(start, end)`
+
+### Environment
+
+Provides environment variable access and system information.
+
+```fsharp
+open FSharp.FIO.Environment
+
+let effect = fio {
+    // Environment variables with defaults
+    let! port = Environment.GetOrDefault("PORT", "8080")
+    let! debug = Environment.GetBoolOrDefault("DEBUG", false)
+    let! timeout = Environment.GetIntOrDefault("TIMEOUT", 30)
+
+    // System information
+    let! user = Environment.UserName()
+    let! machine = Environment.MachineName()
+    let! cwd = Environment.CurrentDirectory()
+
+    // Check if variable is set
+    let! hasToken = Environment.IsSet "API_TOKEN"
+}
+```
+
+**Key functions:**
+- Env vars: `GetOption`, `Get`, `GetOrDefault`, `GetAll`, `IsSet`
+- Typed access: `GetInt`, `GetIntOrDefault`, `GetBool`, `GetBoolOrDefault`
+- System info: `MachineName()`, `UserName()`, `CurrentDirectory()`, `GetTempPath()`
+- Constants: `ProcessorCount`, `Is64BitProcess`, `Is64BitOperatingSystem`, `NewLine`
+
+### Random
+
+Provides random number generation with thread-safe operations.
+
+```fsharp
+open FSharp.FIO.Random
+
+let effect = fio {
+    // Integers
+    let! roll = Random.NextIntRange(1, 7)  // Dice roll [1, 6]
+    let! bigRoll = Random.NextInt64Range(1L, 1000000L)
+
+    // Floating point
+    let! probability = Random.NextDouble()  // [0.0, 1.0)
+    let! temperature = Random.NextDoubleRange(-10.0, 40.0)
+
+    // Utilities
+    let! coinFlip = Random.NextBool()
+    let! guid = Random.NextGuid()
+    let! bytes = Random.NextBytes(32)
+
+    // Collections
+    let! shuffled = Random.Shuffle [1; 2; 3; 4; 5]
+    let! picked = Random.Choice ["red"; "green"; "blue"]
+}
+```
+
+**Key functions:**
+- Integers: `NextInt()`, `NextIntBounded(max)`, `NextIntRange(min, max)`, `NextInt64...`
+- Floats: `NextDouble()`, `NextDoubleBounded(max)`, `NextDoubleRange(min, max)`
+- Utilities: `NextBool()`, `NextGuid()`, `NextBytes(count)`
+- Collections: `Shuffle(list)`, `Choice(list)`, `ChoiceOrFail(list, onEmpty)`
 
 ## Extension Packages
 

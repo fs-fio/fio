@@ -13,7 +13,7 @@
 /// To run with a local PostgreSQL:
 ///   docker run --name postgres-demo -e POSTGRES_PASSWORD=password -p 5432:5432 -d postgres
 /// </summary>
-module FSharp.FIO.Examples.PostgreSQL.Program
+module private FSharp.FIO.Examples.PostgreSQL.Program
 
 open FSharp.FIO.DSL
 open FSharp.FIO.App
@@ -49,10 +49,10 @@ let initializeDatabase (pool: ConnectionPool) : FIO<unit, exn> =
             )
         """
 
-        let! _ = Dsl.execute createTableSql pool
+        let! _ = execute createTableSql pool
 
         // Clear existing data for demo
-        let! _ = Dsl.execute "DELETE FROM users" pool
+        let! _ = execute "DELETE FROM users" pool
 
         return ()
     }
@@ -70,7 +70,7 @@ let getUserById (id: int) (pool: ConnectionPool) : FIO<User option, exn> =
             Age = Results.getValueOption<int> 3 rs
         }
 
-        return! Dsl.queryFirstWithParams sql parameters mapper pool
+        return! queryFirstWithParams sql parameters mapper pool
     }
 
 let getAllUsers (pool: ConnectionPool) : FIO<User list, exn> =
@@ -84,7 +84,7 @@ let getAllUsers (pool: ConnectionPool) : FIO<User list, exn> =
             Age = Results.getValueOption<int> 3 rs
         }
 
-        return! Dsl.query sql mapper pool
+        return! query sql mapper pool
     }
 
 let getUsersByMinAge (minAge: int) (pool: ConnectionPool) : FIO<User list, exn> =
@@ -104,7 +104,7 @@ let getUsersByMinAge (minAge: int) (pool: ConnectionPool) : FIO<User list, exn> 
             Age = Results.getValueOption<int> 3 rs
         }
 
-        return! Dsl.queryWithParams sql parameters mapper pool
+        return! queryWithParams sql parameters mapper pool
     }
 
 // Command examples
@@ -122,7 +122,7 @@ let createUser (name: string) (email: string) (age: int option) (pool: Connectio
             "age" @= (age |> Option.map box |> Option.defaultValue (box System.DBNull.Value))
         ]
 
-        return! Dsl.insertReturning<int> sql parameters pool
+        return! insertReturning<int> sql parameters pool
     }
 
 let updateUserAge (userId: int) (newAge: int) (pool: ConnectionPool) : FIO<int, exn> =
@@ -133,7 +133,7 @@ let updateUserAge (userId: int) (newAge: int) (pool: ConnectionPool) : FIO<int, 
             "age" @= newAge
         ]
 
-        return! Dsl.executeWithParams sql parameters pool
+        return! executeWithParams sql parameters pool
     }
 
 let deleteUser (userId: int) (pool: ConnectionPool) : FIO<int, exn> =
@@ -141,7 +141,7 @@ let deleteUser (userId: int) (pool: ConnectionPool) : FIO<int, exn> =
         let sql = "DELETE FROM users WHERE id = @id"
         let parameters = ["id" @= userId]
 
-        return! Dsl.executeWithParams sql parameters pool
+        return! executeWithParams sql parameters pool
     }
 
 // Transaction example
@@ -255,7 +255,7 @@ type PostgreSQLExampleApp() =
     override _.effect = demoEffect
 
 [<EntryPoint>]
-let main args =
+let main _ =
     printfn "Note: This example requires a running PostgreSQL instance."
     printfn "To start one with Docker:"
     printfn "  docker run --name postgres-demo -e POSTGRES_PASSWORD=password -p 5432:5432 -d postgres"

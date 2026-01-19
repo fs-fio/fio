@@ -249,7 +249,7 @@ and [<Sealed>] internal FiberContext () =
 /// <summary>
 /// A lightweight, cooperative thread of execution that can be awaited for its result.
 /// </summary>
-and Fiber<'R, 'E> internal () =
+and [<Sealed>] Fiber<'R, 'E> internal () =
     let fiberContext = new FiberContext()
     let mutable disposed = false
 
@@ -401,7 +401,7 @@ and Fiber<'R, 'E> internal () =
 /// <summary>
 /// A typed communication queue for sending and receiving messages.
 /// </summary>
-and Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, blockingWorkItemChan: UnboundedChannel<WorkItem>) =
+and [<Sealed>] Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, blockingWorkItemChan: UnboundedChannel<WorkItem>) =
 
     /// <summary>
     /// Creates a new channel with a unique identifier.

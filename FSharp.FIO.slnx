@@ -8,8 +8,6 @@
 
   <Folder Name="/Core Packages/">
     <Project Path="src/FSharp.FIO/FSharp.FIO.fsproj" />
-    <Project Path="src/FSharp.FIO.App/FSharp.FIO.App.fsproj" />
-    <Project Path="src/FSharp.FIO.Console/FSharp.FIO.Console.fsproj" />
   </Folder>
 
   <Folder Name="/Extension Packages/">
