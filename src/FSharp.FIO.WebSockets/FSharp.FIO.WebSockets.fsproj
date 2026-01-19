@@ -8,7 +8,7 @@
 
     <PropertyGroup>
         <PackageId>FSharp.FIO.WebSockets</PackageId>
-        <Version>0.0.35-alpha</Version>
+        <Version>0.0.39-alpha</Version>
         <Title>FSharp.FIO.WebSockets</Title>
         <Description>WebSocket library for FSharp.FIO. Provides WebSocket client, server, connection pooling, and codec functionality for building functional real-time applications.</Description>
         <Authors>Daniel Larsen</Authors>
@@ -42,7 +42,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Update="FSharp.Core" Version="10.0.101" />
+        <PackageReference Update="FSharp.Core" Version="10.0.102" />
     </ItemGroup>
 
 </Project>

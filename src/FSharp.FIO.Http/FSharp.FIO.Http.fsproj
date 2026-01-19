@@ -8,7 +8,7 @@
 
     <PropertyGroup>
         <PackageId>FSharp.FIO.Http</PackageId>
-        <Version>0.0.35-alpha</Version>
+        <Version>0.0.39-alpha</Version>
         <Title>FSharp.FIO.Http</Title>
         <Description>HTTP server library for FSharp.FIO built on ASP.NET Core Kestrel. Provides composable routes, handlers, and middleware for building functional web servers.</Description>
         <Authors>Daniel Larsen</Authors>
@@ -45,7 +45,7 @@
 
     <ItemGroup>
         <FrameworkReference Include="Microsoft.AspNetCore.App" />
-        <PackageReference Update="FSharp.Core" Version="10.0.101" />
+        <PackageReference Update="FSharp.Core" Version="10.0.102" />
     </ItemGroup>
 
 </Project>

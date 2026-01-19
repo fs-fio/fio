@@ -1,0 +1,61 @@
+name: Publish NuGet Packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore ./FSharp.FIO.slnx
+
+      - name: Build Release
+        run: dotnet build -c Release --no-restore ./FSharp.FIO.slnx
+
+      - name: Run tests
+        run: dotnet test -c Release --no-build --verbosity normal ./FSharp.FIO.slnx
+
+      - name: Pack NuGet packages
+        run: |
+          dotnet pack src/FSharp.FIO/FSharp.FIO.fsproj -c Release -o ./nupkgs
+          dotnet pack src/FSharp.FIO.Sockets/FSharp.FIO.Sockets.fsproj -c Release -o ./nupkgs
+          dotnet pack src/FSharp.FIO.WebSockets/FSharp.FIO.WebSockets.fsproj -c Release -o ./nupkgs
+          dotnet pack src/FSharp.FIO.Http/FSharp.FIO.Http.fsproj -c Release -o ./nupkgs
+          dotnet pack src/FSharp.FIO.PostgreSQL/FSharp.FIO.PostgreSQL.fsproj -c Release -o ./nupkgs
+
+      - name: Upload packages as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-packages
+          path: ./nupkgs/*.nupkg
+
+      - name: Push to NuGet.org
+        run: dotnet nuget push ./nupkgs/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: ./nupkgs/*.nupkg

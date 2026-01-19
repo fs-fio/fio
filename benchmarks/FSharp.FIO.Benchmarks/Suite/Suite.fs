@@ -20,7 +20,7 @@ type internal BenchmarkConfig =
         | ForkConfig _ -> "Fork"
 
     member this.ConfigString =
-        let ci = CultureInfo("en-US")
+        let ci = CultureInfo "en-US"
         match this with
         | PingpongConfig roundCount ->
             $"""Actor Count: 2 Round Count: %s{roundCount.ToString("N0", ci)}"""

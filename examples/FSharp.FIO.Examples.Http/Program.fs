@@ -1,3 +1,5 @@
+module private FSharp.FIO.Examples.Http
+
 open FSharp.FIO.DSL
 open FSharp.FIO.Runtime.Default
 open FSharp.FIO.Http

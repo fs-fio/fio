@@ -752,7 +752,7 @@ let channelOperations =
                         let! msg = chan.Receive ()
                         received <- msg :: received
                     let countAfterReceive = chan.Count
-                    return countAfterSend = int64 (List.length messages) && countAfterReceive = 0L
+                    return countAfterSend = List.length messages && countAfterReceive = 0
                 }
                 let result = (runtime.Run eff).UnsafeSuccess()
                 Expect.isTrue result "Channel count should be accurate"
@@ -766,7 +766,7 @@ let channelOperations =
                     let chan = Channel<int>()
                     for msg in messages do
                         do! (chan.Send msg).FlatMap (fun _ -> FIO.Succeed ())
-                    return chan.Count = int64 (List.length messages)
+                    return chan.Count = List.length messages
                 }
                 let result = (runtime.Run eff).UnsafeSuccess()
                 Expect.isTrue result "Channel should maintain all messages"

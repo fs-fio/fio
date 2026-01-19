@@ -219,16 +219,20 @@ type FIO<'R, 'E> with
     /// <param name="effSeq">The sequence of effects to execute.</param>
     static member CollectAll<'R, 'E> (effSeq: seq<FIO<'R, 'E>>) : FIO<'R list, 'E> =
         FIO.Suspend(fun () ->
-            let effList = Seq.toList effSeq
-            match effList with
-            | [] -> FIO.Succeed []
+            let effArray = Seq.toArray effSeq
+            match effArray.Length with
+            | 0 -> FIO.Succeed []
             | _ ->
-                let rec loop (remaining: FIO<'R, 'E> list) (acc: 'R list) : FIO<'R list, 'E> =
-                    match remaining with
-                    | [] -> FIO.Succeed(List.rev acc)
-                    | eff :: rest ->
-                        eff.FlatMap(fun res -> loop rest (res :: acc))
-                loop effList [])
+                // Use ResizeArray to avoid O(n) List.rev at the end
+                let results = ResizeArray<'R>(effArray.Length)
+                let rec loop (index: int) : FIO<'R list, 'E> =
+                    if index >= effArray.Length then
+                        FIO.Succeed(Seq.toList results)
+                    else
+                        effArray.[index].FlatMap(fun res ->
+                            results.Add res
+                            loop (index + 1))
+                loop 0)
 
     /// <summary>
     /// Executes a collection of effects in parallel, collecting their results into a list.
@@ -238,25 +242,31 @@ type FIO<'R, 'E> with
     /// <param name="effSeq">The sequence of effects to execute in parallel.</param>
     static member CollectAllPar<'R, 'E> (effSeq: seq<FIO<'R, 'E>>) : FIO<'R list, 'E> =
         FIO.Suspend(fun () ->
-            let effList = Seq.toList effSeq
-            match effList with
-            | [] -> FIO.Succeed []
-            | [single] -> single.FlatMap(fun r -> FIO.Succeed [r])
+            let effArray = Seq.toArray effSeq
+            match effArray.Length with
+            | 0 -> FIO.Succeed []
+            | 1 -> effArray.[0].FlatMap(fun r -> FIO.Succeed [r])
             | _ ->
+                // Fork all effects into fibers
                 let forkAllFibers =
-                    effList
-                    |> List.map (fun eff -> eff.Fork())
+                    effArray
+                    |> Array.map (fun eff -> eff.Fork())
 
-                let rec joinAllFibers (fibers: Fiber<'R, 'E> list) (acc: 'R list) : FIO<'R list, 'E> =
-                    match fibers with
-                    | [] -> FIO.Succeed(List.rev acc)
-                    | fiber :: rest ->
-                        fiber.Join().FlatMap(fun res ->
-                            joinAllFibers rest (res :: acc))
+                // Use ResizeArray to avoid O(n) List.rev at the end
+                let joinAllFibers (fibers: Fiber<'R, 'E> array) : FIO<'R list, 'E> =
+                    let results = ResizeArray<'R>(fibers.Length)
+                    let rec loop (index: int) : FIO<'R list, 'E> =
+                        if index >= fibers.Length then
+                            FIO.Succeed(Seq.toList results)
+                        else
+                            fibers.[index].Join().FlatMap(fun res ->
+                                results.Add res
+                                loop (index + 1))
+                    loop 0
 
                 forkAllFibers
                 |> FIO.CollectAll
-                |> fun forkEff -> forkEff.FlatMap(fun fibers -> joinAllFibers fibers []))
+                |> fun forkEff -> forkEff.FlatMap(fun fibers -> joinAllFibers (List.toArray fibers)))
 
     /// <summary>
     /// Maps each item in a collection to an effect, then sequences all effects sequentially.

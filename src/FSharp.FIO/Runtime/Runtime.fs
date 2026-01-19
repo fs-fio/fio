@@ -6,15 +6,6 @@ open System
 open System.Globalization
 open System.Collections.Generic
 
-[<AutoOpen>]
-module private Utils =
-    
-    let inline pop (contStack: ResizeArray<ContStackFrame>) =
-        let lastIndex = contStack.Count - 1
-        let stackFrame = contStack[lastIndex]
-        contStack.RemoveAt lastIndex
-        stackFrame
-
 /// <summary>
 /// Object pool for continuation stacks to reduce GC pressure.
 /// Thread-local pooling avoids synchronization overhead.
@@ -22,11 +13,10 @@ module private Utils =
 type internal ContStackPool private () =
     // Configuration constants
     static let DefaultStackCapacity = 32      // Initial capacity for new stacks
-    static let MaxStackCapacity = 1024        // Maximum stack capacity to pool
     static let MaxPoolSize = 100              // Maximum stacks per thread pool
 
     [<ThreadStatic; DefaultValue>]
-    static val mutable private pool: Stack<ResizeArray<ContStackFrame>>
+    static val mutable private pool: Stack<Stack<ContStackFrame>>
 
     /// <summary>
     /// Rents a continuation stack from the pool or creates a new one.
@@ -40,18 +30,18 @@ type internal ContStackPool private () =
             stack.Clear()
             stack
         else
-            ResizeArray<ContStackFrame> DefaultStackCapacity
+            Stack<ContStackFrame> DefaultStackCapacity
 
     /// <summary>
     /// Returns a continuation stack to the pool for reuse.
     /// </summary>
     /// <param name="stack">The stack to return to the pool.</param>
-    static member inline Return (stack: ResizeArray<ContStackFrame>) =
+    static member inline Return (stack: Stack<ContStackFrame>) =
         if isNull ContStackPool.pool then
             ContStackPool.pool <- Stack<_>()
 
-        // Only pool stacks that aren't too large and if pool isn't at capacity
-        if stack.Capacity <= MaxStackCapacity && ContStackPool.pool.Count < MaxPoolSize then
+        // Only pool if not at capacity (Stack<T> doesn't expose Capacity, so just check pool size)
+        if ContStackPool.pool.Count < MaxPoolSize then
             stack.Clear()
             ContStackPool.pool.Push stack
 
@@ -93,12 +83,11 @@ type internal WorkItemPool private () =
         // Only pool if not at capacity
         if WorkItemPool.pool.Count < MaxPoolSize then
             // Clear references to help GC (allow collected objects to be freed)
-            let clearedWorkItem =
-                { workItem with
-                    Eff = Unchecked.defaultof<_>
-                    FiberContext = Unchecked.defaultof<_>
-                    Stack = Unchecked.defaultof<_> }
-            WorkItemPool.pool.Push clearedWorkItem
+            // Mutate in place instead of creating new record to avoid allocation
+            workItem.Eff <- Unchecked.defaultof<_>
+            workItem.FiberContext <- Unchecked.defaultof<_>
+            workItem.Stack <- Unchecked.defaultof<_>
+            WorkItemPool.pool.Push workItem
 
 /// <summary>
 /// Represents a functional runtime for interpreting FIO effects.

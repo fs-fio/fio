@@ -9,7 +9,7 @@ module private FSharp.FIO.Benchmarks.Suite.Pingpong
 
 open FSharp.FIO.DSL
 #if DEBUG
-open FSharp.FIO.Console
+open FSharp.FIO
 #endif
 open FSharp.FIO.Benchmarks.Tools.Timer
 
@@ -61,10 +61,10 @@ let pingpongBenchmark config : FIO<int64, exn> =
         let! roundCount =
             match config with
             | PingpongConfig rc -> FIO.Succeed rc
-            | _ -> FIO.Fail(ArgumentException("Pingpong benchmark failed: Requires a PingpongConfig", nameof config))
+            | _ -> FIO.Fail(ArgumentException("Pingpong benchmark initialization failed: Requires a PingpongConfig", nameof config))
         
         if roundCount < 1 then
-            return! FIO.Fail(ArgumentException($"Pingpong benchmark failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount))
+            return! FIO.Fail(ArgumentException($"Pingpong benchmark initialization failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount))
         
         let startChan = Channel<int>()
         let timerChan = Channel<TimerMessage<int>>()

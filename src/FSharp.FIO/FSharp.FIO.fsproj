@@ -14,7 +14,7 @@
 		<PackageIcon>fio_logo_wide.png</PackageIcon>
 		<PackageReadmeFile>README.md</PackageReadmeFile>
 		<PackageProjectUrl>https://github.com/fs-fio/FIO</PackageProjectUrl>
-		<Version>0.0.35-alpha</Version>
+		<Version>0.0.39-alpha</Version>
 	</PropertyGroup>
 
 	<PropertyGroup>
@@ -31,6 +31,10 @@
 		<Compile Include="DSL\Extensions.fs" />
 		<Compile Include="DSL\Operators.fs" />
 		<Compile Include="DSL\CE.fs" />
+		<Compile Include="Lib\Environment.fs" />
+		<Compile Include="Lib\Console.fs" />
+		<Compile Include="Lib\Random.fs" />
+		<Compile Include="Lib\Clock.fs" />
 		<Compile Include="Runtime.Tools\Monitor.fs" />
 		<Compile Include="Runtime.Tools\DeadlockDetector.fs" />
 		<Compile Include="Runtime\Runtime.fs" />
@@ -38,6 +42,7 @@
 		<Compile Include="Runtime\CooperativeRuntime.fs" />
 		<Compile Include="Runtime\ConcurrentRuntime.fs" />
 		<Compile Include="Runtime\DefaultRuntime.fs" />
+		<Compile Include="Framework\App.fs" />
 	</ItemGroup>
 
 	<PropertyGroup>
@@ -68,12 +73,7 @@
 	</ItemGroup>
 
 	<ItemGroup>
-		<None Include="..\FSharp.FIO.App\bin\$(Configuration)\net10.0\FSharp.FIO.App.dll" Pack="true" PackagePath="lib\net10.0\" />
-		<None Include="..\FSharp.FIO.Console\bin\$(Configuration)\net10.0\FSharp.FIO.Console.dll" Pack="true" PackagePath="lib\net10.0\" />
-	</ItemGroup>
-
-	<ItemGroup>
-		<PackageReference Update="FSharp.Core" Version="10.0.101" />
+		<PackageReference Update="FSharp.Core" Version="10.0.102" />
 	</ItemGroup>
 
 </Project>

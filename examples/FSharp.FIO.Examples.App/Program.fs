@@ -1,8 +1,8 @@
 module private FSharp.FIO.Examples.App
 
+open FSharp.FIO
 open FSharp.FIO.DSL
 open FSharp.FIO.App
-open FSharp.FIO.Console
 open FSharp.FIO.Runtime
 open FSharp.FIO.Sockets
 open FSharp.FIO.WebSockets
@@ -95,7 +95,7 @@ type GuessNumberApp() =
 
     override _.effect =
         fio {
-            let! numberToGuess = FIO.Attempt(fun () -> Random().Next(1, 100))
+            let! numberToGuess = Random.NextIntRange(1, 101)
             let mutable guess = -1
 
             while guess <> numberToGuess do
@@ -162,7 +162,7 @@ type PingPongCEApp() =
         fio {
             let chan1 = Channel<string>()
             let chan2 = Channel<string>()
-            return! pinger chan1 chan2 <&&> ponger chan1 chan2
+            do! pinger chan1 chan2 <&&> ponger chan1 chan2
         }
 
 type Message =
@@ -193,9 +193,11 @@ type PingPongMatchApp() =
                 return! FIO.Fail $"ponger received %A{PongMsg} when %A{PingMsg} was expected!"
             
             let! sentMsg =
-                match Random().Next(0, 2) with
-                | 0 -> chan2.Send PongMsg
-                | _ -> chan2.Send PingMsg
+                fio {
+                    match! Random.NextIntRange(0, 2) with
+                    | 0 -> do! chan2.Send PongMsg
+                    | _ -> do! chan2.Send PingMsg
+                }
             do! Console.PrintLineMapError($"ponger sent: %A{sentMsg}", _.Message)
         }
 
@@ -203,7 +205,7 @@ type PingPongMatchApp() =
         fio {
             let chan1 = Channel<Message>()
             let chan2 = Channel<Message>()
-            return! pinger chan1 chan2 <&&> ponger chan1 chan2
+            do! pinger chan1 chan2 <&&> ponger chan1 chan2
         }
 
 type Error =
@@ -317,12 +319,12 @@ type AsyncErrorHandlingApp() =
         }
 
     let databaseResult : FIO<string, Error> =
-        (FIO<string, exn>.AwaitAsync databaseReadTask)
-           .CatchAll(fun exn -> FIO.Fail(GeneralError exn.Message))
+        FIO<string, exn>.AwaitAsync(databaseReadTask)
+            .CatchAll(fun exn -> FIO.Fail(GeneralError exn.Message))
 
     let webserviceResult : FIO<int, Error> =
-        (FIO<int, exn>.AwaitAsync webserviceAwaitTask)
-           .CatchAll(fun exn -> FIO.Fail(GeneralError exn.Message))
+        FIO<int, exn>.AwaitAsync(webserviceAwaitTask)
+            .CatchAll(fun exn -> FIO.Fail(GeneralError exn.Message))
 
     override _.effect =
         fio {
@@ -332,9 +334,9 @@ type AsyncErrorHandlingApp() =
 type HighlyConcurrentApp() =
     inherit SimpleFIOApp()
 
-    let sender (chan: int channel) id (rand: Random) =
+    let sender (chan: int channel) id =
         fio {
-            let! msg = FIO.Succeed(rand.Next(100, 501))
+            let! msg = Random.NextIntRange(100, 501)
             do! chan.Send(msg).Unit()
             do! Console.PrintLine $"Sender[%i{id}] sent: %i{msg}"
         }
@@ -350,23 +352,23 @@ type HighlyConcurrentApp() =
                 return! receiver chan (count - 1) max
         }
 
-    let rec create chan count acc rand =
+    let rec create chan count acc =
         fio {
             if count = 0 then
                 return! acc
             else
-                let newAcc = sender chan count rand <&&> acc
-                return! create chan (count - 1) newAcc rand
+                let newAcc = sender chan count <&&> acc
+                return! create chan (count - 1) newAcc
         }
 
     override _.effect =
         fio {
-            let fiberCount = 1000000
+            let fiberCount = 1_000_000
             let chan = Channel<int>()
-            let rand = Random()
-            let acc = sender chan fiberCount rand
-                      <&&> receiver chan fiberCount fiberCount
-            return! create chan (fiberCount - 1) acc rand
+            let acc =
+                sender chan fiberCount
+                <&&> receiver chan fiberCount fiberCount
+            return! create chan (fiberCount - 1) acc
         }
 
 type FiberFromTaskApp() =
@@ -705,6 +707,95 @@ type DisableThreadPoolConfigApp() =
             do! Console.PrintLine "Running without automatic ThreadPool configuration"
         }
 
+type EnvironmentApp() =
+    inherit SimpleFIOApp()
+
+    override _.effect =
+        fio {
+            do! Console.PrintLine "Environment Module Examples:"
+            do! Console.PrintLine ""
+
+            // Pure values (no effects)
+            do! Console.PrintLine $"  ProcessorCount: {Environment.ProcessorCount}"
+            do! Console.PrintLine $"  Is64BitProcess: {Environment.Is64BitProcess}"
+            do! Console.PrintLine $"  Is64BitOperatingSystem: {Environment.Is64BitOperatingSystem}"
+            do! Console.PrintLine ""
+
+            // System info effects
+            let! cwd = Environment.CurrentDirectory()
+            do! Console.PrintLine $"  CurrentDirectory: {cwd}"
+
+            let! machine = Environment.MachineName()
+            do! Console.PrintLine $"  MachineName: {machine}"
+
+            let! user = Environment.UserName()
+            do! Console.PrintLine $"  UserName: {user}"
+
+            let! tempPath = Environment.GetTempPath()
+            do! Console.PrintLine $"  TempPath: {tempPath}"
+            do! Console.PrintLine ""
+
+            // Environment variables
+            let! pathOpt = Environment.GetOption "PATH"
+            match pathOpt with
+            | Some path ->
+                let truncated = if path.Length > 50 then path.Substring(0, 50) + "..." else path
+                do! Console.PrintLine $"  PATH: {truncated}"
+            | None ->
+                do! Console.PrintLine "  PATH: (not set)"
+
+            let! port = Environment.GetOrDefault("PORT", "8080")
+            do! Console.PrintLine $"  PORT (or default): {port}"
+
+            let! homeSet = Environment.IsSet "HOME"
+            let! userProfileSet = Environment.IsSet "USERPROFILE"
+            do! Console.PrintLine $"  HOME is set: {homeSet}"
+            do! Console.PrintLine $"  USERPROFILE is set: {userProfileSet}"
+
+            let! timeout = Environment.GetIntOrDefault("TIMEOUT_SECONDS", 30)
+            do! Console.PrintLine $"  TIMEOUT_SECONDS (or default): {timeout}"
+
+            let! debug = Environment.GetBoolOrDefault("DEBUG", false)
+            do! Console.PrintLine $"  DEBUG (or default): {debug}"
+        }
+
+type BannerApp() as this =
+    inherit SimpleFIOApp()
+
+    override _.name = "FIO Banner Demo"
+    override _.version = "1.0.0"
+    override _.description = "Demonstrates the startup banner feature"
+    override _.showBanner = true
+
+    override _.effect =
+        fio {
+            do! Console.PrintLine ""
+            do! Console.PrintLine "The banner above was automatically displayed!"
+            do! Console.PrintLine $"App name: {this.name}"
+            do! Console.PrintLine $"App version: {this.version}"
+            do! Console.PrintLine $"App description: {this.description}"
+        }
+
+type CustomBannerApp() =
+    inherit SimpleFIOApp()
+
+    override _.name = "Custom Banner App"
+    override _.version = "2.0.0"
+    override _.showBanner = true
+    override _.banner =
+        """
+  ╔═══════════════════════════════════╗
+  ║     🚀 Custom Banner App 🚀       ║
+  ║         Version 2.0.0             ║
+  ║   Powered by FIO Effect System    ║
+  ╚═══════════════════════════════════╝
+        """
+
+    override _.effect =
+        fio {
+            do! Console.PrintLine "This app uses a custom banner defined by overriding the 'banner' property."
+        }
+
 let examples = [
     nameof WelcomeApp, fun () -> WelcomeApp().Run()
     nameof EnterNumberApp, fun () -> EnterNumberApp().Run()
@@ -729,6 +820,9 @@ let examples = [
     nameof ShutdownHookApp, fun () -> ShutdownHookApp().Run()
     nameof CustomExitCodeApp, fun () -> CustomExitCodeApp().Run()
     nameof DisableThreadPoolConfigApp, fun () -> DisableThreadPoolConfigApp().Run()
+    nameof EnvironmentApp, fun () -> EnvironmentApp().Run()
+    nameof BannerApp, fun () -> BannerApp().Run()
+    nameof CustomBannerApp, fun () -> CustomBannerApp().Run()
 ]
 
 examples |> List.iteri (fun i (name, example) ->

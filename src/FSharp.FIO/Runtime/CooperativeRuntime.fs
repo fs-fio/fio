@@ -185,7 +185,7 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                     completed <- true
                     loop <- false
                 else
-                    let stackFrame = pop currentContStack
+                    let stackFrame = currentContStack.Pop()
                     match stackFrame.Cont with
                     | SuccessCont cont ->
                         currentEff <- cont res
@@ -202,7 +202,7 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                     completed <- true
                     loop <- false
                 else
-                    let stackFrame = pop currentContStack
+                    let stackFrame = currentContStack.Pop()
                     match stackFrame.Cont with
                     | SuccessCont _ ->
                         ()
@@ -340,16 +340,14 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                                 processError (onError exn)
                         | ChainSuccess(eff, cont) ->
                             currentEff <- eff
-                            currentContStack.Add(ContStackFrame (SuccessCont cont))
+                            currentContStack.Push(ContStackFrame (SuccessCont cont))
                         | ChainError (eff, cont) ->
                             currentEff <- eff
-                            currentContStack.Add(ContStackFrame (FailureCont cont))
+                            currentContStack.Push(ContStackFrame (FailureCont cont))
                 return ()
             finally
                 if not completed then
                     ContStackPool.Return currentContStack
-                // Always return the original workItem when done with it
-                // When we created a new WorkItem, it goes to the blocking queue with a new ContStack
                 WorkItemPool.Return workItem
         }
 
