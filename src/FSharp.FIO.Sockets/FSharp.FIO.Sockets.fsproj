@@ -8,7 +8,7 @@
 
     <PropertyGroup>
         <PackageId>FSharp.FIO.Sockets</PackageId>
-        <Version>0.0.38-alpha</Version>
+        <Version>0.0.39-alpha</Version>
         <Title>FSharp.FIO.Sockets</Title>
         <Description>TCP socket library for FSharp.FIO. Provides socket client, server socket, connection pooling, and codec functionality for building functional network applications.</Description>
         <Authors>Daniel Larsen</Authors>
