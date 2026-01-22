@@ -8,7 +8,7 @@
 
     <PropertyGroup>
         <PackageId>FSharp.FIO.PostgreSQL</PackageId>
-        <Version>0.0.39-alpha</Version>
+        <Version>0.0.40-alpha</Version>
         <Title>FSharp.FIO.PostgreSQL</Title>
         <Description>PostgreSQL database library for FSharp.FIO built on Npgsql. Provides connection pooling, query execution, transactions, and a functional DSL for database operations.</Description>
         <Authors>Daniel Larsen</Authors>
@@ -19,6 +19,8 @@
         <RepositoryType>git</RepositoryType>
         <PackageProjectUrl>https://github.com/fs-fio/fio</PackageProjectUrl>
         <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
+        <PackageIcon>fio_logo_wide.png</PackageIcon>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
     </PropertyGroup>
 
     <PropertyGroup>
@@ -45,6 +47,11 @@
     <ItemGroup>
         <PackageReference Update="FSharp.Core" Version="10.0.102" />
         <PackageReference Include="Npgsql" Version="10.0.1" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="..\..\assets\images\fio_logo_wide.png" Pack="true" PackagePath="\" />
+        <None Include="README.md" Pack="true" PackagePath="\" />
     </ItemGroup>
 
 </Project>

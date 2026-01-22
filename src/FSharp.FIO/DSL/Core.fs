@@ -48,6 +48,14 @@ and internal BlockingItem =
     | BlockingFiber of fiberContext: FiberContext * waitingWorkItem: WorkItem
 
 /// <summary>
+/// Result of a fiber execution, distinguishing between success, failure, and interruption.
+/// </summary>
+and FiberResult<'R, 'E> =
+    | Succeeded of result: 'R
+    | Failed of error: 'E
+    | Interrupted of exn: FiberInterruptedException
+
+/// <summary>
 /// Thread-safe unbounded channel for message passing.
 /// </summary>
 and [<Sealed>] internal UnboundedChannel<'R> (id: Guid) =
@@ -284,29 +292,27 @@ and [<Sealed>] Fiber<'R, 'E> internal () =
         JoinFiber fiberContext
 
     /// <summary>
-    /// Returns the fiber's result as a Task.
+    /// Returns the fiber's result as a Task&lt;FiberResult&lt;'R, 'E&gt;&gt;.
     /// </summary>
     member _.Task<'R, 'E> () =
         task {
             match! fiberContext.Task with
-            | Ok res -> return Ok(res :?> 'R)
-            | Error err -> return Error(err :?> 'E)
+            | Ok res -> return Succeeded(res :?> 'R)
+            | Error err ->
+                match err with
+                | :? FiberInterruptedException as exn -> return Interrupted exn
+                | _ -> return Failed(err :?> 'E)
         }
 
     /// <summary>
-    /// Synchronously blocks and returns the fiber's result as a Result type.
-    /// This is an unsafe blocking operation that should be used with caution.
-    /// Prefer using Join() within an effect context or Task() for async/await interop.
-    /// Use this when you need to synchronously extract a fiber's result from outside the effect system (e.g., in Main or test assertions).
+    /// Synchronously blocks and returns the fiber's FiberResult.
+    /// Prefer Join() within effects or Task() for async interop.
     /// </summary>
-    /// <returns>Result&lt;'R, 'E&gt; where Ok contains the success value or Error contains the failure value.</returns>
-    member _.UnsafeResult<'R, 'E> () =
-        match
-            fiberContext.Task
-            |> Async.AwaitTask
-            |> Async.RunSynchronously with
-        | Ok res -> Ok(res :?> 'R)
-        | Error err -> Error(err :?> 'E)
+    /// <returns>FiberResult&lt;'R, 'E&gt; with Succeeded, Failed, or Interrupted.</returns>
+    member this.UnsafeResult<'R, 'E> () =
+        this.Task()
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
     /// <summary>
     /// Synchronously blocks and returns the fiber's success value, or throws if the fiber failed.
@@ -316,10 +322,14 @@ and [<Sealed>] Fiber<'R, 'E> internal () =
     /// </summary>
     /// <returns>The success value of type 'R.</returns>
     /// <exception cref="InvalidOperationException">Thrown if the fiber completed with an error.</exception>
-    member _.UnsafeSuccess<'R, 'E> () =
-        match fiberContext.Task.Result with
-        | Ok res -> res :?> 'R
-        | Error err -> raise (InvalidOperationException(sprintf "Fiber failed with error: %A" (err :?> 'E)))
+    member this.UnsafeSuccess<'R, 'E> () =
+        match
+            this.Task()
+            |> Async.AwaitTask
+            |> Async.RunSynchronously with
+        | Succeeded res -> res
+        | Failed err -> raise (InvalidOperationException(sprintf "Fiber failed with error: %A" err))
+        | Interrupted exn -> raise (InvalidOperationException(sprintf "Fiber was interrupted: %s" exn.Message))
 
     /// <summary>
     /// Synchronously blocks and returns the fiber's error value, or throws if the fiber succeeded.
@@ -329,10 +339,14 @@ and [<Sealed>] Fiber<'R, 'E> internal () =
     /// </summary>
     /// <returns>The error value of type 'E.</returns>
     /// <exception cref="InvalidOperationException">Thrown if the fiber completed successfully.</exception>
-    member _.UnsafeError<'R, 'E> () =
-        match fiberContext.Task.Result with
-        | Ok res -> raise (InvalidOperationException(sprintf "Fiber succeeded with result: %A" (res :?> 'R)))
-        | Error err -> err :?> 'E
+    member this.UnsafeError<'R, 'E> () =
+        match
+            this.Task()
+            |> Async.AwaitTask
+            |> Async.RunSynchronously with
+        | Succeeded res -> raise (InvalidOperationException(sprintf "Fiber succeeded with result: %A" res))
+        | Failed err -> err
+        | Interrupted exn -> raise (InvalidOperationException(sprintf "Fiber was interrupted: %s" exn.Message))
 
     /// <summary>
     /// Synchronously blocks and prints the fiber's result to the console.
@@ -362,7 +376,7 @@ and [<Sealed>] Fiber<'R, 'E> internal () =
     /// </summary>
     /// <param name="cause">The interruption cause. Defaults to ExplicitInterrupt.</param>
     /// <param name="msg">The interruption message. Defaults to "Fiber was interrupted."</param>
-    member _.UnsafeInterrupt<'R, 'E> (?cause: InterruptionCause, ?msg: string) =
+    member _.UnsafeInterrupt (?cause: InterruptionCause, ?msg: string) =
         fiberContext.Interrupt(?cause = cause, ?msg = msg)
 
     /// <summary>

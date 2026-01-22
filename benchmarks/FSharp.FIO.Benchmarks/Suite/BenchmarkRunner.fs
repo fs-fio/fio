@@ -120,8 +120,9 @@ let private runBenchmark (runtime: FIORuntime, totalRuns, config: BenchmarkConfi
                 let memoryUsage = proc.WorkingSet64 / (1024L * 1024L)
                 let executionTime =
                     match benchRes with
-                    | Ok time -> time
-                    | Error err -> invalidOp $"BenchmarkRunner: Failed executing benchmark with error: %A{err}"
+                    | Succeeded time -> time
+                    | Failed err -> invalidOp $"BenchmarkRunner: Failed executing benchmark with error: %A{err}"
+                    | Interrupted exn -> invalidOp $"BenchmarkRunner: Benchmark interrupted: %s{exn.Message}"
 
                 printfn $"[FIO.Benchmarks]: Execution completed: Execution Time: %i{executionTime}ms, Memory Usage: %i{memoryUsage}MB, Run (%i{currentRun}/%i{totalRuns})"
                 runs.Add currentRun

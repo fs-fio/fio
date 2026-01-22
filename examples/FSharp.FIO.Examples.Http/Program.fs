@@ -44,9 +44,12 @@ let main _ =
     let fiber = runtime.Run serverEffect
 
     match fiber.UnsafeResult() with
-    | Ok () ->
+    | Succeeded () ->
         printfn "FIO HTTP Server stopped successfully"
         0
-    | Error exn ->
+    | Failed exn ->
         printfn $"FIO HTTP Server error: {exn.Message}"
         1
+    | Interrupted exn ->
+        printfn $"FIO HTTP Server interrupted: {exn.Message}"
+        2

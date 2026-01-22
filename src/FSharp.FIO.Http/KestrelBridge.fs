@@ -1,10 +1,12 @@
 namespace FSharp.FIO.Http
 
+open FSharp.FIO.DSL
+
 open System
-open System.Buffers
 open System.IO
 open System.Web
 open System.Text
+open System.Buffers
 open System.Text.Json
 open System.Threading.Tasks
 open Microsoft.AspNetCore.Http
@@ -232,12 +234,16 @@ module KestrelBridge =
                     let effect = Routes.dispatch request routes
                     let fiber = runtime.Run effect
                     match! fiber.Task() with
-                    | Ok response ->
+                    | Succeeded response ->
                         do! writeResponse ctx response
-                    | Error exn ->
+                    | Failed exn ->
                         logError ctx "HandlerError" (Some exn)
                         ctx.Response.StatusCode <- 500
                         let errorBytes = Encoding.UTF8.GetBytes "Internal Server Error"
+                        do! ctx.Response.Body.WriteAsync(errorBytes, 0, errorBytes.Length)
+                    | Interrupted _ ->
+                        ctx.Response.StatusCode <- 503
+                        let errorBytes = Encoding.UTF8.GetBytes "Service Unavailable"
                         do! ctx.Response.Body.WriteAsync(errorBytes, 0, errorBytes.Length)
             with exn ->
                 logError ctx "UnhandledException" (Some exn)

@@ -9,12 +9,13 @@ open System
 let helloWorld1 () =
     let hello = FIO.Succeed "Hello world! 🪻"
     let fiber = (new DefaultRuntime()).Run hello
-    
+
     task {
         let! result = fiber.Task()
         match result with
-        | Ok result -> printfn $"Success: %s{result}"
-        | Error error -> printfn $"Error: %A{error}"
+        | Succeeded result -> printfn $"Success: %s{result}"
+        | Failed error -> printfn $"Error: %A{error}"
+        | Interrupted exn -> printfn $"Interrupted: %s{exn.Message}"
     } |> _.GetAwaiter().GetResult()
 
 let helloWorld2 () =
@@ -22,10 +23,11 @@ let helloWorld2 () =
     let fiber: Fiber<string, obj> = (new DefaultRuntime()).Run hello
 
     task {
-        let! result: Result<string, obj> = fiber.Task()
+        let! result: FiberResult<string, obj> = fiber.Task()
         match result with
-        | Ok result -> printfn $"Success: %s{result}"
-        | Error error -> printfn $"Error: %A{error}"
+        | Succeeded result -> printfn $"Success: %s{result}"
+        | Failed error -> printfn $"Error: %A{error}"
+        | Interrupted exn -> printfn $"Interrupted: %s{exn.Message}"
     } |> _.GetAwaiter().GetResult()
 
 let helloWorld3 () =
@@ -33,10 +35,11 @@ let helloWorld3 () =
     let fiber: Fiber<obj, string> = (new DefaultRuntime()).Run hello
 
     task {
-        let! result: Result<obj, string> = fiber.Task()
+        let! result: FiberResult<obj, string> = fiber.Task()
         match result with
-        | Ok result -> printfn $"Success: %A{result}"
-        | Error error -> printfn $"Error: %s{error}"
+        | Succeeded result -> printfn $"Success: %A{result}"
+        | Failed error -> printfn $"Error: %s{error}"
+        | Interrupted exn -> printfn $"Interrupted: %s{exn.Message}"
     } |> _.GetAwaiter().GetResult()
 
 let helloWorld4 () =

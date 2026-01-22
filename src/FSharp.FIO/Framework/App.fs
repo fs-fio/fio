@@ -202,6 +202,15 @@ type FIOApp<'R, 'E> () as this =
         SysConsole.WriteLine $"cleanup failed: %s{exn.Message}"
         SysConsole.ResetColor()
 
+    /// <summary>Handler invoked when shutdown hook is interrupted.</summary>
+    /// <param name="exn">The interruption exception.</param>
+    abstract member onShutdownHookInterrupted: FiberInterruptedException -> unit
+    default this.onShutdownHookInterrupted exn =
+        if this.verbose then
+            SysConsole.ForegroundColor <- ConsoleColor.DarkYellow
+            SysConsole.WriteLine $"cleanup interrupted: %s{exn.Message}"
+            SysConsole.ResetColor()
+
     /// <summary>Maps a successful result to an exit code.</summary>
     /// <param name="res">The success result.</param>
     abstract member exitCodeSuccess: 'R -> int
@@ -241,10 +250,9 @@ type FIOApp<'R, 'E> () as this =
                 let shutdownTask = shutdownFiber.Task()
                 let! shutdownResult = shutdownTask.WaitAsync this.shutdownHookTimeout
                 match shutdownResult with
-                | Ok _ ->
-                    this.onShutdownHookSuccess()
-                | Error err ->
-                    this.onShutdownHookError err
+                | Succeeded _ -> this.onShutdownHookSuccess()
+                | Failed err -> this.onShutdownHookError err
+                | Interrupted exn -> this.onShutdownHookInterrupted exn
             with
             | :? TimeoutException ->
                 this.onShutdownHookTimeout this.shutdownHookTimeout
@@ -281,17 +289,15 @@ type FIOApp<'R, 'E> () as this =
                     let! exitCode =
                         task {
                             match! fiber.Task() with
-                            | Ok res ->
+                            | Succeeded res ->
                                 this.onSuccess res
                                 return this.exitCodeSuccess res
-                            | Error err ->
-                                match box err with
-                                | :? FiberInterruptedException as exn ->
-                                    this.onInterrupted exn
-                                    return this.exitCodeInterrupted exn
-                                | _ ->
-                                    this.onError err
-                                    return this.exitCodeError err
+                            | Failed err ->
+                                this.onError err
+                                return this.exitCodeError err
+                            | Interrupted exn ->
+                                this.onInterrupted exn
+                                return this.exitCodeInterrupted exn
                         }
 
                     do! this.RunShutdownHook runtime

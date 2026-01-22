@@ -464,7 +464,7 @@ let errorHandling =
             let recover x = FIO.Fail (x + 100)
 
             let transformed = eff.CatchAll recover
-            let expected = Error (err + 100)
+            let expected = Failed (err + 100)
 
             let actual = (runtime.Run transformed).UnsafeResult()
 
