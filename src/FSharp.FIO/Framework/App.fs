@@ -234,7 +234,7 @@ type FIOApp<'R, 'E> () as this =
     /// <summary>Cleanup effect run on interruption.</summary>
     abstract member shutdownHook: unit -> FIO<unit, 'E>
     default _.shutdownHook() =
-        FIO.Unit()
+        FIO.unit()
 
     /// <summary>Maximum time to wait for shutdown hooks.</summary>
     abstract member shutdownHookTimeout: TimeSpan

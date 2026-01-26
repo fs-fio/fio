@@ -24,7 +24,7 @@ let routes =
 
 let logging : Middleware<exn> =
     Middleware.before (fun request ->
-        FIO.Attempt((fun () ->
+        FIO.attempt((fun () ->
             let timestamp = System.DateTime.Now.ToString "HH:mm:ss"
             printfn $"[{timestamp}] {request.Method} {request.Path}"), id))
 

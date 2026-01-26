@@ -31,10 +31,13 @@
 		<Compile Include="DSL\Extensions.fs" />
 		<Compile Include="DSL\Operators.fs" />
 		<Compile Include="DSL\CE.fs" />
-		<Compile Include="Lib\Environment.fs" />
-		<Compile Include="Lib\Console.fs" />
-		<Compile Include="Lib\Random.fs" />
 		<Compile Include="Lib\Clock.fs" />
+		<Compile Include="Lib\Console.fs" />
+		<Compile Include="Lib\Environment.fs" />
+		<Compile Include="Lib\Promise.fs" />
+		<Compile Include="Lib\Random.fs" />
+		<Compile Include="Lib\Ref.fs" />
+		<Compile Include="Lib\Semaphore.fs" />
 		<Compile Include="Runtime.Tools\Monitor.fs" />
 		<Compile Include="Runtime.Tools\DeadlockDetector.fs" />
 		<Compile Include="Runtime\Runtime.fs" />

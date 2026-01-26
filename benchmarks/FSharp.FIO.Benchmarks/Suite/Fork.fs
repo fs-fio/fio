@@ -5,7 +5,7 @@ open FSharp.FIO.Benchmarks.Tools.Timer
 
 open System
 
-let private actorEff (timerChan: TimerMessage<int> channel) =
+let private actorEff (timerChan: Channel<TimerMessage<int>>) =
     fio {
         do! timerChan.Send(Stop).Unit()
     }
@@ -24,11 +24,11 @@ let forkBenchmark config : FIO<int64, exn> =
     fio {
         let! actorCount =
             match config with
-            | ForkConfig ac -> FIO.Succeed ac
-            | _ -> FIO.Fail(ArgumentException("Fork benchmark initialization failed: Requires a ForkConfig", nameof config))
+            | ForkConfig ac -> FIO.succeed ac
+            | _ -> FIO.fail(ArgumentException("Fork benchmark initialization failed: Requires a ForkConfig", nameof config))
             
         if actorCount < 1 then
-            return! FIO.Fail(ArgumentException($"Fork benchmark initialization failed: At least 1 actor should be specified. actorCount = %i{actorCount}", nameof actorCount))
+            return! FIO.fail(ArgumentException($"Fork benchmark initialization failed: At least 1 actor should be specified. actorCount = %i{actorCount}", nameof actorCount))
             
         let timerChan = Channel<TimerMessage<int>>()
         let! timerFiber = TimerEff(1, 0, actorCount, timerChan).Fork()

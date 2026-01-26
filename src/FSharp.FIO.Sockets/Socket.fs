@@ -17,20 +17,20 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     let logAndSuppress (context: string) (err: SocketError) : FIO<unit, SocketError> =
         fio {
             let str = SocketError.ToString err
-            do! FIO.Attempt((fun () ->
+            do! FIO.attempt((fun () ->
                 eprintfn $"[Socket] Error during {context}: {str}"), SocketError.FromException)
             return ()
         }
 
     // Partially applied functions for consistent error handling
     let fromFunc (func: unit -> 'T) : FIO<'T, SocketError> =
-        FIO.Attempt(func, SocketError.FromException)
+        FIO.attempt(func, SocketError.FromException)
 
     let awaitTask (task: Threading.Tasks.Task) : FIO<unit, SocketError> =
-        FIO.AwaitTask(task, SocketError.FromException)
+        FIO.awaitTask(task, SocketError.FromException)
 
     let awaitTaskT (task: Threading.Tasks.Task<'T>) : FIO<'T, SocketError> =
-        FIO.AwaitTask(task, SocketError.FromException)
+        FIO.awaitGenericTask(task, SocketError.FromException)
 
     /// <summary>
     /// Sends raw bytes over the socket.
@@ -39,7 +39,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     member _.SendBytes(buffer: byte[]) : FIO<unit, SocketError> =
         fio {
             if not netSocket.Connected then
-                return! FIO.Fail(ConnectionClosed "Socket is not connected")
+                return! FIO.fail(ConnectionClosed "Socket is not connected")
             do! awaitTask (stream.WriteAsync(buffer, 0, buffer.Length))
             do! awaitTask (stream.FlushAsync())
         }
@@ -52,10 +52,10 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     member _.ReceiveBytes(maxBytes: int) : FIO<byte[] * int, SocketError> =
         fio {
             if maxBytes <= 0 then
-                return! FIO.Fail(InvalidState("positive buffer size", $"{maxBytes}"))
+                return! FIO.fail(InvalidState("positive buffer size", $"{maxBytes}"))
 
             if not netSocket.Connected then
-                return! FIO.Fail(ConnectionClosed "Socket is not connected")
+                return! FIO.fail(ConnectionClosed "Socket is not connected")
 
             // Use ArrayPool for efficient buffer management
             let! pooledBuffer = fromFunc (fun () -> ArrayPool<byte>.Shared.Rent maxBytes)
@@ -64,7 +64,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
                 let! bytesRead = awaitTaskT (stream.ReadAsync(pooledBuffer, 0, maxBytes))
 
                 if bytesRead = 0 then
-                    return! FIO.Fail(ConnectionClosed "Connection closed by peer")
+                    return! FIO.fail(ConnectionClosed "Connection closed by peer")
 
                 // Copy exact bytes to result array (can't return pooled buffer)
                 let result = Array.zeroCreate<byte> bytesRead
@@ -84,7 +84,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     member _.ReceiveExactly(numBytes: int) : FIO<byte[], SocketError> =
         fio {
             if numBytes <= 0 then
-                return! FIO.Fail(InvalidState("positive byte count", $"{numBytes}"))
+                return! FIO.fail(InvalidState("positive byte count", $"{numBytes}"))
 
             // Use ArrayPool for efficient buffer management
             let! pooledBuffer = fromFunc (fun () -> ArrayPool<byte>.Shared.Rent numBytes)
@@ -96,7 +96,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
                     let! bytesRead = awaitTaskT (stream.ReadAsync(pooledBuffer, totalRead, numBytes - totalRead))
 
                     if bytesRead = 0 then
-                        return! FIO.Fail(ConnectionClosed $"Connection closed after {totalRead} of {numBytes} bytes")
+                        return! FIO.fail(ConnectionClosed $"Connection closed after {totalRead} of {numBytes} bytes")
 
                     totalRead <- totalRead + bytesRead
 
@@ -190,12 +190,14 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
         this.Receive(Codec.jsonLine None, maxBytes)
 
     /// <summary>
-    /// Closes and disposes socket resources.
+    /// Closes and disposes socket resources according to configured linger options.
     /// This is the preferred method for closing sockets in FIO code.
     /// </summary>
     member _.Close() : FIO<unit, SocketError> =
         fio {
             do! fromFunc(fun () ->
+                // Apply linger configuration from SocketConfig
+                netSocket.LingerState <- Sockets.LingerOption(config.LingerEnabled, config.LingerTimeout)
                 if stream <> null then
                     stream.Close()
                     stream.Dispose()
@@ -208,6 +210,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
                 netSocket.Dispose()
                 ).CatchAll(logAndSuppress "socket close")
         }
+
 
     /// <summary>
     /// Checks if the socket is connected.

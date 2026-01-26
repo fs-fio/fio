@@ -70,7 +70,6 @@ type internal WorkItemPool private () =
             workItem.Stack <- stack
             workItem
         else
-            // Create new if pool empty
             { Eff = eff; FiberContext = fiberContext; Stack = stack }
 
     /// <summary>
@@ -82,8 +81,6 @@ type internal WorkItemPool private () =
 
         // Only pool if not at capacity
         if WorkItemPool.pool.Count < MaxPoolSize then
-            // Clear references to help GC (allow collected objects to be freed)
-            // Mutate in place instead of creating new record to avoid allocation
             workItem.Eff <- Unchecked.defaultof<_>
             workItem.FiberContext <- Unchecked.defaultof<_>
             workItem.Stack <- Unchecked.defaultof<_>

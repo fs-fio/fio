@@ -3,7 +3,6 @@ namespace FSharp.FIO.PostgreSQL
 open FSharp.FIO.DSL
 
 open Npgsql
-open System
 open System.Data
 
 /// <summary>
@@ -34,42 +33,42 @@ module Conn =
     /// Opens the connection if not already open.
     /// </summary>
     /// <param name="conn">The connection to open.</param>
-    let open' (conn: Connection) : FIO<unit, exn> =
-        FIO.Attempt(
+    let open' (conn: Connection) : FIO<unit, PgError> =
+        FIO.attempt(
             (fun () ->
                 if conn.NpgsqlConnection.State <> ConnectionState.Open then
                     conn.NpgsqlConnection.Open()),
-            id)
+            OpenFailed)
 
     /// <summary>
     /// Opens the connection asynchronously if not already open.
     /// </summary>
     /// <param name="conn">The connection to open.</param>
-    let openAsync (conn: Connection) : FIO<unit, exn> =
+    let openAsync (conn: Connection) : FIO<unit, PgError> =
         fio {
             if conn.NpgsqlConnection.State <> ConnectionState.Open then
-                do! FIO.AwaitTask(conn.NpgsqlConnection.OpenAsync(), id)
+                do! FIO.awaitTask(conn.NpgsqlConnection.OpenAsync(), OpenFailed)
         }
 
     /// <summary>
     /// Closes the connection.
     /// </summary>
     /// <param name="conn">The connection to close.</param>
-    let close (conn: Connection) : FIO<unit, exn> =
-        FIO.Attempt(
+    let close (conn: Connection) : FIO<unit, PgError> =
+        FIO.attempt(
             (fun () ->
                 if conn.NpgsqlConnection.State <> ConnectionState.Closed then
                     conn.NpgsqlConnection.Close()),
-            id)
+            CloseFailed)
 
     /// <summary>
     /// Closes the connection asynchronously.
     /// </summary>
     /// <param name="conn">The connection to close.</param>
-    let closeAsync (conn: Connection) : FIO<unit, exn> =
+    let closeAsync (conn: Connection) : FIO<unit, PgError> =
         fio {
             if conn.NpgsqlConnection.State <> ConnectionState.Closed then
-                do! FIO.AwaitTask(conn.NpgsqlConnection.CloseAsync(), id)
+                do! FIO.awaitTask(conn.NpgsqlConnection.CloseAsync(), CloseFailed)
         }
 
     /// <summary>
@@ -77,11 +76,11 @@ module Conn =
     /// </summary>
     /// <param name="action">The action to execute with the connection.</param>
     /// <param name="conn">The connection to use.</param>
-    let withConnection (action: Connection -> FIO<'R, 'E>) (conn: Connection) : FIO<'R, 'E> =
+    let withConnection (action: Connection -> FIO<'R, PgError>) (conn: Connection) : FIO<'R, PgError> =
         fio {
-            let! _ = (openAsync conn).MapError (fun e -> Unchecked.defaultof<'E>)
+            do! openAsync conn
             let! result = action conn
-            let! _ = (closeAsync conn).MapError (fun _ -> Unchecked.defaultof<'E>)
+            do! closeAsync conn
             return result
         }
 
@@ -89,42 +88,38 @@ module Conn =
     /// Begins a new transaction on the connection.
     /// </summary>
     /// <param name="conn">The connection to start a transaction on.</param>
-    let beginTransaction (conn: Connection) : FIO<NpgsqlTransaction, exn> =
-        FIO.Attempt(
+    let beginTransaction (conn: Connection) : FIO<NpgsqlTransaction, PgError> =
+        FIO.attempt(
             (fun () -> conn.NpgsqlConnection.BeginTransaction()),
-            id)
+            fun e -> TransactionFailed("begin", e))
 
     /// <summary>
     /// Begins a new transaction with the specified isolation level.
     /// </summary>
     /// <param name="isolationLevel">The isolation level for the transaction.</param>
     /// <param name="conn">The connection to start a transaction on.</param>
-    let beginTransactionWithIsolation (isolationLevel: FSharp.FIO.PostgreSQL.IsolationLevel) (conn: Connection) : FIO<NpgsqlTransaction, exn> =
-        FIO.Attempt(
+    let beginTransactionWithIsolation (isolationLevel: FSharp.FIO.PostgreSQL.IsolationLevel) (conn: Connection) : FIO<NpgsqlTransaction, PgError> =
+        FIO.attempt(
             (fun () ->
                 let sysLevel = FSharp.FIO.PostgreSQL.IsolationLevel.toSystemIsolationLevel isolationLevel
                 conn.NpgsqlConnection.BeginTransaction(sysLevel)),
-            id)
+            fun e -> TransactionFailed("begin", e))
 
     /// <summary>
     /// Begins a new transaction asynchronously.
     /// </summary>
     /// <param name="conn">The connection to start a transaction on.</param>
-    let beginTransactionAsync (conn: Connection) : FIO<NpgsqlTransaction, exn> =
-        fio {
-            return! FIO.AwaitTask(conn.NpgsqlConnection.BeginTransactionAsync().AsTask(), id)
-        }
+    let beginTransactionAsync (conn: Connection) : FIO<NpgsqlTransaction, PgError> =
+        FIO.awaitGenericTask(conn.NpgsqlConnection.BeginTransactionAsync().AsTask(), fun e -> TransactionFailed("begin", e))
 
     /// <summary>
     /// Begins a new transaction asynchronously with the specified isolation level.
     /// </summary>
     /// <param name="isolationLevel">The isolation level for the transaction.</param>
     /// <param name="conn">The connection to start a transaction on.</param>
-    let beginTransactionAsyncWithIsolation (isolationLevel: FSharp.FIO.PostgreSQL.IsolationLevel) (conn: Connection) : FIO<NpgsqlTransaction, exn> =
-        fio {
-            let sysLevel = FSharp.FIO.PostgreSQL.IsolationLevel.toSystemIsolationLevel isolationLevel
-            return! FIO.AwaitTask(conn.NpgsqlConnection.BeginTransactionAsync(sysLevel).AsTask(), id)
-        }
+    let beginTransactionAsyncWithIsolation (isolationLevel: FSharp.FIO.PostgreSQL.IsolationLevel) (conn: Connection) : FIO<NpgsqlTransaction, PgError> =
+        let sysLevel = FSharp.FIO.PostgreSQL.IsolationLevel.toSystemIsolationLevel isolationLevel
+        FIO.awaitGenericTask(conn.NpgsqlConnection.BeginTransactionAsync(sysLevel).AsTask(), fun e -> TransactionFailed("begin", e))
 
     /// <summary>
     /// Creates a command for the connection.

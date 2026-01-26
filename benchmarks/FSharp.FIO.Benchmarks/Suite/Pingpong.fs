@@ -17,10 +17,10 @@ open System
 
 type private Actor =
     { Name: string
-      SendChan: int channel
-      ReceiveChan: int channel }
+      SendChan: Channel<int>
+      ReceiveChan: Channel<int> }
 
-let private pingerEff (pinger, ping, roundCount, startChan: int channel, timerChan: TimerMessage<int> channel) =
+let private pingerEff (pinger, ping, roundCount, startChan: Channel<int>, timerChan: Channel<TimerMessage<int>>) =
     fio {
         let mutable currentPing = ping
         do! startChan.Receive().Unit()
@@ -29,29 +29,29 @@ let private pingerEff (pinger, ping, roundCount, startChan: int channel, timerCh
         for _ in 1..roundCount do
             do! pinger.SendChan.Send(currentPing).Unit()
             #if DEBUG
-            do! Console.PrintLine $"[DEBUG]: %s{pinger.Name} sent ping: %i{currentPing}"
+            do! Console.printLineExn $"[DEBUG]: %s{pinger.Name} sent ping: %i{currentPing}"
             #endif
             let! pong = pinger.ReceiveChan.Receive()
             #if DEBUG
-            do! Console.PrintLine $"[DEBUG]: %s{pinger.Name} received pong: %i{pong}"
+            do! Console.printLineExn $"[DEBUG]: %s{pinger.Name} received pong: %i{pong}"
             #endif
             currentPing <- pong + 1
             
         do! timerChan.Send(Stop).Unit()
     }
 
-let private pongerEff (ponger, roundCount, startChan: int channel) =
+let private pongerEff (ponger, roundCount, startChan: Channel<int>) =
     fio {
         do! startChan.Send(0).Unit()
         
         for _ in 1..roundCount do
             let! ping = ponger.ReceiveChan.Receive()
             #if DEBUG
-            do! Console.PrintLine $"[DEBUG]: %s{ponger.Name} received ping: %i{ping}"
+            do! Console.printLineExn $"[DEBUG]: %s{ponger.Name} received ping: %i{ping}"
             #endif
             let! pong = ponger.SendChan.Send(ping + 1)
             #if DEBUG
-            do! Console.PrintLine $"[DEBUG]: %s{ponger.Name} sent pong: %i{pong}"
+            do! Console.printLineExn $"[DEBUG]: %s{ponger.Name} sent pong: %i{pong}"
             #endif
             return ()
     }
@@ -60,11 +60,11 @@ let pingpongBenchmark config : FIO<int64, exn> =
     fio {
         let! roundCount =
             match config with
-            | PingpongConfig rc -> FIO.Succeed rc
-            | _ -> FIO.Fail(ArgumentException("Pingpong benchmark initialization failed: Requires a PingpongConfig", nameof config))
+            | PingpongConfig rc -> FIO.succeed rc
+            | _ -> FIO.fail(ArgumentException("Pingpong benchmark initialization failed: Requires a PingpongConfig", nameof config))
         
         if roundCount < 1 then
-            return! FIO.Fail(ArgumentException($"Pingpong benchmark initialization failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount))
+            return! FIO.fail(ArgumentException($"Pingpong benchmark initialization failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount))
         
         let startChan = Channel<int>()
         let timerChan = Channel<TimerMessage<int>>()

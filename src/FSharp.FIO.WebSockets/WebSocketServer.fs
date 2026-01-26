@@ -18,9 +18,9 @@ module WebSocketServer =
     /// <param name="config">WebSocket configuration options.</param>
     let start (url: string) : FIO<HttpListener, WsError> =
         fio {
-            let! listener = FIO.Attempt((fun () -> new HttpListener()), WsError.FromException)
-            do! FIO.Attempt((fun () -> listener.Prefixes.Add url), WsError.FromException)
-            do! FIO.Attempt((fun () -> listener.Start()), WsError.FromException)
+            let! listener = FIO.attempt((fun () -> new HttpListener()), WsError.FromException)
+            do! FIO.attempt((fun () -> listener.Prefixes.Add url), WsError.FromException)
+            do! FIO.attempt((fun () -> listener.Start()), WsError.FromException)
             return listener
         }
 
@@ -36,14 +36,14 @@ module WebSocketServer =
     /// </summary>
     /// <param name="listener">The HTTP listener to close.</param>
     let close (listener: HttpListener) : FIO<unit, WsError> =
-        FIO.Attempt((fun () -> listener.Stop()), WsError.FromException)
+        FIO.attempt((fun () -> listener.Stop()), WsError.FromException)
 
     /// <summary>
     /// Aborts the server immediately.
     /// </summary>
     /// <param name="listener">The HTTP listener to abort.</param>
     let abort (listener: HttpListener) : FIO<unit, WsError> =
-        FIO.Attempt((fun () -> listener.Abort()), WsError.FromException)
+        FIO.attempt((fun () -> listener.Abort()), WsError.FromException)
 
     /// <summary>
     /// Accepts a single incoming WebSocket connection.
@@ -57,8 +57,8 @@ module WebSocketServer =
         (subProtocol: string option)
         : FIO<WebSocket, WsError> =
         fio {
-            let! listenerCtxTask = FIO.Attempt((fun () -> listener.GetContextAsync()), WsError.FromException)
-            let! listenerCtx = FIO.AwaitTask(listenerCtxTask, WsError.FromException)
+            let! listenerCtxTask = FIO.attempt((fun () -> listener.GetContextAsync()), WsError.FromException)
+            let! listenerCtx = FIO.awaitGenericTask(listenerCtxTask, WsError.FromException)
 
             if listenerCtx.Request.IsWebSocketRequest then
                 let subProto =
@@ -66,13 +66,13 @@ module WebSocketServer =
                     | Some s -> s
                     | None -> null
 
-                let! ctxTask = FIO.Attempt((fun () -> listenerCtx.AcceptWebSocketAsync subProto), WsError.FromException)
-                let! ctx = FIO.AwaitTask(ctxTask, WsError.FromException)
+                let! ctxTask = FIO.attempt((fun () -> listenerCtx.AcceptWebSocketAsync subProto), WsError.FromException)
+                let! ctx = FIO.awaitGenericTask(ctxTask, WsError.FromException)
                 return new WebSocket(ctx.WebSocket, config)
             else
-                do! FIO.Attempt((fun () -> listenerCtx.Response.StatusCode <- 400), WsError.FromException)
-                do! FIO.Attempt((fun () -> listenerCtx.Response.Close()), WsError.FromException)
-                return! FIO.Fail(WsError.FromException <| Exception "Not a WebSocket request")
+                do! FIO.attempt((fun () -> listenerCtx.Response.StatusCode <- 400), WsError.FromException)
+                do! FIO.attempt((fun () -> listenerCtx.Response.Close()), WsError.FromException)
+                return! FIO.fail(WsError.FromException <| Exception "Not a WebSocket request")
         }
 
     /// <summary>
@@ -115,7 +115,7 @@ module WebSocketServer =
         (config: WebSocketConfig)
         (handler: WebSocket -> FIO<unit, WsError>)
         : FIO<unit, WsError> =
-        FIO.AcquireRelease(
+        FIO.acquireRelease(
             start url,
             (fun listener -> close listener),
             fun listener -> acceptLoop listener config handler
@@ -158,7 +158,7 @@ type WebSocketServer private (listener: HttpListener, config: WebSocketConfig) =
     /// <param name="config">WebSocket configuration options.</param>
     static member Create(config: WebSocketConfig) : FIO<WebSocketServer, WsError> =
         fio {
-            let! listener = FIO.Attempt((fun () -> new HttpListener()), WsError.FromException)
+            let! listener = FIO.attempt((fun () -> new HttpListener()), WsError.FromException)
             return WebSocketServer(listener, config)
         }
 
@@ -174,8 +174,8 @@ type WebSocketServer private (listener: HttpListener, config: WebSocketConfig) =
     /// <param name="url">The URL prefix to listen on.</param>
     member _.Start(url: string) : FIO<unit, WsError> =
         fio {
-            do! FIO.Attempt((fun () -> listener.Prefixes.Add url), WsError.FromException)
-            do! FIO.Attempt((fun () -> listener.Start()), WsError.FromException)
+            do! FIO.attempt((fun () -> listener.Prefixes.Add url), WsError.FromException)
+            do! FIO.attempt((fun () -> listener.Start()), WsError.FromException)
         }
 
     /// <summary>
@@ -195,10 +195,10 @@ type WebSocketServer private (listener: HttpListener, config: WebSocketConfig) =
     /// Stops the server.
     /// </summary>
     member _.Close() : FIO<unit, WsError> =
-        FIO.Attempt((fun () -> listener.Stop()), WsError.FromException)
+        FIO.attempt((fun () -> listener.Stop()), WsError.FromException)
 
     /// <summary>
     /// Aborts the server immediately.
     /// </summary>
     member _.Abort() : FIO<unit, WsError> =
-        FIO.Attempt((fun () -> listener.Abort()), WsError.FromException)
+        FIO.attempt((fun () -> listener.Abort()), WsError.FromException)

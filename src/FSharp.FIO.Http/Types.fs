@@ -5,6 +5,67 @@ open System.IO
 open System.Text
 
 /// <summary>
+/// HTTP operation errors.
+/// </summary>
+type HttpError =
+    /// Invalid route pattern
+    | InvalidRoute of pattern: string
+    /// Request parsing failed
+    | ParsingFailed of message: string * exn
+    /// Handler execution failed
+    | HandlerFailed of path: string * exn
+    /// Middleware execution failed
+    | MiddlewareFailed of name: string * exn
+    /// Server startup failed
+    | ServerFailed of exn
+    /// Request body reading failed
+    | BodyReadFailed of exn
+    /// JSON serialization/deserialization failed
+    | JsonFailed of exn
+    /// Request timeout
+    | TimeoutError of message: string
+    /// General HTTP error
+    | GeneralError of exn
+
+    /// <summary>
+    /// Converts an exception to an HttpError.
+    /// </summary>
+    static member FromException (exn: exn) : HttpError =
+        GeneralError exn
+
+    /// <summary>
+    /// Gets a human-readable error message.
+    /// </summary>
+    override this.ToString() =
+        match this with
+        | InvalidRoute pattern ->
+            $"Invalid route: {pattern}"
+        | ParsingFailed(msg, exn) ->
+            $"Parsing failed: {msg} - {exn.Message}"
+        | HandlerFailed(path, exn) ->
+            $"Handler failed [{path}]: {exn.Message}"
+        | MiddlewareFailed(name, exn) ->
+            $"Middleware {name} failed: {exn.Message}"
+        | ServerFailed exn ->
+            $"Server error: {exn.Message}"
+        | BodyReadFailed exn ->
+            $"Body read failed: {exn.Message}"
+        | JsonFailed exn ->
+            $"JSON error: {exn.Message}"
+        | TimeoutError msg ->
+            $"Timeout: {msg}"
+        | GeneralError exn ->
+            $"HTTP error: {exn.Message}"
+
+    /// <summary>
+    /// Converts an HttpError to an exception.
+    /// </summary>
+    static member ToException (err: HttpError) : exn =
+        match err with
+        | GeneralError exn -> exn
+        | _ -> Exception(err.ToString())
+
+/// <summary>
 /// HTTP request methods.
 /// </summary>
 [<RequireQualifiedAccess>]

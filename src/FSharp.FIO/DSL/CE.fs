@@ -33,7 +33,7 @@ type FIOBuilder internal () =
     /// </summary>
     /// <param name="res">The value to return.</param>
     member inline _.Return<'R, 'E> (res: 'R) : FIO<'R, 'E> =
-        FIO.Succeed res
+        FIO.succeed res
 
     /// <summary>
     /// Enables <c>return!</c> expressions in computation expressions.
@@ -54,7 +54,7 @@ type FIOBuilder internal () =
     /// </summary>
     /// <param name="res">The value to yield.</param>
     member inline _.Yield<'R, 'E> (res: 'R) : FIO<'R, 'E> =
-        FIO.Succeed res
+        FIO.succeed res
 
     /// <summary>
     /// Enables <c>yield!</c> expressions in computation expressions.
@@ -74,7 +74,7 @@ type FIOBuilder internal () =
     /// Returns a unit effect for empty computation expressions.
     /// </summary>
     member inline _.Zero<'E> () : FIO<unit, 'E> =
-        FIO.Succeed ()
+        FIO.succeed ()
 
     /// <summary>
     /// Sequences two effects, returning the result of the second.
@@ -96,7 +96,7 @@ type FIOBuilder internal () =
     /// </summary>
     /// <param name="cont">A function that produces the FIO effect.</param>
     member inline _.Delay<'R1, 'E> (cont: unit -> FIO<'R1, 'E>) : FIO<'R1, 'E> =
-        FIO.Unit().FlatMap cont
+        FIO.unit().FlatMap cont
 
     /// <summary>
     /// Enables <c>try...with</c> expressions in computation expressions.
@@ -120,18 +120,22 @@ type FIOBuilder internal () =
     /// <param name="sequence">The sequence to iterate over.</param>
     /// <param name="body">The function to run for each element.</param>
     member inline _.For<'T, 'E> (sequence: seq<'T>, body: 'T -> FIO<unit, 'E>) : FIO<unit, 'E> =
-        FIO.Suspend(fun () ->
+        FIO.suspend(fun () ->
             let enumerator = sequence.GetEnumerator()
             try
                 let rec loop () =
                     if enumerator.MoveNext() then
                         body(enumerator.Current).FlatMap(fun _ -> loop())
                     else
-                        FIO.Unit()
+                        FIO.unit()
 
-                let dispose = FIO.Suspend(fun () -> enumerator.Dispose(); FIO.Unit())
+                let dispose = FIO.suspend(fun () -> enumerator.Dispose(); FIO.unit())
                 loop().Ensuring dispose
-            with _ ->
+            with
+            | :? ObjectDisposedException ->
+                enumerator.Dispose()
+                reraise()
+            | :? InvalidOperationException ->
                 enumerator.Dispose()
                 reraise())
 
@@ -145,7 +149,7 @@ type FIOBuilder internal () =
             if guard () then
                 body.FlatMap(fun _ -> loop ())
             else
-                FIO.Succeed ()
+                FIO.succeed ()
         loop ()
 
     /// <summary>
@@ -154,7 +158,7 @@ type FIOBuilder internal () =
     /// <param name="resource">The disposable resource.</param>
     /// <param name="body">The function to run with the resource.</param>
     member inline _.Using<'T, 'R, 'E when 'T :> IDisposable> (resource: 'T, body: 'T -> FIO<'R, 'E>) : FIO<'R, 'E> =
-        let dispose = FIO.Suspend(fun () -> resource.Dispose(); FIO.Unit())
+        let dispose = FIO.suspend(fun () -> resource.Dispose(); FIO.unit())
         (body resource).Ensuring dispose
 
     /// <summary>

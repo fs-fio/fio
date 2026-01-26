@@ -106,6 +106,10 @@ type SocketConfig =
         ReceiveTimeout: int
         /// Enable/disable Nagle's algorithm
         NoDelay: bool
+        /// Enable linger on close (if true, waits LingerTimeout before closing)
+        LingerEnabled: bool
+        /// Linger timeout in seconds (0 = immediate close/abort)
+        LingerTimeout: int
     }
 
 /// <summary>
@@ -122,10 +126,10 @@ module SocketConfig =
     let create (host: string, port: int) : FIO<SocketConfig, SocketError> =
         fio {
             if String.IsNullOrWhiteSpace host then
-                return! FIO.Fail(InvalidState("non-empty host", "empty or whitespace"))
+                return! FIO.fail(InvalidState("non-empty host", "empty or whitespace"))
 
             if port < 1 || port > 65535 then
-                return! FIO.Fail(InvalidState("port in range 1-65535", $"{port}"))
+                return! FIO.fail(InvalidState("port in range 1-65535", $"{port}"))
 
             return
                 { Host = host
@@ -137,7 +141,9 @@ module SocketConfig =
                   ReceiveBufferSize = 8192
                   SendTimeout = 30000
                   ReceiveTimeout = 30000
-                  NoDelay = true }
+                  NoDelay = true
+                  LingerEnabled = true
+                  LingerTimeout = 0 }
         }
 
     /// <summary>
@@ -223,10 +229,10 @@ module ServerSocketConfig =
     let create (bindAddress: string, bindPort: int) : FIO<ServerSocketConfig, SocketError> =
         fio {
             if String.IsNullOrWhiteSpace bindAddress then
-                return! FIO.Fail(InvalidState("non-empty bind address", "empty or whitespace"))
+                return! FIO.fail(InvalidState("non-empty bind address", "empty or whitespace"))
 
             if bindPort < 0 || bindPort > 65535 then
-                return! FIO.Fail(InvalidState("port in range 0-65535", $"{bindPort}"))
+                return! FIO.fail(InvalidState("port in range 0-65535", $"{bindPort}"))
 
             return
                 { BindAddress = bindAddress
@@ -291,16 +297,16 @@ module SocketPoolConfig =
             let connectionLifetime = 300
 
             if minPoolSize < 0 then
-                return! FIO.Fail(InvalidState("MinPoolSize >= 0", $"{minPoolSize}"))
+                return! FIO.fail(InvalidState("MinPoolSize >= 0", $"{minPoolSize}"))
 
             if maxPoolSize <= 0 then
-                return! FIO.Fail(InvalidState("MaxPoolSize > 0", $"{maxPoolSize}"))
+                return! FIO.fail(InvalidState("MaxPoolSize > 0", $"{maxPoolSize}"))
 
             if maxPoolSize < minPoolSize then
-                return! FIO.Fail(InvalidState($"MaxPoolSize ({maxPoolSize}) >= MinPoolSize ({minPoolSize})", "MaxPoolSize < MinPoolSize"))
+                return! FIO.fail(InvalidState($"MaxPoolSize ({maxPoolSize}) >= MinPoolSize ({minPoolSize})", "MaxPoolSize < MinPoolSize"))
 
             if connectionLifetime < 0 then
-                return! FIO.Fail(InvalidState("ConnectionLifetime >= 0", $"{connectionLifetime}"))
+                return! FIO.fail(InvalidState("ConnectionLifetime >= 0", $"{connectionLifetime}"))
 
             return
                 { SocketConfig = socketConfig
@@ -317,10 +323,10 @@ module SocketPoolConfig =
     let withMinPoolSize (size: int, config: SocketPoolConfig) : FIO<SocketPoolConfig, SocketError> =
         fio {
             if size < 0 then
-                return! FIO.Fail(InvalidState("MinPoolSize >= 0", $"{size}"))
+                return! FIO.fail(InvalidState("MinPoolSize >= 0", $"{size}"))
 
             if size > config.MaxPoolSize then
-                return! FIO.Fail(InvalidState($"MinPoolSize ({size}) <= MaxPoolSize ({config.MaxPoolSize})", "MinPoolSize > MaxPoolSize"))
+                return! FIO.fail(InvalidState($"MinPoolSize ({size}) <= MaxPoolSize ({config.MaxPoolSize})", "MinPoolSize > MaxPoolSize"))
 
             return { config with MinPoolSize = size }
         }
@@ -332,10 +338,10 @@ module SocketPoolConfig =
     let withMaxPoolSize (size: int, config: SocketPoolConfig) : FIO<SocketPoolConfig, SocketError> =
         fio {
             if size <= 0 then
-                return! FIO.Fail(InvalidState("MaxPoolSize > 0", $"{size}"))
+                return! FIO.fail(InvalidState("MaxPoolSize > 0", $"{size}"))
 
             if size < config.MinPoolSize then
-                return! FIO.Fail(InvalidState($"MaxPoolSize ({size}) >= MinPoolSize ({config.MinPoolSize})", "MaxPoolSize < MinPoolSize"))
+                return! FIO.fail(InvalidState($"MaxPoolSize ({size}) >= MinPoolSize ({config.MinPoolSize})", "MaxPoolSize < MinPoolSize"))
 
             return { config with MaxPoolSize = size }
         }

@@ -5,6 +5,75 @@ open System
 open System.Data
 
 /// <summary>
+/// PostgreSQL operation errors.
+/// </summary>
+type PgError =
+    /// Failed to connect to the database
+    | ConnectionFailed of connectionString: string * exn
+    /// Connection was closed unexpectedly
+    | ConnectionClosed of string
+    /// Failed to open connection
+    | OpenFailed of exn
+    /// Failed to close connection
+    | CloseFailed of exn
+    /// Query execution failed
+    | QueryFailed of sql: string * exn
+    /// Command execution failed
+    | CommandFailed of sql: string * exn
+    /// Transaction operation failed
+    | TransactionFailed of operation: string * exn
+    /// Result set reading failed
+    | ResultSetFailed of exn
+    /// Pool exhausted - no connections available
+    | PoolExhausted of maxSize: int
+    /// Pool is closed
+    | PoolClosed
+    /// General PostgreSQL error
+    | GeneralError of exn
+
+    /// <summary>
+    /// Converts an exception to a PgError.
+    /// </summary>
+    static member FromException (exn: exn) : PgError =
+        GeneralError exn
+
+    /// <summary>
+    /// Gets a human-readable error message.
+    /// </summary>
+    override this.ToString() =
+        match this with
+        | ConnectionFailed(connStr, exn) ->
+            $"Failed to connect: {exn.Message}"
+        | ConnectionClosed msg ->
+            $"Connection closed: {msg}"
+        | OpenFailed exn ->
+            $"Open failed: {exn.Message}"
+        | CloseFailed exn ->
+            $"Close failed: {exn.Message}"
+        | QueryFailed(sql, exn) ->
+            $"Query failed [{sql}]: {exn.Message}"
+        | CommandFailed(sql, exn) ->
+            $"Command failed [{sql}]: {exn.Message}"
+        | TransactionFailed(op, exn) ->
+            $"Transaction {op} failed: {exn.Message}"
+        | ResultSetFailed exn ->
+            $"ResultSet error: {exn.Message}"
+        | PoolExhausted maxSize ->
+            $"Pool exhausted: max {maxSize} connections"
+        | PoolClosed ->
+            "Pool is closed"
+        | GeneralError exn ->
+            $"PostgreSQL error: {exn.Message}"
+
+    /// <summary>
+    /// Converts a PgError to an exception.
+    /// </summary>
+    static member ToException (err: PgError) : exn =
+        match err with
+        | GeneralError exn -> exn
+        | _ -> Exception(err.ToString())
+
+/// <summary>
 /// Configuration for PostgreSQL connection pool.
 /// </summary>
 type ConnectionConfig =

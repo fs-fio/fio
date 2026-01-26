@@ -14,14 +14,14 @@ type FIO<'R, 'E> with
     /// </summary>
     /// <param name="mapper">The function to apply to the result.</param>
     member inline this.Map<'R, 'R1, 'E> (mapper: 'R -> 'R1) : FIO<'R1, 'E> =
-        this.FlatMap(fun res -> FIO.Succeed(mapper res))
+        this.FlatMap(fun res -> FIO.succeed(mapper res))
 
     /// <summary>
     /// Maps a function over the error of this effect.
     /// </summary>
     /// <param name="mapper">The function to apply to the error.</param>
     member inline this.MapError<'R, 'E, 'E1> (mapper: 'E -> 'E1) : FIO<'R, 'E1> =
-        this.CatchAll(fun err -> FIO.Fail(mapper err))
+        this.CatchAll(fun err -> FIO.fail(mapper err))
 
     /// <summary>
     /// Transforms both the success and error channels of this effect simultaneously.
@@ -48,19 +48,19 @@ type FIO<'R, 'E> with
     /// Converts this effect's error channel into a Result, making the effect infallible.
     /// </summary>
     member inline this.Result<'R, 'E, 'E1> () : FIO<Result<'R, 'E>, 'E1> =
-        this.Map(Ok).CatchAll(fun err -> FIO.Succeed(Error err))
+        this.Map(Ok).CatchAll(fun err -> FIO.succeed(Error err))
 
     /// <summary>
     /// Converts this effect's error into None, returning Some on success.
     /// </summary>
     member inline this.Option<'R, 'E, 'E1> () : FIO<'R option, 'E1> =
-        this.Map(Some).CatchAll(fun _ -> FIO.Succeed None)
+        this.Map(Some).CatchAll(fun _ -> FIO.succeed None)
 
     /// <summary>
     /// Converts this effect into a Choice, with Choice1Of2 on success and Choice2Of2 on error.
     /// </summary>
     member inline this.Choice<'R, 'E, 'E1> () : FIO<Choice<'R, 'E>, 'E1> =
-        this.Map(Choice1Of2).CatchAll(fun err -> FIO.Succeed(Choice2Of2 err))
+        this.Map(Choice1Of2).CatchAll(fun err -> FIO.succeed(Choice2Of2 err))
 
     /// <summary>
     /// Executes this effect only if the condition is true, otherwise succeeds with unit.
@@ -68,7 +68,7 @@ type FIO<'R, 'E> with
     /// <param name="cond">The condition to check.</param>
     member inline this.When<'R, 'E> (cond: bool) : FIO<unit, 'E> =
         if cond then this.Unit()
-        else FIO.Unit()
+        else FIO.unit()
 
     /// <summary>
     /// Executes this effect only if the condition is false, otherwise succeeds with unit.
@@ -89,7 +89,7 @@ type FIO<'R, 'E> with
     /// </summary>
     /// <param name="effOnError">The effect to execute on the error value.</param>
     member inline this.TapError<'R, 'R1, 'E> (effOnError: 'E -> FIO<'R1, 'E>) : FIO<'R, 'E> =
-        this.CatchAll(fun err -> effOnError(err).FlatMap(fun _ -> FIO.Fail err))
+        this.CatchAll(fun err -> effOnError(err).FlatMap(fun _ -> FIO.fail err))
 
     /// <summary>
     /// Executes an effect on both success and error, for side effects.
@@ -108,9 +108,10 @@ type FIO<'R, 'E> with
     member inline this.Debug<'R, 'E> (?message: string) : FIO<'R, 'E> =
         let message = defaultArg message "Debug"
         this.Tap(fun res ->
-            FIO.Attempt((fun () -> printfn "%s: %A" message res))
+            FIO.attemptExn(fun () -> printfn "%s: %A" message res)
                 .CatchAll(fun exn ->
-                    eprintfn "Debug print failed. Message: %s, Exception: %s" message (exn.Message); FIO.Unit()))
+                    FIO.attemptExn(fun () -> eprintfn "Debug print failed. Message: %s, Exception: %s" message exn.Message)
+                        .CatchAll(fun _ -> FIO.unit())))
 
     /// <summary>
     /// Prints the error value to stdout for debugging, preserving the original error.
@@ -121,9 +122,10 @@ type FIO<'R, 'E> with
     member inline this.DebugError<'R, 'E> (?message: string) : FIO<'R, 'E> =
         let message = defaultArg message "Debug Error"
         this.TapError(fun err ->
-            FIO.Attempt((fun () -> printfn "%s: %A" message err), id)
+            FIO.attempt((fun () -> printfn "%s: %A" message err), id)
                 .CatchAll(fun exn ->
-                    eprintfn "Debug Error print failed. Message: %s, Exception: %s" message (exn.Message); FIO.Unit()))
+                    FIO.attemptExn(fun () -> eprintfn "Debug Error print failed. Message: %s, Exception: %s" message exn.Message)
+                        .CatchAll(fun _ -> FIO.unit())))
 
     /// <summary>
     /// Falls back to another effect if this effect fails, ignoring the original error.
@@ -191,10 +193,10 @@ type FIO<'R, 'E> with
     member inline this.ZipParError<'R, 'E, 'E1> (eff: FIO<'R, 'E1>) : FIO<'R, 'E * 'E1> =
         eff.Fork().FlatMap(fun fiber ->
             (this.FlatMap(fun res ->
-                fiber.Join().CatchAll(fun _ -> FIO.Succeed res).FlatMap(fun _ -> FIO.Succeed res)))
+                fiber.Join().CatchAll(fun _ -> FIO.succeed res).FlatMap(fun _ -> FIO.succeed res)))
                 .CatchAll(fun err ->
                     fiber.Join().CatchAll(fun err' ->
-                        FIO.Fail(err, err'))))
+                        FIO.fail(err, err'))))
 
     /// <summary>
     /// Executes two effects in parallel, returning the result of the second.
@@ -216,7 +218,7 @@ type FIO<'R, 'E> with
     /// <param name="onError">The function to apply to the error.</param>
     /// <param name="onSuccess">The function to apply to the success value.</param>
     member inline this.Fold<'R, 'R1, 'E, 'E1> (onError: 'E -> 'R1, onSuccess: 'R -> 'R1) : FIO<'R1, 'E1> =
-        this.Map(onSuccess).CatchAll(fun err -> FIO.Succeed(onError err))
+        this.Map(onSuccess).CatchAll(fun err -> FIO.succeed(onError err))
 
     /// <summary>
     /// Folds over both channels using effectful functions with recovery semantics.
@@ -233,21 +235,21 @@ type FIO<'R, 'E> with
     /// <param name="onEachRetry">Optional callback executed after each failure before retrying with (error, attemptNumber, maxAttempts).</param>
     member inline this.Retry<'R, 'E> (maxAttempts: int, ?onEachRetry: 'E * int * int -> FIO<unit, 'E>): FIO<'R, 'E> =
         if maxAttempts < 1 then
-            FIO.Interrupt(InvalidArgument ("maxAttempts", "must be >= 1"), "Invalid argument: maxAttempts must be >= 1")
+            FIO.interrupt(InvalidArgument ("maxAttempts", "must be >= 1"), "Invalid argument: maxAttempts must be >= 1")
         else
-            FIO.Suspend(fun () ->
+            FIO.suspend(fun () ->
                 let rec loop attemptNumber =
                     this.CatchAll(fun err ->
                         if attemptNumber < maxAttempts then
                             match onEachRetry with
                             | Some callback ->
                                 callback(err, attemptNumber, maxAttempts)
-                                    .FlatMap(fun () -> FIO.Suspend(fun () -> loop(attemptNumber + 1)))
+                                    .FlatMap(fun () -> FIO.suspend(fun () -> loop(attemptNumber + 1)))
                             | None ->
-                                FIO.Suspend(fun () -> loop(attemptNumber + 1))
+                                FIO.suspend(fun () -> loop(attemptNumber + 1))
                         else
                             // Final attempt failed, propagate error
-                            FIO.Fail err)
+                            FIO.fail err)
                 loop 1)
 
     /// <summary>
@@ -258,9 +260,9 @@ type FIO<'R, 'E> with
     /// <param name="onEachRetry">Optional callback executed on each retry with (error, attempt, maxAttempts).</param>
     member inline this.RetryOrElse<'R, 'E, 'E1> (maxAttempts: int, orElse: 'E -> FIO<'R, 'E1>, ?onEachRetry: 'E * int * int -> FIO<unit, 'E1>) : FIO<'R, 'E1> =
         if maxAttempts < 1 then
-            FIO.Interrupt(InvalidArgument ("maxAttempts", "must be >= 1"), "Invalid argument: maxAttempts must be >= 1")
+            FIO.interrupt(InvalidArgument ("maxAttempts", "must be >= 1"), "Invalid argument: maxAttempts must be >= 1")
         else
-            FIO.Suspend(fun () ->
+            FIO.suspend(fun () ->
                 let rec loop attempt =
                     if attempt >= maxAttempts then
                         this.CatchAll orElse
@@ -269,9 +271,9 @@ type FIO<'R, 'E> with
                             match onEachRetry with
                             | Some callback ->
                                 callback(err, attempt, maxAttempts)
-                                    .FlatMap(fun () -> FIO.Suspend(fun () -> loop(attempt + 1)))
+                                    .FlatMap(fun () -> FIO.suspend(fun () -> loop(attempt + 1)))
                             | None ->
-                                FIO.Suspend(fun () -> loop(attempt + 1)))
+                                FIO.suspend(fun () -> loop(attempt + 1)))
                 loop 1)
 
     /// <summary>
@@ -282,8 +284,8 @@ type FIO<'R, 'E> with
     /// <param name="onError">A function to map exceptions to the error type.</param>
     member this.Timeout<'R, 'E> (duration: TimeSpan, onError: exn -> 'E) : FIO<'R option, 'E> =
         let timeoutEff =
-            FIO.Sleep(duration, onError)
-                .FlatMap(fun () -> FIO.Succeed None)
+            FIO.sleep(duration, onError)
+                .FlatMap(fun () -> FIO.succeed None)
         this.Map(Some)
             .Race timeoutEff
 
@@ -293,7 +295,7 @@ type FIO<'R, 'E> with
     /// </summary>
     /// <param name="eff">The effect to race against.</param>
     member this.Race<'R, 'E> (eff: FIO<'R, 'E>) : FIO<'R, 'E> =
-        FIO.Suspend(fun () ->
+        FIO.suspend(fun () ->
             this.Fork().FlatMap(fun fiber1 ->
                 eff.Fork().FlatMap(fun fiber2 ->
                     let resultChan = new Channel<Choice<Result<'R, 'E>, Result<'R, 'E>>>()
@@ -304,7 +306,7 @@ type FIO<'R, 'E> with
                                 resultChan.Send(Choice1Of2 (Ok r)))
                             .CatchAll(fun e ->
                                 resultChan.Send(Choice1Of2 (Error e)))
-                            .CatchAll(fun _ -> FIO.Succeed Unchecked.defaultof<_>) // 
+                            .CatchAll(fun _ -> FIO.succeed Unchecked.defaultof<_>)
                             .Fork()
 
                     let waiter2 =
@@ -313,7 +315,7 @@ type FIO<'R, 'E> with
                                 resultChan.Send(Choice2Of2 (Ok r)))
                             .CatchAll(fun e ->
                                 resultChan.Send(Choice2Of2 (Error e)))
-                            .CatchAll(fun _ -> FIO.Succeed Unchecked.defaultof<_>)
+                            .CatchAll(fun _ -> FIO.succeed Unchecked.defaultof<_>)
                             .Fork()
 
                     waiter1.FlatMap(fun _ ->
@@ -322,11 +324,11 @@ type FIO<'R, 'E> with
                                 let interruptLoser =
                                     match choice with
                                     | Choice1Of2 _ ->
-                                        FIO.Attempt(fun () -> fiber2.Internal.Interrupt(ExplicitInterrupt, "Lost race"))
-                                            .CatchAll(fun _ -> FIO.Unit())
+                                        FIO.attemptExn(fun () -> fiber2.Internal.Interrupt(ExplicitInterrupt, "Lost race"))
+                                            .CatchAll(fun _ -> FIO.unit())
                                     | Choice2Of2 _ ->
-                                        FIO.Attempt(fun () -> fiber1.Internal.Interrupt(ExplicitInterrupt, "Lost race"))
-                                            .CatchAll(fun _ -> FIO.Unit())
+                                        FIO.attemptExn(fun () -> fiber1.Internal.Interrupt(ExplicitInterrupt, "Lost race"))
+                                            .CatchAll(fun _ -> FIO.unit())
 
                                 interruptLoser.FlatMap(fun () ->
                                     let result =
@@ -335,17 +337,17 @@ type FIO<'R, 'E> with
                                         | Choice2Of2 res -> res
 
                                     match result with
-                                    | Ok res -> FIO.Succeed res
-                                    | Error err -> FIO.Fail err)))))))
+                                    | Ok res -> FIO.succeed res
+                                    | Error err -> FIO.fail err)))))))
 
     /// <summary>
     /// Measures the execution time of this effect, returning the duration and result.
     /// </summary>
     /// <param name="onError">A function to map exceptions to the error type.</param>
     member inline this.Timed<'R, 'E> (onError: exn -> 'E) : FIO<TimeSpan * 'R, 'E> =
-        FIO.Attempt(Stopwatch.StartNew, onError)
+        FIO.attempt(Stopwatch.StartNew, onError)
             .FlatMap(fun sw ->
-                this.Ensuring(FIO.Unit().FlatMap(fun () -> sw.Stop(); FIO.Unit()))
+                this.Ensuring(FIO.unit().FlatMap(fun () -> sw.Stop(); FIO.unit()))
                     .Map(fun res -> sw.Elapsed, res))
 
     /// <summary>
@@ -366,7 +368,7 @@ type FIO<'R, 'E> with
         this.CatchAll(fun err ->
             match pf err with
             | Some recovery -> recovery
-            | None -> FIO.Fail err)
+            | None -> FIO.fail err)
 
     // <summary>
     // Converts all errors to defects (interruptions), making the effect infallible.
@@ -374,4 +376,4 @@ type FIO<'R, 'E> with
     // <param name="toMessage">A function to convert the error to an interruption message.</param>
     member inline this.OrInterrupt<'R, 'E, 'E1> (toMessage: 'E -> string) : FIO<'R, 'E1> =
         this.CatchAll(fun err ->
-            FIO.Interrupt(ResourceExhaustion (toMessage err), "Fiber interrupted due to unrecoverable error"))
+            FIO.interrupt(ResourceExhaustion (toMessage err), "Fiber interrupted due to unrecoverable error"))

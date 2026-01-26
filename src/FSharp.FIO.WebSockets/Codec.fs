@@ -26,30 +26,30 @@ module Codec =
     /// Identity codec for WebSocketFrame (no encoding/decoding).
     /// </summary>
     let frame: WebSocketCodec<WebSocketFrame> =
-        { Encode = fun frame -> FIO.Succeed frame
-          Decode = fun frame -> FIO.Succeed frame }
+        { Encode = fun frame -> FIO.succeed frame
+          Decode = fun frame -> FIO.succeed frame }
 
     /// <summary>
     /// Codec for byte arrays (binary frames).
     /// </summary>
     let binary: WebSocketCodec<byte[]> =
-        { Encode = fun bytes -> FIO.Succeed(Binary bytes)
+        { Encode = fun bytes -> FIO.succeed(Binary bytes)
           Decode = fun frame ->
             match frame with
-            | Binary bytes -> FIO.Succeed bytes
-            | Text _ -> FIO.Fail(CodecError "Expected binary frame, got text frame")
-            | Close _ -> FIO.Fail(CodecError "Expected binary frame, got close frame") }
+            | Binary bytes -> FIO.succeed bytes
+            | Text _ -> FIO.fail(CodecError "Expected binary frame, got text frame")
+            | Close _ -> FIO.fail(CodecError "Expected binary frame, got close frame") }
 
     /// <summary>
     /// UTF-8 string codec (text frames).
     /// </summary>
     let text: WebSocketCodec<string> =
-        { Encode = fun str -> FIO.Succeed(Text str)
+        { Encode = fun str -> FIO.succeed(Text str)
           Decode = fun frame ->
             match frame with
-            | Text str -> FIO.Succeed str
-            | Binary _ -> FIO.Fail(CodecError "Expected text frame, got binary frame")
-            | Close _ -> FIO.Fail(CodecError "Expected text frame, got close frame") }
+            | Text str -> FIO.succeed str
+            | Binary _ -> FIO.fail(CodecError "Expected text frame, got binary frame")
+            | Close _ -> FIO.fail(CodecError "Expected text frame, got close frame") }
 
     /// <summary>
     /// JSON codec with custom options (sent as text frames).
@@ -57,7 +57,7 @@ module Codec =
     /// <param name="options">JSON serializer options.</param>
     let jsonWithOptions<'T> (options: JsonSerializerOptions) : WebSocketCodec<'T> =
         { Encode = fun value ->
-            FIO.Attempt(
+            FIO.attempt(
                 (fun () ->
                     let json = JsonSerializer.Serialize(value, options)
                     Text json),
@@ -65,16 +65,16 @@ module Codec =
           Decode = fun frame ->
             match frame with
             | Text json ->
-                FIO.Attempt(
+                FIO.attempt(
                     (fun () -> JsonSerializer.Deserialize<'T>(json, options)),
                     WsError.FromException)
             | Binary bytes ->
-                FIO.Attempt(
+                FIO.attempt(
                     (fun () ->
                         let json = Encoding.UTF8.GetString bytes
                         JsonSerializer.Deserialize<'T>(json, options)),
                     WsError.FromException)
-            | Close _ -> FIO.Fail(CodecError "Cannot decode close frame as JSON") }
+            | Close _ -> FIO.fail(CodecError "Cannot decode close frame as JSON") }
 
     /// <summary>
     /// JSON codec with default options.
@@ -90,7 +90,7 @@ module Codec =
         let opts = defaultArg options (JsonSerializerOptions())
 
         { Encode = fun value ->
-            FIO.Attempt(
+            FIO.attempt(
                 (fun () ->
                     let json = JsonSerializer.Serialize(value, opts)
                     Text(json + "\n")),
@@ -98,18 +98,18 @@ module Codec =
           Decode = fun frame ->
             match frame with
             | Text json ->
-                FIO.Attempt(
+                FIO.attempt(
                     (fun () ->
                         let trimmed = json.TrimEnd('\n', '\r')
                         JsonSerializer.Deserialize<'T>(trimmed, opts)),
                     WsError.FromException)
             | Binary bytes ->
-                FIO.Attempt(
+                FIO.attempt(
                     (fun () ->
                         let json = Encoding.UTF8.GetString(bytes).TrimEnd('\n', '\r')
                         JsonSerializer.Deserialize<'T>(json, opts)),
                     WsError.FromException)
-            | Close _ -> FIO.Fail(CodecError "Cannot decode close frame as JSON line") }
+            | Close _ -> FIO.fail(CodecError "Cannot decode close frame as JSON line") }
 
     /// <summary>
     /// Maps a codec to a different type using bidirectional functions.
@@ -133,7 +133,7 @@ module Codec =
     /// <param name="codec2">Codec for the second element.</param>
     let compose (codec1: WebSocketCodec<'A>) (codec2: WebSocketCodec<'B>) : WebSocketCodec<'A * 'B> =
         { Encode = fun (a, b) ->
-            FIO.Attempt(
+            FIO.attempt(
                 (fun () ->
                     // Serialize each value separately to preserve type info
                     let jsonA = JsonSerializer.Serialize(a)
@@ -142,7 +142,7 @@ module Codec =
                     Text json),
                 WsError.FromException)
           Decode = fun frame ->
-            FIO.Attempt(
+            FIO.attempt(
                 (fun () ->
                     let json =
                         match frame with
@@ -193,6 +193,6 @@ module Codec =
     /// <param name="decode">Pure decoding function.</param>
     let createPure (encode: 'T -> WebSocketFrame) (decode: WebSocketFrame -> 'T) : WebSocketCodec<'T> =
         { Encode = fun value ->
-            FIO.Attempt((fun () -> encode value), WsError.FromException)
+            FIO.attempt((fun () -> encode value), WsError.FromException)
           Decode = fun frame ->
-            FIO.Attempt((fun () -> decode frame), WsError.FromException) }
+            FIO.attempt((fun () -> decode frame), WsError.FromException) }

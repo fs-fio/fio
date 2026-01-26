@@ -44,7 +44,7 @@ and internal WorkItem =
 /// Used by CooperativeRuntime's blocking worker for linear-time polling.
 /// </summary>
 and internal BlockingItem =
-    | BlockingChannel of channel: obj channel * waitingWorkItem: WorkItem
+    | BlockingChannel of channel: Channel<obj> * waitingWorkItem: WorkItem
     | BlockingFiber of fiberContext: FiberContext * waitingWorkItem: WorkItem
 
 /// <summary>
@@ -159,8 +159,8 @@ and [<Sealed>] internal FiberContext () =
         while registrations.TryTake(&registration) do
             try
                 registration.Dispose()
-            with _ ->
-                () // Swallow disposal errors to ensure all registrations are attempted
+            with :? ObjectDisposedException ->
+                ()
 
     /// <summary>
     /// Completes the fiber with the given result.
@@ -328,8 +328,8 @@ and [<Sealed>] Fiber<'R, 'E> internal () =
             |> Async.AwaitTask
             |> Async.RunSynchronously with
         | Succeeded res -> res
-        | Failed err -> raise (InvalidOperationException(sprintf "Fiber failed with error: %A" err))
-        | Interrupted exn -> raise (InvalidOperationException(sprintf "Fiber was interrupted: %s" exn.Message))
+        | Failed err -> raise (InvalidOperationException $"Fiber failed with error: {err}")
+        | Interrupted exn -> raise (InvalidOperationException $"Fiber was interrupted: {exn.Message}")
 
     /// <summary>
     /// Synchronously blocks and returns the fiber's error value, or throws if the fiber succeeded.
@@ -344,15 +344,15 @@ and [<Sealed>] Fiber<'R, 'E> internal () =
             this.Task()
             |> Async.AwaitTask
             |> Async.RunSynchronously with
-        | Succeeded res -> raise (InvalidOperationException(sprintf "Fiber succeeded with result: %A" res))
+        | Succeeded res -> raise (InvalidOperationException $"Fiber succeeded with result: {res}")
         | Failed err -> err
-        | Interrupted exn -> raise (InvalidOperationException(sprintf "Fiber was interrupted: %s" exn.Message))
+        | Interrupted exn -> raise (InvalidOperationException $"Fiber was interrupted: {exn.Message}")
 
     /// <summary>
     /// Synchronously blocks and prints the fiber's result to the console.
     /// This is an unsafe blocking operation that should be used with caution.
     /// Use this for quick debugging or in simple CLI applications where blocking is acceptable.
-    /// For production code, prefer using Join() with FConsole.PrintLine within the effect system.
+    /// For production code, prefer using Join() with FConsole.printLine within the effect system.
     /// </summary>
     member this.UnsafePrintResult<'R, 'E> () =
         printfn "%A" (this.UnsafeResult<'R, 'E>())
@@ -510,10 +510,6 @@ and [<Sealed>] Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, bl
     member internal _.Upcast () =
         Channel<obj>(id, resChan, blockingWorkItemChan)
 
-/// <summary>
-/// Type alias for Channel with lowercase naming convention.
-/// </summary>
-and channel<'R> = Channel<'R>
 
 /// <summary>
 /// A functional effect that succeeds with a result or fails with an error when interpreted.
@@ -539,7 +535,7 @@ and FIO<'R, 'E> =
     /// <summary>
     /// Executes this effect concurrently in a new Fiber.
     /// </summary>
-    member this.Fork<'R, 'E, 'E1> () : FIO<Fiber<'R, 'E>, 'E1> =
+    member this.Fork<'E1> () : FIO<Fiber<'R, 'E>, 'E1> =
         let fiber = new Fiber<'R, 'E>()
         ForkEffect(this.Upcast(), fiber, fiber.Internal)
 
@@ -547,21 +543,21 @@ and FIO<'R, 'E> =
     /// Chains this effect with a continuation function (monadic bind).
     /// </summary>
     /// <param name="cont">The continuation function.</param>
-    member this.FlatMap<'R, 'R1, 'E> (cont: 'R -> FIO<'R1, 'E>) : FIO<'R1, 'E> =
+    member this.FlatMap<'R1> (cont: 'R -> FIO<'R1, 'E>) : FIO<'R1, 'E> =
         ChainSuccess(this.UpcastResult(), fun res -> cont(res :?> 'R))
 
     /// <summary>
     /// Handles errors with a recovery function.
     /// </summary>
     /// <param name="onError">The error handler function.</param>
-    member this.CatchAll<'R, 'E, 'E1> (onError: 'E -> FIO<'R, 'E1>) : FIO<'R, 'E1> =
+    member this.CatchAll<'E1> (onError: 'E -> FIO<'R, 'E1>) : FIO<'R, 'E1> =
         ChainError(this.UpcastError(), fun err -> onError(err :?> 'E))
 
     /// <summary>
     /// Runs a finalizer after this effect, preserving the original outcome.
     /// </summary>
     /// <param name="finalizer">The finalizer effect to run.</param>
-    member this.Ensuring<'R, 'E> (finalizer: FIO<unit, 'E>) : FIO<'R, 'E> =
+    member this.Ensuring (finalizer: FIO<unit, 'E>) : FIO<'R, 'E> =
         let runFinalizer outcome =
             finalizer
                 .CatchAll(fun _ -> Success())

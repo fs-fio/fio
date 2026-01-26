@@ -135,7 +135,7 @@ module Middleware =
             fun request ->
                 fio {
                     let effect = handler request
-                    let timeoutEffect = FIO.Sleep(duration, id) >>= fun () -> FIO.Succeed Response.requestTimeout
+                    let timeoutEffect = FIO.sleep(duration, id) >>= fun () -> FIO.succeed Response.requestTimeout
                     let! response = effect <|> timeoutEffect
                     return response
                 })
@@ -156,7 +156,7 @@ module Middleware =
                     | None -> true
 
                 if not isAllowed then
-                    FIO.Succeed Response.forbidden
+                    FIO.succeed Response.forbidden
                 else
                     fio {
                         let! response = handler request
@@ -233,7 +233,7 @@ module Middleware =
     let errorHandler (handleError: 'E -> HttpResponse) : Middleware<'E> =
         create (fun handler ->
             fun request ->
-                (handler request).CatchAll(fun error -> FIO.Succeed (handleError error)))
+                (handler request).CatchAll(fun error -> FIO.succeed (handleError error)))
 
 /// <summary>
 /// Operators for middleware composition.

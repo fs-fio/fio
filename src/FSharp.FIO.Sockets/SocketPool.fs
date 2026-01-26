@@ -36,7 +36,7 @@ module SocketPool =
     let private logAndSuppress (context: string) (err: SocketError) : FIO<unit, SocketError> =
         fio {
             let message = SocketError.ToString err
-            do! FIO.Attempt((fun () ->
+            do! FIO.attempt((fun () ->
                 eprintfn $"[SocketPool] Error during {context}: {message}"), SocketError.FromException)
             return ()
         }
@@ -67,7 +67,7 @@ module SocketPool =
     /// </summary>
     /// <param name="config">Pool configuration.</param>
     let create (config: SocketPoolConfig) : FIO<SocketPool, SocketError> =
-        FIO.Attempt((fun () ->
+        FIO.attempt((fun () ->
             {
                 Config = config
                 Available = []
@@ -113,7 +113,7 @@ module SocketPool =
     let acquire (pool: SocketPool) : FIO<Socket, SocketError> =
         fio {
             if pool.Closed then
-                return! FIO.Fail PoolClosed
+                return! FIO.fail PoolClosed
 
             let decision = lock pool.Lock (fun () ->
                 match pool.Available with
@@ -154,7 +154,7 @@ module SocketPool =
                 return! SocketClient.connect pool.Config.SocketConfig
 
             | WaitForSlot ->
-                return! FIO.Fail (PoolExhausted pool.Config.MaxPoolSize)
+                return! FIO.fail (PoolExhausted pool.Config.MaxPoolSize)
         }
 
     /// <summary>

@@ -37,7 +37,7 @@ let config = {
 }
 
 // Database initialization
-let initializeDatabase (pool: ConnectionPool) : FIO<unit, exn> =
+let initializeDatabase (pool: ConnectionPool) : FIO<unit, PgError> =
     fio {
         // Create users table
         let createTableSql = """
@@ -58,7 +58,7 @@ let initializeDatabase (pool: ConnectionPool) : FIO<unit, exn> =
     }
 
 // Query examples
-let getUserById (id: int) (pool: ConnectionPool) : FIO<User option, exn> =
+let getUserById (id: int) (pool: ConnectionPool) : FIO<User option, PgError> =
     fio {
         let sql = "SELECT id, name, email, age FROM users WHERE id = @id"
         let parameters = ["id" @= id]
@@ -73,7 +73,7 @@ let getUserById (id: int) (pool: ConnectionPool) : FIO<User option, exn> =
         return! queryFirstWithParams sql parameters mapper pool
     }
 
-let getAllUsers (pool: ConnectionPool) : FIO<User list, exn> =
+let getAllUsers (pool: ConnectionPool) : FIO<User list, PgError> =
     fio {
         let sql = "SELECT id, name, email, age FROM users ORDER BY id"
 
@@ -87,7 +87,7 @@ let getAllUsers (pool: ConnectionPool) : FIO<User list, exn> =
         return! query sql mapper pool
     }
 
-let getUsersByMinAge (minAge: int) (pool: ConnectionPool) : FIO<User list, exn> =
+let getUsersByMinAge (minAge: int) (pool: ConnectionPool) : FIO<User list, PgError> =
     fio {
         let sql = """
             SELECT id, name, email, age
@@ -108,7 +108,7 @@ let getUsersByMinAge (minAge: int) (pool: ConnectionPool) : FIO<User list, exn> 
     }
 
 // Command examples
-let createUser (name: string) (email: string) (age: int option) (pool: ConnectionPool) : FIO<int, exn> =
+let createUser (name: string) (email: string) (age: int option) (pool: ConnectionPool) : FIO<int, PgError> =
     fio {
         let sql = """
             INSERT INTO users (name, email, age)
@@ -125,7 +125,7 @@ let createUser (name: string) (email: string) (age: int option) (pool: Connectio
         return! insertReturning<int> sql parameters pool
     }
 
-let updateUserAge (userId: int) (newAge: int) (pool: ConnectionPool) : FIO<int, exn> =
+let updateUserAge (userId: int) (newAge: int) (pool: ConnectionPool) : FIO<int, PgError> =
     fio {
         let sql = "UPDATE users SET age = @age WHERE id = @id"
         let parameters = [
@@ -136,7 +136,7 @@ let updateUserAge (userId: int) (newAge: int) (pool: ConnectionPool) : FIO<int, 
         return! executeWithParams sql parameters pool
     }
 
-let deleteUser (userId: int) (pool: ConnectionPool) : FIO<int, exn> =
+let deleteUser (userId: int) (pool: ConnectionPool) : FIO<int, PgError> =
     fio {
         let sql = "DELETE FROM users WHERE id = @id"
         let parameters = ["id" @= userId]
@@ -145,7 +145,7 @@ let deleteUser (userId: int) (pool: ConnectionPool) : FIO<int, exn> =
     }
 
 // Transaction example
-let transferUserOwnership (fromEmail: string) (toEmail: string) (pool: ConnectionPool) : FIO<unit, exn> =
+let transferUserOwnership (fromEmail: string) (toEmail: string) (pool: ConnectionPool) : FIO<unit, PgError> =
     Dsl.transaction (fun conn ->
         fio {
             // Get source user
@@ -172,12 +172,12 @@ let transferUserOwnership (fromEmail: string) (toEmail: string) (pool: Connectio
 
                 return ()
             | None ->
-                return! FIO.Fail (System.Exception($"User with email {fromEmail} not found"))
+                return! FIO.fail (GeneralError (System.Exception($"User with email {fromEmail} not found")))
         }
     ) pool
 
 // Demo application
-let demoEffect : FIO<unit, exn> =
+let demoEffect : FIO<unit, PgError> =
     fio {
         printfn "=== FSharp.FIO.PostgreSQL Example ==="
         printfn ""
@@ -251,7 +251,7 @@ let demoEffect : FIO<unit, exn> =
 
 // Application entry point
 type PostgreSQLExampleApp() =
-    inherit FIOApp<unit, exn>()
+    inherit FIOApp<unit, PgError>()
     override _.effect = demoEffect
 
 [<EntryPoint>]

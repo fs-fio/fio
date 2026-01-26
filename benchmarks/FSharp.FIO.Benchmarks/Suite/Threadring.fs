@@ -17,17 +17,17 @@ open System
 
 type private Actor =
     { Name: string
-      SendChan: int channel
-      ReceiveChan: int channel }
+      SendChan: Channel<int>
+      ReceiveChan: Channel<int> }
 
-let private actorEff (actor, isLastActor, roundCount, timerChan: TimerMessage<int> channel) =
+let private actorEff (actor, isLastActor, roundCount, timerChan: Channel<TimerMessage<int>>) =
     fio {
         do! timerChan.Send(Start).Unit()
         
         for round in 1..roundCount do
             let! receivedMsg = actor.ReceiveChan.Receive()
             #if DEBUG
-            do! Console.PrintLine $"[DEBUG]: %s{actor.Name} received: %i{receivedMsg}"
+            do! Console.printLineExn $"[DEBUG]: %s{actor.Name} received: %i{receivedMsg}"
             #endif
             if isLastActor && round = roundCount then
                 // The last actor of the last round should not send a message
@@ -35,14 +35,14 @@ let private actorEff (actor, isLastActor, roundCount, timerChan: TimerMessage<in
             else
                 let! sentMsg = actor.SendChan.Send(receivedMsg + 1)
                 #if DEBUG
-                do! Console.PrintLine $"[DEBUG]: %s{actor.Name} sent: %i{sentMsg}"
+                do! Console.printLineExn $"[DEBUG]: %s{actor.Name} sent: %i{sentMsg}"
                 #endif
                 return ()
         
         do! timerChan.Send(Stop).Unit()
     }
 
-let private threadringEff (actors: Actor list, roundCount: int, timerChan: TimerMessage<int> channel) =
+let private threadringEff (actors: Actor list, roundCount: int, timerChan: Channel<TimerMessage<int>>) =
     fio {
         let mutable currentEff = actorEff(actors.Head, false, roundCount, timerChan)
         do! timerChan.Send(MsgChannel actors.Head.ReceiveChan).Unit()
@@ -74,14 +74,14 @@ let threadringBenchmark config : FIO<int64, exn> =
     fio {
         let! actorCount, roundCount =
             match config with
-            | ThreadringConfig(ac, rc) -> FIO.Succeed(ac, rc)
-            | _ -> FIO.Fail(ArgumentException("Threadring benchmark initialization failed: Requires a ThreadringConfig", nameof config))
+            | ThreadringConfig(ac, rc) -> FIO.succeed(ac, rc)
+            | _ -> FIO.fail(ArgumentException("Threadring benchmark initialization failed: Requires a ThreadringConfig", nameof config))
         
         if actorCount < 2 then
-            return! FIO.Fail(ArgumentException($"Threadring benchmark initialization failed: At least 2 actors should be specified. actorCount = %i{actorCount}", nameof actorCount))
+            return! FIO.fail(ArgumentException($"Threadring benchmark initialization failed: At least 2 actors should be specified. actorCount = %i{actorCount}", nameof actorCount))
         
         if roundCount < 1 then
-            return! FIO.Fail(ArgumentException($"Threadring benchmark initialization failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount))
+            return! FIO.fail(ArgumentException($"Threadring benchmark initialization failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount))
         
         let chans = [for _ in 1..actorCount -> Channel<int>()]
         let timerChan = Channel<TimerMessage<int>>()

@@ -16,7 +16,7 @@ module SocketClient =
     /// <param name="config">Socket configuration including host and port.</param>
     let connect (config: SocketConfig) : FIO<Socket, SocketError> =
         fio {
-            let! netSocket = FIO.Attempt((fun () ->
+            let! netSocket = FIO.attempt((fun () ->
                 let s = new Sockets.Socket(config.AddressFamily, config.SocketType, config.ProtocolType)
                 s.SendBufferSize <- config.SendBufferSize
                 s.ReceiveBufferSize <- config.ReceiveBufferSize
@@ -26,7 +26,7 @@ module SocketClient =
                 s),
                 SocketError.FromException)
 
-            do! FIO.AwaitTask(
+            do! FIO.awaitTask(
                 netSocket.ConnectAsync(config.Host, config.Port),
                 fun ex -> ConnectionFailed(config.Host, config.Port, ex))
 
@@ -51,9 +51,9 @@ module SocketClient =
     /// <param name="config">Socket configuration.</param>
     /// <param name="action">Action to execute with the socket.</param>
     let withConnection (config: SocketConfig) (action: Socket -> FIO<'R, SocketError>) : FIO<'R, SocketError> =
-        FIO.AcquireRelease(
+        FIO.acquireRelease(
             connect config,
-            (fun socket -> socket.Close().CatchAll(fun _ -> FIO.Unit())),
+            (fun socket -> socket.Close().CatchAll(fun _ -> FIO.unit())),
             action
         )
 

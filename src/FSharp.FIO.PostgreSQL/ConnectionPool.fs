@@ -16,8 +16,8 @@ module Pool =
     /// Uses NpgsqlDataSource for efficient connection pooling.
     /// </summary>
     /// <param name="config">The connection pool configuration.</param>
-    let create (config: ConnectionConfig) : FIO<ConnectionPool, exn> =
-        FIO.Attempt(
+    let create (config: ConnectionConfig) : FIO<ConnectionPool, PgError> =
+        FIO.attempt(
             (fun () ->
                 let builder = NpgsqlDataSourceBuilder(config.ConnectionString)
 
@@ -33,34 +33,26 @@ module Pool =
                     DataSource = dataSource
                     Config = config
                 }),
-            id)
+            fun e -> ConnectionFailed(config.ConnectionString, e))
 
     /// <summary>
     /// Acquires a connection from the pool.
-    /// The connection should be released by calling Connection.close or using withConnection.
+    /// The connection should be released by calling Conn.close or using withConn.
     /// </summary>
     /// <param name="pool">The connection pool to acquire from.</param>
-    let acquire (pool: ConnectionPool) : FIO<Connection, exn> =
-        fio {
-            let! npgsqlConn =
-                FIO.Attempt(
-                    (fun () -> pool.DataSource.CreateConnection()),
-                    id)
-
-            return Conn.create npgsqlConn pool
-        }
+    let acquire (pool: ConnectionPool) : FIO<Connection, PgError> =
+        FIO.attempt(
+            (fun () -> pool.DataSource.CreateConnection()),
+            GeneralError)
+            .Map(fun npgsqlConn -> Conn.create npgsqlConn pool)
 
     /// <summary>
     /// Acquires a connection from the pool asynchronously.
     /// </summary>
     /// <param name="pool">The connection pool to acquire from.</param>
-    let acquireAsync (pool: ConnectionPool) : FIO<Connection, exn> =
-        fio {
-            let! npgsqlConn =
-                FIO.AwaitTask(pool.DataSource.OpenConnectionAsync().AsTask(), id)
-
-            return Conn.create npgsqlConn pool
-        }
+    let acquireAsync (pool: ConnectionPool) : FIO<Connection, PgError> =
+        FIO.awaitGenericTask(pool.DataSource.OpenConnectionAsync().AsTask(), GeneralError)
+            .Map(fun npgsqlConn -> Conn.create npgsqlConn pool)
 
     /// <summary>
     /// Executes an action with a connection from the pool.
@@ -68,12 +60,12 @@ module Pool =
     /// </summary>
     /// <param name="action">The action to execute with the connection.</param>
     /// <param name="pool">The connection pool to acquire from.</param>
-    let withConnection (action: Connection -> FIO<'R, 'E>) (pool: ConnectionPool) : FIO<'R, 'E> =
+    let withConnection (action: Connection -> FIO<'R, PgError>) (pool: ConnectionPool) : FIO<'R, PgError> =
         fio {
-            let! conn = (acquire pool).MapError (fun e -> Unchecked.defaultof<'E>)
-            let! _ = (Conn.openAsync conn).MapError (fun e -> Unchecked.defaultof<'E>)
+            let! conn = acquire pool
+            do! Conn.openAsync conn
             let! result = action conn
-            let! _ = (Conn.closeAsync conn).MapError (fun _ -> Unchecked.defaultof<'E>)
+            do! Conn.closeAsync conn
             return result
         }
 
@@ -83,11 +75,11 @@ module Pool =
     /// </summary>
     /// <param name="action">The action to execute with the connection.</param>
     /// <param name="pool">The connection pool to acquire from.</param>
-    let withConnectionAsync (action: Connection -> FIO<'R, 'E>) (pool: ConnectionPool) : FIO<'R, 'E> =
+    let withConnectionAsync (action: Connection -> FIO<'R, PgError>) (pool: ConnectionPool) : FIO<'R, PgError> =
         fio {
-            let! conn = (acquireAsync pool).MapError (fun e -> Unchecked.defaultof<'E>)
+            let! conn = acquireAsync pool
             let! result = action conn
-            let! _ = (Conn.closeAsync conn).MapError (fun _ -> Unchecked.defaultof<'E>)
+            do! Conn.closeAsync conn
             return result
         }
 
@@ -96,20 +88,17 @@ module Pool =
     /// All connections in the pool will be closed.
     /// </summary>
     /// <param name="pool">The connection pool to close.</param>
-    let close (pool: ConnectionPool) : FIO<unit, exn> =
-        FIO.Attempt(
-            (fun () ->
-                pool.DataSource.Dispose()),
-            id)
+    let close (pool: ConnectionPool) : FIO<unit, PgError> =
+        FIO.attempt(
+            (fun () -> pool.DataSource.Dispose()),
+            CloseFailed)
 
     /// <summary>
     /// Closes and disposes the connection pool asynchronously.
     /// </summary>
     /// <param name="pool">The connection pool to close.</param>
-    let closeAsync (pool: ConnectionPool) : FIO<unit, exn> =
-        fio {
-            return! FIO.AwaitTask(pool.DataSource.DisposeAsync().AsTask(), id)
-        }
+    let closeAsync (pool: ConnectionPool) : FIO<unit, PgError> =
+        FIO.awaitTask(pool.DataSource.DisposeAsync().AsTask(), CloseFailed)
 
     /// <summary>
     /// Gets the connection configuration for the pool.

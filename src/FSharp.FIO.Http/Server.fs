@@ -76,7 +76,7 @@ module Server =
     /// <param name="routes">The routes to serve.</param>
     /// <param name="runtime">The FIO runtime to use for executing effects.</param>
     let createWithRuntime (config: ServerConfig) (routes: Routes<exn>) (runtime: DefaultRuntime) : FIO<FIOServer, exn> =
-        FIO.Attempt((fun () ->
+        FIO.attempt((fun () ->
             {
                 Config = config
                 Routes = routes
@@ -112,7 +112,7 @@ module Server =
 
             let! startResult =
                 try
-                    FIO.AwaitTask(app.StartAsync(), id)
+                    FIO.awaitTask(app.StartAsync(), id)
                 with exn ->
                     app.DisposeAsync().AsTask() |> Async.AwaitTask |> Async.RunSynchronously
                     raise exn
@@ -129,9 +129,9 @@ module Server =
         fio {
             match server.Host with
             | Some host ->
-                do! FIO.AwaitTask(host.StopAsync(), id)
+                do! FIO.awaitTask(host.StopAsync(), id)
                 // IHost uses synchronous Dispose, not DisposeAsync
-                do! FIO.Attempt((fun () -> host.Dispose()), id)
+                do! FIO.attempt((fun () -> host.Dispose()), id)
                 printfn "FIO HTTP Server stopped"
                 return { server with Host = None }
             | None ->
@@ -147,9 +147,9 @@ module Server =
         fio {
             match server.Host with
             | Some host ->
-                do! FIO.AwaitTask(host.WaitForShutdownAsync(), id)
+                do! FIO.awaitTask(host.WaitForShutdownAsync(), id)
             | None ->
-                return! FIO.Fail(exn "FIO HTTP Server not started. Call Server.start first.")
+                return! FIO.fail(exn "FIO HTTP Server not started. Call Server.start first.")
         }
 
     /// <summary>

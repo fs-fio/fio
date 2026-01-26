@@ -12,11 +12,10 @@ module Command =
     /// </summary>
     /// <param name="sql">The SQL command to execute.</param>
     /// <param name="conn">The connection to execute on.</param>
-    let execute (sql: string) (conn: Connection) : FIO<int, exn> =
-        fio {
-            let cmd = Conn.createCommand sql conn
-            return! FIO.AwaitTask(cmd.ExecuteNonQueryAsync(), id)
-        }
+    let execute (sql: string) (conn: Connection) : FIO<int, PgError> =
+        FIO.awaitGenericTask(
+            (Conn.createCommand sql conn).ExecuteNonQueryAsync(),
+            fun e -> CommandFailed(sql, e))
 
     /// <summary>
     /// Executes a SQL command with parameters and returns the number of affected rows.
@@ -24,18 +23,17 @@ module Command =
     /// <param name="sql">The SQL command to execute.</param>
     /// <param name="parameters">The parameters for the command.</param>
     /// <param name="conn">The connection to execute on.</param>
-    let executeWithParams (sql: string) (parameters: SqlParameter list) (conn: Connection) : FIO<int, exn> =
-        fio {
-            let cmd = Conn.createCommandWithParams sql parameters conn
-            return! FIO.AwaitTask(cmd.ExecuteNonQueryAsync(), id)
-        }
+    let executeWithParams (sql: string) (parameters: SqlParameter list) (conn: Connection) : FIO<int, PgError> =
+        FIO.awaitGenericTask(
+            (Conn.createCommandWithParams sql parameters conn).ExecuteNonQueryAsync(),
+            fun e -> CommandFailed(sql, e))
 
     /// <summary>
     /// Executes an INSERT command and returns the number of inserted rows.
     /// </summary>
     /// <param name="sql">The INSERT SQL command.</param>
     /// <param name="conn">The connection to execute on.</param>
-    let insert (sql: string) (conn: Connection) : FIO<int, exn> =
+    let insert (sql: string) (conn: Connection) : FIO<int, PgError> =
         execute sql conn
 
     /// <summary>
@@ -44,7 +42,7 @@ module Command =
     /// <param name="sql">The INSERT SQL command.</param>
     /// <param name="parameters">The parameters for the command.</param>
     /// <param name="conn">The connection to execute on.</param>
-    let insertWithParams (sql: string) (parameters: SqlParameter list) (conn: Connection) : FIO<int, exn> =
+    let insertWithParams (sql: string) (parameters: SqlParameter list) (conn: Connection) : FIO<int, PgError> =
         executeWithParams sql parameters conn
 
     /// <summary>
@@ -52,7 +50,7 @@ module Command =
     /// </summary>
     /// <param name="sql">The INSERT SQL command with RETURNING clause.</param>
     /// <param name="conn">The connection to execute on.</param>
-    let insertReturning<'T> (sql: string) (conn: Connection) : FIO<'T, exn> =
+    let insertReturning<'T> (sql: string) (conn: Connection) : FIO<'T, PgError> =
         Query.executeScalar<'T> sql conn
 
     /// <summary>
@@ -61,7 +59,7 @@ module Command =
     /// <param name="sql">The INSERT SQL command with RETURNING clause.</param>
     /// <param name="parameters">The parameters for the command.</param>
     /// <param name="conn">The connection to execute on.</param>
-    let insertReturningWithParams<'T> (sql: string) (parameters: SqlParameter list) (conn: Connection) : FIO<'T, exn> =
+    let insertReturningWithParams<'T> (sql: string) (parameters: SqlParameter list) (conn: Connection) : FIO<'T, PgError> =
         Query.executeScalarWithParams<'T> sql parameters conn
 
     /// <summary>
@@ -69,7 +67,7 @@ module Command =
     /// </summary>
     /// <param name="sql">The UPDATE SQL command.</param>
     /// <param name="conn">The connection to execute on.</param>
-    let update (sql: string) (conn: Connection) : FIO<int, exn> =
+    let update (sql: string) (conn: Connection) : FIO<int, PgError> =
         execute sql conn
 
     /// <summary>
@@ -78,7 +76,7 @@ module Command =
     /// <param name="sql">The UPDATE SQL command.</param>
     /// <param name="parameters">The parameters for the command.</param>
     /// <param name="conn">The connection to execute on.</param>
-    let updateWithParams (sql: string) (parameters: SqlParameter list) (conn: Connection) : FIO<int, exn> =
+    let updateWithParams (sql: string) (parameters: SqlParameter list) (conn: Connection) : FIO<int, PgError> =
         executeWithParams sql parameters conn
 
     /// <summary>
@@ -86,7 +84,7 @@ module Command =
     /// </summary>
     /// <param name="sql">The DELETE SQL command.</param>
     /// <param name="conn">The connection to execute on.</param>
-    let delete (sql: string) (conn: Connection) : FIO<int, exn> =
+    let delete (sql: string) (conn: Connection) : FIO<int, PgError> =
         execute sql conn
 
     /// <summary>
@@ -95,7 +93,7 @@ module Command =
     /// <param name="sql">The DELETE SQL command.</param>
     /// <param name="parameters">The parameters for the command.</param>
     /// <param name="conn">The connection to execute on.</param>
-    let deleteWithParams (sql: string) (parameters: SqlParameter list) (conn: Connection) : FIO<int, exn> =
+    let deleteWithParams (sql: string) (parameters: SqlParameter list) (conn: Connection) : FIO<int, PgError> =
         executeWithParams sql parameters conn
 
     /// <summary>
@@ -103,7 +101,7 @@ module Command =
     /// </summary>
     /// <param name="commands">List of SQL commands to execute.</param>
     /// <param name="conn">The connection to execute on.</param>
-    let executeBatch (commands: string list) (conn: Connection) : FIO<int, exn> =
+    let executeBatch (commands: string list) (conn: Connection) : FIO<int, PgError> =
         fio {
             let mutable total = 0
             for cmd in commands do
@@ -117,7 +115,7 @@ module Command =
     /// </summary>
     /// <param name="commands">List of (SQL, parameters) tuples.</param>
     /// <param name="conn">The connection to execute on.</param>
-    let executeBatchWithParams (commands: (string * SqlParameter list) list) (conn: Connection) : FIO<int, exn> =
+    let executeBatchWithParams (commands: (string * SqlParameter list) list) (conn: Connection) : FIO<int, PgError> =
         fio {
             let mutable total = 0
             for (sql, parameters) in commands do

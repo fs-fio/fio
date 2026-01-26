@@ -20,14 +20,14 @@ module HttpHandler =
     /// </summary>
     /// <param name="response">The response to return.</param>
     let succeed (response: HttpResponse) : HttpHandler<'E> =
-        fun _ -> FIO.Succeed response
+        fun _ -> FIO.succeed response
 
     /// <summary>
     /// Creates a handler that always fails with the given error.
     /// </summary>
     /// <param name="error">The error to return.</param>
     let fail (error: 'E) : HttpHandler<'E> =
-        fun _ -> FIO.Fail error
+        fun _ -> FIO.fail error
 
     /// <summary>
     /// Creates a handler from an FIO effect.
@@ -42,7 +42,7 @@ module HttpHandler =
     /// <param name="f">The function to wrap.</param>
     let fromFunc (f: HttpRequest -> HttpResponse) : HttpHandler<exn> =
         fun request ->
-            FIO.Attempt((fun () -> f request), id)
+            FIO.attempt((fun () -> f request), id)
 
     /// <summary>
     /// Creates a handler from a function returning an FIO effect.
@@ -260,14 +260,14 @@ module HttpHandler =
     /// Handler that returns HTTP 200 OK (reader pattern).
     /// </summary>
     let ask<'E> : HttpHandler<'E> =
-        fun _ -> FIO.Succeed Response.ok
+        fun _ -> FIO.succeed Response.ok
 
     /// <summary>
     /// Extracts a value from the request.
     /// </summary>
     /// <param name="f">The extraction function.</param>
     let asks (f: HttpRequest -> 'T) : HttpRequest -> FIO<'T, 'E> =
-        fun request -> FIO.Succeed (f request)
+        fun request -> FIO.succeed (f request)
 
     /// <summary>
     /// Runs a handler with a modified request.
@@ -290,7 +290,7 @@ module HttpHandler =
             if predicate request then
                 handler request
             else
-                FIO.Succeed fallback
+                FIO.succeed fallback
 
     /// <summary>
     /// Runs one of two handlers based on a condition.
@@ -313,7 +313,7 @@ module HttpHandler =
     /// <param name="options">Optional JSON serializer options.</param>
     let parseJsonBody<'T> (options: JsonSerializerOptions option) : HttpRequest -> FIO<'T, exn> =
         fun request ->
-            FIO.Attempt(
+            FIO.attempt(
                 (fun () ->
                     let bodyStr = request.Body.AsString()
                     match options with

@@ -26,19 +26,19 @@ module Codec =
     /// Identity codec for byte arrays (no encoding/decoding).
     /// </summary>
     let bytes: SocketCodec<byte[]> =
-        { Encode = fun bytes -> FIO.Succeed bytes
-          Decode = fun bytes -> FIO.Succeed bytes }
+        { Encode = fun bytes -> FIO.succeed bytes
+          Decode = fun bytes -> FIO.succeed bytes }
 
     /// <summary>
     /// UTF-8 string codec.
     /// </summary>
     let string: SocketCodec<string> =
         { Encode = fun str ->
-            FIO.Attempt(
+            FIO.attempt(
                 (fun () -> Encoding.UTF8.GetBytes str),
                 fun exn -> CodecError("UTF-8 encoding failed", exn))
           Decode = fun bytes ->
-            FIO.Attempt(
+            FIO.attempt(
                 (fun () -> Encoding.UTF8.GetString bytes),
                 fun exn -> CodecError("UTF-8 decoding failed", exn)) }
 
@@ -63,12 +63,12 @@ module Codec =
     /// <param name="options">JSON serializer options.</param>
     let jsonWithOptions<'T> (options: JsonSerializerOptions) : SocketCodec<'T> =
         { Encode = fun value ->
-            FIO.Attempt((fun () ->
+            FIO.attempt((fun () ->
                 let json = JsonSerializer.Serialize(value, options)
                 Encoding.UTF8.GetBytes json),
                 fun exn -> CodecError("JSON encoding failed", exn))
           Decode = fun bytes ->
-            FIO.Attempt((fun () ->
+            FIO.attempt((fun () ->
                 let json = Encoding.UTF8.GetString bytes
                 JsonSerializer.Deserialize<'T>(json, options)),
                 fun exn -> CodecError("JSON decoding failed", exn)) }
@@ -86,12 +86,12 @@ module Codec =
     let jsonLine<'T> (options: JsonSerializerOptions option) : SocketCodec<'T> =
         let opts = defaultArg options (JsonSerializerOptions())
         { Encode = fun value ->
-            FIO.Attempt((fun () ->
+            FIO.attempt((fun () ->
                 let json = JsonSerializer.Serialize(value, opts)
                 Encoding.UTF8.GetBytes(json + "\n")),
                 fun exn -> CodecError("JSON line encoding failed", exn))
           Decode = fun bytes ->
-            FIO.Attempt((fun () ->
+            FIO.attempt((fun () ->
                 let json = Encoding.UTF8.GetString(bytes).TrimEnd('\n', '\r')
                 JsonSerializer.Deserialize<'T>(json, opts)),
                 fun exn -> CodecError("JSON line decoding failed", exn)) }
@@ -131,14 +131,14 @@ module Codec =
           Decode = fun bytes ->
             fio {
                 if bytes.Length < 8 then
-                    return! FIO.Fail(
+                    return! FIO.fail(
                         CodecError("Insufficient bytes for pair decoding (need at least 8 bytes for length prefixes)", Exception()))
 
                 // Read first length prefix
                 let len1 = BitConverter.ToInt32(bytes, 0)
 
                 if bytes.Length < 4 + len1 + 4 then
-                    return! FIO.Fail(
+                    return! FIO.fail(
                         CodecError($"Incomplete first payload: expected {len1} bytes plus second length prefix", Exception()))
 
                 // Extract first payload
@@ -148,7 +148,7 @@ module Codec =
                 let len2 = BitConverter.ToInt32(bytes, 4 + len1)
 
                 if bytes.Length < 4 + len1 + 4 + len2 then
-                    return! FIO.Fail(
+                    return! FIO.fail(
                         CodecError($"Incomplete second payload: expected {len2} bytes", Exception()))
 
                 // Extract second payload
@@ -174,14 +174,14 @@ module Codec =
           Decode = fun bytes ->
             fio {
                 if bytes.Length < 4 then
-                    return! FIO.Fail(
+                    return! FIO.fail(
                         CodecError("Insufficient bytes for length prefix", Exception()))
 
                 let length = BitConverter.ToInt32(bytes, 0)
                 let payload = bytes.[4..]
 
                 if payload.Length < length then
-                    return! FIO.Fail(
+                    return! FIO.fail(
                         CodecError($"Incomplete payload: expected {length}, got {payload.Length}", Exception()))
 
                 return! innerCodec.Decode payload.[0 .. length - 1]
@@ -202,10 +202,10 @@ module Codec =
     /// <param name="decode">Pure decoding function.</param>
     let createPure (encode: 'T -> byte[]) (decode: byte[] -> 'T) : SocketCodec<'T> =
         { Encode = fun value ->
-            FIO.Attempt(
+            FIO.attempt(
                 (fun () -> encode value),
                 fun exn -> CodecError("Encoding failed", exn))
           Decode = fun bytes ->
-            FIO.Attempt(
+            FIO.attempt(
                 (fun () -> decode bytes),
                 fun exn -> CodecError("Decoding failed", exn)) }

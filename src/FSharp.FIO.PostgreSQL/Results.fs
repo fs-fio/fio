@@ -63,28 +63,28 @@ module Results =
     /// </summary>
     /// <param name="mapper">Function to map each row to a value.</param>
     /// <param name="resultSet">The result set to read from.</param>
-    let readAll<'T> (mapper: ResultSet -> 'T) (resultSet: ResultSet) : FIO<'T list, exn> =
-        FIO.Attempt(
+    let readAll<'T> (mapper: ResultSet -> 'T) (resultSet: ResultSet) : FIO<'T list, PgError> =
+        FIO.attempt(
             (fun () ->
                 let results = ResizeArray<'T>()
                 while resultSet.Reader.Read() do
                     results.Add(mapper resultSet)
                 List.ofSeq results),
-            id)
+            ResultSetFailed)
 
     /// <summary>
     /// Reads the first row from the result set, if any.
     /// </summary>
     /// <param name="mapper">Function to map the row to a value.</param>
     /// <param name="resultSet">The result set to read from.</param>
-    let readFirst<'T> (mapper: ResultSet -> 'T) (resultSet: ResultSet) : FIO<'T option, exn> =
-        FIO.Attempt(
+    let readFirst<'T> (mapper: ResultSet -> 'T) (resultSet: ResultSet) : FIO<'T option, PgError> =
+        FIO.attempt(
             (fun () ->
                 if resultSet.Reader.Read() then
                     Some (mapper resultSet)
                 else
                     None),
-            id)
+            ResultSetFailed)
 
     /// <summary>
     /// Reads a single row from the result set.
@@ -92,8 +92,8 @@ module Results =
     /// </summary>
     /// <param name="mapper">Function to map the row to a value.</param>
     /// <param name="resultSet">The result set to read from.</param>
-    let readSingle<'T> (mapper: ResultSet -> 'T) (resultSet: ResultSet) : FIO<'T, exn> =
-        FIO.Attempt(
+    let readSingle<'T> (mapper: ResultSet -> 'T) (resultSet: ResultSet) : FIO<'T, PgError> =
+        FIO.attempt(
             (fun () ->
                 if resultSet.Reader.Read() then
                     let result = mapper resultSet
@@ -103,18 +103,18 @@ module Results =
                         result
                 else
                     failwith "Expected single row, but found no rows"),
-            id)
+            ResultSetFailed)
 
     /// <summary>
     /// Closes the result set reader.
     /// </summary>
     /// <param name="resultSet">The result set to close.</param>
-    let close (resultSet: ResultSet) : FIO<unit, exn> =
-        FIO.Attempt(
+    let close (resultSet: ResultSet) : FIO<unit, PgError> =
+        FIO.attempt(
             (fun () ->
                 if not resultSet.Reader.IsClosed then
                     resultSet.Reader.Close()),
-            id)
+            ResultSetFailed)
 
     /// <summary>
     /// Gets an int value by column index.

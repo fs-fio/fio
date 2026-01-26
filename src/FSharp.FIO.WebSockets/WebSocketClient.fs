@@ -18,7 +18,7 @@ module WebSocketClient =
     let private logAndSuppress (context: string) (err: WsError) : FIO<unit, WsError> =
         fio {
             let str = WsError.ToString err
-            do! FIO.Attempt((fun () ->
+            do! FIO.attempt((fun () ->
                 eprintfn $"[WebSocketClient] Error during {context}: {str}"), WsError.FromException)
             return ()
         }
@@ -35,9 +35,9 @@ module WebSocketClient =
         (cancellationToken: CancellationToken)
         : FIO<WebSocket, WsError> =
         fio {
-            let! clientSocket = FIO.Attempt((fun () -> new Net.WebSockets.ClientWebSocket()), WsError.FromException)
-            let! connectTask = FIO.Attempt((fun () -> clientSocket.ConnectAsync(uri, cancellationToken)), WsError.FromException)
-            do! FIO.AwaitTask(connectTask, WsError.FromException)
+            let! clientSocket = FIO.attempt((fun () -> new Net.WebSockets.ClientWebSocket()), WsError.FromException)
+            let! connectTask = FIO.attempt((fun () -> clientSocket.ConnectAsync(uri, cancellationToken)), WsError.FromException)
+            do! FIO.awaitTask(connectTask, WsError.FromException)
             return new WebSocket(clientSocket, config)
         }
 
@@ -60,7 +60,7 @@ module WebSocketClient =
         (cancellationToken: CancellationToken)
         : FIO<WebSocket, WsError> =
         fio {
-            let! uri = FIO.Attempt((fun () -> Uri url), WsError.FromException)
+            let! uri = FIO.attempt((fun () -> Uri url), WsError.FromException)
             return! connect uri config cancellationToken
         }
 
@@ -89,7 +89,7 @@ module WebSocketClient =
         (config: WebSocketConfig)
         (action: WebSocket -> FIO<'R, WsError>)
         : FIO<'R, WsError> =
-        FIO.AcquireRelease(
+        FIO.acquireRelease(
             connect uri config CancellationToken.None,
             (fun ws -> ws.Close(Net.WebSockets.WebSocketCloseStatus.NormalClosure, "Closing connection").CatchAll(logAndSuppress "websocket close")),
             action
@@ -105,7 +105,7 @@ module WebSocketClient =
         (action: WebSocket -> FIO<'R, WsError>)
         : FIO<'R, WsError> =
         fio {
-            let! uri = FIO.Attempt((fun () -> Uri url), WsError.FromException)
+            let! uri = FIO.attempt((fun () -> Uri url), WsError.FromException)
             return! withConnection uri WebSocketConfig.Default action
         }
 
@@ -120,7 +120,7 @@ type WebSocketClient private (clientSocket: Net.WebSockets.ClientWebSocket, conf
     /// <param name="config">WebSocket configuration options.</param>
     static member Create(config: WebSocketConfig) : FIO<WebSocketClient, WsError> =
         fio {
-            let! clientSocket = FIO.Attempt((fun () -> new Net.WebSockets.ClientWebSocket()), WsError.FromException)
+            let! clientSocket = FIO.attempt((fun () -> new Net.WebSockets.ClientWebSocket()), WsError.FromException)
             return WebSocketClient(clientSocket, config)
         }
 
@@ -137,8 +137,8 @@ type WebSocketClient private (clientSocket: Net.WebSockets.ClientWebSocket, conf
     /// <param name="cancellationToken">Optional cancellation token.</param>
     member _.Connect(uri: Uri, cancellationToken: CancellationToken) : FIO<WebSocket, WsError> =
         fio {
-            let! connectTask = FIO.Attempt((fun () -> clientSocket.ConnectAsync(uri, cancellationToken)), WsError.FromException)
-            do! FIO.AwaitTask(connectTask, WsError.FromException)
+            let! connectTask = FIO.attempt((fun () -> clientSocket.ConnectAsync(uri, cancellationToken)), WsError.FromException)
+            do! FIO.awaitTask(connectTask, WsError.FromException)
             return new WebSocket(clientSocket, config)
         }
 
@@ -156,7 +156,7 @@ type WebSocketClient private (clientSocket: Net.WebSockets.ClientWebSocket, conf
     /// <param name="cancellationToken">Optional cancellation token.</param>
     member this.Connect(url: string, cancellationToken: CancellationToken) : FIO<WebSocket, WsError> =
         fio {
-            let! uri = FIO.Attempt((fun () -> Uri url), WsError.FromException)
+            let! uri = FIO.attempt((fun () -> Uri url), WsError.FromException)
             return! this.Connect(uri, cancellationToken)
         }
 

@@ -8,30 +8,34 @@ open System
 open System.Threading.Tasks
 
 /// <summary>
-/// Module-level singleton TaskCompletionSource for FIO.Never to avoid memory leaks.
+/// Module-level singleton TaskCompletionSource for FIO.never to avoid memory leaks.
 /// </summary>
 let private neverTcs = TaskCompletionSource<obj> TaskCreationOptions.RunContinuationsAsynchronously
 
-type FIO<'R, 'E> with
+/// <summary>
+/// Factory functions for creating FIO effects.
+/// </summary>
+[<RequireQualifiedAccess>]
+module FIO =
 
     /// <summary>
     /// Succeeds immediately with unit.
     /// </summary>
-    static member Unit<'E> () : FIO<unit, 'E> =
+    let unit<'E> () : FIO<unit, 'E> =
         Success ()
 
     /// <summary>
     /// Succeeds immediately with the provided result value.
     /// </summary>
     /// <param name="res">The result value.</param>
-    static member Succeed<'R, 'E> (res: 'R) : FIO<'R, 'E> =
+    let succeed<'R, 'E> (res: 'R) : FIO<'R, 'E> =
         Success res
 
     /// <summary>
     /// Fails immediately with the provided error value.
     /// </summary>
     /// <param name="err">The error value.</param>
-    static member Fail<'R, 'E> (err: 'E) : FIO<'R, 'E> =
+    let fail<'R, 'E> (err: 'E) : FIO<'R, 'E> =
         Failure err
 
     /// <summary>
@@ -39,9 +43,7 @@ type FIO<'R, 'E> with
     /// </summary>
     /// <param name="cause">The interruption cause.</param>
     /// <param name="msg">The interruption message.</param>
-    static member Interrupt<'R, 'E> (?cause: InterruptionCause, ?msg: string)  : FIO<'R, 'E> =
-        let cause = defaultArg cause ExplicitInterrupt
-        let msg = defaultArg msg "Fiber was interrupted."
+    let interrupt<'R, 'E> (cause: InterruptionCause, msg: string) : FIO<'R, 'E> =
         InterruptSelf(cause, msg)
 
     /// <summary>
@@ -49,104 +51,104 @@ type FIO<'R, 'E> with
     /// </summary>
     /// <param name="func">The function to execute.</param>
     /// <param name="onError">A function to map exceptions to the error type.</param>
-    static member Attempt<'R, 'E> (func: unit -> 'R, onError: exn -> 'E) : FIO<'R, 'E> =
+    let attempt<'R, 'E> (func: unit -> 'R, onError: exn -> 'E) : FIO<'R, 'E> =
         FIO.Action(func, onError)
 
     /// <summary>
     /// Converts a side-effecting function into an effect with exceptions as errors.
     /// </summary>
     /// <param name="func">The function to execute.</param>
-    static member inline Attempt<'R> (func: unit -> 'R) : FIO<'R, exn> =
-        FIO.Attempt(func, id)
+    let inline attemptExn<'R> (func: unit -> 'R) : FIO<'R, exn> =
+        attempt(func, id)
 
     /// <summary>
     /// Converts a Result value into an effect.
     /// </summary>
     /// <param name="res">The Result value to convert.</param>
-    static member inline FromResult<'R, 'E> (res: Result<'R, 'E>) : FIO<'R, 'E> =
+    let inline fromResult<'R, 'E> (res: Result<'R, 'E>) : FIO<'R, 'E> =
         match res with
-        | Ok res -> FIO.Succeed res
-        | Error err -> FIO.Fail err
+        | Ok res -> succeed res
+        | Error err -> fail err
 
     /// <summary>
     /// Converts an Option value into an effect.
     /// </summary>
     /// <param name="opt">The Option value to convert.</param>
     /// <param name="onNone">A function to produce an error if the option is None.</param>
-    static member inline FromOption<'R, 'E> (opt: Option<'R>, onNone: unit -> 'E) : FIO<'R, 'E> =
+    let inline fromOption<'R, 'E> (opt: Option<'R>, onNone: unit -> 'E) : FIO<'R, 'E> =
         match opt with
-        | Some res -> FIO.Succeed res
-        | None -> FIO.Fail(onNone())
+        | Some res -> succeed res
+        | None -> fail(onNone())
 
     /// <summary>
     /// Converts an Option value into an effect with exceptions as errors.
     /// </summary>
     /// <param name="opt">The Option value to convert.</param>
-    static member inline FromOption<'R> (opt: Option<'R>) : FIO<'R, exn> =
+    let inline fromOptionExn<'R> (opt: Option<'R>) : FIO<'R, exn> =
         match opt with
-        | Some res -> FIO.Succeed res
-        | None -> FIO.Fail(ArgumentException "Option was None.")
+        | Some res -> succeed res
+        | None -> fail(ArgumentException "Option was None.")
 
     /// <summary>
     /// Converts a Choice value into an effect.
     /// </summary>
     /// <param name="choice">The Choice value to convert.</param>
-    static member inline FromChoice<'R, 'E> (choice: Choice<'R, 'E>) : FIO<'R, 'E> =
+    let inline fromChoice<'R, 'E> (choice: Choice<'R, 'E>) : FIO<'R, 'E> =
         match choice with
-        | Choice1Of2 res -> FIO.Succeed res
-        | Choice2Of2 err -> FIO.Fail err
+        | Choice1Of2 res -> succeed res
+        | Choice2Of2 err -> fail err
 
     /// <summary>
     /// Awaits a Task and returns unit on completion.
     /// </summary>
     /// <param name="task">The Task to await.</param>
     /// <param name="onError">A function to map exceptions to the error type.</param>
-    static member AwaitTask<'E> (task: Task, onError: exn -> 'E) : FIO<unit, 'E> =
+    let awaitTask<'E> (task: Task, onError: exn -> 'E) : FIO<unit, 'E> =
         AwaitTPLTask(task, onError)
 
     /// <summary>
     /// Awaits a Task with exceptions as errors.
     /// </summary>
     /// <param name="task">The Task to await.</param>
-    static member inline AwaitTask (task: Task) : FIO<unit, exn> =
-        FIO.AwaitTask(task, id)
+    let inline awaitTaskExn (task: Task) : FIO<unit, exn> =
+        awaitTask(task, id)
 
     /// <summary>
     /// Awaits a Task and returns its result.
     /// </summary>
     /// <param name="task">The Task to await.</param>
     /// <param name="onError">A function to map exceptions to the error type.</param>
-    static member AwaitTask<'R, 'E> (task: Task<'R>, onError: exn -> 'E) : FIO<'R, 'E> =
+    let awaitGenericTask<'R, 'E> (task: Task<'R>, onError: exn -> 'E) : FIO<'R, 'E> =
         AwaitGenericTPLTask(upcastTask task, onError)
 
     /// <summary>
     /// Awaits a Task and returns its result with exceptions as errors.
     /// </summary>
     /// <param name="task">The Task to await.</param>
-    static member inline AwaitTask<'R> (task: Task<'R>) : FIO<'R, exn> =
-        FIO.AwaitTask(task, id)
+    let inline awaitGenericTaskExn<'R> (task: Task<'R>) : FIO<'R, exn> =
+        awaitGenericTask(task, id)
 
     /// <summary>
     /// Awaits an Async computation and returns its result.
     /// </summary>
     /// <param name="async">The Async computation to await.</param>
     /// <param name="onError">A function to map exceptions to the error type.</param>
-    static member inline AwaitAsync<'R, 'E> (async: Async<'R>, onError: exn -> 'E) : FIO<'R, 'E> = 
-        FIO.AwaitTask(Async.StartAsTask async, onError)
+    let inline awaitAsync<'R, 'E> (async: Async<'R>, onError: exn -> 'E) : FIO<'R, 'E> =
+        awaitGenericTask(Async.StartAsTask async, onError)
 
     /// <summary>
     /// Awaits an Async computation with exceptions as errors.
     /// </summary>
     /// <param name="async">The Async computation to await.</param>
-    static member inline AwaitAsync<'R> (async: Async<'R>) : FIO<'R, exn> =
-        FIO.AwaitAsync(async, id)
+    let inline awaitAsyncExn<'R> (async: Async<'R>) : FIO<'R, exn> =
+        awaitAsync(async, id)
 
     /// <summary>
     /// Forks a lazily-evaluated Task into a Fiber for concurrent execution.
     /// </summary>
     /// <param name="taskFactory">A function that produces the Task.</param>
     /// <param name="onError">A function to map exceptions to the error type.</param>
-    static member FromTask<'E> (taskFactory: unit -> Task, onError: exn -> 'E) : FIO<Fiber<unit, 'E>, 'E> =
+    let fromTask<'E> (taskFactory: unit -> Task, onError: exn -> 'E) : FIO<Fiber<unit, 'E>, 'E> =
         let fiber = new Fiber<unit, 'E>()
         ForkTPLTask(taskFactory, onError, fiber, fiber.Internal)
 
@@ -154,15 +156,15 @@ type FIO<'R, 'E> with
     /// Forks a lazily-evaluated Task into a Fiber with exceptions as errors.
     /// </summary>
     /// <param name="taskFactory">A function that produces the Task.</param>
-    static member inline FromTask (taskFactory: unit -> Task) : FIO<Fiber<unit, exn>, exn> =
-        FIO.FromTask(taskFactory, id)
+    let inline fromTaskExn (taskFactory: unit -> Task) : FIO<Fiber<unit, exn>, exn> =
+        fromTask(taskFactory, id)
 
     /// <summary>
     /// Forks a lazily-evaluated Task into a Fiber for concurrent execution.
     /// </summary>
     /// <param name="taskFactory">A function that produces the Task.</param>
     /// <param name="onError">A function to map exceptions to the error type.</param>
-    static member FromTask<'R, 'E> (taskFactory: unit -> Task<'R>, onError: exn -> 'E) : FIO<Fiber<'R, 'E>, 'E> =
+    let fromGenericTask<'R, 'E> (taskFactory: unit -> Task<'R>, onError: exn -> 'E) : FIO<Fiber<'R, 'E>, 'E> =
         let fiber = new Fiber<'R, 'E>()
         ForkGenericTPLTask(taskFactory >> upcastTask, onError, fiber, fiber.Internal)
 
@@ -170,38 +172,38 @@ type FIO<'R, 'E> with
     /// Forks a lazily-evaluated Task into a Fiber with exceptions as errors.
     /// </summary>
     /// <param name="taskFactory">A function that produces the Task.</param>
-    static member inline FromTask<'R> (taskFactory: unit -> Task<'R>) : FIO<Fiber<'R, exn>, exn> =
-        FIO.FromTask(taskFactory, id)
+    let inline fromGenericTaskExn<'R> (taskFactory: unit -> Task<'R>) : FIO<Fiber<'R, exn>, exn> =
+        fromGenericTask(taskFactory, id)
 
     /// <summary>
     /// Lazily constructs an effect, deferring its creation until execution.
     /// </summary>
     /// <param name="eff">A function that produces the effect.</param>
-    static member Suspend<'R, 'E> (eff: unit -> FIO<'R, 'E>) : FIO<'R, 'E> =
-        FIO.Unit().FlatMap(fun () -> eff())
+    let suspend<'R, 'E> (eff: unit -> FIO<'R, 'E>) : FIO<'R, 'E> =
+        (unit()).FlatMap(fun () -> eff())
 
     /// <summary>
     /// Delays execution for the specified duration.
     /// </summary>
     /// <param name="duration">The delay duration.</param>
     /// <param name="onError">A function to map exceptions to the error type.</param>
-    static member Sleep<'E> (duration: TimeSpan, onError: exn -> 'E) : FIO<unit, 'E> =
-        FIO.Suspend(fun () -> FIO.AwaitTask(Task.Delay duration, onError))
+    let sleep<'E> (duration: TimeSpan, onError: exn -> 'E) : FIO<unit, 'E> =
+        suspend(fun () -> awaitTask(Task.Delay duration, onError))
 
     /// <summary>
     /// Delays execution for the specified duration with exceptions as errors.
     /// </summary>
     /// <param name="duration">The delay duration.</param>
-    static member inline Sleep (duration: TimeSpan) : FIO<unit, exn> =
-        FIO.Sleep(duration, id)
+    let inline sleepExn (duration: TimeSpan) : FIO<unit, exn> =
+        sleep(duration, id)
 
     /// <summary>
     /// Creates an effect that never completes (runs forever).
     /// Uses a singleton TaskCompletionSource to avoid memory leaks.
     /// </summary>
-    static member Never<'R, 'E> () : FIO<'R, 'E> =
-        FIO.AwaitTask(neverTcs.Task, fun _ -> Unchecked.defaultof<'E>)
-            .FlatMap(fun obj -> FIO.Succeed(obj :?> 'R))
+    let never<'R, 'E> () : FIO<'R, 'E> =
+        awaitGenericTask(neverTcs.Task, fun _ -> Unchecked.defaultof<'E>)
+            .FlatMap(fun obj -> succeed(obj :?> 'R))
 
     /// <summary>
     /// Implements the acquire-release pattern for safe resource management.
@@ -209,7 +211,7 @@ type FIO<'R, 'E> with
     /// <param name="acquire">The effect that acquires the resource.</param>
     /// <param name="release">A function that produces the effect to release the resource.</param>
     /// <param name="useResource">A function that produces the effect to use the resource.</param>
-    static member inline AcquireRelease<'A, 'R, 'E> (acquire: FIO<'A, 'E>, release: 'A -> FIO<unit, 'E>, useResource: 'A -> FIO<'R, 'E>) : FIO<'R, 'E> =
+    let inline acquireRelease<'A, 'R, 'E> (acquire: FIO<'A, 'E>, release: 'A -> FIO<unit, 'E>, useResource: 'A -> FIO<'R, 'E>) : FIO<'R, 'E> =
         acquire.FlatMap(fun resource -> (useResource resource).Ensuring(release resource))
 
     /// <summary>
@@ -217,17 +219,16 @@ type FIO<'R, 'E> with
     /// Effects are executed sequentially in the order they appear in the collection.
     /// </summary>
     /// <param name="effSeq">The sequence of effects to execute.</param>
-    static member CollectAll<'R, 'E> (effSeq: seq<FIO<'R, 'E>>) : FIO<'R list, 'E> =
-        FIO.Suspend(fun () ->
+    let rec collectAll<'R, 'E> (effSeq: seq<FIO<'R, 'E>>) : FIO<'R list, 'E> =
+        suspend(fun () ->
             let effArray = Seq.toArray effSeq
             match effArray.Length with
-            | 0 -> FIO.Succeed []
+            | 0 -> succeed []
             | _ ->
-                // Use ResizeArray to avoid O(n) List.rev at the end
-                let results = ResizeArray<'R>(effArray.Length)
+                let results = ResizeArray<'R> effArray.Length
                 let rec loop (index: int) : FIO<'R list, 'E> =
                     if index >= effArray.Length then
-                        FIO.Succeed(Seq.toList results)
+                        succeed(Seq.toList results)
                     else
                         effArray.[index].FlatMap(fun res ->
                             results.Add res
@@ -240,24 +241,22 @@ type FIO<'R, 'E> with
     /// All effects are forked simultaneously, then awaited together.
     /// </summary>
     /// <param name="effSeq">The sequence of effects to execute in parallel.</param>
-    static member CollectAllPar<'R, 'E> (effSeq: seq<FIO<'R, 'E>>) : FIO<'R list, 'E> =
-        FIO.Suspend(fun () ->
+    let collectAllPar<'R, 'E> (effSeq: seq<FIO<'R, 'E>>) : FIO<'R list, 'E> =
+        suspend(fun () ->
             let effArray = Seq.toArray effSeq
             match effArray.Length with
-            | 0 -> FIO.Succeed []
-            | 1 -> effArray.[0].FlatMap(fun r -> FIO.Succeed [r])
+            | 0 -> succeed []
+            | 1 -> effArray.[0].FlatMap(fun r -> succeed [r])
             | _ ->
-                // Fork all effects into fibers
                 let forkAllFibers =
                     effArray
                     |> Array.map (fun eff -> eff.Fork())
 
-                // Use ResizeArray to avoid O(n) List.rev at the end
-                let joinAllFibers (fibers: Fiber<'R, 'E> array) : FIO<'R list, 'E> =
-                    let results = ResizeArray<'R>(fibers.Length)
+                let joinAllFibers (fibers: Fiber<'R, 'E> array) =
+                    let results = ResizeArray<'R> fibers.Length
                     let rec loop (index: int) : FIO<'R list, 'E> =
                         if index >= fibers.Length then
-                            FIO.Succeed(Seq.toList results)
+                            succeed(Seq.toList results)
                         else
                             fibers.[index].Join().FlatMap(fun res ->
                                 results.Add res
@@ -265,7 +264,7 @@ type FIO<'R, 'E> with
                     loop 0
 
                 forkAllFibers
-                |> FIO.CollectAll
+                |> collectAll
                 |> fun forkEff -> forkEff.FlatMap(fun fibers -> joinAllFibers (List.toArray fibers)))
 
     /// <summary>
@@ -274,8 +273,8 @@ type FIO<'R, 'E> with
     /// </summary>
     /// <param name="items">The collection of items to process.</param>
     /// <param name="f">The function to map each item to an effect.</param>
-    static member ForEach<'A, 'R, 'E> (items: seq<'A>, f: 'A -> FIO<'R, 'E>) : FIO<'R list, 'E> =
-        items |> Seq.map f |> FIO.CollectAll
+    let forEach<'A, 'R, 'E> (items: seq<'A>, f: 'A -> FIO<'R, 'E>) : FIO<'R list, 'E> =
+        items |> Seq.map f |> collectAll
 
     /// <summary>
     /// Maps each item in a collection to an effect, then executes all effects in parallel.
@@ -283,5 +282,5 @@ type FIO<'R, 'E> with
     /// </summary>
     /// <param name="items">The collection of items to process.</param>
     /// <param name="f">The function to map each item to an effect.</param>
-    static member ForEachPar<'A, 'R, 'E> (items: seq<'A>, f: 'A -> FIO<'R, 'E>) : FIO<'R list, 'E> =
-        items |> Seq.map f |> FIO.CollectAllPar
+    let forEachPar<'A, 'R, 'E> (items: seq<'A>, f: 'A -> FIO<'R, 'E>) : FIO<'R list, 'E> =
+        items |> Seq.map f |> collectAllPar

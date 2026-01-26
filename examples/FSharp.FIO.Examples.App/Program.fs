@@ -18,9 +18,9 @@ type WelcomeApp() =
 
     override _.effect : FIO<unit, exn> =
         fio {
-            do! Console.PrintLine "Hello! What is your name?"
-            let! name = Console.ReadLine
-            do! Console.PrintLine $"Hello, %s{name}! Welcome to FIO! 🪻💜"
+            do! Console.printLineExn "Hello! What is your name?"
+            let! name = Console.readLineExn
+            do! Console.printLineExn $"Hello, %s{name}! Welcome to FIO! 🪻💜"
         }
 
 type EnterNumberApp() =
@@ -28,14 +28,14 @@ type EnterNumberApp() =
 
     override _.effect =
         fio {
-            do! Console.Print "Enter a number: "
-            let! input = Console.ReadLine
+            do! Console.printExn "Enter a number: "
+            let! input = Console.readLineExn
 
-            match! FIO.Attempt(fun () -> Int32.TryParse input) with
+            match! FIO.attemptExn(fun () -> Int32.TryParse input) with
             | true, number ->
                 return $"You entered the number: %i{number}."
             | false, _ ->
-                return! FIO.Fail(IOException "You entered an invalid number!")
+                return! FIO.fail(IOException "You entered an invalid number!")
         }
 
 type TryWithApp() =
@@ -44,10 +44,10 @@ type TryWithApp() =
     override _.effect =
         fio {
             try
-                do! FIO.Fail 1
+                do! FIO.fail 1
                 return "Successfully completed!"
             with errorCode ->
-                return! FIO.Fail errorCode
+                return! FIO.fail errorCode
         }
 
 type TryFinallyApp() =
@@ -56,10 +56,10 @@ type TryFinallyApp() =
     override _.effect =
         fio {
             try
-                do! FIO.Fail 1
+                do! FIO.fail 1
                 return "Successfully completed!"
             finally
-                Console.PrintLineMapError("Running finalizer, always executes", (fun _ -> -2))
+                Console.printLine("Running finalizer, always executes", (fun _ -> -2))
         }
 
 type TryWithFinallyApp() =
@@ -69,12 +69,12 @@ type TryWithFinallyApp() =
         fio {
             try
                 try
-                    do! FIO.Fail 1
+                    do! FIO.fail 1
                     return "Successfully completed!"
                 with errorCode ->
-                    return! FIO.Fail errorCode
+                    return! FIO.fail errorCode
             finally
-                Console.PrintLineMapError("Running finalizer, always executes", (fun _ -> -2))
+                Console.printLine("Running finalizer, always executes", (fun _ -> -2))
         }
 
 type ForApp() =
@@ -85,9 +85,9 @@ type ForApp() =
             for number in 1..10 do
                 match number % 2 = 0 with
                 | true ->
-                    do! Console.PrintLine $"%i{number} is even!"
+                    do! Console.printLineExn $"%i{number} is even!"
                 | false -> 
-                    do! Console.PrintLine $"%i{number} is odd!"
+                    do! Console.printLineExn $"%i{number} is odd!"
         }
 
 type GuessNumberApp() =
@@ -95,24 +95,24 @@ type GuessNumberApp() =
 
     override _.effect =
         fio {
-            let! numberToGuess = Random.NextIntRange(1, 101)
+            let! numberToGuess = Random.nextIntRange(1, 101)
             let mutable guess = -1
 
             while guess <> numberToGuess do
-                do! Console.Print "Guess a number: "
-                let! input = Console.ReadLine
+                do! Console.printExn "Guess a number: "
+                let! input = Console.readLineExn
 
                 match Int32.TryParse input with
                 | true, parsedInput ->
                     guess <- parsedInput
                     if guess < numberToGuess then
-                        do! Console.PrintLine "Too low! Try again."
+                        do! Console.printLineExn "Too low! Try again."
                     elif guess > numberToGuess then
-                        do! Console.PrintLine "Too high! Try again."
+                        do! Console.printLineExn "Too high! Try again."
                     else
-                        do! Console.PrintLine "Congratulations! You guessed the number!"
+                        do! Console.printLineExn "Congratulations! You guessed the number!"
                 | _ ->
-                    do! Console.PrintLine "Invalid input. Please enter a number."
+                    do! Console.printLineExn "Invalid input. Please enter a number."
 
             return guess
         }
@@ -120,19 +120,19 @@ type GuessNumberApp() =
 type PingPongApp() =
     inherit SimpleFIOApp()
 
-    let pinger (chan1: string channel) (chan2: string channel) =
+    let pinger (chan1: Channel<string>) (chan2: Channel<string>) =
         chan1.Send "ping" >>= fun ping ->
-        Console.PrintLine $"pinger sent: %s{ping}" >>= fun _ ->
+        Console.printLineExn $"pinger sent: %s{ping}" >>= fun _ ->
         chan2.Receive() >>= fun pong ->
-        Console.PrintLine $"pinger received: %s{pong}" >>= fun _ ->
-        FIO.Unit()
+        Console.printLineExn $"pinger received: %s{pong}" >>= fun _ ->
+        FIO.unit()
 
-    let ponger (chan1: string channel) (chan2: string channel) =
+    let ponger (chan1: Channel<string>) (chan2: Channel<string>) =
         chan1.Receive() >>= fun ping ->
-        Console.PrintLine $"ponger received: %s{ping}" >>= fun _ ->
+        Console.printLineExn $"ponger received: %s{ping}" >>= fun _ ->
         chan2.Send "pong" >>= fun pong ->
-        Console.PrintLine $"ponger sent: %s{pong}" >>= fun _ ->
-        FIO.Unit()
+        Console.printLineExn $"ponger sent: %s{pong}" >>= fun _ ->
+        FIO.unit()
         
     override _.effect =
         let chan1 = Channel<string>()
@@ -142,20 +142,20 @@ type PingPongApp() =
 type PingPongCEApp() =
     inherit SimpleFIOApp()
 
-    let pinger (chan1: string channel) (chan2: string channel) =
+    let pinger (chan1: Channel<string>) (chan2: Channel<string>) =
         fio {
             let! ping = chan1.Send "ping"
-            do! Console.PrintLine $"pinger sent: %s{ping}"
+            do! Console.printLineExn $"pinger sent: %s{ping}"
             let! pong = chan2.Receive()
-            do! Console.PrintLine $"pinger received: %s{pong}"
+            do! Console.printLineExn $"pinger received: %s{pong}"
         }
 
-    let ponger (chan1: string channel) (chan2: string channel) =
+    let ponger (chan1: Channel<string>) (chan2: Channel<string>) =
         fio {
             let! ping = chan1.Receive()
-            do! Console.PrintLine $"ponger received: %s{ping}"
+            do! Console.printLineExn $"ponger received: %s{ping}"
             let! pong = chan2.Send "pong"
-            do! Console.PrintLine $"ponger sent: %s{pong}"
+            do! Console.printLineExn $"ponger sent: %s{pong}"
         }
 
     override _.effect =
@@ -172,33 +172,33 @@ type Message =
 type PingPongMatchApp() =
     inherit FIOApp<unit, string>()
 
-    let pinger (chan1: Message channel) (chan2: Message channel) =
+    let pinger (chan1: Channel<Message>) (chan2: Channel<Message>) =
         fio {
             let! ping = chan1.Send PingMsg
-            do! Console.PrintLineMapError($"pinger sent: %A{ping}", _.Message)
+            do! Console.printLine($"pinger sent: %A{ping}", _.Message)
             
             match! chan2.Receive() with
             | PongMsg ->
-                do! Console.PrintLineMapError($"pinger received: %A{PongMsg}", _.Message)
+                do! Console.printLine($"pinger received: %A{PongMsg}", _.Message)
             | PingMsg ->
-                return! FIO.Fail $"pinger received %A{PingMsg} when %A{PongMsg} was expected!"
+                return! FIO.fail $"pinger received %A{PingMsg} when %A{PongMsg} was expected!"
         }
 
-    let ponger (chan1: Message channel) (chan2: Message channel) =
+    let ponger (chan1: Channel<Message>) (chan2: Channel<Message>) =
         fio {
             match! chan1.Receive() with
             | PingMsg ->
-                do! Console.PrintLineMapError($"ponger received: %A{PingMsg}", _.Message)
+                do! Console.printLine($"ponger received: %A{PingMsg}", _.Message)
             | PongMsg ->
-                return! FIO.Fail $"ponger received %A{PongMsg} when %A{PingMsg} was expected!"
+                return! FIO.fail $"ponger received %A{PongMsg} when %A{PingMsg} was expected!"
             
             let! sentMsg =
                 fio {
-                    match! Random.NextIntRange(0, 2) with
+                    match! Random.nextIntRange(0, 2) with
                     | 0 -> do! chan2.Send PongMsg
                     | _ -> do! chan2.Send PingMsg
                 }
-            do! Console.PrintLineMapError($"ponger sent: %A{sentMsg}", _.Message)
+            do! Console.printLine($"ponger sent: %A{sentMsg}", _.Message)
         }
 
     override _.effect =
@@ -218,36 +218,36 @@ type ErrorHandlingApp() =
 
     let readFromDatabase : FIO<string, bool> =
         fio {
-            let! rand = FIO.Attempt((fun () -> Random().Next(0, 2)), fun _ -> true)
+            let! rand = FIO.attempt((fun () -> Random().Next(0, 2)), fun _ -> true)
             if rand = 0 then
                 return "data"
             else
-                return! FIO.Fail false
+                return! FIO.fail false
         }
 
     let awaitWebservice : FIO<char, int> =
         fio {
-            let! rand = FIO.Attempt((fun () -> Random().Next(0, 2)), fun _ -> -1)
+            let! rand = FIO.attempt((fun () -> Random().Next(0, 2)), fun _ -> -1)
             if rand = 1 then
                 return 'S'
             else
-                return! FIO.Fail 404
+                return! FIO.fail 404
         }
 
     let databaseResult : FIO<string, Error> =
         fio {
-            return! readFromDatabase.CatchAll(fun error -> FIO.Fail(DbError error))
+            return! readFromDatabase.CatchAll(fun error -> FIO.fail(DbError error))
         }
 
     let webserviceResult : FIO<char, Error> =
         fio {
-            return! awaitWebservice.CatchAll(fun error -> FIO.Fail(WsError error))
+            return! awaitWebservice.CatchAll(fun error -> FIO.fail(WsError error))
         }
 
     override _.effect =
         fio {
             return! (databaseResult <*> webserviceResult)
-                    .CatchAll(fun _ -> FIO.Succeed("default", 'D'))
+                    .CatchAll(fun _ -> FIO.succeed("default", 'D'))
         }
 
 type ErrorHandlingWithRetryApp() =
@@ -255,44 +255,44 @@ type ErrorHandlingWithRetryApp() =
 
     let readFromDatabase : FIO<string, bool> =
         fio {
-            let! rand = FIO.Attempt((fun () -> Random().Next(0, 2)), fun _ -> true)
+            let! rand = FIO.attempt((fun () -> Random().Next(0, 2)), fun _ -> true)
             if rand = 0 then
                 return "data"
             else
-                return! FIO.Fail false
+                return! FIO.fail false
         }
 
     let awaitWebservice : FIO<char, int> =
         fio {
-            let! rand = FIO.Attempt((fun () -> Random().Next(0, 2)), fun _ -> -1)
+            let! rand = FIO.attempt((fun () -> Random().Next(0, 2)), fun _ -> -1)
             if rand = 1 then
                 return 'S'
             else
-                return! FIO.Fail 404
+                return! FIO.fail 404
         }
 
     let databaseResult : FIO<string, Error> =
         fio {
             let onEachRetry (err, retry, maxRetries) =
-                Console.PrintLine($"Database read failed with error: %A{err}. Retry attempt %d{retry} of %d{maxRetries}...")
-                 .CatchAll(fun _ -> FIO.Fail false)
+                Console.printLineExn($"Database read failed with error: %A{err}. Retry attempt %d{retry} of %d{maxRetries}...")
+                 .CatchAll(fun _ -> FIO.fail false)
             return! readFromDatabase.Retry(4, onEachRetry)
-                .CatchAll(fun error -> FIO.Fail (DbError error))
+                .CatchAll(fun error -> FIO.fail (DbError error))
         }
 
     let webserviceResult : FIO<char, Error> =
         fio {
             let onEachRetry (err, retry, maxRetries) =
-                Console.PrintLine($"Webservice read failed with error: %A{err}. Retry attempt %d{retry} of %d{maxRetries}...")
-                    .CatchAll(fun _ -> FIO.Fail 400)
+                Console.printLineExn($"Webservice read failed with error: %A{err}. Retry attempt %d{retry} of %d{maxRetries}...")
+                    .CatchAll(fun _ -> FIO.fail 400)
             return! awaitWebservice.Retry(4, onEachRetry)
-                .CatchAll(fun error -> FIO.Fail (WsError error))
+                .CatchAll(fun error -> FIO.fail (WsError error))
         }
 
     override _.effect =
         fio {
             return! (databaseResult <*> webserviceResult)
-                    .CatchAll(fun _ -> FIO.Succeed ("default", 'D'))
+                    .CatchAll(fun _ -> FIO.succeed ("default", 'D'))
         }
 
 type AsyncErrorHandlingApp() =
@@ -319,12 +319,12 @@ type AsyncErrorHandlingApp() =
         }
 
     let databaseResult : FIO<string, Error> =
-        FIO<string, exn>.AwaitAsync(databaseReadTask)
-            .CatchAll(fun exn -> FIO.Fail(GeneralError exn.Message))
+        FIO.awaitAsyncExn(databaseReadTask)
+            .CatchAll(fun exn -> FIO.fail(GeneralError exn.Message))
 
     let webserviceResult : FIO<int, Error> =
-        FIO<int, exn>.AwaitAsync(webserviceAwaitTask)
-            .CatchAll(fun exn -> FIO.Fail(GeneralError exn.Message))
+        FIO.awaitAsyncExn(webserviceAwaitTask)
+            .CatchAll(fun exn -> FIO.fail(GeneralError exn.Message))
 
     override _.effect =
         fio {
@@ -334,21 +334,21 @@ type AsyncErrorHandlingApp() =
 type HighlyConcurrentApp() =
     inherit SimpleFIOApp()
 
-    let sender (chan: int channel) id =
+    let sender (chan: Channel<int>) id =
         fio {
-            let! msg = Random.NextIntRange(100, 501)
+            let! msg = Random.nextIntRange(100, 501)
             do! chan.Send(msg).Unit()
-            do! Console.PrintLine $"Sender[%i{id}] sent: %i{msg}"
+            do! Console.printLineExn $"Sender[%i{id}] sent: %i{msg}"
         }
 
-    let rec receiver (chan: int channel) count (max: int) =
+    let rec receiver (chan: Channel<int>) count (max: int) =
         fio {
             if count = 0 then
-                let! maxFibers = FIO.Succeed(max.ToString("N0", CultureInfo "en-US"))
-                do! Console.PrintLine $"Successfully received a message from all %s{maxFibers} fibers!"
+                let! maxFibers = FIO.succeed(max.ToString("N0", CultureInfo "en-US"))
+                do! Console.printLineExn $"Successfully received a message from all %s{maxFibers} fibers!"
             else
                 let! msg = chan.Receive()
-                do! Console.PrintLine $"Receiver received: %i{msg}"
+                do! Console.printLineExn $"Receiver received: %i{msg}"
                 return! receiver chan (count - 1) max
         }
 
@@ -375,7 +375,7 @@ type FiberFromTaskApp() =
     inherit SimpleFIOApp()
 
     let fibonacci n =
-        FIO.FromTask<unit>(fun () ->
+        FIO.fromGenericTaskExn(fun () ->
             task {
                 let fib (n: int64) =
                     let mutable a = 0L
@@ -417,7 +417,7 @@ type FiberFromGenericTaskApp() =
     inherit SimpleFIOApp()
 
     let fibonacci n =
-        FIO.FromTask<unit>(fun () ->
+        FIO.fromGenericTaskExn(fun () ->
             task {
                 let fib (n: int64) =
                     let mutable a = 0L
@@ -441,7 +441,7 @@ type FiberFromGenericTaskApp() =
         let awaitAndPrint (fiber: Fiber<string, exn>) =
             fio {
                  let! res = fiber.Join()
-                 do! Console.PrintLine $"%s{res}"
+                 do! Console.printLineExn $"%s{res}"
             }
             
         fio {
@@ -463,31 +463,31 @@ type SocketApp(host: string, port: int) =
                 while true do
                     let! msg = socket.ReceiveString 1024
                     if msg = "__SHUTDOWN__" then
-                        do! Console.PrintLineMapError("Server exiting", SocketError.FromException)
+                        do! Console.printLine("Server exiting", SocketError.FromException)
                         do! socket.Close()
                         do! socket.Dispose()
                     else
-                        do! Console.PrintLineMapError($"Server received message: %s{msg}", SocketError.FromException)
+                        do! Console.printLine($"Server received message: %s{msg}", SocketError.FromException)
                         let ascii =
                             if msg.Length > 0 then
                                 int (msg.Chars 0)
                             else
                                 -1
                         do! socket.SendJson ascii
-                        do! Console.PrintLineMapError($"Server sent ASCII: %i{ascii}", SocketError.FromException)
+                        do! Console.printLine($"Server sent ASCII: %i{ascii}", SocketError.FromException)
             }
 
         let handleClient (socket: Socket) =
             fio {
                 let! endPoint = socket.GetRemoteEndPoint() >>= fun remoteEndPoint ->
-                    FIO.Succeed(remoteEndPoint.ToString())
-                do! Console.PrintLineMapError($"Client connected from %s{endPoint}", SocketError.FromException)
+                    FIO.succeed(remoteEndPoint.ToString())
+                do! Console.printLine($"Client connected from %s{endPoint}", SocketError.FromException)
                 do! sendAndReceiveASCII socket
             }
 
         fio {
             let! config = ServerSocketConfig.create(host, port)
-            do! Console.PrintLineMapError($"Server listening on %s{host}:%i{port}", SocketError.FromException)
+            do! Console.printLine($"Server listening on %s{host}:%i{port}", SocketError.FromException)
             do! SocketServer.serve(config, handleClient)
         }
 
@@ -496,28 +496,28 @@ type SocketApp(host: string, port: int) =
             let! config = SocketConfig.create(host, port)
             do! SocketClient.withConnection config <| fun socket ->
                fio {
-                   do! Console.PrintLineMapError($"Connected to %s{host}:%i{port}", SocketError.FromException)
+                   do! Console.printLine($"Connected to %s{host}:%i{port}", SocketError.FromException)
 
                    let send () =
                        fio {
                            while true do
-                               do! Console.PrintMapError("Enter a message ('exit' to quit): ", SocketError.FromException)
-                               let! input = Console.ReadLineMapError SocketError.FromException
+                               do! Console.print("Enter a message ('exit' to quit): ", SocketError.FromException)
+                               let! input = Console.readLine SocketError.FromException
                                if input = "exit" then
-                                   do! Console.PrintLineMapError("Client exiting", SocketError.FromException)
+                                   do! Console.printLine("Client exiting", SocketError.FromException)
                                    do! socket.SendString "__SHUTDOWN__"
                                    do! socket.Close()
                                    do! socket.Dispose()
                                else
                                    do! socket.SendString input
-                                   do! Console.PrintLineMapError($"Client sent message: %s{input}", SocketError.FromException)
+                                   do! Console.printLine($"Client sent message: %s{input}", SocketError.FromException)
                        }
 
                    let receive () =
                        fio {
                            while true do
                                let! ascii = socket.ReceiveJson<int> 1024
-                               do! Console.PrintLineMapError($"Client received ASCII: %i{ascii}", SocketError.FromException)
+                               do! Console.printLine($"Client received ASCII: %i{ascii}", SocketError.FromException)
                        }
 
                    return! send () <&&> receive ()
@@ -538,9 +538,9 @@ type WebSocketApp(host: string, port: string) =
                 while true do
                     match! ws.ReceiveMessage() with
                     | Frame(Text text) ->
-                        do! Console.PrintLineMapError($"Server received message: %s{text}", WsError.FromException)
+                        do! Console.printLine($"Server received message: %s{text}", WsError.FromException)
                         if text = "__SHUTDOWN__" then
-                            do! Console.PrintLineMapError("Server exiting", WsError.FromException)
+                            do! Console.printLine("Server exiting", WsError.FromException)
                             do! ws.Close()
                             do! ws.Dispose()
                         else 
@@ -550,26 +550,26 @@ type WebSocketApp(host: string, port: string) =
                                 else
                                     -1
                             do! ws.SendJson ascii
-                            do! Console.PrintLineMapError($"Server sent ASCII: %i{ascii}", WsError.FromException)
+                            do! Console.printLine($"Server sent ASCII: %i{ascii}", WsError.FromException)
                     | ConnectionClosed(status, desc) ->
-                        do! Console.PrintLineMapError($"Server connection closed. Status: {status}, Description: {desc}", WsError.FromException)
+                        do! Console.printLine($"Server connection closed. Status: {status}, Description: {desc}", WsError.FromException)
                         do! ws.Close()
                         do! server.Close()
                         do! ws.Dispose()
                     | msg ->
-                        do! Console.PrintLineMapError($"Server received and ignored message: %A{msg}", WsError.FromException)
+                        do! Console.printLine($"Server received and ignored message: %A{msg}", WsError.FromException)
             }
 
         let handleClient (ws: WebSocket, server: WebSocketServer) =
             fio {
-                do! Console.PrintLineMapError($"Connected to %s{host}:%s{port}", WsError.FromException)
+                do! Console.printLine($"Connected to %s{host}:%s{port}", WsError.FromException)
                 do! receiveAndSendASCII(ws, server).Fork().Unit()
             }
 
         fio {
             let! server = WebSocketServer.Create()
             do! server.Start url
-            do! Console.PrintLineMapError($"Server listening on %s{url}", WsError.FromException)
+            do! Console.printLine($"Server listening on %s{url}", WsError.FromException)
             while true do
                 let! ws = server.Accept()
                 do! handleClient(ws, server)
@@ -579,16 +579,16 @@ type WebSocketApp(host: string, port: string) =
         let send (ws: WebSocket) =
             fio {
                 while true do
-                    do! Console.PrintLineMapError("Enter a message ('exit' to quit): ", WsError.FromException)
-                    let! msg = Console.ReadLineMapError WsError.FromException
+                    do! Console.printLine("Enter a message ('exit' to quit): ", WsError.FromException)
+                    let! msg = Console.readLine WsError.FromException
                     if msg = "exit" then
-                        do! Console.PrintLineMapError("Client exiting", WsError.FromException)
+                        do! Console.printLine("Client exiting", WsError.FromException)
                         do! ws.SendText "__SHUTDOWN__"
                         do! ws.Close()
                         do! ws.Dispose()
                     else
                         do! ws.SendText msg
-                        do! Console.PrintLineMapError($"Client sent message: %s{msg}", WsError.FromException)
+                        do! Console.printLine($"Client sent message: %s{msg}", WsError.FromException)
             }
 
         let receive (ws: WebSocket) =
@@ -597,13 +597,13 @@ type WebSocketApp(host: string, port: string) =
                     match! ws.ReceiveMessage() with
                     | Frame(Text text) ->
                         let! ascii =
-                            FIO.Attempt(fun () -> JsonSerializer.Deserialize<int> text)
-                                .CatchAll(fun exn -> FIO.Fail(WsError.GeneralError exn.Message))
-                        do! Console.PrintLineMapError($"Client received ASCII: %i{ascii}", WsError.FromException)
+                            FIO.attemptExn(fun () -> JsonSerializer.Deserialize<int> text)
+                                .CatchAll(fun exn -> FIO.fail(WsError.GeneralError exn.Message))
+                        do! Console.printLine($"Client received ASCII: %i{ascii}", WsError.FromException)
                     | ConnectionClosed(status, desc) ->
-                        do! Console.PrintLineMapError($"Client connection closed. Status: {status}, Description: {desc}", WsError.FromException)
+                        do! Console.printLine($"Client connection closed. Status: {status}, Description: {desc}", WsError.FromException)
                     | msg ->
-                        do! Console.PrintLineMapError($"Client received and ignored message: %A{msg}", WsError.FromException)
+                        do! Console.printLine($"Client received and ignored message: %A{msg}", WsError.FromException)
             }
 
         fio {
@@ -621,12 +621,12 @@ type CommandLineArgsApp(args: string array) =
     override _.effect =
         fio {
             if args.Length = 0 then
-                do! Console.PrintLine "No command-line arguments provided"
-                do! Console.PrintLine "Try running with: dotnet run -- arg1 arg2 arg3"
+                do! Console.printLineExn "No command-line arguments provided"
+                do! Console.printLineExn "Try running with: dotnet run -- arg1 arg2 arg3"
             else
-                do! Console.PrintLine $"Received %d{args.Length} argument(s):"
+                do! Console.printLineExn $"Received %d{args.Length} argument(s):"
                 for i = 0 to args.Length - 1 do
-                    do! Console.PrintLine $"  Arg[%d{i}]: %s{args[i]}"
+                    do! Console.printLineExn $"  Arg[%d{i}]: %s{args[i]}"
         }
 
 type CustomRuntimeApp() =
@@ -641,10 +641,10 @@ type CustomRuntimeApp() =
 
     override _.effect =
         fio {
-            do! Console.PrintLine "Running with custom ConcurrentRuntime configuration:"
-            do! Console.PrintLine $"- Evaluation Workers: %d{Environment.ProcessorCount * 2}"
-            do! Console.PrintLine "- Evaluation Steps: 500"
-            do! Console.PrintLine "- Blocking Workers: 2"
+            do! Console.printLineExn "Running with custom ConcurrentRuntime configuration:"
+            do! Console.printLineExn $"- Evaluation Workers: %d{Environment.ProcessorCount * 2}"
+            do! Console.printLineExn "- Evaluation Steps: 500"
+            do! Console.printLineExn "- Blocking Workers: 2"
         }
 
 type ShutdownHookApp() =
@@ -654,21 +654,21 @@ type ShutdownHookApp() =
 
     override _.effect =
         fio {
-            do! Console.PrintLine "Acquiring resource..."
+            do! Console.printLineExn "Acquiring resource..."
             resourceAcquired <- true
-            do! Console.PrintLine "Resource acquired for 10 seconds! Press Ctrl+C to test shutdown hook."
+            do! Console.printLineExn "Resource acquired for 10 seconds! Press Ctrl+C to test shutdown hook."
             for i in 1..10 do
-                do! Console.PrintLine $" - %d{i}..."
-                do! FIO.Sleep(TimeSpan.FromSeconds 1.0)
-            do! Console.PrintLine "Completed normally (no Ctrl+C)"
+                do! Console.printLineExn $" - %d{i}..."
+                do! FIO.sleepExn(TimeSpan.FromSeconds 1.0)
+            do! Console.printLineExn "Completed normally (no Ctrl+C)"
         }
 
     override _.shutdownHook () =
         fio {
             if resourceAcquired then
-                do! Console.PrintLine "Shutdown hook: Releasing resource..."
-                do! FIO.Sleep(TimeSpan.FromSeconds 1.0)
-                do! Console.PrintLine "Shutdown hook: Resource released!"
+                do! Console.printLineExn "Shutdown hook: Releasing resource..."
+                do! FIO.sleepExn(TimeSpan.FromSeconds 1.0)
+                do! Console.printLineExn "Shutdown hook: Resource released!"
         }
 
     override _.shutdownHookTimeout =
@@ -679,12 +679,12 @@ type CustomExitCodeApp() =
 
     override _.effect =
         fio {
-            do! Console.PrintLineMapError("Enter a number (1-5 for custom exit codes, 0 for success): ", fun _ -> 99)
-            let! input = Console.ReadLineMapError(fun _ -> 99)
+            do! Console.printLine("Enter a number (1-5 for custom exit codes, 0 for success): ", fun _ -> 99)
+            let! input = Console.readLine(fun _ -> 99)
             match Int32.TryParse input with
             | true, 0 -> return 0
-            | true, n when n > 0 && n <= 5 -> return! FIO.Fail n
-            | _ -> return! FIO.Fail 99
+            | true, n when n > 0 && n <= 5 -> return! FIO.fail n
+            | _ -> return! FIO.fail 99
         }
 
     override _.exitCodeSuccess res =
@@ -704,7 +704,7 @@ type DisableThreadPoolConfigApp() =
 
     override _.effect =
         fio {
-            do! Console.PrintLine "Running without automatic ThreadPool configuration"
+            do! Console.printLineExn "Running without automatic ThreadPool configuration"
         }
 
 type EnvironmentApp() =
@@ -712,51 +712,51 @@ type EnvironmentApp() =
 
     override _.effect =
         fio {
-            do! Console.PrintLine "Environment Module Examples:"
-            do! Console.PrintLine ""
+            do! Console.printLineExn "Environment Module Examples:"
+            do! Console.printLineExn ""
 
             // Pure values (no effects)
-            do! Console.PrintLine $"  ProcessorCount: {Environment.ProcessorCount}"
-            do! Console.PrintLine $"  Is64BitProcess: {Environment.Is64BitProcess}"
-            do! Console.PrintLine $"  Is64BitOperatingSystem: {Environment.Is64BitOperatingSystem}"
-            do! Console.PrintLine ""
+            do! Console.printLineExn $"  ProcessorCount: {Environment.ProcessorCount}"
+            do! Console.printLineExn $"  Is64BitProcess: {Environment.Is64BitProcess}"
+            do! Console.printLineExn $"  Is64BitOperatingSystem: {Environment.Is64BitOperatingSystem}"
+            do! Console.printLineExn ""
 
             // System info effects
-            let! cwd = Environment.CurrentDirectory()
-            do! Console.PrintLine $"  CurrentDirectory: {cwd}"
+            let! cwd = Environment.currentDirectory()
+            do! Console.printLineExn $"  CurrentDirectory: {cwd}"
 
-            let! machine = Environment.MachineName()
-            do! Console.PrintLine $"  MachineName: {machine}"
+            let! machine = Environment.machineName()
+            do! Console.printLineExn $"  MachineName: {machine}"
 
-            let! user = Environment.UserName()
-            do! Console.PrintLine $"  UserName: {user}"
+            let! user = Environment.userName()
+            do! Console.printLineExn $"  UserName: {user}"
 
-            let! tempPath = Environment.GetTempPath()
-            do! Console.PrintLine $"  TempPath: {tempPath}"
-            do! Console.PrintLine ""
+            let! tempPath = Environment.getTempPath()
+            do! Console.printLineExn $"  TempPath: {tempPath}"
+            do! Console.printLineExn ""
 
             // Environment variables
-            let! pathOpt = Environment.GetOption "PATH"
+            let! pathOpt = Environment.getOption "PATH"
             match pathOpt with
             | Some path ->
                 let truncated = if path.Length > 50 then path.Substring(0, 50) + "..." else path
-                do! Console.PrintLine $"  PATH: {truncated}"
+                do! Console.printLineExn $"  PATH: {truncated}"
             | None ->
-                do! Console.PrintLine "  PATH: (not set)"
+                do! Console.printLineExn "  PATH: (not set)"
 
-            let! port = Environment.GetOrDefault("PORT", "8080")
-            do! Console.PrintLine $"  PORT (or default): {port}"
+            let! port = Environment.getOrDefault("PORT", "8080")
+            do! Console.printLineExn $"  PORT (or default): {port}"
 
-            let! homeSet = Environment.IsSet "HOME"
-            let! userProfileSet = Environment.IsSet "USERPROFILE"
-            do! Console.PrintLine $"  HOME is set: {homeSet}"
-            do! Console.PrintLine $"  USERPROFILE is set: {userProfileSet}"
+            let! homeSet = Environment.isSet "HOME"
+            let! userProfileSet = Environment.isSet "USERPROFILE"
+            do! Console.printLineExn $"  HOME is set: {homeSet}"
+            do! Console.printLineExn $"  USERPROFILE is set: {userProfileSet}"
 
-            let! timeout = Environment.GetIntOrDefault("TIMEOUT_SECONDS", 30)
-            do! Console.PrintLine $"  TIMEOUT_SECONDS (or default): {timeout}"
+            let! timeout = Environment.getIntOrDefault("TIMEOUT_SECONDS", 30)
+            do! Console.printLineExn $"  TIMEOUT_SECONDS (or default): {timeout}"
 
-            let! debug = Environment.GetBoolOrDefault("DEBUG", false)
-            do! Console.PrintLine $"  DEBUG (or default): {debug}"
+            let! debug = Environment.getBoolOrDefault("DEBUG", false)
+            do! Console.printLineExn $"  DEBUG (or default): {debug}"
         }
 
 type BannerApp() as this =
@@ -769,11 +769,11 @@ type BannerApp() as this =
 
     override _.effect =
         fio {
-            do! Console.PrintLine ""
-            do! Console.PrintLine "The banner above was automatically displayed!"
-            do! Console.PrintLine $"App name: {this.name}"
-            do! Console.PrintLine $"App version: {this.version}"
-            do! Console.PrintLine $"App description: {this.description}"
+            do! Console.printLineExn ""
+            do! Console.printLineExn "The banner above was automatically displayed!"
+            do! Console.printLineExn $"App name: {this.name}"
+            do! Console.printLineExn $"App version: {this.version}"
+            do! Console.printLineExn $"App description: {this.description}"
         }
 
 type CustomBannerApp() =
@@ -793,7 +793,7 @@ type CustomBannerApp() =
 
     override _.effect =
         fio {
-            do! Console.PrintLine "This app uses a custom banner defined by overriding the 'banner' property."
+            do! Console.printLineExn "This app uses a custom banner defined by overriding the 'banner' property."
         }
 
 let examples = [

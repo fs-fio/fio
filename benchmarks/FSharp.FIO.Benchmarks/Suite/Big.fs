@@ -16,22 +16,22 @@ open FSharp.FIO.Benchmarks.Tools.Timer
 open System
 
 type private Message =
-    | Ping of int * Message channel
+    | Ping of int * Channel<Message>
     | Pong of int
 
 type private Actor =
     { Name: string
-      PingReceiveChan: Message channel
-      PongReceiveChan: Message channel
-      SendingChans: Message channel list }
+      PingReceiveChan: Channel<Message>
+      PongReceiveChan: Channel<Message>
+      SendingChans: Channel<Message> list }
 
 [<TailCall>]
-let rec private sendPingsEff (actor, roundCount, ping, chans: Message channel list, timerChan) : FIO<unit, exn> =
+let rec private sendPingsEff (actor, roundCount, ping, chans: Channel<Message> list, timerChan) : FIO<unit, exn> =
     fio {
         for chan in chans do
             do! chan.Send(Ping(ping, actor.PongReceiveChan)).Unit()
             #if DEBUG
-            do! Console.PrintLine $"DEBUG: %s{actor.Name} sent ping: %i{ping}"
+            do! Console.printLineExn $"DEBUG: %s{actor.Name} sent ping: %i{ping}"
             #endif
         
         return! receivePingsEff(actor, roundCount, actor.SendingChans.Length, ping, timerChan)
@@ -43,33 +43,33 @@ and private receivePingsEff (actor, rounds, receiveCount, msg, timerChan) : FIO<
             match! actor.PingReceiveChan.Receive() with
             | Ping (ping, replyChan) ->
                 #if DEBUG
-                do! Console.PrintLine $"DEBUG: %s{actor.Name} received ping: %i{ping}"
+                do! Console.printLineExn $"DEBUG: %s{actor.Name} received ping: %i{ping}"
                 #endif
                 match! replyChan.Send(Pong(ping + 1)) with
                 | Pong pong ->
                     #if DEBUG
-                    do! Console.PrintLine $"DEBUG: %s{actor.Name} sent pong: %i{pong}"
+                    do! Console.printLineExn $"DEBUG: %s{actor.Name} sent pong: %i{pong}"
                     #endif
                     return ()
                 | Ping _ ->
-                    return! FIO.Fail(InvalidOperationException "receivePingsEff: Received ping when pong was expected!")
+                    return! FIO.fail(InvalidOperationException "receivePingsEff: Received ping when pong was expected!")
             | _ ->
-                return! FIO.Fail(InvalidOperationException "receivePingsEff: Received pong when ping was expected!")
+                return! FIO.fail(InvalidOperationException "receivePingsEff: Received pong when ping was expected!")
                 
         return! receivePongsEff(actor, rounds, actor.SendingChans.Length, msg, timerChan)
     }
 
-and private receivePongsEff (actor, roundCount, receiveCount, msg, timerChan: TimerMessage<int> channel) : FIO<unit, exn> =
+and private receivePongsEff (actor, roundCount, receiveCount, msg, timerChan: Channel<TimerMessage<int>>) : FIO<unit, exn> =
     fio {
         for _ in 1..receiveCount do
             match! actor.PongReceiveChan.Receive() with
             | Pong pong -> 
                 #if DEBUG
-                do! Console.PrintLine $"DEBUG: %s{actor.Name} received pong: %i{pong}"
+                do! Console.printLineExn $"DEBUG: %s{actor.Name} received pong: %i{pong}"
                 #endif
                 return ()
             | _ ->
-                return! FIO.Fail(InvalidOperationException "receivePongsEff: Received ping when pong was expected!")
+                return! FIO.fail(InvalidOperationException "receivePongsEff: Received ping when pong was expected!")
         
         if roundCount <= 0 then
             do! timerChan.Send(Stop).Unit()
@@ -77,7 +77,7 @@ and private receivePongsEff (actor, roundCount, receiveCount, msg, timerChan: Ti
             return! sendPingsEff(actor, roundCount - 1, msg, actor.SendingChans, timerChan)
     }
 
-let private actorEff (actor, msg, roundCount, timerChan: TimerMessage<int> channel, startChan: int channel) : FIO<unit, exn> =
+let private actorEff (actor, msg, roundCount, timerChan: Channel<TimerMessage<int>>, startChan: Channel<int>) : FIO<unit, exn> =
     fio {
         do! timerChan.Send(Start).Unit()
         do! startChan.Receive().Unit()
@@ -133,14 +133,14 @@ let bigBenchmark config : FIO<int64, exn> =
     fio {
         let! actorCount, roundCount =
             match config with
-            | BigConfig(ac, rc) -> FIO.Succeed(ac, rc)
-            | _ -> FIO.Fail(ArgumentException("Big benchmark initialization failed: Requires a BigConfig", nameof config))
+            | BigConfig(ac, rc) -> FIO.succeed(ac, rc)
+            | _ -> FIO.fail(ArgumentException("Big benchmark initialization failed: Requires a BigConfig", nameof config))
         
         if actorCount < 2 then
-            return! FIO.Fail(ArgumentException($"Big benchmark initialization failed: At least 2 actors should be specified. actorCount = %i{actorCount}", nameof actorCount))
+            return! FIO.fail(ArgumentException($"Big benchmark initialization failed: At least 2 actors should be specified. actorCount = %i{actorCount}", nameof actorCount))
         
         if roundCount < 1 then
-            return! FIO.Fail(ArgumentException($"Big benchmark initialization failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount))
+            return! FIO.fail(ArgumentException($"Big benchmark initialization failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount))
         
         let timerChan = Channel<TimerMessage<int>>()
         let startChan = Channel<int>()

@@ -17,9 +17,9 @@ open System
 
 type private Actor = 
     { Name: string; 
-      Chan: int channel }
+      Chan: Channel<int> }
 
-let private sendingActorEff (actor, roundCount, msg, timerChan: TimerMessage<int> channel, startChan: int channel) =
+let private sendingActorEff (actor, roundCount, msg, timerChan: Channel<TimerMessage<int>>, startChan: Channel<int>) =
     fio {
         do! timerChan.Send(Start).Unit()
         do! startChan.Receive().Unit()
@@ -27,11 +27,11 @@ let private sendingActorEff (actor, roundCount, msg, timerChan: TimerMessage<int
         for _ in 1..roundCount do
             do! actor.Chan.Send(msg).Unit()
             #if DEBUG
-            do! Console.PrintLine $"[DEBUG]: %s{actor.Name} sent: %i{msg}"
+            do! Console.printLineExn $"[DEBUG]: %s{actor.Name} sent: %i{msg}"
             #endif
     }
 
-let private receivingActorEff (actor, roundCount, timerChan: TimerMessage<int> channel, startChan: int channel) =
+let private receivingActorEff (actor, roundCount, timerChan: Channel<TimerMessage<int>>, startChan: Channel<int>) =
     fio {
         do! timerChan.Send(Start).Unit()
         do! startChan.Receive().Unit()
@@ -39,7 +39,7 @@ let private receivingActorEff (actor, roundCount, timerChan: TimerMessage<int> c
         for _ in 1..roundCount do
             let! msg = actor.Chan.Receive()
             #if DEBUG
-            do! Console.PrintLine $"[DEBUG]: %s{actor.Name} received: %i{msg}"
+            do! Console.printLineExn $"[DEBUG]: %s{actor.Name} received: %i{msg}"
             #endif
             return ()
             
@@ -69,14 +69,14 @@ let bangBenchmark config : FIO<int64, exn> =
     fio {
         let! actorCount, roundCount =
             match config with
-            | BangConfig(ac, rc) -> FIO.Succeed(ac, rc)
-            | _ -> FIO.Fail(ArgumentException("Bang benchmark initialization failed: Requires a BangConfig", nameof config))
+            | BangConfig(ac, rc) -> FIO.succeed(ac, rc)
+            | _ -> FIO.fail(ArgumentException("Bang benchmark initialization failed: Requires a BangConfig", nameof config))
         
         if actorCount < 1 then
-            return! FIO.Fail(ArgumentException($"Bang benchmark initialization failed: At least 1 actor should be specified. actorCount = %i{actorCount}", nameof actorCount))
+            return! FIO.fail(ArgumentException($"Bang benchmark initialization failed: At least 1 actor should be specified. actorCount = %i{actorCount}", nameof actorCount))
         
         if roundCount < 1 then
-            return! FIO.Fail(ArgumentException($"Bang benchmark initialization failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount))
+            return! FIO.fail(ArgumentException($"Bang benchmark initialization failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount))
         
         let timerChan = Channel<TimerMessage<int>>()
         let startChan = Channel<int>()

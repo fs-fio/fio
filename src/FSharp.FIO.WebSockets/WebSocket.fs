@@ -22,20 +22,20 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     let logAndSuppress (context: string) (err: WsError) : FIO<unit, WsError> =
         fio {
             let str = WsError.ToString err
-            do! FIO.Attempt((fun () ->
+            do! FIO.attempt((fun () ->
                 eprintfn $"[WebSocket] Error during {context}: {str}"), WsError.FromException)
             return ()
         }
 
     // Partially applied functions for consistent error handling
     let fromFunc (func: unit -> 'T) : FIO<'T, WsError> =
-        FIO.Attempt(func, WsError.FromException)
+        FIO.attempt(func, WsError.FromException)
 
     let awaitTask (task: Task) : FIO<unit, WsError> =
-        FIO.AwaitTask(task, WsError.FromException)
+        FIO.awaitTask(task, WsError.FromException)
 
     let awaitTaskT (task: Task<'T>) : FIO<'T, WsError> =
-        FIO.AwaitTask(task, WsError.FromException)
+        FIO.awaitGenericTask(task, WsError.FromException)
 
     /// <summary>
     /// Receives a complete message from the WebSocket.
@@ -46,7 +46,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
             let! state = fromFunc <| fun () -> socket.State
 
             if state <> WebSocketState.Open && state <> WebSocketState.CloseSent then
-                return! FIO.Fail(WsError.FromException (Exception $"Cannot receive message - WebSocket state is {state}"))
+                return! FIO.fail(WsError.FromException (Exception $"Cannot receive message - WebSocket state is {state}"))
 
             let! timeoutCts =
                 fromFunc
@@ -97,7 +97,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
 
                             if totalSize > config.MaxMessageSize then
                                 return!
-                                    FIO.Fail(WsError.FromException (
+                                    FIO.fail(WsError.FromException (
                                         Exception $"Message size {totalSize} exceeds maximum allowed size {config.MaxMessageSize}"))
 
                             fragments.AddRange(ArraySegment(buffer, 0, count))
@@ -114,7 +114,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
                             let text = Encoding.UTF8.GetString data
                             return Frame(Text text)
                         | WebSocketMessageType.Binary -> return Frame(Binary data)
-                        | _ -> return! FIO.Fail(WsError.FromException (Exception "Unexpected message type"))
+                        | _ -> return! FIO.fail(WsError.FromException (Exception "Unexpected message type"))
                 }
 
             let finalizer =
@@ -144,7 +144,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
             let! state = fromFunc <| fun () -> socket.State
 
             if state <> WebSocketState.Open then
-                return! FIO.Fail(WsError.FromException (Exception $"Cannot send frame - WebSocket state is {state}"))
+                return! FIO.fail(WsError.FromException (Exception $"Cannot send frame - WebSocket state is {state}"))
 
             let! timeoutCts = fromFunc <| fun () ->
                 if config.SendTimeout > 0 then
@@ -252,7 +252,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
         fio {
             let! frameResult =
                 (codec.Encode value)
-                    .CatchAll(fun err -> FIO.Fail(err))
+                    .CatchAll(fun err -> FIO.fail(err))
             do! this.SendFrame(frameResult, cancellationToken)
         }
 
@@ -274,9 +274,9 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
             match! this.ReceiveMessage cancellationToken with
             | Frame frame ->
                 return! codec.Decode(frame)
-                    .CatchAll(fun err -> FIO.Fail err)
+                    .CatchAll(fun err -> FIO.fail err)
             | ConnectionClosed(status, desc) ->
-                return! FIO.Fail(WsError.FromException (Exception $"Connection closed. Status: {status}, Description: {desc}"))
+                return! FIO.fail(WsError.FromException (Exception $"Connection closed. Status: {status}, Description: {desc}"))
         }
 
     /// <summary>

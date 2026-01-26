@@ -11,12 +11,12 @@ open System.Diagnostics
 type internal TimerMessage<'R> =
     | Start
     | Stop
-    | MsgChannel of 'R channel
+    | MsgChannel of Channel<'R>
 
-let private startLoop (startCount, timerChan: TimerMessage<int> channel, stopwatch: Stopwatch) : FIO<unit, exn> =
+let private startLoop (startCount, timerChan: Channel<TimerMessage<int>>, stopwatch: Stopwatch) : FIO<unit, exn> =
     fio {
         if startCount < 0 then
-            return! FIO.Fail(ArgumentException($"Timer initialization failed: startCount must be non-negative. startCount = %i{startCount}", nameof startCount))
+            return! FIO.fail(ArgumentException($"Timer initialization failed: startCount must be non-negative. startCount = %i{startCount}", nameof startCount))
         
         let mutable currentCount = startCount
         
@@ -24,22 +24,22 @@ let private startLoop (startCount, timerChan: TimerMessage<int> channel, stopwat
             match! timerChan.Receive() with
             | Start ->
                 #if DEBUG
-                do! Console.PrintLine $"[DEBUG]: Timer received Start message (%i{startCount - currentCount + 1}/%i{startCount})"
+                do! Console.printLineExn $"[DEBUG]: Timer received Start message (%i{startCount - currentCount + 1}/%i{startCount})"
                 #endif
                 currentCount <- currentCount - 1
             | _ ->
                 ()
         
-        do! FIO.Attempt(fun () -> stopwatch.Start())
+        do! FIO.attemptExn(fun () -> stopwatch.Start())
         #if DEBUG
-        do! Console.PrintLine "[DEBUG]: Timer started"
+        do! Console.printLineExn "[DEBUG]: Timer started"
         #endif
     }
 
-let private msgLoop (msgCount, msg, msgChan: int channel) : FIO<unit, exn> =
+let private msgLoop (msgCount, msg, msgChan: Channel<int>) : FIO<unit, exn> =
     fio {
         if msgCount < 0 then
-            return! FIO.Fail(ArgumentException($"Timer initialization failed: msgCount must be non-negative. msgCount = %i{msgCount}", nameof msgCount))
+            return! FIO.fail(ArgumentException($"Timer initialization failed: msgCount must be non-negative. msgCount = %i{msgCount}", nameof msgCount))
         
         let mutable currentCount = msgCount
         let mutable currentMsg = msg
@@ -47,16 +47,16 @@ let private msgLoop (msgCount, msg, msgChan: int channel) : FIO<unit, exn> =
         while currentCount > 0 do
             do! msgChan.Send(msg).Unit()
             #if DEBUG
-            do! Console.PrintLine $"[DEBUG]: Timer sent %i{msg} to MsgChannel (%i{msgCount - currentCount + 1}/%i{msgCount})"
+            do! Console.printLineExn $"[DEBUG]: Timer sent %i{msg} to MsgChannel (%i{msgCount - currentCount + 1}/%i{msgCount})"
             #endif
             currentCount <- currentCount - 1
             currentMsg <- currentMsg + 1
     }
 
-let private stopLoop (stopCount, timerChan: TimerMessage<int> channel, stopwatch: Stopwatch) : FIO<unit, exn> =
+let private stopLoop (stopCount, timerChan: Channel<TimerMessage<int>>, stopwatch: Stopwatch) : FIO<unit, exn> =
     fio {
         if stopCount < 0 then
-            return! FIO.Fail(ArgumentException($"Timer initialization failed: stopCount must be non-negative. stopCount = %i{stopCount}", nameof stopCount))
+            return! FIO.fail(ArgumentException($"Timer initialization failed: stopCount must be non-negative. stopCount = %i{stopCount}", nameof stopCount))
                
         let mutable currentCount = stopCount
         
@@ -64,29 +64,29 @@ let private stopLoop (stopCount, timerChan: TimerMessage<int> channel, stopwatch
             match! timerChan.Receive() with
             | Stop ->
                 #if DEBUG
-                do! Console.PrintLine $"[DEBUG]: Timer received Stop message (%i{stopCount - currentCount + 1}/%i{stopCount})"
+                do! Console.printLineExn $"[DEBUG]: Timer received Stop message (%i{stopCount - currentCount + 1}/%i{stopCount})"
                 #endif
                 currentCount <- currentCount - 1
             | _ ->
                 ()
             
-        do! FIO.Attempt(fun () -> stopwatch.Stop())
+        do! FIO.attemptExn(fun () -> stopwatch.Stop())
         #if DEBUG
-        do! Console.PrintLine "[DEBUG]: Timer stopped"
+        do! Console.printLineExn "[DEBUG]: Timer stopped"
         #endif
     }
 
-let TimerEff (startCount, msgCount, stopCount, timerChan: TimerMessage<int> channel) : FIO<int64, exn> =
+let TimerEff (startCount, msgCount, stopCount, timerChan: Channel<TimerMessage<int>>) : FIO<int64, exn> =
     fio {
         let mutable msgChan = Channel<int>()
-        let! stopwatch = FIO.Attempt(fun () -> Stopwatch())
+        let! stopwatch = FIO.attemptExn(fun () -> Stopwatch())
         
         if msgCount > 0 then
             match! timerChan.Receive() with
             | MsgChannel chan ->
                 msgChan <- chan
             | _ ->
-                return! FIO.Fail(InvalidOperationException "Timer: Did not receive MsgChannel as first message when msgCount > 0!")
+                return! FIO.fail(InvalidOperationException "Timer: Did not receive MsgChannel as first message when msgCount > 0!")
         else
             return ()
 

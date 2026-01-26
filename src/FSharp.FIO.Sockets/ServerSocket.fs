@@ -17,7 +17,7 @@ module SocketServer =
     let private logAndSuppress (context: string) (err: SocketError) : FIO<unit, SocketError> =
         fio {
             let str = SocketError.ToString err
-            do! FIO.Attempt((fun () ->
+            do! FIO.attempt((fun () ->
                 eprintfn $"[SocketServer] Error during {context}: {str}"), SocketError.FromException)
             return ()
         }
@@ -28,15 +28,15 @@ module SocketServer =
     /// <param name="config">Server socket configuration.</param>
     let bind (config: ServerSocketConfig) : FIO<ServerSocket, SocketError> =
         fio {
-            let! netSocket = FIO.Attempt((fun () ->
+            let! netSocket = FIO.attempt((fun () ->
                 new Sockets.Socket(config.AddressFamily, config.SocketType, config.ProtocolType)),
                 SocketError.FromException)
 
-            let! endpoint = FIO.Attempt((fun () ->
+            let! endpoint = FIO.attempt((fun () ->
                 IPEndPoint(IPAddress.Parse config.BindAddress, config.BindPort) :> EndPoint),
                 SocketError.FromException)
 
-            do! FIO.Attempt((fun () ->
+            do! FIO.attempt((fun () ->
                 netSocket.Bind endpoint
                 netSocket.Listen config.Backlog),
                 fun exn -> BindFailed(config.BindAddress, config.BindPort, exn))
@@ -51,7 +51,7 @@ module SocketServer =
     /// </summary>
     /// <param name="serverSocket">The server socket to close.</param>
     let close (serverSocket: ServerSocket) : FIO<unit, FSharp.FIO.Sockets.SocketError> =
-        FIO.Attempt((fun () ->
+        FIO.attempt((fun () ->
             serverSocket.NetSocket.Close()
             serverSocket.NetSocket.Dispose()),
             SocketError.FromException
@@ -80,7 +80,7 @@ module SocketServer =
     /// <param name="config">Server socket configuration.</param>
     /// <param name="action">Action to execute with the server socket.</param>
     let withServerSocket (config: ServerSocketConfig, action: ServerSocket -> FIO<'R, SocketError>) : FIO<'R, SocketError> =
-        FIO.AcquireRelease(acquire config, release, action)
+        FIO.acquireRelease(acquire config, release, action)
 
     /// <summary>
     /// Accepts a single incoming connection.
@@ -89,7 +89,7 @@ module SocketServer =
     /// <param name="serverSocket">The server socket to accept from.</param>
     let accept (serverSocket: ServerSocket) : FIO<Socket, SocketError> =
         fio {
-            let! netSocket = FIO.AwaitTask(serverSocket.NetSocket.AcceptAsync(), AcceptFailed)
+            let! netSocket = FIO.awaitGenericTask(serverSocket.NetSocket.AcceptAsync(), AcceptFailed)
             let config =
                 match serverSocket.Config.AcceptedSocketConfig with
                 | Some cfg -> cfg
@@ -103,7 +103,9 @@ module SocketServer =
                       ReceiveBufferSize = netSocket.ReceiveBufferSize
                       SendTimeout = netSocket.SendTimeout
                       ReceiveTimeout = netSocket.ReceiveTimeout
-                      NoDelay = netSocket.NoDelay }
+                      NoDelay = netSocket.NoDelay 
+                      LingerEnabled = netSocket.LingerState.Enabled
+                      LingerTimeout = netSocket.LingerState.LingerTime }
             return new Socket(netSocket, config)
         }
 
@@ -119,8 +121,8 @@ module SocketServer =
             fio {
                 let! socket = accept serverSocket
                 let handlerWithCleanup =
-                    FIO.AcquireRelease(
-                        FIO.Succeed socket,
+                    FIO.acquireRelease(
+                        FIO.succeed socket,
                         (fun s -> s.Close().CatchAll(logAndSuppress "accepted socket close")),
                         handler)
                 let! _fiber = handlerWithCleanup.Fork()
@@ -140,7 +142,7 @@ module SocketServer =
     /// </summary>
     /// <param name="serverSocket">The server socket to query.</param>
     let getLocalEndPoint (serverSocket: ServerSocket) : FIO<EndPoint, SocketError> =
-        FIO.Attempt((fun () ->
+        FIO.attempt((fun () ->
             serverSocket.NetSocket.LocalEndPoint), SocketError.FromException)
 
     /// <summary>

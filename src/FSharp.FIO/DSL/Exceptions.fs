@@ -21,7 +21,7 @@ type InterruptionCause =
     /// Fiber was interrupted due to resource exhaustion or system limits.
     | ResourceExhaustion of reason: string
 
-    override this.ToString() =
+    override this.ToString () =
         match this with
         | Timeout ms -> $"Timeout ({ms}ms)"
         | ParentInterrupted id -> $"ParentInterrupted ({id})"

@@ -32,7 +32,7 @@ module WebSockPool =
     let private logAndSuppress (context: string) (err: WsError) : FIO<unit, WsError> =
         fio {
             let str = WsError.ToString err
-            do! FIO.Attempt((fun () ->
+            do! FIO.attempt((fun () ->
                 eprintfn $"[WebSocketPool] Error during {context}: {str}"), WsError.FromException)
             return ()
         }
@@ -63,7 +63,7 @@ module WebSockPool =
     /// <param name="wsConfig">WebSocket configuration.</param>
     /// <param name="poolConfig">Pool configuration.</param>
     let create (uri: Uri) (wsConfig: WebSocketConfig) (poolConfig: WebSocketPoolConfig) : FIO<WebSocketPool, WsError> =
-        FIO.Attempt((fun () ->
+        FIO.attempt((fun () ->
             {
                 Config = poolConfig
                 Available = []
@@ -83,7 +83,7 @@ module WebSockPool =
     /// <param name="poolConfig">Pool configuration.</param>
     let createFromUrl (url: string) (wsConfig: WebSocketConfig) (poolConfig: WebSocketPoolConfig) : FIO<WebSocketPool, WsError> =
         fio {
-            let! uri = FIO.Attempt((fun () -> Uri url), WsError.FromException)
+            let! uri = FIO.attempt((fun () -> Uri url), WsError.FromException)
             return! create uri wsConfig poolConfig
         }
 
@@ -116,7 +116,7 @@ module WebSockPool =
     let rec acquire (pool: WebSocketPool) : FIO<FSharp.FIO.WebSockets.WebSocket, FSharp.FIO.WebSockets.WsError> =
         fio {
             if pool.Closed then
-                return! FIO.Fail(Closed "Pool is closed")
+                return! FIO.fail(Closed "Pool is closed")
 
             let socketOpt = lock pool.Lock (fun () ->
                 match pool.Available with
@@ -159,7 +159,7 @@ module WebSockPool =
                 if canCreate then
                     return! WebSocketClient.connect pool.Uri pool.WsConfig System.Threading.CancellationToken.None
                 else
-                    return! FIO.Fail(PoolExhausted $"Pool exhausted: {pool.TotalCreated}/{pool.Config.MaxPoolSize} connections")
+                    return! FIO.fail(PoolExhausted $"Pool exhausted: {pool.TotalCreated}/{pool.Config.MaxPoolSize} connections")
         }
 
     /// <summary>
@@ -200,7 +200,7 @@ module WebSockPool =
         (action: FSharp.FIO.WebSockets.WebSocket -> FIO<'R, WsError>)
         (pool: WebSocketPool)
         : FIO<'R, WsError> =
-        FIO.AcquireRelease(
+        FIO.acquireRelease(
             acquire pool,
             (fun ws -> releaseToPool ws pool),
             action

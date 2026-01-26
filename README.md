@@ -62,6 +62,7 @@
         <li><a href="#clock">Clock</a></li>
         <li><a href="#environment">Environment</a></li>
         <li><a href="#random">Random</a></li>
+        <li><a href="#concurrency-primitives">Concurrency Primitives</a></li>
       </ul>
     </li>
     <li>
@@ -153,7 +154,7 @@ The core package includes:
 dotnet add package FSharp.FIO.Sockets
 ```
 
-Provides TCP socket operations with client, server, and connection pooling functionality.
+Provides TCP socket operations with client, server, and connection pooling. Error type: `SocketError`.
 
 ##### WebSockets
 
@@ -161,7 +162,7 @@ Provides TCP socket operations with client, server, and connection pooling funct
 dotnet add package FSharp.FIO.WebSockets
 ```
 
-Provides WebSocket client and server functionality with connection pooling.
+Provides WebSocket client and server functionality with connection pooling. Error type: `WsError`.
 
 ##### HTTP Server (experimental)
 
@@ -169,7 +170,7 @@ Provides WebSocket client and server functionality with connection pooling.
 dotnet add package FSharp.FIO.Http
 ```
 
-Provides composable HTTP server functionality built on ASP.NET Core Kestrel, including routes, handlers, and middleware.
+Provides composable HTTP server functionality built on ASP.NET Core Kestrel, including routes, handlers, and middleware. Error type: `HttpError`.
 
 ##### PostgreSQL Database (experimental)
 
@@ -177,7 +178,7 @@ Provides composable HTTP server functionality built on ASP.NET Core Kestrel, inc
 dotnet add package FSharp.FIO.PostgreSQL
 ```
 
-Provides PostgreSQL database operations built on Npgsql, including connection pooling, query execution, and transactions.
+Provides PostgreSQL database operations built on Npgsql, including connection pooling, query execution, and transactions. Error type: `PgError`.
 
 ### Quick Start
 
@@ -227,14 +228,14 @@ let combined = fetchUser() <*> fetchSettings()
 
 // *> - Run both, keep second result
 let compute =
-    Console.PrintLine "Starting computation..."
+    Console.printLine "Starting computation..."
     *> calculateResult()
 // Returns: FIO<CalculationResult, 'E>
 
 // <* - Run both, keep first result
 let withLogging =
     performAction()
-    <* Console.PrintLine "Action completed!"
+    <* Console.printLine "Action completed!"
 // Returns: FIO<ActionResult, 'E>
 ```
 
@@ -338,7 +339,7 @@ let pipeline =
     <!> validateData
     >>= enrichData
     >>= saveData
-    <* Console.PrintLine "Pipeline completed!"
+    <* Console.printLine "Pipeline completed!"
 ```
 
 #### Operator Quick Reference
@@ -380,9 +381,9 @@ open FSharp.FIO.Runtime.Default
 [<EntryPoint>]
 let main _ =
     let askForName = fio {
-        do! Console.PrintLine "Hello! What is your name?"
+        do! Console.printLine "Hello! What is your name?"
         let! name = Console.ReadLine
-        do! Console.PrintLine $"Hello, {name}! Welcome to FIO! 🪻💜"
+        do! Console.printLine $"Hello, {name}! Welcome to FIO! 🪻💜"
     }
 
     let fiber = (new DefaultRuntime()).Run askForName
@@ -423,9 +424,9 @@ type WelcomeApp() =
     inherit SimpleFIOApp()
 
     override _.effect = fio {
-        do! Console.PrintLine "Hello! What is your name?"
+        do! Console.printLine "Hello! What is your name?"
         let! name = Console.ReadLine
-        do! Console.PrintLine $"Hello, {name}! Welcome to FIO! 🪻💜"
+        do! Console.printLine $"Hello, {name}! Welcome to FIO! 🪻💜"
     }
 ```
 
@@ -440,7 +441,7 @@ type RandomNumberApp() =
 
     override _.effect = fio {
         let! randomNumber = FIO.Attempt(fun () -> Random().Next(1, 100))
-        do! Console.PrintLine $"Generated: {randomNumber}"
+        do! Console.printLine $"Generated: {randomNumber}"
         return randomNumber  // Returns int
     }
 ```
@@ -499,7 +500,7 @@ type MyApp() =
 
     // Cleanup on shutdown (Ctrl+C or completion)
     override _.shutdownHook() = fio {
-        do! Console.PrintLine "Cleaning up resources..."
+        do! Console.printLine "Cleaning up resources..."
     }
 
     // Custom runtime configuration
@@ -529,9 +530,9 @@ open FSharp.FIO.Console
 open FSharp.FIO.Runtime.Default
 
 let askForName =
-    Console.PrintLine "Hello! What is your name?" >>= fun _ ->
+    Console.printLine "Hello! What is your name?" >>= fun _ ->
     Console.ReadLine >>= fun name ->
-    Console.PrintLine $"Hello, {name}! Welcome to FIO! 🪻💜"
+    Console.printLine $"Hello, {name}! Welcome to FIO! 🪻💜"
 
 [<EntryPoint>]
 let main _ =
@@ -542,7 +543,7 @@ let main _ =
 
 ## Library Modules
 
-The core package includes four library modules for common effectful operations. All modules use qualified access (e.g., `Console.PrintLine`).
+The core package includes four library modules for common effectful operations. All modules use qualified access (e.g., `Console.printLine`).
 
 ### Console
 
@@ -552,9 +553,9 @@ Provides functional console I/O operations including input/output, colors, curso
 open FSharp.FIO.Console
 
 let effect = fio {
-    do! Console.PrintLine "Enter your name:"
+    do! Console.printLine "Enter your name:"
     let! name = Console.ReadLine
-    do! Console.PrintLine $"Hello, {name}!"
+    do! Console.printLine $"Hello, {name}!"
 
     // Read password with masked input
     do! Console.Print "Password: "
@@ -562,12 +563,12 @@ let effect = fio {
 
     // Colored output (automatically restores original color)
     do! Console.WithForegroundColor(ConsoleColor.Green,
-        Console.PrintLine "Success!")
+        Console.printLine "Success!")
 }
 ```
 
 **Key functions:**
-- I/O: `Print`, `PrintLine`, `ReadLine`, `ReadKey`, `ReadPassword`
+- I/O: `Print`, `printLine`, `ReadLine`, `ReadKey`, `ReadPassword`
 - Stderr: `PrintError`, `PrintErrorLine`, `WriteError`, `WriteErrorLine`
 - Colors: `SetForegroundColor`, `SetBackgroundColor`, `WithForegroundColor`, `WithColors`
 - Cursor: `SetCursorPosition`, `GetCursorPosition`, `Clear`
@@ -590,7 +591,7 @@ let effect = fio {
 
     // Measure execution time
     let! (result, elapsed) = Clock.Timed(someExpensiveOperation)
-    do! Console.PrintLine $"Completed in {elapsed.TotalMilliseconds}ms"
+    do! Console.printLine $"Completed in {elapsed.TotalMilliseconds}ms"
 }
 ```
 
@@ -660,6 +661,80 @@ let effect = fio {
 - Floats: `NextDouble()`, `NextDoubleBounded(max)`, `NextDoubleRange(min, max)`
 - Utilities: `NextBool()`, `NextGuid()`, `NextBytes(count)`
 - Collections: `Shuffle(list)`, `Choice(list)`, `ChoiceOrFail(list, onEmpty)`
+
+### Concurrency Primitives
+
+The core package includes three concurrency primitives for coordination between fibers.
+
+#### Promise
+
+One-shot synchronization primitive that can be completed once with success or failure.
+
+```fsharp
+open FSharp.FIO.Promise
+
+let effect = fio {
+    let! promise = Promise.Make<int, exn>()
+
+    // Fork a fiber that completes the promise
+    do! FIO.ForkIgnore (fio {
+        do! FIO.Sleep 100
+        do! Promise.Succeed promise 42
+    })
+
+    // Wait for the result
+    let! result = Promise.Await promise
+    do! Console.printLine $"Got: {result}"
+}
+```
+
+**Key functions:** `Make`, `Succeed`, `Fail`, `Complete`, `Await`, `Poll`, `IsDone`
+
+#### Ref
+
+Atomic reference with lock-free CAS operations for shared mutable state.
+
+```fsharp
+open FSharp.FIO.Ref
+
+let effect = fio {
+    let! counter = Ref.Make 0
+
+    // Concurrent increments
+    do! FIO.ForkIgnore (Ref.Update counter ((+) 1))
+    do! FIO.ForkIgnore (Ref.Update counter ((+) 1))
+
+    do! FIO.Sleep 50
+    let! value = Ref.Get counter
+    do! Console.printLine $"Counter: {value}"
+}
+```
+
+**Key functions:** `Make`, `Get`, `Set`, `Update`, `GetAndSet`, `GetAndUpdate`, `UpdateAndGet`
+
+#### Semaphore
+
+Counting semaphore for limiting concurrent access to resources.
+
+```fsharp
+open FSharp.FIO.Semaphore
+
+let effect = fio {
+    let! sem = Semaphore.Make 3  // Max 3 concurrent
+
+    // Scoped acquisition (auto-release)
+    do! Semaphore.WithPermit sem (fio {
+        do! Console.printLine "Acquired permit"
+        do! FIO.Sleep 100
+    })
+
+    // Manual acquire/release
+    do! Semaphore.Acquire sem
+    do! Semaphore.Release sem
+}
+```
+
+**Key functions:** `Make`, `Acquire`, `TryAcquire`, `Release`, `WithPermit`, `Available`
 
 ## Extension Packages
 
