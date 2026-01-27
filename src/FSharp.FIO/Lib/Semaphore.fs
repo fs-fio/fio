@@ -15,7 +15,7 @@ open FSharp.FIO.DSL
 [<Sealed>]
 type Semaphore internal (permits: int) =
     let sem = new SemaphoreSlim(permits, permits)
-    let mutable disposed = false
+    let mutable disposed = 0 // 0 = false, 1 = true (for atomic CAS)
 
     /// <summary>Acquires a permit, blocking until one is available.</summary>
     /// <param name="onError">Maps exceptions to error type.</param>
@@ -104,8 +104,7 @@ type Semaphore internal (permits: int) =
             fun () -> effect)
 
     member private _.Dispose (disposing: bool) =
-        if not disposed then
-            disposed <- true
+        if Interlocked.CompareExchange(&disposed, 1, 0) = 0 then
             if disposing then
                 sem.Dispose()
 

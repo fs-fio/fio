@@ -10,12 +10,33 @@ open System.Net.WebSockets
 /// </summary>
 type WebSocketPool =
     {
+        /// <summary>
+        /// The pool configuration.
+        /// </summary>
         Config: WebSocketPoolConfig
+        /// <summary>
+        /// List of available connections with their creation timestamps.
+        /// </summary>
         mutable Available: (FSharp.FIO.WebSockets.WebSocket * DateTime) list
+        /// <summary>
+        /// Lock object for thread-safe pool operations.
+        /// </summary>
         Lock: obj
+        /// <summary>
+        /// Total number of connections created by this pool.
+        /// </summary>
         mutable TotalCreated: int
+        /// <summary>
+        /// Whether the pool has been closed.
+        /// </summary>
         mutable Closed: bool
+        /// <summary>
+        /// The WebSocket server URI.
+        /// </summary>
         Uri: Uri
+        /// <summary>
+        /// The WebSocket configuration for new connections.
+        /// </summary>
         WsConfig: WebSocketConfig
     }
 
@@ -23,7 +44,7 @@ type WebSocketPool =
 /// Connection pool for WebSocket clients.
 /// </summary>
 [<RequireQualifiedAccess>]
-module WebSockPool =
+module WebSocketPool =
 
     /// <summary>
     /// Internal: Logs an error and suppresses it.
@@ -31,9 +52,9 @@ module WebSockPool =
     /// </summary>
     let private logAndSuppress (context: string) (err: WsError) : FIO<unit, WsError> =
         fio {
-            let str = WsError.ToString err
+            let str = err.ToString()
             do! FIO.attempt((fun () ->
-                eprintfn $"[WebSocketPool] Error during {context}: {str}"), WsError.FromException)
+                eprintfn $"[WebSocketPool] Error during {context}: {str}"), WsError.fromException)
             return ()
         }
 
@@ -62,6 +83,7 @@ module WebSockPool =
     /// <param name="uri">The WebSocket server URI.</param>
     /// <param name="wsConfig">WebSocket configuration.</param>
     /// <param name="poolConfig">Pool configuration.</param>
+    /// <returns>A new connection pool.</returns>
     let create (uri: Uri) (wsConfig: WebSocketConfig) (poolConfig: WebSocketPoolConfig) : FIO<WebSocketPool, WsError> =
         FIO.attempt((fun () ->
             {
@@ -73,7 +95,7 @@ module WebSockPool =
                 Uri = uri
                 WsConfig = wsConfig
             }),
-        WsError.FromException)
+        WsError.fromException)
 
     /// <summary>
     /// Creates a pool from a URL string.
@@ -81,9 +103,10 @@ module WebSockPool =
     /// <param name="url">The WebSocket server URL.</param>
     /// <param name="wsConfig">WebSocket configuration.</param>
     /// <param name="poolConfig">Pool configuration.</param>
+    /// <returns>A new connection pool.</returns>
     let createFromUrl (url: string) (wsConfig: WebSocketConfig) (poolConfig: WebSocketPoolConfig) : FIO<WebSocketPool, WsError> =
         fio {
-            let! uri = FIO.attempt((fun () -> Uri url), WsError.FromException)
+            let! uri = FIO.attempt((fun () -> Uri url), WsError.fromException)
             return! create uri wsConfig poolConfig
         }
 
@@ -110,9 +133,9 @@ module WebSockPool =
 
     /// <summary>
     /// Acquires a WebSocket from the pool.
-    /// Creates a new connection if pool is empty and under max size.
     /// </summary>
     /// <param name="pool">The pool to acquire from.</param>
+    /// <returns>A WebSocket connection from the pool.</returns>
     let rec acquire (pool: WebSocketPool) : FIO<FSharp.FIO.WebSockets.WebSocket, FSharp.FIO.WebSockets.WsError> =
         fio {
             if pool.Closed then
@@ -169,33 +192,36 @@ module WebSockPool =
     /// <param name="pool">The pool to return to.</param>
     let releaseToPool (ws: FSharp.FIO.WebSockets.WebSocket) (pool: WebSocketPool) : FIO<unit, WsError> =
         (fio {
-            if pool.Closed then
+            // Check state first (outside lock is OK for this read)
+            let! state = ws.State()
+
+            // Then do atomic pool update inside lock
+            let action = lock pool.Lock (fun () ->
+                if pool.Closed then
+                    "close_disposed"
+                elif state = WebSocketState.Open && pool.TotalCreated <= pool.Config.MaxPoolSize then
+                    pool.Available <- (ws, DateTime.UtcNow) :: pool.Available
+                    "returned"
+                else
+                    pool.TotalCreated <- pool.TotalCreated - 1
+                    "dispose")
+
+            match action with
+            | "close_disposed" ->
                 do! ws.Close().CatchAll(logAndSuppress "websocket close on closed pool")
                 do! ws.Dispose().CatchAll(logAndSuppress "websocket dispose on closed pool")
-            else
-                let! state = ws.State()
-
-                if state = WebSocketState.Open then
-                    // Connection still good, return to pool
-                    lock pool.Lock (fun () ->
-                        if not pool.Closed && pool.TotalCreated <= pool.Config.MaxPoolSize then
-                            pool.Available <- (ws, DateTime.UtcNow) :: pool.Available
-                        else
-                            // Pool closed or over limit during release
-                            pool.TotalCreated <- pool.TotalCreated - 1)
-                    return ()
-                else
-                    // Connection closed, don't return to pool
-                    do! ws.Dispose().CatchAll(logAndSuppress "closed websocket disposal")
-                    lock pool.Lock (fun () ->
-                        pool.TotalCreated <- pool.TotalCreated - 1)
+            | "dispose" ->
+                do! ws.Dispose().CatchAll(logAndSuppress "closed websocket disposal")
+            | _ -> () // "returned" - nothing more to do
         }).CatchAll(logAndSuppress "release to pool")
 
     /// <summary>
     /// Executes an action with a pooled WebSocket using AcquireRelease pattern.
     /// </summary>
+    /// <typeparam name="R">The result type of the action.</typeparam>
     /// <param name="action">The action to execute with the WebSocket.</param>
     /// <param name="pool">The pool to acquire from.</param>
+    /// <returns>The result of the action.</returns>
     let withConnection<'R>
         (action: FSharp.FIO.WebSockets.WebSocket -> FIO<'R, WsError>)
         (pool: WebSocketPool)
@@ -209,6 +235,7 @@ module WebSockPool =
     /// <summary>
     /// Sends a value using a codec through a pooled connection.
     /// </summary>
+    /// <typeparam name="T">The type of value to send.</typeparam>
     /// <param name="codec">The codec to use for encoding.</param>
     /// <param name="value">The value to send.</param>
     /// <param name="pool">The pool to use.</param>
@@ -218,8 +245,10 @@ module WebSockPool =
     /// <summary>
     /// Receives and decodes a value using a codec through a pooled connection.
     /// </summary>
+    /// <typeparam name="T">The type of value to receive.</typeparam>
     /// <param name="codec">The codec to use for decoding.</param>
     /// <param name="pool">The pool to use.</param>
+    /// <returns>The received and decoded value.</returns>
     let receivePooled<'T> (codec: WebSocketCodec<'T>) (pool: WebSocketPool) : FIO<'T, WsError> =
         withConnection (fun ws -> ws.Receive codec) pool
 
@@ -227,6 +256,7 @@ module WebSockPool =
     /// Gets the current pool configuration.
     /// </summary>
     /// <param name="pool">The pool.</param>
+    /// <returns>The pool configuration.</returns>
     let getConfig (pool: WebSocketPool) : WebSocketPoolConfig =
         pool.Config
 
@@ -234,6 +264,7 @@ module WebSockPool =
     /// Gets pool statistics.
     /// </summary>
     /// <param name="pool">The pool.</param>
+    /// <returns>A tuple of (available count, total created count).</returns>
     let getStats (pool: WebSocketPool) : int * int =
         lock pool.Lock (fun () ->
             (pool.Available.Length, pool.TotalCreated))
@@ -242,5 +273,6 @@ module WebSockPool =
     /// Checks if the pool is closed.
     /// </summary>
     /// <param name="pool">The pool.</param>
+    /// <returns>True if the pool is closed.</returns>
     let isClosed (pool: WebSocketPool) : bool =
         pool.Closed

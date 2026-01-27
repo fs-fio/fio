@@ -16,7 +16,7 @@
         <Compile Include="DataParser.fs" />
         <Compile Include="Charts.fs" />
         <Compile Include="ChartMaker.fs" />
-        <Compile Include="ArgParser.fs" />
+        <Compile Include="Args.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 

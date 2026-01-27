@@ -6,6 +6,9 @@ module private FSharp.FIO.DSL.Utilities
 
 open System.Threading.Tasks
 
+/// <summary>
+/// Internal utilities for type upcasting to obj.
+/// </summary>
 [<AutoOpen>]
 module internal Casting =
 

@@ -8,7 +8,8 @@ open System.Net
 /// Low-level server socket operations.
 /// </summary>
 [<RequireQualifiedAccess>]
-module SocketServer =
+[<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
+module ServerSocket =
 
     /// <summary>
     /// Internal: Logs an error and suppresses it.
@@ -16,9 +17,9 @@ module SocketServer =
     /// </summary>
     let private logAndSuppress (context: string) (err: SocketError) : FIO<unit, SocketError> =
         fio {
-            let str = SocketError.ToString err
+            let str = err.ToString()
             do! FIO.attempt((fun () ->
-                eprintfn $"[SocketServer] Error during {context}: {str}"), SocketError.FromException)
+                eprintfn $"[SocketServer] Error during {context}: {str}"), SocketError.fromException)
             return ()
         }
 
@@ -26,16 +27,16 @@ module SocketServer =
     /// Binds to a local address and starts listening for connections.
     /// </summary>
     /// <param name="config">Server socket configuration.</param>
+    /// <returns>The bound server socket.</returns>
     let bind (config: ServerSocketConfig) : FIO<ServerSocket, SocketError> =
         fio {
             let! netSocket = FIO.attempt((fun () ->
                 new Sockets.Socket(config.AddressFamily, config.SocketType, config.ProtocolType)),
-                SocketError.FromException)
+                SocketError.fromException)
 
             let! endpoint = FIO.attempt((fun () ->
                 IPEndPoint(IPAddress.Parse config.BindAddress, config.BindPort) :> EndPoint),
-                SocketError.FromException)
-
+                SocketError.fromException)
             do! FIO.attempt((fun () ->
                 netSocket.Bind endpoint
                 netSocket.Listen config.Backlog),
@@ -54,14 +55,14 @@ module SocketServer =
         FIO.attempt((fun () ->
             serverSocket.NetSocket.Close()
             serverSocket.NetSocket.Dispose()),
-            SocketError.FromException
+            SocketError.fromException
         ).CatchAll(logAndSuppress "server socket close")
 
     /// <summary>
     /// Acquires a server socket.
-    /// Use with release for manual resource management.
     /// </summary>
     /// <param name="config">Server socket configuration.</param>
+    /// <returns>The acquired server socket.</returns>
     let acquire (config: ServerSocketConfig) : FIO<ServerSocket, SocketError> =
         bind config
 
@@ -75,18 +76,18 @@ module SocketServer =
 
     /// <summary>
     /// Executes an action with a server socket, automatically closing it.
-    /// This is the FIO-idiomatic way to use server sockets with guaranteed cleanup.
     /// </summary>
     /// <param name="config">Server socket configuration.</param>
     /// <param name="action">Action to execute with the server socket.</param>
+    /// <returns>The result of the action.</returns>
     let withServerSocket (config: ServerSocketConfig, action: ServerSocket -> FIO<'R, SocketError>) : FIO<'R, SocketError> =
         FIO.acquireRelease(acquire config, release, action)
 
     /// <summary>
     /// Accepts a single incoming connection.
-    /// Returns a connected Socket.
     /// </summary>
     /// <param name="serverSocket">The server socket to accept from.</param>
+    /// <returns>The connected socket.</returns>
     let accept (serverSocket: ServerSocket) : FIO<Socket, SocketError> =
         fio {
             let! netSocket = FIO.awaitGenericTask(serverSocket.NetSocket.AcceptAsync(), AcceptFailed)
@@ -134,6 +135,7 @@ module SocketServer =
     /// Gets the server socket configuration.
     /// </summary>
     /// <param name="serverSocket">The server socket to query.</param>
+    /// <returns>The server socket configuration.</returns>
     let getConfig (serverSocket: ServerSocket) : ServerSocketConfig =
         serverSocket.Config
 
@@ -141,9 +143,10 @@ module SocketServer =
     /// Gets the local endpoint the server socket is bound to.
     /// </summary>
     /// <param name="serverSocket">The server socket to query.</param>
+    /// <returns>The local endpoint.</returns>
     let getLocalEndPoint (serverSocket: ServerSocket) : FIO<EndPoint, SocketError> =
         FIO.attempt((fun () ->
-            serverSocket.NetSocket.LocalEndPoint), SocketError.FromException)
+            serverSocket.NetSocket.LocalEndPoint), SocketError.fromException)
 
     /// <summary>
     /// Starts a server and processes connections with the given handler.

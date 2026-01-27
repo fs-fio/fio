@@ -230,13 +230,26 @@ module RouteBuilder =
     /// Computation expression builder for collecting routes.
     /// </summary>
     type RouteCollector<'E>() =
+    
+        /// <summary>
+        /// Yields an empty route set for the computation expression.
+        /// </summary>
         member _.Yield _ = Routes.empty<'E>
 
+        /// <summary>
+        /// Combines two route sets into one.
+        /// </summary>
         member _.Combine(routes1: Routes<'E>, routes2: Routes<'E>) =
             Routes.combine routes1 routes2
 
+        /// <summary>
+        /// Delays evaluation of a route expression.
+        /// </summary>
         member _.Delay(f: unit -> Routes<'E>) = f()
 
+        /// <summary>
+        /// Returns an empty route set for zero case.
+        /// </summary>
         member _.Zero() = Routes.empty<'E>
 
     /// <summary>
@@ -394,7 +407,7 @@ module SimpleRoutes =
     /// </summary>
     /// <param name="path">The path string.</param>
     /// <param name="handler">The request handler.</param>
-    let GET (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
+    let get (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
         TypedRoutes.get path handler
 
     /// <summary>
@@ -402,15 +415,15 @@ module SimpleRoutes =
     /// </summary>
     /// <param name="path">The path string.</param>
     /// <param name="handler">The request handler.</param>
-    let POST (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
+    let post (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
         TypedRoutes.post path handler
-    
+
     /// <summary>
     /// Creates a PUT route.
     /// </summary>
     /// <param name="path">The path string.</param>
     /// <param name="handler">The request handler.</param>
-    let PUT (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
+    let put (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
         TypedRoutes.put path handler
 
     /// <summary>
@@ -418,7 +431,7 @@ module SimpleRoutes =
     /// </summary>
     /// <param name="path">The path string.</param>
     /// <param name="handler">The request handler.</param>
-    let DELETE (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
+    let delete (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
         TypedRoutes.delete path handler
 
     /// <summary>
@@ -426,5 +439,5 @@ module SimpleRoutes =
     /// </summary>
     /// <param name="path">The path string.</param>
     /// <param name="handler">The request handler.</param>
-    let PATCH (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
+    let patch (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
         TypedRoutes.patch path handler

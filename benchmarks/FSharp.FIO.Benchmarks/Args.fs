@@ -1,4 +1,7 @@
-﻿module internal FSharp.FIO.Benchmarks.ArgParser
+﻿/// <summary>
+/// Command-line argument parsing for benchmark configuration.
+/// </summary>
+module internal FSharp.FIO.Benchmarks.Args
 
 open FSharp.FIO.Runtime
 open FSharp.FIO.Runtime.Direct
@@ -7,21 +10,38 @@ open FSharp.FIO.Runtime.Concurrent
 open FSharp.FIO.Runtime.Cooperative
 
 open Argu
+
 open System.IO
 
+/// <summary>
+/// Discriminated union representing all supported command-line arguments.
+/// </summary>
 type private Arguments =
+    /// <summary>Use Direct runtime.</summary>
     | Direct_Runtime
+    /// <summary>Use Cooperative runtime with worker configuration.</summary>
     | Cooperative_Runtime of ewc: int * ews: int * bwc: int
+    /// <summary>Use Concurrent runtime with worker configuration.</summary>
     | Concurrent_Runtime of ewc: int * ews: int * bwc: int
+    /// <summary>Number of benchmark runs.</summary>
     | Runs of runs: int
+    /// <summary>Actor count increment value and number of times to apply.</summary>
     | Actor_Increment of actorInc: int * times: int
+    /// <summary>Round count increment value and number of times to apply.</summary>
     | Round_Increment of roundInc: int * times: int
+    /// <summary>Run Pingpong benchmark with specified round count.</summary>
     | Pingpong of roundCount: int
+    /// <summary>Run Threadring benchmark with specified actor and round counts.</summary>
     | Threadring of actorCount: int * roundCount: int
+    /// <summary>Run Big benchmark with specified actor and round counts.</summary>
     | Big of actorCount: int * roundCount: int
+    /// <summary>Run Bang benchmark with specified actor and round counts.</summary>
     | Bang of actorCount: int * roundCount: int
+    /// <summary>Run Fork benchmark with specified actor count.</summary>
     | Fork of actorCount: int
+    /// <summary>Enable saving results to CSV file.</summary>
     | Save of saveToCsv: bool
+    /// <summary>Absolute path for saving CSV results.</summary>
     | SavePath of absolutePath: string
 
     interface IArgParserTemplate with
@@ -57,13 +77,25 @@ type private Arguments =
 let private parser =
     ArgumentParser.Create<Arguments> (programName = "FSharp.FIO.Benchmarks")
 
+/// <summary>
+/// Prints the argument parser usage information.
+/// </summary>
 let printUsage () =
    printfn "%s" (parser.PrintUsage())
 
-let printArgs args =
+/// <summary>
+/// Prints the program name and provided arguments.
+/// </summary>
+/// <param name="args">Command-line arguments to print.</param>
+let print args =
     printfn "%s arguments: %s" parser.ProgramName (String.concat " " args)
 
-let parseArgs args =
+/// <summary>
+/// Parses command-line arguments into a BenchmarkArgs configuration.
+/// </summary>
+/// <param name="args">Command-line arguments to parse.</param>
+/// <returns>Parsed benchmark arguments configuration.</returns>
+let parse args =
     let results = parser.Parse args
 
     let runtime: FIORuntime =

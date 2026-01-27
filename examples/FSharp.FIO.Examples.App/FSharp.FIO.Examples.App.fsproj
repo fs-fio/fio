@@ -18,8 +18,6 @@
 
 	<ItemGroup>
 		<ProjectReference Include="..\..\src\FSharp.FIO\FSharp.FIO.fsproj" />
-		<ProjectReference Include="..\..\src\FSharp.FIO.Sockets\FSharp.FIO.Sockets.fsproj" />
-		<ProjectReference Include="..\..\src\FSharp.FIO.WebSockets\FSharp.FIO.WebSockets.fsproj" />
 	</ItemGroup>
 
 	<ItemGroup>

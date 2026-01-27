@@ -12,6 +12,9 @@ open System.Threading.Tasks
 /// <summary>
 /// Monitor for observing runtime channel state.
 /// </summary>
+/// <param name="activeWorkItemChan">Channel for active work items.</param>
+/// <param name="activeBlockingItemChanOpt">Optional channel for blocking items.</param>
+/// <param name="activeBlockingEventChan">Optional channel for blocking events.</param>
 type internal Monitor (
     activeWorkItemChan: UnboundedChannel<WorkItem>,
     activeBlockingItemChanOpt: UnboundedChannel<BlockingItem> option,

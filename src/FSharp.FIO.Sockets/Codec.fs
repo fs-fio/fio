@@ -11,9 +11,13 @@ open System.Text.Json
 /// </summary>
 type SocketCodec<'T> =
     {
-        /// Encodes a value to bytes
+        /// <summary>
+        /// Encodes a value to bytes.
+        /// </summary>
         Encode: 'T -> FIO<byte[], SocketError>
-        /// Decodes bytes to a value
+        /// <summary>
+        /// Decodes bytes to a value.
+        /// </summary>
         Decode: byte[] -> FIO<'T, SocketError>
     }
 
@@ -61,6 +65,7 @@ module Codec =
     /// JSON codec with custom options.
     /// </summary>
     /// <param name="options">JSON serializer options.</param>
+    /// <returns>The JSON codec.</returns>
     let jsonWithOptions<'T> (options: JsonSerializerOptions) : SocketCodec<'T> =
         { Encode = fun value ->
             FIO.attempt((fun () ->
@@ -83,6 +88,7 @@ module Codec =
     /// Line-delimited JSON codec.
     /// </summary>
     /// <param name="options">Optional JSON serializer options.</param>
+    /// <returns>The line-delimited JSON codec.</returns>
     let jsonLine<'T> (options: JsonSerializerOptions option) : SocketCodec<'T> =
         let opts = defaultArg options (JsonSerializerOptions())
         { Encode = fun value ->
@@ -102,6 +108,7 @@ module Codec =
     /// <param name="f">Function to convert from 'A to 'B.</param>
     /// <param name="g">Function to convert from 'B to 'A.</param>
     /// <param name="codec">The source codec.</param>
+    /// <returns>The mapped codec.</returns>
     let map (f: 'A -> 'B) (g: 'B -> 'A) (codec: SocketCodec<'A>) : SocketCodec<'B> =
         { Encode = fun b -> codec.Encode(g b)
           Decode = fun bytes ->
@@ -112,10 +119,10 @@ module Codec =
 
     /// <summary>
     /// Composes two codecs to handle pairs using length-prefixed framing.
-    /// Each element is encoded with a 4-byte length prefix for reliable message framing.
     /// </summary>
     /// <param name="codec1">Codec for the first element.</param>
     /// <param name="codec2">Codec for the second element.</param>
+    /// <returns>The composed codec for pairs.</returns>
     let compose (codec1: SocketCodec<'A>) (codec2: SocketCodec<'B>) : SocketCodec<'A * 'B> =
         { Encode = fun (a, b) ->
             fio {
@@ -161,9 +168,9 @@ module Codec =
 
     /// <summary>
     /// Length-prefixed framing codec (4-byte length header).
-    /// Adds a 4-byte length header before the payload for reliable message framing.
     /// </summary>
     /// <param name="innerCodec">The codec to wrap with length-prefixing.</param>
+    /// <returns>The length-prefixed codec.</returns>
     let lengthPrefixed<'T> (innerCodec: SocketCodec<'T>) : SocketCodec<'T> =
         { Encode = fun value ->
             fio {
@@ -192,6 +199,7 @@ module Codec =
     /// </summary>
     /// <param name="encode">Encoding function.</param>
     /// <param name="decode">Decoding function.</param>
+    /// <returns>The created codec.</returns>
     let create (encode: 'T -> FIO<byte[], SocketError>) (decode: byte[] -> FIO<'T, SocketError>) : SocketCodec<'T> =
         { Encode = encode; Decode = decode }
 
@@ -200,6 +208,7 @@ module Codec =
     /// </summary>
     /// <param name="encode">Pure encoding function.</param>
     /// <param name="decode">Pure decoding function.</param>
+    /// <returns>The created codec.</returns>
     let createPure (encode: 'T -> byte[]) (decode: byte[] -> 'T) : SocketCodec<'T> =
         { Encode = fun value ->
             FIO.attempt(

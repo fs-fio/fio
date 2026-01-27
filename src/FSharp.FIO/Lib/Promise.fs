@@ -11,8 +11,7 @@ open System.Threading.Tasks
 /// <summary>
 /// Promise that can be completed once with success or failure, allowing multiple waiters.
 /// </summary>
-[<Sealed>]
-type Promise<'R, 'E> internal () =
+type [<Sealed>] Promise<'R, 'E> internal () =
     let tcs = TaskCompletionSource<Result<'R, 'E>> TaskCreationOptions.RunContinuationsAsynchronously
 
     /// <summary>Completes the promise with a success value, returning true if successful or false if already completed.</summary>

@@ -11,9 +11,13 @@ open System.Text.Json
 /// </summary>
 type WebSocketCodec<'T> =
     {
-        /// Encodes a value to a WebSocket frame
+        /// <summary>
+        /// Encodes a value to a WebSocket frame.
+        /// </summary>
         Encode: 'T -> FIO<WebSocketFrame, WsError>
-        /// Decodes a WebSocket frame to a value
+        /// <summary>
+        /// Decodes a WebSocket frame to a value.
+        /// </summary>
         Decode: WebSocketFrame -> FIO<'T, WsError>
     }
 
@@ -54,26 +58,28 @@ module Codec =
     /// <summary>
     /// JSON codec with custom options (sent as text frames).
     /// </summary>
+    /// <typeparam name="T">The type to encode/decode.</typeparam>
     /// <param name="options">JSON serializer options.</param>
+    /// <returns>A codec for JSON serialization.</returns>
     let jsonWithOptions<'T> (options: JsonSerializerOptions) : WebSocketCodec<'T> =
         { Encode = fun value ->
             FIO.attempt(
                 (fun () ->
                     let json = JsonSerializer.Serialize(value, options)
                     Text json),
-                WsError.FromException)
+                WsError.fromException)
           Decode = fun frame ->
             match frame with
             | Text json ->
                 FIO.attempt(
                     (fun () -> JsonSerializer.Deserialize<'T>(json, options)),
-                    WsError.FromException)
+                    WsError.fromException)
             | Binary bytes ->
                 FIO.attempt(
                     (fun () ->
                         let json = Encoding.UTF8.GetString bytes
                         JsonSerializer.Deserialize<'T>(json, options)),
-                    WsError.FromException)
+                    WsError.fromException)
             | Close _ -> FIO.fail(CodecError "Cannot decode close frame as JSON") }
 
     /// <summary>
@@ -85,7 +91,9 @@ module Codec =
     /// <summary>
     /// Line-delimited JSON codec (text frame with newline appended).
     /// </summary>
+    /// <typeparam name="T">The type to encode/decode.</typeparam>
     /// <param name="options">Optional JSON serializer options.</param>
+    /// <returns>A codec for line-delimited JSON.</returns>
     let jsonLine<'T> (options: JsonSerializerOptions option) : WebSocketCodec<'T> =
         let opts = defaultArg options (JsonSerializerOptions())
 
@@ -94,7 +102,7 @@ module Codec =
                 (fun () ->
                     let json = JsonSerializer.Serialize(value, opts)
                     Text(json + "\n")),
-                WsError.FromException)
+                WsError.fromException)
           Decode = fun frame ->
             match frame with
             | Text json ->
@@ -102,21 +110,24 @@ module Codec =
                     (fun () ->
                         let trimmed = json.TrimEnd('\n', '\r')
                         JsonSerializer.Deserialize<'T>(trimmed, opts)),
-                    WsError.FromException)
+                    WsError.fromException)
             | Binary bytes ->
                 FIO.attempt(
                     (fun () ->
                         let json = Encoding.UTF8.GetString(bytes).TrimEnd('\n', '\r')
                         JsonSerializer.Deserialize<'T>(json, opts)),
-                    WsError.FromException)
+                    WsError.fromException)
             | Close _ -> FIO.fail(CodecError "Cannot decode close frame as JSON line") }
 
     /// <summary>
     /// Maps a codec to a different type using bidirectional functions.
     /// </summary>
+    /// <typeparam name="A">The source type.</typeparam>
+    /// <typeparam name="B">The target type.</typeparam>
     /// <param name="f">Function to convert from 'A to 'B.</param>
     /// <param name="g">Function to convert from 'B to 'A.</param>
     /// <param name="codec">The source codec.</param>
+    /// <returns>A new codec for the target type.</returns>
     let map (f: 'A -> 'B) (g: 'B -> 'A) (codec: WebSocketCodec<'A>) : WebSocketCodec<'B> =
         { Encode = fun b -> codec.Encode(g b)
           Decode = fun frame ->
@@ -127,10 +138,12 @@ module Codec =
 
     /// <summary>
     /// Composes two codecs to handle pairs (both values in same frame).
-    /// Encodes as JSON array: [a, b]
     /// </summary>
+    /// <typeparam name="A">The type of the first element.</typeparam>
+    /// <typeparam name="B">The type of the second element.</typeparam>
     /// <param name="codec1">Codec for the first element.</param>
     /// <param name="codec2">Codec for the second element.</param>
+    /// <returns>A codec for tuple pairs encoded as JSON array.</returns>
     let compose (codec1: WebSocketCodec<'A>) (codec2: WebSocketCodec<'B>) : WebSocketCodec<'A * 'B> =
         { Encode = fun (a, b) ->
             FIO.attempt(
@@ -140,46 +153,51 @@ module Codec =
                     let jsonB = JsonSerializer.Serialize(b)
                     let json = JsonSerializer.Serialize [| jsonA; jsonB |]
                     Text json),
-                WsError.FromException)
+                WsError.fromException)
           Decode = fun frame ->
-            FIO.attempt(
-                (fun () ->
-                    let json =
-                        match frame with
-                        | Text str -> str
-                        | Binary bytes -> Encoding.UTF8.GetString bytes
-                        | Close _ -> raise (Exception "Cannot decode close frame")
+            match frame with
+            | Close _ -> FIO.fail(CodecError "Cannot decode close frame as composed value")
+            | _ ->
+                FIO.attempt(
+                    (fun () ->
+                        let json =
+                            match frame with
+                            | Text str -> str
+                            | Binary bytes -> Encoding.UTF8.GetString bytes
+                            | Close _ -> "" // Unreachable due to match above
 
-                    let doc = JsonDocument.Parse json
-                    let arr = doc.RootElement.EnumerateArray() |> Seq.toList
+                        let doc = JsonDocument.Parse json
+                        let arr = doc.RootElement.EnumerateArray() |> Seq.toList
 
-                    if arr.Length <> 2 then
-                        raise (Exception $"Expected 2 elements, got {arr.Length}")
+                        if arr.Length <> 2 then
+                            raise (Exception $"Expected 2 elements, got {arr.Length}")
 
-                    // Decode each element as a separate JSON string
-                    let jsonA =
-                        match arr.[0].ValueKind with
-                        | JsonValueKind.String -> arr.[0].GetString()
-                        | JsonValueKind.Null -> null
-                        | _ -> raise (Exception $"Expected string for first element, got {arr.[0].ValueKind}")
+                        // Decode each element as a separate JSON string
+                        let jsonA =
+                            match arr.[0].ValueKind with
+                            | JsonValueKind.String -> arr.[0].GetString()
+                            | JsonValueKind.Null -> null
+                            | _ -> raise (Exception $"Expected string for first element, got {arr.[0].ValueKind}")
 
-                    let jsonB =
-                        match arr.[1].ValueKind with
-                        | JsonValueKind.String -> arr.[1].GetString()
-                        | JsonValueKind.Null -> null
-                        | _ -> raise (Exception $"Expected string for second element, got {arr.[1].ValueKind}")
+                        let jsonB =
+                            match arr.[1].ValueKind with
+                            | JsonValueKind.String -> arr.[1].GetString()
+                            | JsonValueKind.Null -> null
+                            | _ -> raise (Exception $"Expected string for second element, got {arr.[1].ValueKind}")
 
-                    let a = JsonSerializer.Deserialize<'A> jsonA
-                    let b = JsonSerializer.Deserialize<'B> jsonB
+                        let a = JsonSerializer.Deserialize<'A> jsonA
+                        let b = JsonSerializer.Deserialize<'B> jsonB
 
-                    a, b),
-                WsError.FromException) }
+                        a, b),
+                    WsError.fromException) }
 
     /// <summary>
     /// Creates a codec from encode/decode functions.
     /// </summary>
+    /// <typeparam name="T">The type to encode/decode.</typeparam>
     /// <param name="encode">Encoding function.</param>
     /// <param name="decode">Decoding function.</param>
+    /// <returns>A new codec.</returns>
     let create
         (encode: 'T -> FIO<WebSocketFrame, WsError>)
         (decode: WebSocketFrame -> FIO<'T, WsError>)
@@ -189,10 +207,12 @@ module Codec =
     /// <summary>
     /// Creates a codec from pure (non-FIO) encode/decode functions.
     /// </summary>
+    /// <typeparam name="T">The type to encode/decode.</typeparam>
     /// <param name="encode">Pure encoding function.</param>
     /// <param name="decode">Pure decoding function.</param>
+    /// <returns>A new codec wrapping the pure functions.</returns>
     let createPure (encode: 'T -> WebSocketFrame) (decode: WebSocketFrame -> 'T) : WebSocketCodec<'T> =
         { Encode = fun value ->
-            FIO.attempt((fun () -> encode value), WsError.FromException)
+            FIO.attempt((fun () -> encode value), WsError.fromException)
           Decode = fun frame ->
-            FIO.attempt((fun () -> decode frame), WsError.FromException) }
+            FIO.attempt((fun () -> decode frame), WsError.fromException) }

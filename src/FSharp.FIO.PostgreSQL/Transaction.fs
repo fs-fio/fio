@@ -15,17 +15,22 @@ module Transaction =
     /// </summary>
     /// <param name="action">The action to run in the transaction.</param>
     /// <param name="conn">The connection to use for the transaction.</param>
+    /// <returns>The result of the action.</returns>
     let run (action: Connection -> FIO<'R, PgError>) (conn: Connection) : FIO<'R, PgError> =
         fio {
-            let! transaction = Conn.beginTransactionAsync conn
+            let! transaction = Connection.beginTransactionAsync conn
+            let disposeTransaction =
+                FIO.awaitTask(transaction.DisposeAsync().AsTask(), fun _ -> ())
+                    .CatchAll(fun _ -> FIO.unit())
             let! result =
-                (action conn)
+                ((action conn)
                     .FlatMap(fun r ->
                         FIO.awaitTask(transaction.CommitAsync(), fun e -> TransactionFailed("commit", e))
                             .Map(fun () -> r))
                     .CatchAll(fun err ->
                         FIO.awaitTask(transaction.RollbackAsync(), fun e -> TransactionFailed("rollback", e))
-                            .FlatMap(fun () -> FIO.fail err))
+                            .FlatMap(fun () -> FIO.fail err)))
+                    .Ensuring(disposeTransaction)
             return result
         }
 
@@ -35,17 +40,22 @@ module Transaction =
     /// <param name="isolationLevel">The isolation level for the transaction.</param>
     /// <param name="action">The action to run in the transaction.</param>
     /// <param name="conn">The connection to use for the transaction.</param>
+    /// <returns>The result of the action.</returns>
     let runWithIsolation (isolationLevel: FSharp.FIO.PostgreSQL.IsolationLevel) (action: Connection -> FIO<'R, PgError>) (conn: Connection) : FIO<'R, PgError> =
         fio {
-            let! transaction = Conn.beginTransactionAsyncWithIsolation isolationLevel conn
+            let! transaction = Connection.beginTransactionAsyncWithIsolation isolationLevel conn
+            let disposeTransaction =
+                FIO.awaitTask(transaction.DisposeAsync().AsTask(), fun _ -> ())
+                    .CatchAll(fun _ -> FIO.unit())
             let! result =
-                (action conn)
+                ((action conn)
                     .FlatMap(fun r ->
                         FIO.awaitTask(transaction.CommitAsync(), fun e -> TransactionFailed("commit", e))
                             .Map(fun () -> r))
                     .CatchAll(fun err ->
                         FIO.awaitTask(transaction.RollbackAsync(), fun e -> TransactionFailed("rollback", e))
-                            .FlatMap(fun () -> FIO.fail err))
+                            .FlatMap(fun () -> FIO.fail err)))
+                    .Ensuring(disposeTransaction)
             return result
         }
 
@@ -94,6 +104,7 @@ module Transaction =
     /// <param name="savepointName">The name of the savepoint.</param>
     /// <param name="transaction">The transaction to use.</param>
     /// <param name="action">The action to run with the savepoint.</param>
+    /// <returns>The result of the action.</returns>
     let withSavepoint (savepointName: string) (transaction: NpgsqlTransaction) (action: FIO<'R, PgError>) : FIO<'R, PgError> =
         fio {
             do! save savepointName transaction

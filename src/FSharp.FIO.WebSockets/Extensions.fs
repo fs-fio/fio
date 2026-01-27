@@ -25,15 +25,17 @@ module WebSocketExtensions =
                 let ct = defaultArg cancellationToken CancellationToken.None
                 let! jsonString = FIO.attempt(
                     (fun () -> JsonSerializer.Serialize(value, opts)),
-                    WsError.FromException)
+                    WsError.fromException)
                 do! this.SendText(jsonString, ct)
             }
 
         /// <summary>
         /// Receives and deserializes a JSON value from the WebSocket.
         /// </summary>
+        /// <typeparam name="T">The type to deserialize to.</typeparam>
         /// <param name="options">Optional JSON serializer options.</param>
         /// <param name="cancellationToken">Optional cancellation token.</param>
+        /// <returns>The deserialized value.</returns>
         member this.ReceiveJson<'T>(?options: JsonSerializerOptions, ?cancellationToken: CancellationToken) : FIO<'T, WsError> =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
@@ -42,17 +44,17 @@ module WebSocketExtensions =
                 | Frame(Text json) ->
                     return! FIO.attempt(
                         (fun () -> JsonSerializer.Deserialize<'T>(json, opts)),
-                        WsError.FromException)
+                        WsError.fromException)
                 | Frame(Binary data) ->
                     return! FIO.attempt(
                         (fun () -> JsonSerializer.Deserialize<'T>(System.ReadOnlySpan<byte> data, opts)),
-                        WsError.FromException)
+                        WsError.fromException)
                 | Frame(Close _) ->
                     return! FIO.fail(
-                        WsError.FromException(System.Exception "Connection closed while waiting for JSON"))
+                        WsError.fromException(System.Exception "Connection closed while waiting for JSON"))
                 | ConnectionClosed(status, desc) ->
                     return! FIO.fail(
-                        WsError.FromException(System.Exception $"Connection closed. Status: {status}, Description: {desc}"))
+                        WsError.fromException(System.Exception $"Connection closed. Status: {status}, Description: {desc}"))
             }
 
         /// <summary>
@@ -65,6 +67,7 @@ module WebSocketExtensions =
         /// <summary>
         /// Receives a text frame as a string (convenience method).
         /// </summary>
+        /// <returns>The received text string.</returns>
         member this.ReceiveString() : FIO<string, WsError> =
             fio {
                 match! this.ReceiveMessage() with
@@ -72,13 +75,13 @@ module WebSocketExtensions =
                     return text
                 | Frame(Binary _) ->
                     return! FIO.fail(
-                        WsError.FromException(System.Exception "Expected text frame, got binary"))
+                        WsError.fromException(System.Exception "Expected text frame, got binary"))
                 | Frame(Close _) ->
                     return! FIO.fail(
-                        WsError.FromException(System.Exception "Expected text frame, got close frame"))
+                        WsError.fromException(System.Exception "Expected text frame, got close frame"))
                 | ConnectionClosed(status, desc) ->
                     return! FIO.fail(
-                        WsError.FromException(System.Exception $"Connection closed. Status: {status}, Description: {desc}"))
+                        WsError.fromException(System.Exception $"Connection closed. Status: {status}, Description: {desc}"))
             }
 
         /// <summary>
@@ -91,16 +94,17 @@ module WebSocketExtensions =
         /// <summary>
         /// Receives binary data (convenience method).
         /// </summary>
+        /// <returns>The received binary data.</returns>
         member this.ReceiveBytes() : FIO<byte[], WsError> =
             fio {
                 match! this.ReceiveMessage() with
                 | Frame(Binary data) -> return data
                 | Frame(Text _) ->
                     return! FIO.fail(
-                        WsError.FromException(System.Exception "Expected binary frame, got text"))
+                        WsError.fromException(System.Exception "Expected binary frame, got text"))
                 | Frame(Close _) ->
                     return! FIO.fail(
-                        WsError.FromException(System.Exception "Expected binary frame, got close frame"))
+                        WsError.fromException(System.Exception "Expected binary frame, got close frame"))
                 | ConnectionClosed(status, desc) ->
-                    return! FIO.fail(WsError.FromException(System.Exception $"Connection closed. Status: {status}, Description: {desc}"))
+                    return! FIO.fail(WsError.fromException(System.Exception $"Connection closed. Status: {status}, Description: {desc}"))
             }

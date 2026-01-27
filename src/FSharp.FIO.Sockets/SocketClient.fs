@@ -14,6 +14,7 @@ module SocketClient =
     /// Connects to a remote host and returns a Socket.
     /// </summary>
     /// <param name="config">Socket configuration including host and port.</param>
+    /// <returns>The connected socket.</returns>
     let connect (config: SocketConfig) : FIO<Socket, SocketError> =
         fio {
             let! netSocket = FIO.attempt((fun () ->
@@ -24,7 +25,7 @@ module SocketClient =
                 s.ReceiveTimeout <- config.ReceiveTimeout
                 s.NoDelay <- config.NoDelay
                 s),
-                SocketError.FromException)
+                SocketError.fromException)
 
             do! FIO.awaitTask(
                 netSocket.ConnectAsync(config.Host, config.Port),
@@ -38,6 +39,7 @@ module SocketClient =
     /// </summary>
     /// <param name="host">The remote host to connect to.</param>
     /// <param name="port">The remote port to connect to.</param>
+    /// <returns>The connected socket.</returns>
     let connectWith (host: string) (port: int) : FIO<Socket, SocketError> =
         fio {
             let! config = SocketConfig.create (host, port)
@@ -46,10 +48,10 @@ module SocketClient =
 
     /// <summary>
     /// Executes an action with a socket connection, automatically closing it.
-    /// This is the FIO-idiomatic way to use sockets with guaranteed cleanup.
     /// </summary>
     /// <param name="config">Socket configuration.</param>
     /// <param name="action">Action to execute with the socket.</param>
+    /// <returns>The result of the action.</returns>
     let withConnection (config: SocketConfig) (action: Socket -> FIO<'R, SocketError>) : FIO<'R, SocketError> =
         FIO.acquireRelease(
             connect config,
@@ -63,6 +65,7 @@ module SocketClient =
     /// <param name="host">The remote host to connect to.</param>
     /// <param name="port">The remote port to connect to.</param>
     /// <param name="action">Action to execute with the socket.</param>
+    /// <returns>The result of the action.</returns>
     let withConnectionTo (host: string) (port: int) (action: Socket -> FIO<'R, SocketError>) : FIO<'R, SocketError> =
         fio {
             let! config = SocketConfig.create (host, port)
@@ -84,5 +87,6 @@ module SocketClient =
     /// <param name="codec">The codec to use for decoding.</param>
     /// <param name="maxBytes">Maximum number of bytes to receive.</param>
     /// <param name="config">Socket configuration.</param>
+    /// <returns>The decoded value.</returns>
     let receiveWith<'T> (codec: SocketCodec<'T>) (maxBytes: int) (config: SocketConfig) : FIO<'T, SocketError> =
         withConnection config (fun socket -> socket.Receive(codec, maxBytes))

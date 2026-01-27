@@ -14,14 +14,14 @@
 
 	<ItemGroup>
 		<Compile Include="Tools\Timer.fs" />
-		<Compile Include="Suite\Suite.fs" />
+		<Compile Include="Suite\Types.fs" />
 		<Compile Include="Suite\Pingpong.fs" />
 		<Compile Include="Suite\Threadring.fs" />
 		<Compile Include="Suite\Big.fs" />
 		<Compile Include="Suite\Bang.fs" />
 		<Compile Include="Suite\Fork.fs" />
 		<Compile Include="Suite\BenchmarkRunner.fs" />
-		<Compile Include="ArgParser.fs" />
+		<Compile Include="Args.fs" />
 		<Compile Include="Program.fs" />
 	</ItemGroup>
 

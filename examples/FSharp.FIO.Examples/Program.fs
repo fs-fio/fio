@@ -1,11 +1,17 @@
-﻿module private FSharp.FIO.Examples
+﻿/// <summary>
+/// Core FIO examples demonstrating basic effect creation, execution, and concurrency patterns.
+/// </summary>
+module private FSharp.FIO.Examples
 
-open FSharp.FIO
 open FSharp.FIO.DSL
+open FSharp.FIO.Console
 open FSharp.FIO.Runtime.Default
 
 open System
 
+/// <summary>
+/// Basic hello world using FIO.succeed with Task-based result handling.
+/// </summary>
 let helloWorld1 () =
     let hello = FIO.succeed "Hello world! 🪻"
     let fiber = (new DefaultRuntime()).Run hello
@@ -18,6 +24,9 @@ let helloWorld1 () =
         | Interrupted exn -> printfn $"Interrupted: %s{exn.Message}"
     } |> _.GetAwaiter().GetResult()
 
+/// <summary>
+/// Hello world with explicit type annotations showing FIO type signatures.
+/// </summary>
 let helloWorld2 () =
     let hello: FIO<string, obj> = FIO.succeed "Hello world! 🪻"
     let fiber: Fiber<string, obj> = (new DefaultRuntime()).Run hello
@@ -30,6 +39,9 @@ let helloWorld2 () =
         | Interrupted exn -> printfn $"Interrupted: %s{exn.Message}"
     } |> _.GetAwaiter().GetResult()
 
+/// <summary>
+/// Demonstrates FIO.fail for effect failure with typed errors.
+/// </summary>
 let helloWorld3 () =
     let hello: FIO<obj, string> = FIO.fail "Hello world! 🪻"
     let fiber: Fiber<obj, string> = (new DefaultRuntime()).Run hello
@@ -42,21 +54,33 @@ let helloWorld3 () =
         | Interrupted exn -> printfn $"Interrupted: %s{exn.Message}"
     } |> _.GetAwaiter().GetResult()
 
+/// <summary>
+/// Simplified hello world using UnsafePrintResult for quick debugging.
+/// </summary>
 let helloWorld4 () =
     let hello = FIO.succeed "Hello world! 🪻"
     let fiber = (new DefaultRuntime()).Run hello
     fiber.UnsafePrintResult()
 
+/// <summary>
+/// Fork and join pattern using FlatMap method syntax.
+/// </summary>
 let concurrency1 () =
     let concurrent = FIO.succeed("Hello, concurrency! 🚀").Fork().FlatMap _.Join()
     let fiber = (new DefaultRuntime()).Run concurrent
     fiber.UnsafePrintResult()
 
+/// <summary>
+/// Fork and join pattern using bind operator (&gt;&gt;=).
+/// </summary>
 let concurrency2 () =
     let concurrent = FIO.succeed("Hello, concurrency! 🚀").Fork() >>= _.Join()
     let fiber = (new DefaultRuntime()).Run concurrent
     fiber.UnsafePrintResult()
 
+/// <summary>
+/// Parallel composition using the &lt;&amp;&gt; operator.
+/// </summary>
 let concurrency3 () =
     let taskA = FIO.succeed "Task A completed! ✅"
     let taskB = FIO.succeed(200, "Task B OK ✅")
@@ -64,6 +88,9 @@ let concurrency3 () =
     let fiber = (new DefaultRuntime()).Run concurrent
     fiber.UnsafePrintResult()
 
+/// <summary>
+/// Basic computation expression with return.
+/// </summary>
 let computationExpression1 () =
     let hello : FIO<string, obj> =
         fio {
@@ -73,6 +100,9 @@ let computationExpression1 () =
     let fiber = (new DefaultRuntime()).Run hello
     fiber.UnsafePrintResult()
 
+/// <summary>
+/// Computation expression with return! for effect chaining.
+/// </summary>
 let computationExpression2 () =
     let hello : FIO<obj, string> =
         fio {
@@ -82,6 +112,9 @@ let computationExpression2 () =
     let fiber = (new DefaultRuntime()).Run hello
     fiber.UnsafePrintResult()
 
+/// <summary>
+/// Interactive console I/O using the fio computation expression.
+/// </summary>
 let computationExpression3 () =
     let welcome =
         fio {
@@ -93,6 +126,9 @@ let computationExpression3 () =
     let fiber = (new DefaultRuntime()).Run welcome
     fiber.UnsafePrintResult()
 
+/// <summary>
+/// Demonstrates fiber interruption for cancelling long-running tasks.
+/// </summary>
 let interruptFiber () =
     let longRunning =
         fio {
@@ -113,6 +149,9 @@ let interruptFiber () =
     let fiber = (new DefaultRuntime()).Run interrupter
     fiber.UnsafePrintResult()
 
+/// <summary>
+/// Atomic reference counter using Ref for thread-safe state.
+/// </summary>
 let refCounter () =
     let effect =
         fio {
@@ -125,6 +164,9 @@ let refCounter () =
     let fiber = (new DefaultRuntime()).Run effect
     fiber.UnsafePrintResult()
 
+/// <summary>
+/// One-shot synchronization using Promise for producer-consumer handoff.
+/// </summary>
 let promiseHandoff () =
     let effect =
         fio {
@@ -146,6 +188,9 @@ let promiseHandoff () =
     let fiber = (new DefaultRuntime()).Run effect
     fiber.UnsafePrintResult()
 
+/// <summary>
+/// Counting semaphore for limiting concurrent access to a resource pool.
+/// </summary>
 let semaphorePool () =
     let effect =
         fio {
@@ -162,6 +207,9 @@ let semaphorePool () =
     let fiber = (new DefaultRuntime()).Run effect
     fiber.UnsafePrintResult()
 
+/// <summary>
+/// List of all examples with their names for sequential execution.
+/// </summary>
 let examples = [
     nameof helloWorld1, helloWorld1
     nameof helloWorld2, helloWorld2

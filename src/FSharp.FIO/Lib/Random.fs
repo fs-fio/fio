@@ -2,7 +2,7 @@
 /// Random number generation as FIO effects.
 /// </summary>
 [<RequireQualifiedAccess>]
-module FSharp.FIO.Random
+module FSharp.FIO.Random.Random
 
 open FSharp.FIO.DSL
 

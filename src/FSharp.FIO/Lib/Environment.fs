@@ -2,7 +2,7 @@
 /// Environment variable access and system information as FIO effects.
 /// </summary>
 [<RequireQualifiedAccess>]
-module FSharp.FIO.Environment
+module FSharp.FIO.Environment.Environment
 
 open FSharp.FIO.DSL
 

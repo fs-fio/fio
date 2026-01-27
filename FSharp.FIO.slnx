@@ -11,10 +11,11 @@
   </Folder>
 
   <Folder Name="/Extension Packages/">
-    <Project Path="src/FSharp.FIO.Sockets/FSharp.FIO.Sockets.fsproj" />
-    <Project Path="src/FSharp.FIO.WebSockets/FSharp.FIO.WebSockets.fsproj" />
     <Project Path="src/FSharp.FIO.Http/FSharp.FIO.Http.fsproj" />
     <Project Path="src/FSharp.FIO.PostgreSQL/FSharp.FIO.PostgreSQL.fsproj" />
+    <Project Path="src/FSharp.FIO.Redis/FSharp.FIO.Redis.fsproj" />
+    <Project Path="src/FSharp.FIO.Sockets/FSharp.FIO.Sockets.fsproj" />
+    <Project Path="src/FSharp.FIO.WebSockets/FSharp.FIO.WebSockets.fsproj" />
   </Folder>
 
   <Folder Name="/Examples/">
@@ -22,6 +23,9 @@
     <Project Path="examples/FSharp.FIO.Examples.App/FSharp.FIO.Examples.App.fsproj" />
     <Project Path="examples/FSharp.FIO.Examples.Http/FSharp.FIO.Examples.Http.fsproj" />
     <Project Path="examples/FSharp.FIO.Examples.PostgreSQL/FSharp.FIO.Examples.PostgreSQL.fsproj" />
+    <Project Path="examples/FSharp.FIO.Examples.Redis/FSharp.FIO.Examples.Redis.fsproj" />
+    <Project Path="examples/FSharp.FIO.Examples.Sockets/FSharp.FIO.Examples.Sockets.fsproj" />
+    <Project Path="examples/FSharp.FIO.Examples.WebSockets/FSharp.FIO.Examples.WebSockets.fsproj" />
   </Folder>
 
   <Folder Name="/Benchmarks/">

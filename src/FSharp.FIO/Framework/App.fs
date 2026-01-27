@@ -29,12 +29,14 @@ type FIOApp<'R, 'E> () as this =
     )
 
     /// <summary>Gets the unique identifier for this application instance.</summary>
+    /// <returns>The application GUID.</returns>
     member _.Id = id
 
     /// <summary>
     /// Human-readable name of the application.
     /// Default: The type name of the application class.
     /// </summary>
+    /// <returns>The application name.</returns>
     abstract member name: string
     default _.name = this.GetType().Name
 
@@ -42,6 +44,7 @@ type FIOApp<'R, 'E> () as this =
     /// Version string of the application.
     /// Default: Assembly version or "0.0.0" if not available.
     /// </summary>
+    /// <returns>The version string.</returns>
     abstract member version: string
     default _.version =
         let asm = this.GetType().Assembly
@@ -52,6 +55,7 @@ type FIOApp<'R, 'E> () as this =
     /// Description of the application.
     /// Default: Empty string.
     /// </summary>
+    /// <returns>The application description.</returns>
     abstract member description: string
     default _.description = ""
 
@@ -59,6 +63,7 @@ type FIOApp<'R, 'E> () as this =
     /// Whether to display a startup banner when the application starts.
     /// Default: false.
     /// </summary>
+    /// <returns>True if banner should be displayed.</returns>
     abstract member showBanner: bool
     default _.showBanner = false
 
@@ -67,17 +72,20 @@ type FIOApp<'R, 'E> () as this =
     /// Default: Auto-generated banner with name, version, and runtime info.
     /// Override to provide a custom banner.
     /// </summary>
+    /// <returns>The banner text.</returns>
     abstract member banner: string
     default _.banner =
-        let separator = String.replicate (this.name.Length + this.version.Length + 12) "─"
+        let separator = String.replicate (this.name.Length + this.version.Length + 6) "─"
         $"┌{separator}┐\n│  {this.name} v{this.version}  │\n└{separator}┘"
 
     /// <summary>
     /// The main effect to execute. Must be overridden.
     /// </summary>
+    /// <returns>The main FIO effect.</returns>
     abstract member effect: FIO<'R, 'E>
 
     /// <summary>Creates the runtime for executing effects. Default: DefaultRuntime.</summary>
+    /// <returns>The runtime instance.</returns>
     abstract member runtime: FIORuntime
     default _.runtime =
         new DefaultRuntime()
@@ -94,6 +102,7 @@ type FIOApp<'R, 'E> () as this =
         ThreadPool.SetMaxThreads(maxWorkerThreads, maxIOThreads) |> ignore
 
     /// <summary>Whether to print verbose lifecycle messages.</summary>
+    /// <returns>True if verbose mode is enabled.</returns>
     abstract member verbose: bool
     default _.verbose = false
 
@@ -194,7 +203,7 @@ type FIOApp<'R, 'E> () as this =
     /// Handler invoked when shutdown hook fails with an exception.
     /// Default: Always prints exception (ignores verbose flag) - exceptions indicate failure.
     /// Override this to integrate with logging frameworks or custom lifecycle management.
-    /// <summary>Handler invoked when shutdown hook fails with an exception.</summary>
+    /// </summary>
     /// <param name="exn">The exception.</param>
     abstract member onShutdownHookException: exn -> unit
     default _.onShutdownHookException exn =
@@ -213,30 +222,36 @@ type FIOApp<'R, 'E> () as this =
 
     /// <summary>Maps a successful result to an exit code.</summary>
     /// <param name="res">The success result.</param>
+    /// <returns>The exit code.</returns>
     abstract member exitCodeSuccess: 'R -> int
     default _.exitCodeSuccess _ = 0
 
     /// <summary>Maps an error to an exit code.</summary>
     /// <param name="err">The error.</param>
+    /// <returns>The exit code.</returns>
     abstract member exitCodeError: 'E -> int
     default _.exitCodeError _ = 1
 
     /// <summary>Maps an exception to an exit code.</summary>
     /// <param name="exn">The exception.</param>
+    /// <returns>The exit code.</returns>
     abstract member exitCodeFatalError: exn -> int
     default _.exitCodeFatalError _ = 2
 
     /// <summary>Maps an interruption to an exit code.</summary>
     /// <param name="exn">The interruption exception.</param>
+    /// <returns>The exit code.</returns>
     abstract member exitCodeInterrupted: FiberInterruptedException -> int
     default _.exitCodeInterrupted _ = 130
 
     /// <summary>Cleanup effect run on interruption.</summary>
+    /// <returns>The shutdown effect.</returns>
     abstract member shutdownHook: unit -> FIO<unit, 'E>
     default _.shutdownHook() =
         FIO.unit()
 
     /// <summary>Maximum time to wait for shutdown hooks.</summary>
+    /// <returns>The timeout duration.</returns>
     abstract member shutdownHookTimeout: TimeSpan
     default _.shutdownHookTimeout =
         TimeSpan.FromSeconds 10.0
@@ -311,10 +326,12 @@ type FIOApp<'R, 'E> () as this =
         }
 
     /// <summary>Runs the application synchronously.</summary>
+    /// <returns>The exit code.</returns>
     member this.Run () =
         this.RunAsync().GetAwaiter().GetResult()
 
     /// <summary>Runs the application asynchronously.</summary>
+    /// <returns>A task that resolves to the exit code.</returns>
     member this.RunAsync () : Task<int> =
         this.RunEffect()
 

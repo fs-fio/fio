@@ -3,8 +3,8 @@ namespace FSharp.FIO.Sockets
 open FSharp.FIO.DSL
 
 open System
-open System.Buffers
 open System.Net
+open System.Buffers
 
 /// <summary>
 /// A functional, effectful, and type-safe abstraction over a TCP socket connection.
@@ -12,25 +12,26 @@ open System.Net
 type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
 
     let stream = new Sockets.NetworkStream(netSocket, ownsSocket = false)
+    let mutable disposed = false
 
     // Internal: Logs an error and suppresses it (used for cleanup)
     let logAndSuppress (context: string) (err: SocketError) : FIO<unit, SocketError> =
         fio {
-            let str = SocketError.ToString err
+            let str = err.ToString()
             do! FIO.attempt((fun () ->
-                eprintfn $"[Socket] Error during {context}: {str}"), SocketError.FromException)
+                eprintfn $"[Socket] Error during {context}: {str}"), SocketError.fromException)
             return ()
         }
 
     // Partially applied functions for consistent error handling
     let fromFunc (func: unit -> 'T) : FIO<'T, SocketError> =
-        FIO.attempt(func, SocketError.FromException)
+        FIO.attempt(func, SocketError.fromException)
 
     let awaitTask (task: Threading.Tasks.Task) : FIO<unit, SocketError> =
-        FIO.awaitTask(task, SocketError.FromException)
+        FIO.awaitTask(task, SocketError.fromException)
 
     let awaitTaskT (task: Threading.Tasks.Task<'T>) : FIO<'T, SocketError> =
-        FIO.awaitGenericTask(task, SocketError.FromException)
+        FIO.awaitGenericTask(task, SocketError.fromException)
 
     /// <summary>
     /// Sends raw bytes over the socket.
@@ -46,9 +47,9 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
 
     /// <summary>
     /// Receives up to maxBytes from the socket.
-    /// Returns the buffer and the actual number of bytes read.
     /// </summary>
     /// <param name="maxBytes">Maximum number of bytes to receive.</param>
+    /// <returns>The buffer and the actual number of bytes read.</returns>
     member _.ReceiveBytes(maxBytes: int) : FIO<byte[] * int, SocketError> =
         fio {
             if maxBytes <= 0 then
@@ -57,7 +58,6 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
             if not netSocket.Connected then
                 return! FIO.fail(ConnectionClosed "Socket is not connected")
 
-            // Use ArrayPool for efficient buffer management
             let! pooledBuffer = fromFunc (fun () -> ArrayPool<byte>.Shared.Rent maxBytes)
 
             let readAndCopy = fio {
@@ -66,21 +66,19 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
                 if bytesRead = 0 then
                     return! FIO.fail(ConnectionClosed "Connection closed by peer")
 
-                // Copy exact bytes to result array (can't return pooled buffer)
                 let result = Array.zeroCreate<byte> bytesRead
                 Buffer.BlockCopy(pooledBuffer, 0, result, 0, bytesRead)
                 return result, bytesRead
             }
 
-            // Ensure buffer is returned to pool even on error
             return! readAndCopy.Ensuring(fromFunc (fun () -> ArrayPool<byte>.Shared.Return pooledBuffer))
         }
 
     /// <summary>
     /// Receives exactly the specified number of bytes.
-    /// Blocks until all bytes are received or connection closes.
     /// </summary>
     /// <param name="numBytes">Exact number of bytes to receive.</param>
+    /// <returns>The byte array containing exactly the requested number of bytes.</returns>
     member _.ReceiveExactly(numBytes: int) : FIO<byte[], SocketError> =
         fio {
             if numBytes <= 0 then
@@ -100,13 +98,11 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
 
                     totalRead <- totalRead + bytesRead
 
-                // Copy exact bytes to result array (pooled buffer may be larger)
                 let result = Array.zeroCreate<byte> numBytes
                 Buffer.BlockCopy(pooledBuffer, 0, result, 0, numBytes)
                 return result
             }
 
-            // Ensure buffer is returned to pool even on error
             return! readLoop.Ensuring(fromFunc (fun () -> ArrayPool<byte>.Shared.Return pooledBuffer))
         }
 
@@ -126,6 +122,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     /// </summary>
     /// <param name="codec">The codec to use for decoding.</param>
     /// <param name="maxBytes">Maximum number of bytes to receive.</param>
+    /// <returns>The decoded value.</returns>
     member this.Receive<'T>(codec: SocketCodec<'T>, maxBytes: int) : FIO<'T, SocketError> =
         fio {
             let! bytes, bytesRead = this.ReceiveBytes maxBytes
@@ -144,6 +141,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     /// Receives a string (UTF-8).
     /// </summary>
     /// <param name="maxBytes">Maximum number of bytes to receive.</param>
+    /// <returns>The received string.</returns>
     member this.ReceiveString(maxBytes: int) : FIO<string, SocketError> =
         this.Receive(Codec.string, maxBytes)
 
@@ -158,6 +156,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     /// Receives a line-delimited string.
     /// </summary>
     /// <param name="maxBytes">Maximum number of bytes to receive.</param>
+    /// <returns>The received line.</returns>
     member this.ReceiveLine(maxBytes: int) : FIO<string, SocketError> =
         this.Receive(Codec.line, maxBytes)
 
@@ -172,6 +171,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     /// Receives JSON.
     /// </summary>
     /// <param name="maxBytes">Maximum number of bytes to receive.</param>
+    /// <returns>The deserialized JSON value.</returns>
     member this.ReceiveJson<'T>(maxBytes: int) : FIO<'T, SocketError> =
         this.Receive(Codec.json, maxBytes)
 
@@ -186,6 +186,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     /// Receives line-delimited JSON.
     /// </summary>
     /// <param name="maxBytes">Maximum number of bytes to receive.</param>
+    /// <returns>The deserialized JSON value.</returns>
     member this.ReceiveJsonLine<'T>(maxBytes: int) : FIO<'T, SocketError> =
         this.Receive(Codec.jsonLine None, maxBytes)
 
@@ -196,7 +197,6 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     member _.Close() : FIO<unit, SocketError> =
         fio {
             do! fromFunc(fun () ->
-                // Apply linger configuration from SocketConfig
                 netSocket.LingerState <- Sockets.LingerOption(config.LingerEnabled, config.LingerTimeout)
                 if stream <> null then
                     stream.Close()
@@ -211,28 +211,31 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
                 ).CatchAll(logAndSuppress "socket close")
         }
 
-
     /// <summary>
     /// Checks if the socket is connected.
     /// </summary>
+    /// <returns>True if the socket is connected, false otherwise.</returns>
     member _.IsConnected() : bool =
         netSocket.Connected
 
     /// <summary>
     /// Gets the remote endpoint of the socket.
     /// </summary>
+    /// <returns>The remote endpoint.</returns>
     member _.GetRemoteEndPoint() : FIO<EndPoint, SocketError> =
         fromFunc (fun () -> netSocket.RemoteEndPoint)
 
     /// <summary>
     /// Gets the local endpoint of the socket.
     /// </summary>
+    /// <returns>The local endpoint.</returns>
     member _.GetLocalEndPoint() : FIO<EndPoint, SocketError> =
         fromFunc (fun () -> netSocket.LocalEndPoint)
 
     /// <summary>
     /// Gets the socket configuration.
     /// </summary>
+    /// <returns>The socket configuration.</returns>
     member _.GetConfig() : SocketConfig =
         config
 
@@ -252,10 +255,20 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
                 )
         }
 
+    member private _.Dispose (disposing: bool) =
+        if not disposed then
+            disposed <- true
+            if disposing then
+                try
+                    stream.Dispose()
+                    netSocket.Dispose()
+                with exn ->
+                    eprintfn $"[Socket] Error during dispose: {exn.Message}"
+
     interface IDisposable with
-        member _.Dispose() =
-            try
-                stream.Dispose()
-                netSocket.Dispose()
-            with exn ->
-                eprintfn $"[Socket] Error during IDisposable.Dispose: {exn.Message}"
+        member this.Dispose() =
+            this.Dispose true
+            GC.SuppressFinalize this
+
+    override this.Finalize() =
+        this.Dispose false

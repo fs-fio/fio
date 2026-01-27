@@ -1,55 +1,61 @@
-module private FSharp.FIO.Examples.Http
+/// <summary>
+/// FSharp.FIO.Http example - HTTP server with routing and middleware.
+/// Endpoints: GET /, GET /json, GET /echo
+/// </summary>
+module private FSharp.FIO.Examples.Http.Program
 
 open FSharp.FIO.DSL
-open FSharp.FIO.Runtime.Default
+open FSharp.FIO.App
 open FSharp.FIO.Http
 open FSharp.FIO.Http.RoutesOperators
 open FSharp.FIO.Http.MiddlewareOperators
 
 open System
 
-let helloHandler : HttpHandler<exn> =
-    HttpHandler.text "Hello from FIO HTTP!"
+/// <summary>
+/// FIOApp wrapper for the HTTP server.
+/// </summary>
+type private HttpApp() =
+    inherit FIOApp<unit, exn>()
 
-let jsonHandler : HttpHandler<exn> =
-    HttpHandler.okJson {| message = "This is JSON"; timestamp = DateTime.UtcNow |}
+    /// <summary>
+    /// Simple text response handler.
+    /// </summary>
+    let helloHandler =
+        HttpHandler.text "Hello from FIO HTTP!"
 
-let echoHandler : HttpHandler<exn> =
-    fun request ->
-        let path = request.Path
-        HttpHandler.text $"You requested: {path}" request
+    /// <summary>
+    /// JSON response handler with timestamp.
+    /// </summary>
+    let jsonHandler =
+        HttpHandler.okJson {| message = "JSON response"; timestamp = DateTime.UtcNow |}
 
-let routes =
-    GET "/" helloHandler ++ GET "/json" jsonHandler ++ GET "/echo" echoHandler
+    /// <summary>
+    /// Echo handler that returns the requested path.
+    /// </summary>
+    let echoHandler request =
+        HttpHandler.text $"You requested: {request.Path}" request
 
-let logging : Middleware<exn> =
-    Middleware.before (fun request ->
-        FIO.attempt((fun () ->
-            let timestamp = System.DateTime.Now.ToString "HH:mm:ss"
-            printfn $"[{timestamp}] {request.Method} {request.Path}"), id))
+    /// <summary>
+    /// Route definitions combining all handlers.
+    /// </summary>
+    let routes =
+        get "/" helloHandler
+        ++ get "/json" jsonHandler
+        ++ get "/echo" echoHandler
 
-let routesWithMiddleware =
-    routes @@ logging
+    /// <summary>
+    /// Logging middleware that prints request info.
+    /// </summary>
+    let logging =
+        Middleware.before (fun request ->
+            FIO.attempt((fun () ->
+                let ts = DateTime.Now.ToString "HH:mm:ss"
+                printfn $"[{ts}] {request.Method} {request.Path}"), id))
+
+    override _.effect =
+        Server.runServer ServerConfig.defaultConfig (routes @@ logging)
 
 [<EntryPoint>]
 let main _ =
-    printfn "Starting FIO HTTP Server Example..."
-    printfn "Press Ctrl+C to stop the server"
-    printfn ""
-
-    let config = ServerConfig.defaultConfig
-    let serverEffect = Server.runServer config routesWithMiddleware
-
-    let runtime = new DefaultRuntime()
-    let fiber = runtime.Run serverEffect
-
-    match fiber.UnsafeResult() with
-    | Succeeded () ->
-        printfn "FIO HTTP Server stopped successfully"
-        0
-    | Failed exn ->
-        printfn $"FIO HTTP Server error: {exn.Message}"
-        1
-    | Interrupted exn ->
-        printfn $"FIO HTTP Server interrupted: {exn.Message}"
-        2
+    HttpApp().Run()

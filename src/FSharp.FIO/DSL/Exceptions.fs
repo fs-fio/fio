@@ -10,15 +10,25 @@ open System
 /// Represents the cause or reason for fiber interruption.
 /// </summary>
 type InterruptionCause =
+    /// <summary>
     /// Fiber was interrupted due to a timeout.
+    /// </summary>
     | Timeout of durationMs: float
+    /// <summary>
     /// Fiber was interrupted because its parent fiber was interrupted.
+    /// </summary>
     | ParentInterrupted of parentFiberId: Guid
+    /// <summary>
     /// Fiber was explicitly interrupted via Fiber.Interrupt().
+    /// </summary>
     | ExplicitInterrupt
+    /// <summary>
     /// Fiber was interrupted due to invalid argument or precondition violation.
+    /// </summary>
     | InvalidArgument of argumentName: string * reason: string
+    /// <summary>
     /// Fiber was interrupted due to resource exhaustion or system limits.
+    /// </summary>
     | ResourceExhaustion of reason: string
 
     override this.ToString () =

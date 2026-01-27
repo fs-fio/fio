@@ -16,6 +16,7 @@ module Pool =
     /// Uses NpgsqlDataSource for efficient connection pooling.
     /// </summary>
     /// <param name="config">The connection pool configuration.</param>
+    /// <returns>A new ConnectionPool instance.</returns>
     let create (config: ConnectionConfig) : FIO<ConnectionPool, PgError> =
         FIO.attempt(
             (fun () ->
@@ -40,19 +41,21 @@ module Pool =
     /// The connection should be released by calling Conn.close or using withConn.
     /// </summary>
     /// <param name="pool">The connection pool to acquire from.</param>
+    /// <returns>A Connection from the pool.</returns>
     let acquire (pool: ConnectionPool) : FIO<Connection, PgError> =
         FIO.attempt(
             (fun () -> pool.DataSource.CreateConnection()),
             GeneralError)
-            .Map(fun npgsqlConn -> Conn.create npgsqlConn pool)
+            .Map(fun npgsqlConn -> Connection.create npgsqlConn pool)
 
     /// <summary>
     /// Acquires a connection from the pool asynchronously.
     /// </summary>
     /// <param name="pool">The connection pool to acquire from.</param>
+    /// <returns>A Connection from the pool.</returns>
     let acquireAsync (pool: ConnectionPool) : FIO<Connection, PgError> =
         FIO.awaitGenericTask(pool.DataSource.OpenConnectionAsync().AsTask(), GeneralError)
-            .Map(fun npgsqlConn -> Conn.create npgsqlConn pool)
+            .Map(fun npgsqlConn -> Connection.create npgsqlConn pool)
 
     /// <summary>
     /// Executes an action with a connection from the pool.
@@ -60,13 +63,13 @@ module Pool =
     /// </summary>
     /// <param name="action">The action to execute with the connection.</param>
     /// <param name="pool">The connection pool to acquire from.</param>
+    /// <returns>The result of the action.</returns>
     let withConnection (action: Connection -> FIO<'R, PgError>) (pool: ConnectionPool) : FIO<'R, PgError> =
         fio {
             let! conn = acquire pool
-            do! Conn.openAsync conn
-            let! result = action conn
-            do! Conn.closeAsync conn
-            return result
+            do! Connection.openAsync conn
+            let closeConn = Connection.closeAsync(conn).CatchAll(fun _ -> FIO.unit())
+            return! (action conn).Ensuring(closeConn)
         }
 
     /// <summary>
@@ -75,12 +78,12 @@ module Pool =
     /// </summary>
     /// <param name="action">The action to execute with the connection.</param>
     /// <param name="pool">The connection pool to acquire from.</param>
+    /// <returns>The result of the action.</returns>
     let withConnectionAsync (action: Connection -> FIO<'R, PgError>) (pool: ConnectionPool) : FIO<'R, PgError> =
         fio {
             let! conn = acquireAsync pool
-            let! result = action conn
-            do! Conn.closeAsync conn
-            return result
+            let closeConn = Connection.closeAsync(conn).CatchAll(fun _ -> FIO.unit())
+            return! (action conn).Ensuring(closeConn)
         }
 
     /// <summary>
@@ -104,6 +107,7 @@ module Pool =
     /// Gets the connection configuration for the pool.
     /// </summary>
     /// <param name="pool">The connection pool.</param>
+    /// <returns>The ConnectionConfig for this pool.</returns>
     let getConfig (pool: ConnectionPool) : ConnectionConfig =
         pool.Config
 
@@ -111,5 +115,6 @@ module Pool =
     /// Gets the underlying NpgsqlDataSource.
     /// </summary>
     /// <param name="pool">The connection pool.</param>
+    /// <returns>The underlying NpgsqlDataSource.</returns>
     let internal getDataSource (pool: ConnectionPool) : NpgsqlDataSource =
         pool.DataSource

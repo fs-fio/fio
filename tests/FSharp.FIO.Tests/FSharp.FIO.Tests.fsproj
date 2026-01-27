@@ -17,6 +17,11 @@
     <ItemGroup>
         <Compile Include="Utilities.fs" />
         <Compile Include="PropertyTests.fs" />
+        <Compile Include="ExtensionTests.fs" />
+        <Compile Include="FactoryTests.fs" />
+        <Compile Include="OperatorTests.fs" />
+        <Compile Include="CETests.fs" />
+        <Compile Include="FiberTests.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 

@@ -17,11 +17,16 @@ type internal Worker () =
     /// <summary>
     /// Returns whether the worker is currently processing work.
     /// </summary>
+    /// <returns>True if the worker is active.</returns>
     abstract Working: unit -> bool
 
 /// <summary>
 /// Deadlock detector that monitors runtime state for potential deadlock conditions.
 /// </summary>
+/// <typeparam name="'B">The blocking worker type.</typeparam>
+/// <typeparam name="'E">The evaluation worker type.</typeparam>
+/// <param name="activeWorkItemChan">Channel for active work items.</param>
+/// <param name="intervalMs">Monitoring interval in milliseconds.</param>
 type internal DeadlockDetector<'B, 'E when 'B :> Worker and 'E :> Worker> (activeWorkItemChan: UnboundedChannel<WorkItem>, intervalMs: int) =
     let blockingItems = ConcurrentDictionary<BlockingItem, unit> ()
     let mutable blockingWorkers: List<'B> = []

@@ -465,7 +465,7 @@ let errorHandling =
             let recover x = FIO.fail (x + 100)
 
             let transformed = eff.CatchAll recover
-            let expected = Failed (err + 100)
+            let expected = Failed(err + 100)
 
             let actual = runtime.Run(transformed).UnsafeResult()
 
@@ -571,7 +571,7 @@ let sideEffects =
         <| fun (runtime: FIORuntime, err: int) ->
             let eff = FIO.fail(err).TapError(fun _ -> FIO.succeed 999)
 
-            let actual = (runtime.Run eff).UnsafeError()
+            let actual = runtime.Run(eff).UnsafeError()
 
             Expect.equal actual err "TapError should discard tap effect result"
     ]
@@ -790,12 +790,12 @@ let fiberOperations =
         testPropertyWithConfig fsCheckPropertyTestsConfig "Fiber ID is unique per fork"
         <| fun (runtime: FIORuntime, res: int) ->
             let eff = fio {
-                let effect = FIO.succeed res
-                let! fiber1 = effect.Fork()
-                let! fiber2 = effect.Fork()
-                let! fiber3 = effect.Fork()
-                return fiber1.Id <> fiber2.Id && fiber2.Id <> fiber3.Id && fiber1.Id <> fiber3.Id
+                let! fiber1 = (FIO.succeed res).Fork()
+                let! fiber2 = (FIO.succeed res).Fork()
+                let! fiber3 = (FIO.succeed res).Fork()
+                let ids = [fiber1.Id; fiber2.Id; fiber3.Id]
+                return List.distinct ids |> List.length = 3
             }
-            let result = (runtime.Run eff).UnsafeSuccess()
+            let result = runtime.Run(eff).UnsafeSuccess()
             Expect.isTrue result "Fiber IDs should be unique"
     ]

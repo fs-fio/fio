@@ -17,6 +17,16 @@ open Microsoft.AspNetCore.Http
 module KestrelBridge =
 
     /// <summary>
+    /// Default JSON serializer options used for response serialization.
+    /// Uses camelCase naming policy for JavaScript/frontend compatibility.
+    /// This is a pre-configured, immutable instance for optimal performance.
+    /// </summary>
+    let DefaultJsonOptions = 
+        let options = JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
+        options.MakeReadOnly()  // Make immutable for thread-safety and performance
+        options
+
+    /// <summary>
     /// Validates a path segment for security issues.
     /// </summary>
     let private isValidPathSegment (segment: string) : bool =
@@ -56,7 +66,7 @@ module KestrelBridge =
             if ctx.Request.ContentLength.HasValue && ctx.Request.ContentLength.Value > maxBodySize then
                 return Error $"Request body size ({ctx.Request.ContentLength.Value} bytes) exceeds maximum allowed size ({maxBodySize} bytes)"
             else
-                let method = HttpMethod.FromString ctx.Request.Method
+                let method = HttpMethod.fromString ctx.Request.Method
                 let path = ctx.Request.Path.Value
 
                 let segments =
@@ -122,9 +132,10 @@ module KestrelBridge =
     /// Writes an FIO HttpResponse to an ASP.NET Core HttpContext.
     /// Note: Stream bodies are NOT automatically disposed. Callers are responsible for disposing streams.
     /// </summary>
+    /// <param name="jsonOptions">JSON serializer options for response serialization.</param>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
     /// <param name="response">The FIO HTTP response to write.</param>
-    let writeResponse (ctx: HttpContext) (response: FSharp.FIO.Http.HttpResponse) : Task =
+    let writeResponseWithOptions (jsonOptions: JsonSerializerOptions) (ctx: HttpContext) (response: FSharp.FIO.Http.HttpResponse) : Task =
         task {
             let! bodyBytes =
                 task {
@@ -139,7 +150,7 @@ module KestrelBridge =
                     | Json obj ->
                         // Pre-allocate with reasonable initial capacity for JSON
                         use ms = new MemoryStream(256)
-                        do! JsonSerializer.SerializeAsync(ms, obj)
+                        do! JsonSerializer.SerializeAsync(ms, obj, jsonOptions)
                         return Some (ms.ToArray())
                     | Stream _ ->
                         return None
@@ -188,6 +199,27 @@ module KestrelBridge =
         }
 
     /// <summary>
+    /// Writes an FIO HttpResponse to an ASP.NET Core HttpContext.
+    /// Note: Stream bodies are NOT automatically disposed. Callers are responsible for disposing streams.
+    /// </summary>
+    /// <param name="jsonOptions">Optional JSON serializer options. Uses DefaultJsonOptions if None.</param>
+    /// <param name="ctx">The ASP.NET Core HTTP context.</param>
+    /// <param name="response">The FIO HTTP response to write.</param>
+    let writeResponseWith (jsonOptions: JsonSerializerOptions option) (ctx: HttpContext) (response: FSharp.FIO.Http.HttpResponse) : Task =
+        match jsonOptions with
+        | Some options -> writeResponseWithOptions options ctx response
+        | None -> writeResponseWithOptions DefaultJsonOptions ctx response
+
+    /// <summary>
+    /// Writes an FIO HttpResponse to an ASP.NET Core HttpContext using DefaultJsonOptions.
+    /// Note: Stream bodies are NOT automatically disposed. Callers are responsible for disposing streams.
+    /// </summary>
+    /// <param name="ctx">The ASP.NET Core HTTP context.</param>
+    /// <param name="response">The FIO HTTP response to write.</param>
+    let writeResponse (ctx: HttpContext) (response: FSharp.FIO.Http.HttpResponse) : Task =
+        writeResponseWith None ctx response
+
+    /// <summary>
     /// Logs an error with request context for diagnostics.
     /// </summary>
     let private logError (ctx: HttpContext) (errorType: string) (error: exn option) : unit =
@@ -206,16 +238,18 @@ module KestrelBridge =
         | _ -> ()
 
     /// <summary>
-    /// Handles an incoming HTTP request using the FIO runtime and routes.
+    /// Handles an incoming HTTP request using the FIO runtime, routes, and specific JSON options.
     /// </summary>
     /// <param name="runtime">The FIO runtime to execute effects.</param>
     /// <param name="routes">The routes to dispatch to.</param>
     /// <param name="maxBodySize">Maximum allowed request body size in bytes.</param>
+    /// <param name="jsonOptions">JSON serializer options for response serialization.</param>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
-    let handleRequest
+    let handleRequestWithOptions
         (runtime: FSharp.FIO.Runtime.Default.DefaultRuntime)
         (routes: Routes<exn>)
         (maxBodySize: int64)
+        (jsonOptions: JsonSerializerOptions)
         (ctx: HttpContext)
         : Task =
         task {
@@ -235,7 +269,7 @@ module KestrelBridge =
                     let fiber = runtime.Run effect
                     match! fiber.Task() with
                     | Succeeded response ->
-                        do! writeResponse ctx response
+                        do! writeResponseWithOptions jsonOptions ctx response
                     | Failed exn ->
                         logError ctx "HandlerError" (Some exn)
                         ctx.Response.StatusCode <- 500
@@ -251,3 +285,38 @@ module KestrelBridge =
                 let errorBytes = Encoding.UTF8.GetBytes "Internal Server Error"
                 do! ctx.Response.Body.WriteAsync(errorBytes, 0, errorBytes.Length)
         }
+
+    /// <summary>
+    /// Handles an incoming HTTP request using the FIO runtime and routes with optional custom JSON options.
+    /// </summary>
+    /// <param name="runtime">The FIO runtime to execute effects.</param>
+    /// <param name="routes">The routes to dispatch to.</param>
+    /// <param name="maxBodySize">Maximum allowed request body size in bytes.</param>
+    /// <param name="jsonOptions">Optional JSON serializer options. Uses DefaultJsonOptions if None.</param>
+    /// <param name="ctx">The ASP.NET Core HTTP context.</param>
+    let handleRequestWith
+        (runtime: FSharp.FIO.Runtime.Default.DefaultRuntime)
+        (routes: Routes<exn>)
+        (maxBodySize: int64)
+        (jsonOptions: JsonSerializerOptions option)
+        (ctx: HttpContext)
+        : Task =
+        match jsonOptions with
+        | Some options -> handleRequestWithOptions runtime routes maxBodySize options ctx
+        | None -> handleRequestWithOptions runtime routes maxBodySize DefaultJsonOptions ctx
+
+    /// <summary>
+    /// Handles an incoming HTTP request using the FIO runtime and routes.
+    /// Uses DefaultJsonOptions for JSON serialization.
+    /// </summary>
+    /// <param name="runtime">The FIO runtime to execute effects.</param>
+    /// <param name="routes">The routes to dispatch to.</param>
+    /// <param name="maxBodySize">Maximum allowed request body size in bytes.</param>
+    /// <param name="ctx">The ASP.NET Core HTTP context.</param>
+    let handleRequest
+        (runtime: FSharp.FIO.Runtime.Default.DefaultRuntime)
+        (routes: Routes<exn>)
+        (maxBodySize: int64)
+        (ctx: HttpContext)
+        : Task =
+        handleRequestWithOptions runtime routes maxBodySize DefaultJsonOptions ctx

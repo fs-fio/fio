@@ -57,7 +57,7 @@ let getElapsedTime<'E> (startTimestamp: int64, endTimestamp: int64) : FIO<TimeSp
     FIO.succeed <| Stopwatch.GetElapsedTime(startTimestamp, endTimestamp)
 
 /// <summary>Measures the execution time of an effect.</summary>
-/// <param name="effect">Effect to measure.</param>
+/// <param name="eff">Effect to measure.</param>
 /// <returns>Effect returning a tuple of (result, elapsed time).</returns>
 let timed<'R, 'E> (eff: FIO<'R, 'E>) : FIO<'R * TimeSpan, 'E> =
     FIO.succeed(Stopwatch.GetTimestamp())

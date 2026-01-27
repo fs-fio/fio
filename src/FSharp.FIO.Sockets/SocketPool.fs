@@ -11,15 +11,25 @@ open System
 type SocketPool =
     internal
         {
-            /// Pool configuration
+            /// <summary>
+            /// Pool configuration.
+            /// </summary>
             Config: SocketPoolConfig
-            /// Available connections (managed internally)
+            /// <summary>
+            /// Available connections (managed internally).
+            /// </summary>
             mutable Available: (Socket * DateTime) list
-            /// Lock for thread-safe pool operations
+            /// <summary>
+            /// Lock for thread-safe pool operations.
+            /// </summary>
             Lock: obj
-            /// Total connections created
+            /// <summary>
+            /// Total connections created.
+            /// </summary>
             mutable TotalCreated: int
-            /// Whether the pool is closed
+            /// <summary>
+            /// Whether the pool is closed.
+            /// </summary>
             mutable Closed: bool
         }
 
@@ -35,9 +45,9 @@ module SocketPool =
     /// </summary>
     let private logAndSuppress (context: string) (err: SocketError) : FIO<unit, SocketError> =
         fio {
-            let message = SocketError.ToString err
+            let message = err.ToString()
             do! FIO.attempt((fun () ->
-                eprintfn $"[SocketPool] Error during {context}: {message}"), SocketError.FromException)
+                eprintfn $"[SocketPool] Error during {context}: {message}"), SocketError.fromException)
             return ()
         }
 
@@ -66,6 +76,7 @@ module SocketPool =
     /// Creates a new socket connection pool.
     /// </summary>
     /// <param name="config">Pool configuration.</param>
+    /// <returns>The created socket pool.</returns>
     let create (config: SocketPoolConfig) : FIO<SocketPool, SocketError> =
         FIO.attempt((fun () ->
             {
@@ -75,7 +86,7 @@ module SocketPool =
                 TotalCreated = 0
                 Closed = false
             }),
-        SocketError.FromException)
+        SocketError.fromException)
 
     /// <summary>
     /// Closes all connections in the pool.
@@ -107,9 +118,9 @@ module SocketPool =
 
     /// <summary>
     /// Acquires a socket from the pool.
-    /// Creates a new connection if pool is empty and under max size.
     /// </summary>
     /// <param name="pool">The pool to acquire from.</param>
+    /// <returns>A socket from the pool.</returns>
     let acquire (pool: SocketPool) : FIO<Socket, SocketError> =
         fio {
             if pool.Closed then
@@ -177,10 +188,10 @@ module SocketPool =
 
     /// <summary>
     /// Executes an action with a socket from the pool.
-    /// Automatically returns socket to pool on success or closes on error.
     /// </summary>
     /// <param name="action">Action to execute with the socket.</param>
     /// <param name="pool">The pool to acquire from.</param>
+    /// <returns>The result of the action.</returns>
     let withSocket (action: Socket -> FIO<'R, SocketError>, pool: SocketPool) : FIO<'R, SocketError> =
         fio {
             let! socket = acquire pool
@@ -204,14 +215,15 @@ module SocketPool =
     /// Gets pool configuration.
     /// </summary>
     /// <param name="pool">The pool to query.</param>
+    /// <returns>The pool configuration.</returns>
     let getConfig (pool: SocketPool) : SocketPoolConfig =
         pool.Config
 
     /// <summary>
     /// Gets pool statistics.
-    /// Returns (available, total created, max size).
     /// </summary>
     /// <param name="pool">The pool to query.</param>
+    /// <returns>A tuple of (available, total created, max size).</returns>
     let getStats (pool: SocketPool) : int * int * int =
         lock pool.Lock (fun () ->
             pool.Available.Length, pool.TotalCreated, pool.Config.MaxPoolSize)
@@ -220,6 +232,7 @@ module SocketPool =
     /// Checks if the pool is closed.
     /// </summary>
     /// <param name="pool">The pool to check.</param>
+    /// <returns>True if the pool is closed, false otherwise.</returns>
     let isClosed (pool: SocketPool) : bool =
         pool.Closed
 
@@ -238,6 +251,7 @@ module SocketPool =
     /// <param name="codec">The codec to use for decoding.</param>
     /// <param name="maxBytes">Maximum number of bytes to receive.</param>
     /// <param name="pool">The connection pool.</param>
+    /// <returns>The decoded value.</returns>
     let receivePooled<'T> (codec: SocketCodec<'T>, maxBytes: int, pool: SocketPool) : FIO<'T, SocketError> =
         withSocket ((fun socket -> socket.Receive(codec, maxBytes)), pool)
 
@@ -246,5 +260,6 @@ module SocketPool =
     /// </summary>
     /// <param name="action">Action to execute with the socket.</param>
     /// <param name="pool">The connection pool.</param>
+    /// <returns>The result of the action.</returns>
     let withPooledConnection (action: Socket -> FIO<'R, SocketError>, pool: SocketPool) : FIO<'R, SocketError> =
         withSocket (action, pool)

@@ -28,12 +28,6 @@ type HttpError =
     | GeneralError of exn
 
     /// <summary>
-    /// Converts an exception to an HttpError.
-    /// </summary>
-    static member FromException (exn: exn) : HttpError =
-        GeneralError exn
-
-    /// <summary>
     /// Gets a human-readable error message.
     /// </summary>
     override this.ToString() =
@@ -57,10 +51,21 @@ type HttpError =
         | GeneralError exn ->
             $"HTTP error: {exn.Message}"
 
+/// <summary>
+/// Module functions for working with HttpError.
+/// </summary>
+module HttpError =
+
+    /// <summary>
+    /// Converts an exception to an HttpError.
+    /// </summary>
+    let fromException (exn: exn) : HttpError =
+        GeneralError exn
+    
     /// <summary>
     /// Converts an HttpError to an exception.
     /// </summary>
-    static member ToException (err: HttpError) : exn =
+    let toException (err: HttpError) : exn =
         match err with
         | GeneralError exn -> exn
         | _ -> Exception(err.ToString())
@@ -100,22 +105,27 @@ type HttpMethod =
         | CONNECT -> "CONNECT"
         | Custom string -> string
 
+/// <summary>
+/// Module functions for working with HttpMethod.
+/// </summary>
+module HttpMethod =
+
     /// <summary>
     /// Parses an HTTP method from a string.
     /// </summary>
-    /// <param name="string">The HTTP method string.</param>
-    static member FromString(string: string) =
-        match string.ToUpperInvariant() with
-        | "GET" -> GET
-        | "POST" -> POST
-        | "PUT" -> PUT
-        | "DELETE" -> DELETE
-        | "PATCH" -> PATCH
-        | "HEAD" -> HEAD
-        | "OPTIONS" -> OPTIONS
-        | "TRACE" -> TRACE
-        | "CONNECT" -> CONNECT
-        | string -> Custom string
+    /// <param name="str">The HTTP method string.</param>
+    let fromString (str: string) : HttpMethod =
+        match str.ToUpperInvariant() with
+        | "GET" -> HttpMethod.GET
+        | "POST" -> HttpMethod.POST
+        | "PUT" -> HttpMethod.PUT
+        | "DELETE" -> HttpMethod.DELETE
+        | "PATCH" -> HttpMethod.PATCH
+        | "HEAD" -> HttpMethod.HEAD
+        | "OPTIONS" -> HttpMethod.OPTIONS
+        | "TRACE" -> HttpMethod.TRACE
+        | "CONNECT" -> HttpMethod.CONNECT
+        | s -> HttpMethod.Custom s
 
 /// <summary>
 /// HTTP status codes.

@@ -21,6 +21,7 @@ type internal ContStackPool private () =
     /// <summary>
     /// Rents a continuation stack from the pool or creates a new one.
     /// </summary>
+    /// <returns>A continuation stack ready for use.</returns>
     static member inline Rent () =
         if isNull ContStackPool.pool then
             ContStackPool.pool <- Stack<_>()
@@ -59,6 +60,10 @@ type internal WorkItemPool private () =
     /// <summary>
     /// Rents a WorkItem from the pool or creates a new one.
     /// </summary>
+    /// <param name="eff">The effect to execute.</param>
+    /// <param name="fiberContext">The fiber context for execution.</param>
+    /// <param name="stack">The continuation stack.</param>
+    /// <returns>A WorkItem ready for use.</returns>
     static member inline Rent (eff: FIO<obj, obj>, fiberContext: FiberContext, stack: ContStack) : WorkItem =
         if isNull WorkItemPool.pool then
             WorkItemPool.pool <- Stack<WorkItem>()
@@ -113,6 +118,7 @@ type FIORuntime internal () =
     /// <summary>
     /// Gets a file-friendly string representation of the runtime.
     /// </summary>
+    /// <returns>A lowercase string suitable for file names.</returns>
     member this.ToFileString () =
         this.ToString()
             .ToLowerInvariant()
@@ -128,13 +134,23 @@ type FIORuntime internal () =
 /// Represents the configuration for a worker runtime.
 /// </summary>
 type WorkerConfig =
-    { EWC: int
+    { /// <summary>
+      /// Evaluation worker count.
+      /// </summary>
+      EWC: int
+      /// <summary>
+      /// Evaluation worker steps per work item before rescheduling.
+      /// </summary>
       EWS: int
+      /// <summary>
+      /// Blocking worker count.
+      /// </summary>
       BWC: int }
 
 /// <summary>
 /// Represents a functional worker runtime for interpreting FIO effects.
 /// </summary>
+/// <param name="config">The worker configuration.</param>
 [<AbstractClass>]
 type FIOWorkerRuntime internal (config: WorkerConfig) as this =
     inherit FIORuntime ()
@@ -150,6 +166,7 @@ type FIOWorkerRuntime internal (config: WorkerConfig) as this =
     /// <summary>
     /// Gets the worker configuration.
     /// </summary>
+    /// <returns>The worker configuration.</returns>
     member _.GetWorkerConfiguration () =
         config
 

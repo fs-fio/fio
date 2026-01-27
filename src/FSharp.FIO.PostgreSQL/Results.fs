@@ -15,6 +15,7 @@ module Results =
     /// Creates a result set from an NpgsqlDataReader.
     /// </summary>
     /// <param name="reader">The NpgsqlDataReader to wrap.</param>
+    /// <returns>A new ResultSet wrapping the reader.</returns>
     let internal create (reader: NpgsqlDataReader) : ResultSet =
         { Reader = reader }
 
@@ -23,6 +24,7 @@ module Results =
     /// </summary>
     /// <param name="index">The zero-based column index.</param>
     /// <param name="resultSet">The result set to read from.</param>
+    /// <returns>The column value, or default if null.</returns>
     let getValue<'T> (index: int) (resultSet: ResultSet) : 'T =
         if resultSet.Reader.IsDBNull(index) then
             Unchecked.defaultof<'T>
@@ -34,6 +36,7 @@ module Results =
     /// </summary>
     /// <param name="name">The column name.</param>
     /// <param name="resultSet">The result set to read from.</param>
+    /// <returns>The column value, or default if null.</returns>
     let getValueByName<'T> (name: string) (resultSet: ResultSet) : 'T =
         let index = resultSet.Reader.GetOrdinal(name)
         getValue<'T> index resultSet
@@ -43,6 +46,7 @@ module Results =
     /// </summary>
     /// <param name="index">The zero-based column index.</param>
     /// <param name="resultSet">The result set to read from.</param>
+    /// <returns>Some value if not null, None otherwise.</returns>
     let getValueOption<'T> (index: int) (resultSet: ResultSet) : 'T option =
         if resultSet.Reader.IsDBNull(index) then
             None
@@ -54,6 +58,7 @@ module Results =
     /// </summary>
     /// <param name="name">The column name.</param>
     /// <param name="resultSet">The result set to read from.</param>
+    /// <returns>Some value if not null, None otherwise.</returns>
     let getValueOptionByName<'T> (name: string) (resultSet: ResultSet) : 'T option =
         let index = resultSet.Reader.GetOrdinal(name)
         getValueOption<'T> index resultSet
@@ -63,6 +68,7 @@ module Results =
     /// </summary>
     /// <param name="mapper">Function to map each row to a value.</param>
     /// <param name="resultSet">The result set to read from.</param>
+    /// <returns>A list of mapped values.</returns>
     let readAll<'T> (mapper: ResultSet -> 'T) (resultSet: ResultSet) : FIO<'T list, PgError> =
         FIO.attempt(
             (fun () ->
@@ -77,6 +83,7 @@ module Results =
     /// </summary>
     /// <param name="mapper">Function to map the row to a value.</param>
     /// <param name="resultSet">The result set to read from.</param>
+    /// <returns>Some mapped value if row exists, None otherwise.</returns>
     let readFirst<'T> (mapper: ResultSet -> 'T) (resultSet: ResultSet) : FIO<'T option, PgError> =
         FIO.attempt(
             (fun () ->
@@ -92,6 +99,7 @@ module Results =
     /// </summary>
     /// <param name="mapper">Function to map the row to a value.</param>
     /// <param name="resultSet">The result set to read from.</param>
+    /// <returns>The mapped value from the single row.</returns>
     let readSingle<'T> (mapper: ResultSet -> 'T) (resultSet: ResultSet) : FIO<'T, PgError> =
         FIO.attempt(
             (fun () ->

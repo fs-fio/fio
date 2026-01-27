@@ -13,21 +13,40 @@ open System.Threading.Tasks
 /// Configuration for an evaluation worker.
 /// </summary>
 type private EvaluationWorkerConfig =
-    { Runtime: CooperativeRuntime
+    { /// <summary>
+      /// The runtime instance.
+      /// </summary>
+      Runtime: CooperativeRuntime
+      /// <summary>
+      /// Channel for active work items.
+      /// </summary>
       ActiveWorkItemChan: UnboundedChannel<WorkItem>
+      /// <summary>
+      /// The blocking worker for handling blocked effects.
+      /// </summary>
       BlockingWorker: BlockingWorker
+      /// <summary>
+      /// Number of evaluation steps per work item.
+      /// </summary>
       EWSteps: int }
 
 /// <summary>
 /// Configuration for a blocking worker.
 /// </summary>
 and internal BlockingWorkerConfig =
-    { ActiveWorkItemChan: UnboundedChannel<WorkItem>
+    { /// <summary>
+      /// Channel for active work items.
+      /// </summary>
+      ActiveWorkItemChan: UnboundedChannel<WorkItem>
+      /// <summary>
+      /// Channel for blocking items awaiting resources.
+      /// </summary>
       ActiveBlockingItemChan: UnboundedChannel<BlockingItem> }
 
 /// <summary>
 /// Worker that evaluates FIO effects.
 /// </summary>
+/// <param name="config">The evaluation worker configuration.</param>
 and private EvaluationWorker (config: EvaluationWorkerConfig) =
 
     let processWorkItem (workItem: WorkItem) =
@@ -64,6 +83,7 @@ and private EvaluationWorker (config: EvaluationWorkerConfig) =
 /// <summary>
 /// Worker that handles blocked effects waiting for resources.
 /// </summary>
+/// <param name="config">The blocking worker configuration.</param>
 and internal BlockingWorker (config: BlockingWorkerConfig) =
 
     /// <summary>
@@ -122,6 +142,7 @@ and internal BlockingWorker (config: BlockingWorkerConfig) =
 /// <summary>
 /// The cooperative runtime for FIO, interpreting effects concurrently using work-stealing.
 /// </summary>
+/// <param name="config">The worker configuration.</param>
 and CooperativeRuntime (config: WorkerConfig) as this =
     inherit FIOWorkerRuntime(config)
 
@@ -153,6 +174,9 @@ and CooperativeRuntime (config: WorkerConfig) as this =
             (blockingWorker :> IDisposable).Dispose()
             evaluationWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
 
+    /// <summary>
+    /// Creates a new CooperativeRuntime with default configuration.
+    /// </summary>
     new() =
         new CooperativeRuntime
             { EWC =
@@ -358,6 +382,11 @@ and CooperativeRuntime (config: WorkerConfig) as this =
         activeWorkItemChan.Clear()
         activeBlockingItemChan.Clear()
 
+    /// <summary>
+    /// Runs an FIO effect and returns a fiber representing its execution.
+    /// </summary>
+    /// <param name="eff">The FIO effect to run.</param>
+    /// <returns>A fiber representing the running effect.</returns>
     override _.Run<'R, 'E> (eff: FIO<'R, 'E>) : Fiber<'R, 'E> =
         lock runLock (fun () ->
             match currentFiber with

@@ -11,6 +11,7 @@ module Dsl =
     /// </summary>
     /// <param name="name">The parameter name.</param>
     /// <param name="value">The parameter value.</param>
+    /// <returns>A new SqlParameter with the specified name and value.</returns>
     let inline (@=) name value = SqlParameter.create name value
 
     /// <summary>
@@ -19,6 +20,7 @@ module Dsl =
     /// <param name="sql">The SQL query.</param>
     /// <param name="mapper">Function to map each row.</param>
     /// <param name="pool">The connection pool.</param>
+    /// <returns>A list of mapped values.</returns>
     let query sql mapper pool =
         Pool.withConnectionAsync
             (fun conn -> Query.query sql mapper conn)
@@ -31,6 +33,7 @@ module Dsl =
     /// <param name="parameters">The query parameters.</param>
     /// <param name="mapper">Function to map each row.</param>
     /// <param name="pool">The connection pool.</param>
+    /// <returns>A list of mapped values.</returns>
     let queryWithParams sql parameters mapper pool =
         Pool.withConnectionAsync
             (fun conn -> Query.queryWithParams sql parameters mapper conn)
@@ -42,6 +45,7 @@ module Dsl =
     /// <param name="sql">The SQL query.</param>
     /// <param name="mapper">Function to map the row.</param>
     /// <param name="pool">The connection pool.</param>
+    /// <returns>Some mapped value if row exists, None otherwise.</returns>
     let queryFirst sql mapper pool =
         Pool.withConnectionAsync
             (fun conn -> Query.queryFirst sql mapper conn)
@@ -54,6 +58,7 @@ module Dsl =
     /// <param name="parameters">The query parameters.</param>
     /// <param name="mapper">Function to map the row.</param>
     /// <param name="pool">The connection pool.</param>
+    /// <returns>Some mapped value if row exists, None otherwise.</returns>
     let queryFirstWithParams sql parameters mapper pool =
         Pool.withConnectionAsync
             (fun conn -> Query.queryFirstWithParams sql parameters mapper conn)
@@ -64,6 +69,7 @@ module Dsl =
     /// </summary>
     /// <param name="sql">The SQL command.</param>
     /// <param name="pool">The connection pool.</param>
+    /// <returns>The number of affected rows.</returns>
     let execute sql pool =
         Pool.withConnectionAsync
             (fun conn -> Command.execute sql conn)
@@ -75,6 +81,7 @@ module Dsl =
     /// <param name="sql">The SQL command.</param>
     /// <param name="parameters">The command parameters.</param>
     /// <param name="pool">The connection pool.</param>
+    /// <returns>The number of affected rows.</returns>
     let executeWithParams sql parameters pool =
         Pool.withConnectionAsync
             (fun conn -> Command.executeWithParams sql parameters conn)
@@ -86,6 +93,7 @@ module Dsl =
     /// <param name="sql">The INSERT SQL with RETURNING clause.</param>
     /// <param name="parameters">The command parameters.</param>
     /// <param name="pool">The connection pool.</param>
+    /// <returns>The returned value from the INSERT.</returns>
     let insertReturning<'T> sql parameters pool =
         Pool.withConnectionAsync
             (fun conn -> Command.insertReturningWithParams<'T> sql parameters conn)
@@ -96,6 +104,7 @@ module Dsl =
     /// </summary>
     /// <param name="action">The action to run in the transaction.</param>
     /// <param name="pool">The connection pool.</param>
+    /// <returns>The result of the action.</returns>
     let transaction action pool =
         Pool.withConnectionAsync
             (fun conn -> Transaction.run action conn)
@@ -107,6 +116,7 @@ module Dsl =
     /// <param name="isolationLevel">The transaction isolation level.</param>
     /// <param name="action">The action to run in the transaction.</param>
     /// <param name="pool">The connection pool.</param>
+    /// <returns>The result of the action.</returns>
     let transactionWithIsolation isolationLevel action pool =
         Pool.withConnectionAsync
             (fun conn -> Transaction.runWithIsolation isolationLevel action conn)

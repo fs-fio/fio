@@ -31,8 +31,8 @@ module RoutePattern =
             Path = path
             ParamExtractor = fun segments ->
                 match RoutePath.tryMatch path segments with
-                | Some (parameters, _) -> Some parameters
-                | None -> None
+                | Some (parameters, []) -> Some parameters
+                | _ -> None
         }
 
     /// <summary>
@@ -108,7 +108,7 @@ module Route =
         let parts = routeStr.Split([| ' ' |], StringSplitOptions.RemoveEmptyEntries)
         match parts with
         | [| methodStr; pathStr |] ->
-            let method = HttpMethod.FromString methodStr
+            let method = HttpMethod.fromString methodStr
             let segments =
                 pathStr.Split([| '/' |], StringSplitOptions.RemoveEmptyEntries)
                 |> Array.toList
@@ -196,40 +196,40 @@ module RouteOperators =
     /// Creates a GET route pattern.
     /// </summary>
     /// <param name="path">The path string.</param>
-    let GET path = Route.get path
+    let get path = Route.get path
 
     /// <summary>
     /// Creates a POST route pattern.
     /// </summary>
     /// <param name="path">The path string.</param>
-    let POST path = Route.post path
+    let post path = Route.post path
 
     /// <summary>
     /// Creates a PUT route pattern.
     /// </summary>
     /// <param name="path">The path string.</param>
-    let PUT path = Route.put path
+    let put path = Route.put path
 
     /// <summary>
     /// Creates a DELETE route pattern.
     /// </summary>
     /// <param name="path">The path string.</param>
-    let DELETE path = Route.delete path
+    let delete path = Route.delete path
 
     /// <summary>
     /// Creates a PATCH route pattern.
     /// </summary>
     /// <param name="path">The path string.</param>
-    let PATCH path = Route.patch path
+    let patch path = Route.patch path
 
     /// <summary>
     /// Creates a HEAD route pattern.
     /// </summary>
     /// <param name="path">The path string.</param>
-    let HEAD path = Route.head path
+    let head path = Route.head path
 
     /// <summary>
     /// Creates an OPTIONS route pattern.
     /// </summary>
     /// <param name="path">The path string.</param>
-    let OPTIONS path = Route.options path
+    let options path = Route.options path

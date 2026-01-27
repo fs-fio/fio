@@ -29,6 +29,7 @@ module SocketExtensions =
         /// </summary>
         /// <param name="maxBytes">Maximum number of bytes to receive.</param>
         /// <param name="options">Optional JSON serializer options.</param>
+        /// <returns>The deserialized JSON value.</returns>
         member this.ReceiveJson<'T>(maxBytes: int, ?options: JsonSerializerOptions) : FIO<'T, SocketError> =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
@@ -52,6 +53,7 @@ module SocketExtensions =
         /// </summary>
         /// <param name="maxBytes">Maximum number of bytes to receive.</param>
         /// <param name="options">Optional JSON serializer options.</param>
+        /// <returns>The deserialized JSON value.</returns>
         member this.ReceiveJsonLine<'T>(maxBytes: int, ?options: JsonSerializerOptions) : FIO<'T, SocketError> =
             fio {
                 let codec = Codec.jsonLine<'T> options

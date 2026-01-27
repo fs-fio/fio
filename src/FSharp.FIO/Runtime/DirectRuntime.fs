@@ -194,6 +194,11 @@ type DirectRuntime () =
                 ContStackPool.Return currentContStack
         }
 
+    /// <summary>
+    /// Runs an FIO effect and returns a fiber representing its execution.
+    /// </summary>
+    /// <param name="eff">The FIO effect to run.</param>
+    /// <returns>A fiber representing the running effect.</returns>
     override this.Run<'R, 'E> (eff: FIO<'R, 'E>) : Fiber<'R, 'E> =
         lock runLock (fun () ->
             match currentFiber with

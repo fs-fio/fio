@@ -13,29 +13,57 @@ open System.Threading.Tasks
 /// Configuration for an evaluation worker.
 /// </summary>
 type private EvaluationWorkerConfig =
-    { Runtime: ConcurrentRuntime
+    { /// <summary>
+      /// The runtime instance.
+      /// </summary>
+      Runtime: ConcurrentRuntime
+      /// <summary>
+      /// Channel for active work items.
+      /// </summary>
       ActiveWorkItemChan: UnboundedChannel<WorkItem>
+      /// <summary>
+      /// The blocking worker for handling blocked effects.
+      /// </summary>
       BlockingWorker: BlockingWorker
+      /// <summary>
+      /// Number of evaluation steps per work item.
+      /// </summary>
       EWSteps: int }
 
 /// <summary>
 /// Configuration for a blocking worker.
 /// </summary>
 and private BlockingWorkerConfig =
-    { ActiveWorkItemChan: UnboundedChannel<WorkItem>
+    { /// <summary>
+      /// Channel for active work items.
+      /// </summary>
+      ActiveWorkItemChan: UnboundedChannel<WorkItem>
+      /// <summary>
+      /// Channel for blocking events from channels.
+      /// </summary>
       ActiveBlockingEventChan: UnboundedChannel<Channel<obj>> }
 
 /// <summary>
 /// Internal type for tracking deferred fiber completion.
 /// </summary>
 and private CompletionAction =
+    /// <summary>
+    /// No completion action needed.
+    /// </summary>
     | NoCompletion
+    /// <summary>
+    /// Complete the fiber with a success value.
+    /// </summary>
     | CompleteSuccess of obj
+    /// <summary>
+    /// Complete the fiber with a failure value.
+    /// </summary>
     | CompleteFailure of obj
 
 /// <summary>
 /// Worker that evaluates FIO effects.
 /// </summary>
+/// <param name="config">The evaluation worker configuration.</param>
 and private EvaluationWorker (config: EvaluationWorkerConfig) =
     
     /// <summary>
@@ -76,6 +104,7 @@ and private EvaluationWorker (config: EvaluationWorkerConfig) =
 /// <summary>
 /// Worker that handles blocked effects waiting for channel events.
 /// </summary>
+/// <param name="config">The blocking worker configuration.</param>
 and private BlockingWorker (config: BlockingWorkerConfig) =
 
     /// <summary>
@@ -119,6 +148,7 @@ and private BlockingWorker (config: BlockingWorkerConfig) =
 /// <summary>
 /// The concurrent runtime for FIO, interpreting effects using event-driven concurrency.
 /// </summary>
+/// <param name="config">The worker configuration.</param>
 and ConcurrentRuntime (config: WorkerConfig) as this =
     inherit FIOWorkerRuntime(config)
 
@@ -150,6 +180,9 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
             (blockingWorker :> IDisposable).Dispose()
             evaluationWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
 
+    /// <summary>
+    /// Creates a new ConcurrentRuntime with default configuration.
+    /// </summary>
     new() =
         new ConcurrentRuntime
             { EWC =
@@ -172,7 +205,6 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
         let mutable currentFiberContext = workItem.FiberContext
         let mutable completionAction = NoCompletion
         let mutable completed = false
-        let mutable shouldReturnWorkItem = true  // Track if we should return the original workItem
 
         let inline processSuccess res =
             let mutable loop = true
@@ -232,7 +264,6 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
                     elif currentEWSteps = 0 then
                         let newWorkItem = WorkItemPool.Rent(currentEff, currentFiberContext, currentContStack)
                         do! activeWorkItemChan.AddAsync newWorkItem
-                        shouldReturnWorkItem <- false  // New workItem rented, don't return original
                         completed <- true
                     else
                         currentEWSteps <- currentEWSteps - 1
@@ -264,7 +295,6 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
                             else
                                 let newWorkItem = WorkItemPool.Rent(ReceiveChan chan, currentFiberContext, currentContStack)
                                 do! chan.AddBlockingWorkItem newWorkItem
-                                shouldReturnWorkItem <- false  // New workItem rented, don't return original
                                 completed <- true
                         | ForkEffect(eff, fiber, fiberContext) ->
                             let registration = currentFiberContext.CancellationToken.Register(fun () ->
@@ -323,7 +353,6 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
                                 let newWorkItem = WorkItemPool.Rent(JoinFiber fiberContext, currentFiberContext, currentContStack)
                                 do! fiberContext.AddBlockingWorkItem newWorkItem
                                 do fiberContext.TryRescheduleBlockingWorkItems activeWorkItemChan |> ignore
-                                shouldReturnWorkItem <- false  // New workItem rented, don't return original
                                 completed <- true
                         | AwaitTPLTask(task, onError) ->
                             try
@@ -354,7 +383,11 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
             finally
                 if not completed then
                     ContStackPool.Return currentContStack
-                if shouldReturnWorkItem && completed && completionAction <> NoCompletion then
+                // Return work item when fiber completes (success/failure) but NOT when rescheduling
+                // Work items that block (channel/fiber join) or reschedule (step count expires)
+                // create new work items, so the original should be returned to pool
+                let shouldReturnWorkItem = completionAction <> NoCompletion
+                if shouldReturnWorkItem then
                     WorkItemPool.Return workItem
         }
 
@@ -365,6 +398,11 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
         activeWorkItemChan.Clear()
         activeBlockingEventChan.Clear()
 
+    /// <summary>
+    /// Runs an FIO effect and returns a fiber representing its execution.
+    /// </summary>
+    /// <param name="eff">The FIO effect to run.</param>
+    /// <returns>A fiber representing the running effect.</returns>
     override _.Run<'R, 'E> (eff: FIO<'R, 'E>) : Fiber<'R, 'E> =
         lock runLock (fun () ->
             match currentFiber with

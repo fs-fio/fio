@@ -14,9 +14,10 @@ module Query =
     /// </summary>
     /// <param name="sql">The SQL query to execute.</param>
     /// <param name="conn">The connection to execute on.</param>
+    /// <returns>A ResultSet containing the query results.</returns>
     let execute (sql: string) (conn: Connection) : FIO<ResultSet, PgError> =
         FIO.awaitGenericTask(
-            (Conn.createCommand sql conn).ExecuteReaderAsync(),
+            (Connection.createCommand sql conn).ExecuteReaderAsync(),
             fun e -> QueryFailed(sql, e))
             .Map(fun reader -> Results.create (reader :?> NpgsqlDataReader))
 
@@ -26,9 +27,10 @@ module Query =
     /// <param name="sql">The SQL query to execute.</param>
     /// <param name="parameters">The parameters for the query.</param>
     /// <param name="conn">The connection to execute on.</param>
+    /// <returns>A ResultSet containing the query results.</returns>
     let executeWithParams (sql: string) (parameters: SqlParameter list) (conn: Connection) : FIO<ResultSet, PgError> =
         FIO.awaitGenericTask(
-            (Conn.createCommandWithParams sql parameters conn).ExecuteReaderAsync(),
+            (Connection.createCommandWithParams sql parameters conn).ExecuteReaderAsync(),
             fun e -> QueryFailed(sql, e))
             .Map(fun reader -> Results.create (reader :?> NpgsqlDataReader))
 
@@ -38,6 +40,7 @@ module Query =
     /// <param name="sql">The SQL query to execute.</param>
     /// <param name="mapper">Function to map each row to a value.</param>
     /// <param name="conn">The connection to execute on.</param>
+    /// <returns>A list of mapped values.</returns>
     let query (sql: string) (mapper: ResultSet -> 'T) (conn: Connection) : FIO<'T list, PgError> =
         fio {
             let! resultSet = execute sql conn
@@ -53,6 +56,7 @@ module Query =
     /// <param name="parameters">The parameters for the query.</param>
     /// <param name="mapper">Function to map each row to a value.</param>
     /// <param name="conn">The connection to execute on.</param>
+    /// <returns>A list of mapped values.</returns>
     let queryWithParams (sql: string) (parameters: SqlParameter list) (mapper: ResultSet -> 'T) (conn: Connection) : FIO<'T list, PgError> =
         fio {
             let! resultSet = executeWithParams sql parameters conn
@@ -67,6 +71,7 @@ module Query =
     /// <param name="sql">The SQL query to execute.</param>
     /// <param name="mapper">Function to map the row to a value.</param>
     /// <param name="conn">The connection to execute on.</param>
+    /// <returns>Some mapped value if row exists, None otherwise.</returns>
     let queryFirst (sql: string) (mapper: ResultSet -> 'T) (conn: Connection) : FIO<'T option, PgError> =
         fio {
             let! resultSet = execute sql conn
@@ -82,6 +87,7 @@ module Query =
     /// <param name="parameters">The parameters for the query.</param>
     /// <param name="mapper">Function to map the row to a value.</param>
     /// <param name="conn">The connection to execute on.</param>
+    /// <returns>Some mapped value if row exists, None otherwise.</returns>
     let queryFirstWithParams (sql: string) (parameters: SqlParameter list) (mapper: ResultSet -> 'T) (conn: Connection) : FIO<'T option, PgError> =
         fio {
             let! resultSet = executeWithParams sql parameters conn
@@ -97,6 +103,7 @@ module Query =
     /// <param name="sql">The SQL query to execute.</param>
     /// <param name="mapper">Function to map the row to a value.</param>
     /// <param name="conn">The connection to execute on.</param>
+    /// <returns>The mapped value from the single row.</returns>
     let querySingle (sql: string) (mapper: ResultSet -> 'T) (conn: Connection) : FIO<'T, PgError> =
         fio {
             let! resultSet = execute sql conn
@@ -113,6 +120,7 @@ module Query =
     /// <param name="parameters">The parameters for the query.</param>
     /// <param name="mapper">Function to map the row to a value.</param>
     /// <param name="conn">The connection to execute on.</param>
+    /// <returns>The mapped value from the single row.</returns>
     let querySingleWithParams (sql: string) (parameters: SqlParameter list) (mapper: ResultSet -> 'T) (conn: Connection) : FIO<'T, PgError> =
         fio {
             let! resultSet = executeWithParams sql parameters conn
@@ -126,13 +134,17 @@ module Query =
     /// </summary>
     /// <param name="sql">The SQL query to execute.</param>
     /// <param name="conn">The connection to execute on.</param>
+    /// <returns>The scalar value from the query.</returns>
     let executeScalar<'T> (sql: string) (conn: Connection) : FIO<'T, PgError> =
-        FIO.awaitGenericTask(
-            (Conn.createCommand sql conn).ExecuteScalarAsync(),
-            fun e -> QueryFailed(sql, e))
-            .Map(fun result ->
-                if isNull result then Unchecked.defaultof<'T>
-                else result :?> 'T)
+        fio {
+            let cmd = Connection.createCommand sql conn
+            let disposeCmd = FIO.attempt((fun () -> cmd.Dispose()), fun _ -> ()).CatchAll(fun _ -> FIO.unit())
+            return! FIO.awaitGenericTask(cmd.ExecuteScalarAsync(), fun e -> QueryFailed(sql, e))
+                        .Map(fun result ->
+                            if isNull result then Unchecked.defaultof<'T>
+                            else result :?> 'T)
+                        .Ensuring(disposeCmd)
+        }
 
     /// <summary>
     /// Executes a parameterized scalar query returning a single value.
@@ -140,10 +152,14 @@ module Query =
     /// <param name="sql">The SQL query to execute.</param>
     /// <param name="parameters">The parameters for the query.</param>
     /// <param name="conn">The connection to execute on.</param>
+    /// <returns>The scalar value from the query.</returns>
     let executeScalarWithParams<'T> (sql: string) (parameters: SqlParameter list) (conn: Connection) : FIO<'T, PgError> =
-        FIO.awaitGenericTask(
-            (Conn.createCommandWithParams sql parameters conn).ExecuteScalarAsync(),
-            fun e -> QueryFailed(sql, e))
-            .Map(fun result ->
-                if isNull result then Unchecked.defaultof<'T>
-                else result :?> 'T)
+        fio {
+            let cmd = Connection.createCommandWithParams sql parameters conn
+            let disposeCmd = FIO.attempt((fun () -> cmd.Dispose()), fun _ -> ()).CatchAll(fun _ -> FIO.unit())
+            return! FIO.awaitGenericTask(cmd.ExecuteScalarAsync(), fun e -> QueryFailed(sql, e))
+                        .Map(fun result ->
+                            if isNull result then Unchecked.defaultof<'T>
+                            else result :?> 'T)
+                        .Ensuring(disposeCmd)
+        }

@@ -188,15 +188,20 @@ type FIO<'R, 'E> with
 
     /// <summary>
     /// Executes two effects concurrently and fails with a tuple of their errors when both fail.
+    /// If only one effect fails, that single error is not captured (returns the success result).
+    /// Note: Due to F# type constraints, both effects must have the same error type.
     /// </summary>
     /// <param name="eff">The effect to run concurrently with this effect.</param>
-    member inline this.ZipParError<'R, 'E, 'E1> (eff: FIO<'R, 'E1>) : FIO<'R, 'E * 'E1> =
+    member inline this.ZipParError<'R, 'E> (eff: FIO<'R, 'E>) : FIO<'R, 'E * 'E> =
         eff.Fork().FlatMap(fun fiber ->
-            (this.FlatMap(fun res ->
-                fiber.Join().CatchAll(fun _ -> FIO.succeed res).FlatMap(fun _ -> FIO.succeed res)))
-                .CatchAll(fun err ->
-                    fiber.Join().CatchAll(fun err' ->
-                        FIO.fail(err, err'))))
+            this.FlatMap(fun res1 ->
+                fiber.Join().Map(fun _ -> res1))
+                .CatchAll(fun err1 ->
+                    fiber.Join()
+                        .FlatMap(fun res2 ->
+                            FIO.succeed res2)
+                        .CatchAll(fun err2 ->
+                            FIO.fail(err1, err2))))
 
     /// <summary>
     /// Executes two effects in parallel, returning the result of the second.
@@ -248,7 +253,6 @@ type FIO<'R, 'E> with
                             | None ->
                                 FIO.suspend(fun () -> loop(attemptNumber + 1))
                         else
-                            // Final attempt failed, propagate error
                             FIO.fail err)
                 loop 1)
 
@@ -300,26 +304,20 @@ type FIO<'R, 'E> with
                 eff.Fork().FlatMap(fun fiber2 ->
                     let resultChan = new Channel<Choice<Result<'R, 'E>, Result<'R, 'E>>>()
 
-                    let waiter1 =
+                    let waiter1 : FIO<Choice<Result<'R,'E>, Result<'R,'E>>, 'E> =
                         fiber1.Join()
-                            .FlatMap(fun r ->
-                                resultChan.Send(Choice1Of2 (Ok r)))
-                            .CatchAll(fun e ->
-                                resultChan.Send(Choice1Of2 (Error e)))
+                            .FlatMap(fun r -> resultChan.Send(Choice1Of2 (Ok r)))
+                            .CatchAll(fun e -> resultChan.Send(Choice1Of2 (Error e)))
                             .CatchAll(fun _ -> FIO.succeed Unchecked.defaultof<_>)
-                            .Fork()
 
-                    let waiter2 =
+                    let waiter2 : FIO<Choice<Result<'R,'E>, Result<'R,'E>>, 'E> =
                         fiber2.Join()
-                            .FlatMap(fun r ->
-                                resultChan.Send(Choice2Of2 (Ok r)))
-                            .CatchAll(fun e ->
-                                resultChan.Send(Choice2Of2 (Error e)))
+                            .FlatMap(fun r -> resultChan.Send(Choice2Of2 (Ok r)))
+                            .CatchAll(fun e -> resultChan.Send(Choice2Of2 (Error e)))
                             .CatchAll(fun _ -> FIO.succeed Unchecked.defaultof<_>)
-                            .Fork()
 
-                    waiter1.FlatMap(fun _ ->
-                        waiter2.FlatMap(fun _ ->
+                    waiter1.Fork().FlatMap(fun _ ->
+                        waiter2.Fork().FlatMap(fun _ ->
                             resultChan.Receive().FlatMap(fun choice ->
                                 let interruptLoser =
                                     match choice with
@@ -370,10 +368,10 @@ type FIO<'R, 'E> with
             | Some recovery -> recovery
             | None -> FIO.fail err)
 
-    // <summary>
-    // Converts all errors to defects (interruptions), making the effect infallible.
-    // </summary>
-    // <param name="toMessage">A function to convert the error to an interruption message.</param>
+    /// <summary>
+    /// Converts all errors to defects (interruptions), making the effect infallible.
+    /// </summary>
+    /// <param name="toMessage">A function to convert the error to an interruption message.</param>
     member inline this.OrInterrupt<'R, 'E, 'E1> (toMessage: 'E -> string) : FIO<'R, 'E1> =
         this.CatchAll(fun err ->
             FIO.interrupt(ResourceExhaustion (toMessage err), "Fiber interrupted due to unrecoverable error"))

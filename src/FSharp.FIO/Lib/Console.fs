@@ -2,7 +2,7 @@
 /// Provides functional, effectful console I/O operations for FIO.
 /// </summary>
 [<RequireQualifiedAccess>]
-module FSharp.FIO.Console
+module FSharp.FIO.Console.Console
 
 open FSharp.FIO.DSL
 

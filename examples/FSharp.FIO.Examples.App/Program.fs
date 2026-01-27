@@ -1,18 +1,23 @@
+/// <summary>
+/// FIOApp framework examples demonstrating various app patterns and features.
+/// </summary>
 module private FSharp.FIO.Examples.App
 
-open FSharp.FIO
 open FSharp.FIO.DSL
 open FSharp.FIO.App
+open FSharp.FIO.Random
 open FSharp.FIO.Runtime
-open FSharp.FIO.Sockets
-open FSharp.FIO.WebSockets
+open FSharp.FIO.Console
+open FSharp.FIO.Environment
 open FSharp.FIO.Runtime.Concurrent
 
 open System
 open System.IO
-open System.Text.Json
 open System.Globalization
 
+/// <summary>
+/// Simple welcome app demonstrating console I/O with SimpleFIOApp.
+/// </summary>
 type WelcomeApp() =
     inherit SimpleFIOApp()
 
@@ -23,6 +28,9 @@ type WelcomeApp() =
             do! Console.printLineExn $"Hello, %s{name}! Welcome to FIO! 🪻💜"
         }
 
+/// <summary>
+/// Demonstrates parsing user input with error handling using FIOApp.
+/// </summary>
 type EnterNumberApp() =
     inherit FIOApp<string, exn>()
 
@@ -38,6 +46,9 @@ type EnterNumberApp() =
                 return! FIO.fail(IOException "You entered an invalid number!")
         }
 
+/// <summary>
+/// Demonstrates try-with error handling in computation expressions.
+/// </summary>
 type TryWithApp() =
     inherit FIOApp<string, int>()
 
@@ -50,6 +61,9 @@ type TryWithApp() =
                 return! FIO.fail errorCode
         }
 
+/// <summary>
+/// Demonstrates try-finally for cleanup operations.
+/// </summary>
 type TryFinallyApp() =
     inherit FIOApp<string, int>()
 
@@ -62,6 +76,9 @@ type TryFinallyApp() =
                 Console.printLine("Running finalizer, always executes", (fun _ -> -2))
         }
 
+/// <summary>
+/// Combines try-with and try-finally for complete error handling.
+/// </summary>
 type TryWithFinallyApp() =
     inherit FIOApp<string, int>()
 
@@ -77,6 +94,9 @@ type TryWithFinallyApp() =
                 Console.printLine("Running finalizer, always executes", (fun _ -> -2))
         }
 
+/// <summary>
+/// Demonstrates for loops in computation expressions.
+/// </summary>
 type ForApp() =
     inherit SimpleFIOApp()
 
@@ -90,6 +110,9 @@ type ForApp() =
                     do! Console.printLineExn $"%i{number} is odd!"
         }
 
+/// <summary>
+/// Interactive number guessing game using while loops and random numbers.
+/// </summary>
 type GuessNumberApp() =
     inherit FIOApp<int, exn>()
 
@@ -117,6 +140,9 @@ type GuessNumberApp() =
             return guess
         }
 
+/// <summary>
+/// Ping-pong message passing using operators and channels.
+/// </summary>
 type PingPongApp() =
     inherit SimpleFIOApp()
 
@@ -139,6 +165,9 @@ type PingPongApp() =
         let chan2 = Channel<string>()
         pinger chan1 chan2 <&&> ponger chan1 chan2
 
+/// <summary>
+/// Ping-pong using computation expression syntax.
+/// </summary>
 type PingPongCEApp() =
     inherit SimpleFIOApp()
 
@@ -165,10 +194,16 @@ type PingPongCEApp() =
             do! pinger chan1 chan2 <&&> ponger chan1 chan2
         }
 
+/// <summary>
+/// Message type for typed ping-pong communication.
+/// </summary>
 type Message =
     | PingMsg
     | PongMsg
 
+/// <summary>
+/// Ping-pong with pattern matching on message types.
+/// </summary>
 type PingPongMatchApp() =
     inherit FIOApp<unit, string>()
 
@@ -208,11 +243,17 @@ type PingPongMatchApp() =
             do! pinger chan1 chan2 <&&> ponger chan1 chan2
         }
 
+/// <summary>
+/// Custom error types for demonstrating typed error handling.
+/// </summary>
 type Error =
     | DbError of bool
     | WsError of int
     | GeneralError of string
 
+/// <summary>
+/// Demonstrates typed error handling with CatchAll and error type unification.
+/// </summary>
 type ErrorHandlingApp() =
     inherit FIOApp<string * char, Error>()
 
@@ -250,6 +291,9 @@ type ErrorHandlingApp() =
                     .CatchAll(fun _ -> FIO.succeed("default", 'D'))
         }
 
+/// <summary>
+/// Demonstrates retry logic with error handling callbacks.
+/// </summary>
 type ErrorHandlingWithRetryApp() =
     inherit FIOApp<string * char, Error>()
 
@@ -295,6 +339,9 @@ type ErrorHandlingWithRetryApp() =
                     .CatchAll(fun _ -> FIO.succeed ("default", 'D'))
         }
 
+/// <summary>
+/// Demonstrates async/task interop with FIO.awaitAsyncExn.
+/// </summary>
 type AsyncErrorHandlingApp() =
     inherit FIOApp<string * int, Error>()
 
@@ -331,6 +378,9 @@ type AsyncErrorHandlingApp() =
             return! databaseResult <&> webserviceResult
         }
 
+/// <summary>
+/// Stress test with 1 million concurrent fibers using channels.
+/// </summary>
 type HighlyConcurrentApp() =
     inherit SimpleFIOApp()
 
@@ -371,6 +421,9 @@ type HighlyConcurrentApp() =
             return! create chan (fiberCount - 1) acc
         }
 
+/// <summary>
+/// Demonstrates FIO.fromGenericTaskExn for wrapping .NET Tasks as fibers.
+/// </summary>
 type FiberFromTaskApp() =
     inherit SimpleFIOApp()
 
@@ -413,6 +466,9 @@ type FiberFromTaskApp() =
                 await fiber45
         }
 
+/// <summary>
+/// Demonstrates FIO.fromGenericTaskExn with result values from Tasks.
+/// </summary>
 type FiberFromGenericTaskApp() =
     inherit SimpleFIOApp()
 
@@ -454,167 +510,10 @@ type FiberFromGenericTaskApp() =
                 awaitAndPrint fiber45
         }
 
-type SocketApp(host: string, port: int) =
-    inherit FIOApp<unit, SocketError>()
-
-    let server host port =
-        let sendAndReceiveASCII (socket: Socket) =
-            fio {
-                while true do
-                    let! msg = socket.ReceiveString 1024
-                    if msg = "__SHUTDOWN__" then
-                        do! Console.printLine("Server exiting", SocketError.FromException)
-                        do! socket.Close()
-                        do! socket.Dispose()
-                    else
-                        do! Console.printLine($"Server received message: %s{msg}", SocketError.FromException)
-                        let ascii =
-                            if msg.Length > 0 then
-                                int (msg.Chars 0)
-                            else
-                                -1
-                        do! socket.SendJson ascii
-                        do! Console.printLine($"Server sent ASCII: %i{ascii}", SocketError.FromException)
-            }
-
-        let handleClient (socket: Socket) =
-            fio {
-                let! endPoint = socket.GetRemoteEndPoint() >>= fun remoteEndPoint ->
-                    FIO.succeed(remoteEndPoint.ToString())
-                do! Console.printLine($"Client connected from %s{endPoint}", SocketError.FromException)
-                do! sendAndReceiveASCII socket
-            }
-
-        fio {
-            let! config = ServerSocketConfig.create(host, port)
-            do! Console.printLine($"Server listening on %s{host}:%i{port}", SocketError.FromException)
-            do! SocketServer.serve(config, handleClient)
-        }
-
-    let client host port =
-        fio {
-            let! config = SocketConfig.create(host, port)
-            do! SocketClient.withConnection config <| fun socket ->
-               fio {
-                   do! Console.printLine($"Connected to %s{host}:%i{port}", SocketError.FromException)
-
-                   let send () =
-                       fio {
-                           while true do
-                               do! Console.print("Enter a message ('exit' to quit): ", SocketError.FromException)
-                               let! input = Console.readLine SocketError.FromException
-                               if input = "exit" then
-                                   do! Console.printLine("Client exiting", SocketError.FromException)
-                                   do! socket.SendString "__SHUTDOWN__"
-                                   do! socket.Close()
-                                   do! socket.Dispose()
-                               else
-                                   do! socket.SendString input
-                                   do! Console.printLine($"Client sent message: %s{input}", SocketError.FromException)
-                       }
-
-                   let receive () =
-                       fio {
-                           while true do
-                               let! ascii = socket.ReceiveJson<int> 1024
-                               do! Console.printLine($"Client received ASCII: %i{ascii}", SocketError.FromException)
-                       }
-
-                   return! send () <&&> receive ()
-               }
-        }
-
-    override _.effect =
-        fio {
-            do! client host port <&&> server host port
-        }
-
-type WebSocketApp(host: string, port: string) =
-    inherit FIOApp<unit, WsError>()
-
-    let server url =
-        let receiveAndSendASCII (ws: WebSocket, server: WebSocketServer) =
-            fio {
-                while true do
-                    match! ws.ReceiveMessage() with
-                    | Frame(Text text) ->
-                        do! Console.printLine($"Server received message: %s{text}", WsError.FromException)
-                        if text = "__SHUTDOWN__" then
-                            do! Console.printLine("Server exiting", WsError.FromException)
-                            do! ws.Close()
-                            do! ws.Dispose()
-                        else 
-                            let ascii =
-                                if text.Length > 0 then
-                                    int (text.Chars 0)
-                                else
-                                    -1
-                            do! ws.SendJson ascii
-                            do! Console.printLine($"Server sent ASCII: %i{ascii}", WsError.FromException)
-                    | ConnectionClosed(status, desc) ->
-                        do! Console.printLine($"Server connection closed. Status: {status}, Description: {desc}", WsError.FromException)
-                        do! ws.Close()
-                        do! server.Close()
-                        do! ws.Dispose()
-                    | msg ->
-                        do! Console.printLine($"Server received and ignored message: %A{msg}", WsError.FromException)
-            }
-
-        let handleClient (ws: WebSocket, server: WebSocketServer) =
-            fio {
-                do! Console.printLine($"Connected to %s{host}:%s{port}", WsError.FromException)
-                do! receiveAndSendASCII(ws, server).Fork().Unit()
-            }
-
-        fio {
-            let! server = WebSocketServer.Create()
-            do! server.Start url
-            do! Console.printLine($"Server listening on %s{url}", WsError.FromException)
-            while true do
-                let! ws = server.Accept()
-                do! handleClient(ws, server)
-        }
-
-    let client url =
-        let send (ws: WebSocket) =
-            fio {
-                while true do
-                    do! Console.printLine("Enter a message ('exit' to quit): ", WsError.FromException)
-                    let! msg = Console.readLine WsError.FromException
-                    if msg = "exit" then
-                        do! Console.printLine("Client exiting", WsError.FromException)
-                        do! ws.SendText "__SHUTDOWN__"
-                        do! ws.Close()
-                        do! ws.Dispose()
-                    else
-                        do! ws.SendText msg
-                        do! Console.printLine($"Client sent message: %s{msg}", WsError.FromException)
-            }
-
-        let receive (ws: WebSocket) =
-            fio {
-                while true do
-                    match! ws.ReceiveMessage() with
-                    | Frame(Text text) ->
-                        let! ascii =
-                            FIO.attemptExn(fun () -> JsonSerializer.Deserialize<int> text)
-                                .CatchAll(fun exn -> FIO.fail(WsError.GeneralError exn.Message))
-                        do! Console.printLine($"Client received ASCII: %i{ascii}", WsError.FromException)
-                    | ConnectionClosed(status, desc) ->
-                        do! Console.printLine($"Client connection closed. Status: {status}, Description: {desc}", WsError.FromException)
-                    | msg ->
-                        do! Console.printLine($"Client received and ignored message: %A{msg}", WsError.FromException)
-            }
-
-        fio {
-            let! client = WebSocketClient.Create()
-            let! ws = client.Connect(Uri url)
-            do! send ws <&> receive ws
-        }
-
-    override _.effect =
-        client $"ws://%s{host}:%s{port}/" <&&> server $"http://%s{host}:%s{port}/"
-
+/// <summary>
+/// Demonstrates passing command-line arguments to FIOApp.
+/// </summary>
+/// <param name="args">Command-line arguments passed to the application.</param>
 type CommandLineArgsApp(args: string array) =
     inherit SimpleFIOApp()
 
@@ -629,6 +528,9 @@ type CommandLineArgsApp(args: string array) =
                     do! Console.printLineExn $"  Arg[%d{i}]: %s{args[i]}"
         }
 
+/// <summary>
+/// Demonstrates custom ConcurrentRuntime configuration.
+/// </summary>
 type CustomRuntimeApp() =
     inherit SimpleFIOApp()
 
@@ -647,6 +549,9 @@ type CustomRuntimeApp() =
             do! Console.printLineExn "- Blocking Workers: 2"
         }
 
+/// <summary>
+/// Demonstrates shutdown hooks for cleanup on Ctrl+C.
+/// </summary>
 type ShutdownHookApp() =
     inherit SimpleFIOApp()
 
@@ -674,6 +579,9 @@ type ShutdownHookApp() =
     override _.shutdownHookTimeout =
         TimeSpan.FromSeconds 5.0
 
+/// <summary>
+/// Demonstrates custom exit codes based on effect results.
+/// </summary>
 type CustomExitCodeApp() =
     inherit FIOApp<int, int>()
 
@@ -695,6 +603,9 @@ type CustomExitCodeApp() =
         printfn $"Failed with error code: {err}"
         err
 
+/// <summary>
+/// Demonstrates disabling automatic ThreadPool configuration.
+/// </summary>
 type DisableThreadPoolConfigApp() =
     inherit SimpleFIOApp()
 
@@ -707,6 +618,9 @@ type DisableThreadPoolConfigApp() =
             do! Console.printLineExn "Running without automatic ThreadPool configuration"
         }
 
+/// <summary>
+/// Demonstrates Environment module for system information and env vars.
+/// </summary>
 type EnvironmentApp() =
     inherit SimpleFIOApp()
 
@@ -759,6 +673,9 @@ type EnvironmentApp() =
             do! Console.printLineExn $"  DEBUG (or default): {debug}"
         }
 
+/// <summary>
+/// Demonstrates automatic startup banner display.
+/// </summary>
 type BannerApp() as this =
     inherit SimpleFIOApp()
 
@@ -776,6 +693,9 @@ type BannerApp() as this =
             do! Console.printLineExn $"App description: {this.description}"
         }
 
+/// <summary>
+/// Demonstrates custom banner override.
+/// </summary>
 type CustomBannerApp() =
     inherit SimpleFIOApp()
 
@@ -796,6 +716,9 @@ type CustomBannerApp() =
             do! Console.printLineExn "This app uses a custom banner defined by overriding the 'banner' property."
         }
 
+/// <summary>
+/// List of all app examples for sequential execution.
+/// </summary>
 let examples = [
     nameof WelcomeApp, fun () -> WelcomeApp().Run()
     nameof EnterNumberApp, fun () -> EnterNumberApp().Run()
@@ -813,8 +736,6 @@ let examples = [
     nameof HighlyConcurrentApp, fun () -> HighlyConcurrentApp().Run()
     nameof FiberFromTaskApp, fun () -> FiberFromTaskApp().Run()
     nameof FiberFromGenericTaskApp, fun () -> FiberFromGenericTaskApp().Run()
-    nameof SocketApp, fun () -> SocketApp("127.0.0.1", 5000).Run()
-    nameof WebSocketApp, fun () -> WebSocketApp("localhost", "8080").Run()
     nameof CommandLineArgsApp, fun () -> CommandLineArgsApp([| "arg1"; "arg2"; "test" |]).Run()
     nameof CustomRuntimeApp, fun () -> CustomRuntimeApp().Run()
     nameof ShutdownHookApp, fun () -> ShutdownHookApp().Run()

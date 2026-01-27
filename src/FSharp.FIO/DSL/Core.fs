@@ -51,8 +51,17 @@ and internal BlockingItem =
 /// Result of a fiber execution, distinguishing between success, failure, and interruption.
 /// </summary>
 and FiberResult<'R, 'E> =
+    /// <summary>
+    /// The fiber completed successfully with a result.
+    /// </summary>
     | Succeeded of result: 'R
+    /// <summary>
+    /// The fiber failed with an error.
+    /// </summary>
     | Failed of error: 'E
+    /// <summary>
+    /// The fiber was interrupted before completion.
+    /// </summary>
     | Interrupted of exn: FiberInterruptedException
 
 /// <summary>
@@ -172,6 +181,7 @@ and [<Sealed>] internal FiberContext () =
             this.DisposeRegistrations()
         elif oldState = int FiberContextState.Interrupted then
             resTcs.TrySetResult res |> ignore
+            this.DisposeRegistrations()
 
     /// <summary>
     /// Completes the fiber and reschedules blocking work items.
@@ -186,6 +196,10 @@ and [<Sealed>] internal FiberContext () =
                     do! this.RescheduleBlockingWorkItems activeWorkItemChan
             elif oldState = int FiberContextState.Interrupted then
                 resTcs.TrySetResult res |> ignore
+                this.DisposeRegistrations()
+                // Reschedule blocking work items so they can observe the interruption
+                if blockingWorkItemChan.Count > 0 then
+                    do! this.RescheduleBlockingWorkItems activeWorkItemChan
         }
 
     /// <summary>
@@ -205,6 +219,9 @@ and [<Sealed>] internal FiberContext () =
             let interruptError = Error (FiberInterruptedException(id, cause, msg) :> obj)
             resTcs.TrySetResult interruptError |> ignore
             this.DisposeRegistrations()
+            // Clear blocking work items so they're not orphaned
+            // Note: These will be garbage collected since the fiber is now completed
+            blockingWorkItemChan.Clear()
 
     /// <summary>
     /// Gets whether the fiber has been interrupted.
@@ -555,15 +572,17 @@ and FIO<'R, 'E> =
 
     /// <summary>
     /// Runs a finalizer after this effect, preserving the original outcome.
+    /// If the main effect succeeds but the finalizer fails, the finalizer error is returned.
+    /// If the main effect fails, the main error is preserved (finalizer errors are suppressed).
     /// </summary>
     /// <param name="finalizer">The finalizer effect to run.</param>
     member this.Ensuring (finalizer: FIO<unit, 'E>) : FIO<'R, 'E> =
-        let runFinalizer outcome =
-            finalizer
-                .CatchAll(fun _ -> Success())
-                .FlatMap(fun _ -> outcome)
-        this.FlatMap(fun res -> runFinalizer(Success res))
-            .CatchAll(fun err -> runFinalizer(Failure err))
+        this.FlatMap(fun res ->
+            // Main effect succeeded - finalizer errors should propagate
+            finalizer.FlatMap(fun _ -> Success res))
+            .CatchAll(fun mainErr ->
+                // Main effect failed - suppress finalizer errors, preserve main error
+                finalizer.CatchAll(fun _ -> Success()).FlatMap(fun _ -> Failure mainErr))
 
     /// <summary>
     /// Upcasts the result type to obj (for runtime use only).

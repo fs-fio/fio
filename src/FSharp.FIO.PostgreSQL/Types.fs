@@ -2,73 +2,53 @@ namespace FSharp.FIO.PostgreSQL
 
 open Npgsql
 open System
-open System.Data
 
 /// <summary>
 /// PostgreSQL operation errors.
 /// </summary>
 type PgError =
-    /// Failed to connect to the database
+    /// <summary>Failed to connect to the database.</summary>
     | ConnectionFailed of connectionString: string * exn
-    /// Connection was closed unexpectedly
+    /// <summary>Connection was closed unexpectedly.</summary>
     | ConnectionClosed of string
-    /// Failed to open connection
+    /// <summary>Failed to open connection.</summary>
     | OpenFailed of exn
-    /// Failed to close connection
+    /// <summary>Failed to close connection.</summary>
     | CloseFailed of exn
-    /// Query execution failed
+    /// <summary>Query execution failed.</summary>
     | QueryFailed of sql: string * exn
-    /// Command execution failed
+    /// <summary>Command execution failed.</summary>
     | CommandFailed of sql: string * exn
-    /// Transaction operation failed
+    /// <summary>Transaction operation failed.</summary>
     | TransactionFailed of operation: string * exn
-    /// Result set reading failed
+    /// <summary>Result set reading failed.</summary>
     | ResultSetFailed of exn
-    /// Pool exhausted - no connections available
+    /// <summary>Pool exhausted, no connections available.</summary>
     | PoolExhausted of maxSize: int
-    /// Pool is closed
+    /// <summary>Pool is closed.</summary>
     | PoolClosed
-    /// General PostgreSQL error
+    /// <summary>General PostgreSQL error.</summary>
     | GeneralError of exn
+
+/// <summary>
+/// Module functions for working with PgError.
+/// </summary>
+module PgError =
 
     /// <summary>
     /// Converts an exception to a PgError.
     /// </summary>
-    static member FromException (exn: exn) : PgError =
+    /// <param name="exn">The exception to convert.</param>
+    /// <returns>A GeneralError wrapping the exception.</returns>
+    let fromException (exn: exn) : PgError =
         GeneralError exn
-
-    /// <summary>
-    /// Gets a human-readable error message.
-    /// </summary>
-    override this.ToString() =
-        match this with
-        | ConnectionFailed(connStr, exn) ->
-            $"Failed to connect: {exn.Message}"
-        | ConnectionClosed msg ->
-            $"Connection closed: {msg}"
-        | OpenFailed exn ->
-            $"Open failed: {exn.Message}"
-        | CloseFailed exn ->
-            $"Close failed: {exn.Message}"
-        | QueryFailed(sql, exn) ->
-            $"Query failed [{sql}]: {exn.Message}"
-        | CommandFailed(sql, exn) ->
-            $"Command failed [{sql}]: {exn.Message}"
-        | TransactionFailed(op, exn) ->
-            $"Transaction {op} failed: {exn.Message}"
-        | ResultSetFailed exn ->
-            $"ResultSet error: {exn.Message}"
-        | PoolExhausted maxSize ->
-            $"Pool exhausted: max {maxSize} connections"
-        | PoolClosed ->
-            "Pool is closed"
-        | GeneralError exn ->
-            $"PostgreSQL error: {exn.Message}"
 
     /// <summary>
     /// Converts a PgError to an exception.
     /// </summary>
-    static member ToException (err: PgError) : exn =
+    /// <param name="err">The PgError to convert.</param>
+    /// <returns>The underlying exception or a new exception with error details.</returns>
+    let toException (err: PgError) : exn =
         match err with
         | GeneralError exn -> exn
         | _ -> Exception(err.ToString())
@@ -99,6 +79,7 @@ module ConnectionConfig =
     /// Creates a default connection configuration with the given connection string.
     /// </summary>
     /// <param name="connectionString">The PostgreSQL connection string.</param>
+    /// <returns>A new ConnectionConfig with default pool settings.</returns>
     let create connectionString =
         {
             ConnectionString = connectionString
@@ -113,6 +94,7 @@ module ConnectionConfig =
     /// </summary>
     /// <param name="size">The minimum number of connections.</param>
     /// <param name="config">The configuration to modify.</param>
+    /// <returns>A new configuration with updated minimum pool size.</returns>
     let withMinPoolSize size config =
         { config with MinPoolSize = size }
 
@@ -121,6 +103,7 @@ module ConnectionConfig =
     /// </summary>
     /// <param name="size">The maximum number of connections.</param>
     /// <param name="config">The configuration to modify.</param>
+    /// <returns>A new configuration with updated maximum pool size.</returns>
     let withMaxPoolSize size config =
         { config with MaxPoolSize = size }
 
@@ -129,6 +112,7 @@ module ConnectionConfig =
     /// </summary>
     /// <param name="seconds">The connection lifetime in seconds.</param>
     /// <param name="config">The configuration to modify.</param>
+    /// <returns>A new configuration with updated connection lifetime.</returns>
     let withConnectionLifetime seconds config =
         { config with ConnectionLifetime = seconds }
 
@@ -137,6 +121,7 @@ module ConnectionConfig =
     /// </summary>
     /// <param name="seconds">The command timeout in seconds.</param>
     /// <param name="config">The configuration to modify.</param>
+    /// <returns>A new configuration with updated command timeout.</returns>
     let withCommandTimeout seconds config =
         { config with CommandTimeout = seconds }
 
@@ -188,6 +173,7 @@ module SqlParameter =
     /// </summary>
     /// <param name="name">The parameter name.</param>
     /// <param name="value">The parameter value.</param>
+    /// <returns>A new SqlParameter with the specified name and value.</returns>
     let create name value =
         { Name = name; Value = value }
 
@@ -196,6 +182,7 @@ module SqlParameter =
     /// </summary>
     /// <param name="name">The parameter name.</param>
     /// <param name="value">The parameter value.</param>
+    /// <returns>A new SqlParameter with the specified name and value.</returns>
     let ofTuple (name, value) =
         { Name = name; Value = value }
 
@@ -203,9 +190,13 @@ module SqlParameter =
 /// Transaction isolation levels for PostgreSQL.
 /// </summary>
 type IsolationLevel =
+    /// <summary>Read uncommitted isolation level.</summary>
     | ReadUncommitted
+    /// <summary>Read committed isolation level.</summary>
     | ReadCommitted
+    /// <summary>Repeatable read isolation level.</summary>
     | RepeatableRead
+    /// <summary>Serializable isolation level.</summary>
     | Serializable
 
 /// <summary>
@@ -217,13 +208,15 @@ module IsolationLevel =
     /// Converts to System.Data.IsolationLevel.
     /// </summary>
     /// <param name="level">The isolation level to convert.</param>
+    /// <returns>The corresponding System.Data.IsolationLevel value.</returns>
     let toSystemIsolationLevel = function
-        | ReadUncommitted -> System.Data.IsolationLevel.ReadUncommitted
-        | ReadCommitted -> System.Data.IsolationLevel.ReadCommitted
-        | RepeatableRead -> System.Data.IsolationLevel.RepeatableRead
-        | Serializable -> System.Data.IsolationLevel.Serializable
+        | ReadUncommitted -> Data.IsolationLevel.ReadUncommitted
+        | ReadCommitted -> Data.IsolationLevel.ReadCommitted
+        | RepeatableRead -> Data.IsolationLevel.RepeatableRead
+        | Serializable -> Data.IsolationLevel.Serializable
 
     /// <summary>
     /// Default isolation level (Read Committed).
     /// </summary>
+    /// <returns>ReadCommitted isolation level.</returns>
     let defaultLevel = ReadCommitted
