@@ -1,0 +1,64 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <WarningsAsErrors>true</WarningsAsErrors>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <PackageId>FIO.Redis</PackageId>
+        <Version>0.0.40-alpha</Version>
+        <Title>FIO.Redis</Title>
+        <Description>Redis client library for FIO built on StackExchange.Redis. Provides connection management, all Redis data types, pub/sub, streams, transactions, and a functional DSL for Redis operations.</Description>
+        <Authors>Daniel Larsen</Authors>
+        <Copyright>Copyright (c) 2022-2026 Daniel Larsen and Technical University of Denmark (DTU)</Copyright>
+        <PackageTags>fsharp;effect;redis;cache;functional;pubsub;streams</PackageTags>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <RepositoryUrl>https://github.com/fs-fio/fio</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageProjectUrl>https://github.com/fs-fio/fio</PackageProjectUrl>
+        <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
+        <PackageIcon>fio_logo_wide.png</PackageIcon>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <LangVersion>preview</LangVersion>
+        <ParallelCompilation>true</ParallelCompilation>
+        <Deterministic>false</Deterministic>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="Types.fs" />
+        <Compile Include="Connection.fs" />
+        <Compile Include="Keys.fs" />
+        <Compile Include="Strings.fs" />
+        <Compile Include="Hashes.fs" />
+        <Compile Include="Lists.fs" />
+        <Compile Include="Sets.fs" />
+        <Compile Include="SortedSets.fs" />
+        <Compile Include="PubSub.fs" />
+        <Compile Include="Streams.fs" />
+        <Compile Include="Transaction.fs" />
+        <Compile Include="Dsl.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\FIO\FIO.fsproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="StackExchange.Redis" Version="2.8.41" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Update="FSharp.Core" Version="10.0.102" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="..\..\assets\images\fio_logo_wide.png" Pack="true" PackagePath="\" />
+        <None Include="README.md" Pack="true" PackagePath="\" />
+    </ItemGroup>
+
+</Project>

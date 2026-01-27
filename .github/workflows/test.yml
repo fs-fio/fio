@@ -33,18 +33,17 @@ jobs:
             ${{ runner.os }}-nuget-
 
       - name: Restore dependencies
-        run: dotnet restore ./FSharp.FIO.slnx
+        run: dotnet restore ./FIO.slnx
 
       - name: Build
-        run: dotnet build --no-restore ./FSharp.FIO.slnx
+        run: dotnet build --no-restore ./FIO.slnx
 
       - name: Run tests
         if: matrix.os != 'ubuntu-latest'
-        run: dotnet test --no-build --verbosity normal ./FSharp.FIO.slnx
-
+        run: dotnet test --no-build --verbosity normal ./FIO.slnx
       - name: Run tests with coverage
         if: matrix.os == 'ubuntu-latest'
-        run: dotnet test --no-build --verbosity normal --collect:"XPlat Code Coverage" --results-directory ./coverage ./FSharp.FIO.slnx
+        run: dotnet test --no-build --verbosity normal --collect:"XPlat Code Coverage" --results-directory ./coverage ./FIO.slnx
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest'

@@ -32,11 +32,11 @@ jobs:
             ${{ runner.os }}-nuget-
 
       - name: Restore dependencies
-        run: dotnet restore ./FSharp.FIO.slnx
+        run: dotnet restore ./FIO.slnx
 
       - name: Run benchmarks (DirectRuntime)
         run: |
-          dotnet run -c Release --project benchmarks/FSharp.FIO.Benchmarks -- \
+          dotnet run -c Release --project benchmarks/FIO.Benchmarks -- \
             --direct-runtime \
             --runs 5 \
             --pingpong 50000 \
@@ -45,7 +45,7 @@ jobs:
 
       - name: Run benchmarks (CooperativeRuntime)
         run: |
-          dotnet run -c Release --project benchmarks/FSharp.FIO.Benchmarks -- \
+          dotnet run -c Release --project benchmarks/FIO.Benchmarks -- \
             --cooperative-runtime 4 200 1 \
             --runs 5 \
             --pingpong 50000 \
@@ -54,7 +54,7 @@ jobs:
 
       - name: Run benchmarks (ConcurrentRuntime)
         run: |
-          dotnet run -c Release --project benchmarks/FSharp.FIO.Benchmarks -- \
+          dotnet run -c Release --project benchmarks/FIO.Benchmarks -- \
             --concurrent-runtime 4 200 1 \
             --runs 5 \
             --pingpong 50000 \

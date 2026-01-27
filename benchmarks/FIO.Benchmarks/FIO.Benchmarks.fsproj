@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <OutputType>Exe</OutputType>
+        <WarningsAsErrors>true</WarningsAsErrors>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <LangVersion>preview</LangVersion>
+        <ParallelCompilation>true</ParallelCompilation>
+        <Deterministic>false</Deterministic>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="Tools\Timer.fs" />
+        <Compile Include="Suite\Types.fs" />
+        <Compile Include="Suite\Pingpong.fs" />
+        <Compile Include="Suite\Threadring.fs" />
+        <Compile Include="Suite\Big.fs" />
+        <Compile Include="Suite\Bang.fs" />
+        <Compile Include="Suite\Fork.fs" />
+        <Compile Include="Suite\BenchmarkRunner.fs" />
+        <Compile Include="Args.fs" />
+        <Compile Include="Program.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\FIO\FIO.fsproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Argu" Version="6.2.5" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <PackageReference Update="FSharp.Core" Version="10.0.102" />
+    </ItemGroup>
+
+</Project>

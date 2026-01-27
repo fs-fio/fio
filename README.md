@@ -11,7 +11,7 @@
 
 <br />
 <div align="center">
-  <a href="https://github.com/fio-fsharp/fio">
+  <a href="https://github.com/fs-fio/fio/">
     <img src="assets/images/fio_logo_wide.png" width="auto" height="300" alt="FIO Logo">
   </a>
 
@@ -72,6 +72,7 @@
         <li><a href="#postgresql">PostgreSQL</a></li>
         <li><a href="#tcp-sockets">TCP Sockets</a></li>
         <li><a href="#websockets">WebSockets</a></li>
+        <li><a href="#redis">Redis</a></li>
       </ul>
     </li>
     <li>
@@ -121,7 +122,7 @@ Inspired by [**ZIO**](https://zio.dev/) and [**Cats Effect**](https://typelevel.
 **FIO** was developed as part of a master’s thesis in Computer Science at [**DTU**](https://www.dtu.dk/english).
 
 > **Note:** FIO is under active development. Contributions, feedback, and questions are welcome.
-> Please report bugs and request features through [GitHub Issues](https://github.com/fio-fsharp/fio/issues), or contact the maintainer at [hey@itsdaniel.dk](mailto:hey@itsdaniel.dk).
+> Please report bugs and request features through [GitHub Issues](https://github.com/fs-fio/fio/issues), or contact the maintainer at [hey@itsdaniel.dk](mailto:hey@itsdaniel.dk).
 
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
@@ -138,7 +139,7 @@ Inspired by [**ZIO**](https://zio.dev/) and [**Cats Effect**](https://typelevel.
 #### Core Package (Required)
 
 ```bash
-dotnet add package FSharp.FIO
+dotnet add package FIO
 ```
 
 The core package includes:
@@ -151,7 +152,7 @@ The core package includes:
 ##### TCP Sockets
 
 ```bash
-dotnet add package FSharp.FIO.Sockets
+dotnet add package FIO.Sockets
 ```
 
 Provides TCP socket operations with client, server, and connection pooling. Error type: `SocketError`.
@@ -159,26 +160,34 @@ Provides TCP socket operations with client, server, and connection pooling. Erro
 ##### WebSockets
 
 ```bash
-dotnet add package FSharp.FIO.WebSockets
+dotnet add package FIO.WebSockets
 ```
 
 Provides WebSocket client and server functionality with connection pooling. Error type: `WsError`.
 
-##### HTTP Server (experimental)
+##### HTTP Server
 
 ```bash
-dotnet add package FSharp.FIO.Http
+dotnet add package FIO.Http
 ```
 
 Provides composable HTTP server functionality built on ASP.NET Core Kestrel, including routes, handlers, and middleware. Error type: `HttpError`.
 
-##### PostgreSQL Database (experimental)
+##### PostgreSQL Database
 
 ```bash
-dotnet add package FSharp.FIO.PostgreSQL
+dotnet add package FIO.PostgreSQL
 ```
 
 Provides PostgreSQL database operations built on Npgsql, including connection pooling, query execution, and transactions. Error type: `PgError`.
+
+##### Redis Database
+
+```bash
+dotnet add package FIO.Redis
+```
+
+Provides Redis operations built on StackExchange.Redis, including strings, hashes, lists, sets, sorted sets, pub/sub, streams, and transactions. Error type: `RedisError`.
 
 ### Quick Start
 
@@ -186,8 +195,8 @@ To get started with **FIO**:
 
 1. Install [**.NET**](https://dotnet.microsoft.com/en-us/)
 2. Use an editor like [**VS Code**](https://code.visualstudio.com/), [**Visual Studio**](https://visualstudio.microsoft.com/downloads/), [**Rider**](https://www.jetbrains.com/rider/download/), or any F#-compatible editor
-3. Install the FSharp.FIO package (see above)
-4. Explore the [**FSharp.FIO.Examples**](https://github.com/fs-fio/FIO/tree/main/examples/FSharp.FIO.Examples) project or create your own F# file
+3. Install the FIO package (see above)
+4. Explore the [**FIO.Examples**](https://github.com/fs-fio/FIO/tree/main/examples/FIO.Examples) project or create your own F# file
 
 ## Core Concepts
 
@@ -357,15 +366,15 @@ let pipeline =
 | `<\|>` | Sequential | First success | Error recovery with fallback |
 | `<!>` | N/A | Transformed | Map over success value |
 
-For more examples of operator usage, see [**FSharp.FIO.Examples**](https://github.com/fs-fio/FIO/tree/main/examples/FSharp.FIO.Examples).
+For more examples of operator usage, see [**FIO.Examples**](https://github.com/fs-fio/FIO/tree/main/examples/FIO.Examples).
 
 
 
 ## Usage
 
 You can use **FIO** in two ways:  
-- Directly by creating and running effects manually (examples in [**FSharp.FIO.Examples**](https://github.com/fs-fio/FIO/tree/main/examples/FSharp.FIO.Examples))
-- Via `FIOApp`, which simplifies setup and runtime management (examples in [**FSharp.FIO.Examples.App**](https://github.com/fs-fio/FIO/tree/main/examples/FSharp.FIO.Examples.App))
+- Directly by creating and running effects manually (examples in [**FIO.Examples**](https://github.com/fs-fio/FIO/tree/main/examples/FIO.Examples))
+- Via `FIOApp`, which simplifies setup and runtime management (examples in [**FIO.Examples.App**](https://github.com/fs-fio/FIO/tree/main/examples/FIO.Examples.App))
 
 #### Direct Usage
 
@@ -374,9 +383,9 @@ Create a new F# file and open the DSL, IO and Concurrent runtime modules:
 ```fsharp
 module DirectUsage
 
-open FSharp.FIO.DSL
-open FSharp.FIO.Console
-open FSharp.FIO.Runtime.Default
+open FIO.DSL
+open FIO.Console
+open FIO.Runtime.Default
 
 [<EntryPoint>]
 let main _ =
@@ -516,7 +525,7 @@ type MyApp() =
 - **Runtime**: `runtime`, `configureThreadPool()`
 - **Exit codes**: `exitCodeSuccess`, `exitCodeError`, `exitCodeFatalError`
 
-For more examples, see [**FSharp.FIO.Examples.App**](https://github.com/fs-fio/FIO/tree/main/examples/FSharp.FIO.Examples.App).
+For more examples, see [**FIO.Examples.App**](https://github.com/fs-fio/FIO/tree/main/examples/FIO.Examples.App).
 
 #### Alternative: DSL-Only Style
 
@@ -525,9 +534,9 @@ Prefer DSL chaining? Use bind (>>=) directly:
 ```fsharp
 module DSLOnly
 
-open FSharp.FIO.DSL
-open FSharp.FIO.Console
-open FSharp.FIO.Runtime.Default
+open FIO.DSL
+open FIO.Console
+open FIO.Runtime.Default
 
 let askForName =
     Console.printLine "Hello! What is your name?" >>= fun _ ->
@@ -550,7 +559,7 @@ The core package includes four library modules for common effectful operations. 
 Provides functional console I/O operations including input/output, colors, cursor control, and more.
 
 ```fsharp
-open FSharp.FIO.Console
+open FIO.Console
 
 let effect = fio {
     do! Console.printLine "Enter your name:"
@@ -579,7 +588,7 @@ let effect = fio {
 Provides time and date operations including timestamps and performance measurement.
 
 ```fsharp
-open FSharp.FIO.Clock
+open FIO.Clock
 
 let effect = fio {
     let! now = Clock.Now()
@@ -605,7 +614,7 @@ let effect = fio {
 Provides environment variable access and system information.
 
 ```fsharp
-open FSharp.FIO.Environment
+open FIO.Environment
 
 let effect = fio {
     // Environment variables with defaults
@@ -634,7 +643,7 @@ let effect = fio {
 Provides random number generation with thread-safe operations.
 
 ```fsharp
-open FSharp.FIO.Random
+open FIO.Random
 
 let effect = fio {
     // Integers
@@ -671,7 +680,7 @@ The core package includes three concurrency primitives for coordination between 
 One-shot synchronization primitive that can be completed once with success or failure.
 
 ```fsharp
-open FSharp.FIO.Promise
+open FIO.Promise
 
 let effect = fio {
     let! promise = Promise.Make<int, exn>()
@@ -695,7 +704,7 @@ let effect = fio {
 Atomic reference with lock-free CAS operations for shared mutable state.
 
 ```fsharp
-open FSharp.FIO.Ref
+open FIO.Ref
 
 let effect = fio {
     let! counter = Ref.Make 0
@@ -717,7 +726,7 @@ let effect = fio {
 Counting semaphore for limiting concurrent access to resources.
 
 ```fsharp
-open FSharp.FIO.Semaphore
+open FIO.Semaphore
 
 let effect = fio {
     let! sem = Semaphore.Make 3  // Max 3 concurrent
@@ -745,9 +754,9 @@ FIO provides optional packages for common scenarios:
 Build HTTP servers with composable routes and middleware:
 
 ```fsharp
-open FSharp.FIO.Http
-open FSharp.FIO.Http.RoutesOperators
-open FSharp.FIO.Http.MiddlewareOperators
+open FIO.Http
+open FIO.Http.RoutesOperators
+open FIO.Http.MiddlewareOperators
 
 // Define handlers
 let helloHandler : HttpHandler<exn> =
@@ -766,14 +775,14 @@ let config = ServerConfig.defaultConfig  // localhost:8080
 Server.runServer config routes
 ```
 
-For complete examples, see [**FSharp.FIO.Examples.Http**](https://github.com/fs-fio/FIO/tree/main/examples/FSharp.FIO.Examples.Http).
+For complete examples, see [**FIO.Examples.Http**](https://github.com/fs-fio/FIO/tree/main/examples/FIO.Examples.Http).
 
 ### PostgreSQL
 
 Connect to PostgreSQL databases with connection pooling:
 
 ```fsharp
-open FSharp.FIO.PostgreSQL
+open FIO.PostgreSQL
 
 // Configure connection pool
 let config = {
@@ -794,15 +803,34 @@ let getUserById id = fio {
 }
 ```
 
-For complete examples, see [**FSharp.FIO.Examples.PostgreSQL**](https://github.com/fs-fio/FIO/tree/main/examples/FSharp.FIO.Examples.PostgreSQL).
+For complete examples, see [**FIO.Examples.PostgreSQL**](https://github.com/fs-fio/FIO/tree/main/examples/FIO.Examples.PostgreSQL).
 
 ### TCP Sockets
 
-TCP socket client and server functionality. See [**FSharp.FIO.Sockets**](https://www.nuget.org/packages/FSharp.FIO.Sockets) for documentation.
+TCP socket client and server functionality. See [**FIO.Sockets**](https://www.nuget.org/packages/FIO.Sockets) for documentation.
 
 ### WebSockets
 
-WebSocket client and server functionality. See [**FSharp.FIO.WebSockets**](https://www.nuget.org/packages/FSharp.FIO.WebSockets) for documentation.
+WebSocket client and server functionality. See [**FIO.WebSockets**](https://www.nuget.org/packages/FIO.WebSockets) for documentation.
+
+### Redis
+
+Connect to Redis with full data structure support:
+
+```fsharp
+open FIO.DSL
+open FIO.Redis
+
+let program = fio {
+    let! conn = Redis.connectString "localhost:6379"
+    do! Str.set "mykey" "hello" conn
+    let! value = Str.get "mykey" conn
+    do! Redis.close conn
+    return value
+}
+```
+
+For complete examples, see [**FIO.Examples.Redis**](https://github.com/fs-fio/fio/tree/main/examples/FIO.Examples.Redis).
 
 
 
@@ -823,7 +851,7 @@ This repository includes five benchmarks, each designed to evaluate a specific a
 The benchmarks accept a variety of command-line options:
 
 ```
-USAGE: FSharp.FIO.Benchmarks [--help]
+USAGE: FIO.Benchmarks [--help]
                              [--direct-runtime]
                              [--cooperative-runtime <ewc> <ews> <bwc>]
                              [--concurrent-runtime <ewc> <ews> <bwc>]
@@ -913,7 +941,7 @@ The lineplots show for each benchmark, how each runtime scales when the amount o
 <!-- ROADMAP -->
 ## Roadmap
 
-See the [**open issues**](https://github.com/fio-fsharp/fio/issues) for a full list of proposed features (and known issues).
+See the [**open issues**](https://github.com/fs-fio/fio/issues) for a full list of proposed features (and known issues).
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
 
@@ -937,8 +965,8 @@ We welcome contributions! To contribute:
 
 ### Top contributors
 
-<a href="https://github.com/fio-fsharp/fio/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=fio-fsharp/fio" alt="Contributors Image" />
+<a href="https://github.com/fs-fio/fio/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=fs-fio/fio" alt="Contributors Image" />
 </a>
 
 <p align="right">(<a href="#readme-top">back to top</a>)</p>
@@ -973,21 +1001,21 @@ Alceste Scalas ([**people.compute.dtu.dk**](https://people.compute.dtu.dk/alcsc/
 
 
 <!-- MARKDOWN LINKS & IMAGES -->
-[contributors-shield]: https://img.shields.io/github/contributors/fio-fsharp/fio.svg?style=for-the-badge
-[contributors-url]: https://github.com/fio-fsharp/fio/graphs/contributors
-[forks-shield]: https://img.shields.io/github/forks/fio-fsharp/fio.svg?style=for-the-badge
-[forks-url]: https://github.com/fio-fsharp/fio/network/members
-[stars-shield]: https://img.shields.io/github/stars/fio-fsharp/fio.svg?style=for-the-badge
-[stars-url]: https://github.com/fio-fsharp/fio/stargazers
-[issues-shield]: https://img.shields.io/github/issues/fio-fsharp/fio.svg?style=for-the-badge
-[issues-url]: https://github.com/fio-fsharp/fio/issues
-[license-shield]: https://img.shields.io/github/license/fio-fsharp/fio.svg?style=for-the-badge
-[license-url]: https://github.com/fio-fsharp/fio/blob/main/LICENSE.md
+[contributors-shield]: https://img.shields.io/github/contributors/fs-fio/fio.svg?style=for-the-badge
+[contributors-url]: https://github.com/fs-fio/fio/graphs/contributors
+[forks-shield]: https://img.shields.io/github/forks/fs-fio/fio.svg?style=for-the-badge
+[forks-url]: https://github.com/fs-fio/fio/network/members
+[stars-shield]: https://img.shields.io/github/stars/fs-fio/fio.svg?style=for-the-badge
+[stars-url]: https://github.com/fs-fio/fio/stargazers
+[issues-shield]: https://img.shields.io/github/issues/fs-fiop/fio.svg?style=for-the-badge
+[issues-url]: https://github.com/fs-fio/fio/issues
+[license-shield]: https://img.shields.io/github/license/fs-fio/fio.svg?style=for-the-badge
+[license-url]: https://github.com/fs-fio/fio/blob/main/LICENSE.md
 [linkedin-shield]: https://img.shields.io/badge/-LinkedIn-black.svg?style=for-the-badge&logo=linkedin&colorB=555
 [linkedin-url]: https://linkedin.com/in/itsdanieldk
 [product-screenshot]: images/screenshot.png
-[nuget-shield]: https://img.shields.io/nuget/v/FSharp.FIO.svg?style=for-the-badge
-[nuget-url]: https://www.nuget.org/packages/FSharp.FIO/0.0.40-alpha
+[nuget-shield]: https://img.shields.io/nuget/v/FIO.svg?style=for-the-badge
+[nuget-url]: https://www.nuget.org/packages/FIO/0.0.40-alpha
 [FSharp]: https://img.shields.io/badge/F%23-378BBA?style=for-the-badge&logo=.NET&logoColor=white
 [FSharp-url]: https://fsharp.org/
 [.NET]: https://img.shields.io/badge/.NET-5C2D91?style=for-the-badge&logo=.NET&logoColor=white

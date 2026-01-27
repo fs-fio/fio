@@ -28,21 +28,21 @@ jobs:
             ${{ runner.os }}-nuget-
 
       - name: Restore dependencies
-        run: dotnet restore ./FSharp.FIO.slnx
+        run: dotnet restore ./FIO.slnx
 
       - name: Build Release
-        run: dotnet build -c Release --no-restore ./FSharp.FIO.slnx
+        run: dotnet build -c Release --no-restore ./FIO.slnx
 
       - name: Run tests
-        run: dotnet test -c Release --no-build --verbosity normal ./FSharp.FIO.slnx
+        run: dotnet test -c Release --no-build --verbosity normal ./FIO.slnx
 
       - name: Pack NuGet packages
         run: |
-          dotnet pack src/FSharp.FIO/FSharp.FIO.fsproj -c Release -o ./nupkgs
-          dotnet pack src/FSharp.FIO.Sockets/FSharp.FIO.Sockets.fsproj -c Release -o ./nupkgs
-          dotnet pack src/FSharp.FIO.WebSockets/FSharp.FIO.WebSockets.fsproj -c Release -o ./nupkgs
-          dotnet pack src/FSharp.FIO.Http/FSharp.FIO.Http.fsproj -c Release -o ./nupkgs
-          dotnet pack src/FSharp.FIO.PostgreSQL/FSharp.FIO.PostgreSQL.fsproj -c Release -o ./nupkgs
+          dotnet pack src/FIO/FIO.fsproj -c Release -o ./nupkgs
+          dotnet pack src/FIO.Sockets/FIO.Sockets.fsproj -c Release -o ./nupkgs
+          dotnet pack src/FIO.WebSockets/FIO.WebSockets.fsproj -c Release -o ./nupkgs
+          dotnet pack src/FIO.Http/FIO.Http.fsproj -c Release -o ./nupkgs
+          dotnet pack src/FIO.PostgreSQL/FIO.PostgreSQL.fsproj -c Release -o ./nupkgs
 
       - name: Upload packages as artifacts
         uses: actions/upload-artifact@v4

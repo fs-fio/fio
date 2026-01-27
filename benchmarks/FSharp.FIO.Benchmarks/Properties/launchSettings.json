@@ -1,8 +1,0 @@
-{
-  "profiles": {
-    "FSharp.FIO.Benchmarks": {
-      "commandName": "Project",
-      "commandLineArgs": "--concurrent-runtime 39 200 1 --runs 30 --pingpong 150000 --threadring 10000 10 --big 250 10 --bang 10000 10 --fork 20000"
-    }
-  }
-}

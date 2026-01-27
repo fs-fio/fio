@@ -450,10 +450,10 @@ Scripts/
 .ionide
 .config
 
-### FSharp.FIO ###
-/benchmarks/FSharp.FIO.Benchmarks/results
-/benchmarks/FSharp.FIO.Benchmarks.Plots/boxplot_data
-/benchmarks/FSharp.FIO.Benchmarks.Plots/lineplot_data
+### FIO Benchmarks ###
+/benchmarks/FIO.Benchmarks/results
+/benchmarks/FIO.Benchmarks.Plots/boxplot_data
+/benchmarks/FIO.Benchmarks.Plots/lineplot_data
 
 ### Cursor ###
 .cursor/rules/cursor-rule.mdc
