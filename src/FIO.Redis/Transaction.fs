@@ -88,7 +88,7 @@ module Tx =
     /// <param name="expiry">The expiration time.</param>
     /// <param name="builder">The transaction builder.</param>
     let queueStringSetEx (key: string) (value: string) (expiry: TimeSpan) (builder: TransactionBuilder) : Task<bool> =
-        builder.Transaction.StringSetAsync(RedisKey.op_Implicit key, RedisValue.ofString value, Nullable expiry)
+        builder.Transaction.StringSetAsync(RedisKey.op_Implicit key, RedisValue.ofString value, Expiration expiry)
 
     /// <summary>
     /// Queues a string get command.

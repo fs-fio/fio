@@ -21,7 +21,7 @@ let helloWorld1 () =
         match result with
         | Succeeded result -> printfn $"Success: %s{result}"
         | Failed error -> printfn $"Error: %A{error}"
-        | Interrupted exn -> printfn $"Interrupted: %s{exn.Message}"
+        | Interrupted ex -> printfn $"Interrupted: %s{ex.Message}"
     } |> _.GetAwaiter().GetResult()
 
 /// <summary>
@@ -36,7 +36,7 @@ let helloWorld2 () =
         match result with
         | Succeeded result -> printfn $"Success: %s{result}"
         | Failed error -> printfn $"Error: %A{error}"
-        | Interrupted exn -> printfn $"Interrupted: %s{exn.Message}"
+        | Interrupted ex -> printfn $"Interrupted: %s{ex.Message}"
     } |> _.GetAwaiter().GetResult()
 
 /// <summary>
@@ -51,7 +51,7 @@ let helloWorld3 () =
         match result with
         | Succeeded result -> printfn $"Success: %A{result}"
         | Failed error -> printfn $"Error: %s{error}"
-        | Interrupted exn -> printfn $"Interrupted: %s{exn.Message}"
+        | Interrupted ex -> printfn $"Interrupted: %s{ex.Message}"
     } |> _.GetAwaiter().GetResult()
 
 /// <summary>

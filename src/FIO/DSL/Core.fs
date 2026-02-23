@@ -62,7 +62,7 @@ and FiberResult<'R, 'E> =
     /// <summary>
     /// The fiber was interrupted before completion.
     /// </summary>
-    | Interrupted of exn: FiberInterruptedException
+    | Interrupted of ex: FiberInterruptedException
 
 /// <summary>
 /// Thread-safe unbounded channel for message passing.
@@ -317,7 +317,7 @@ and [<Sealed>] Fiber<'R, 'E> internal () =
             | Ok res -> return Succeeded(res :?> 'R)
             | Error err ->
                 match err with
-                | :? FiberInterruptedException as exn -> return Interrupted exn
+                | :? FiberInterruptedException as ex -> return Interrupted ex
                 | _ -> return Failed(err :?> 'E)
         }
 
@@ -346,7 +346,7 @@ and [<Sealed>] Fiber<'R, 'E> internal () =
             |> Async.RunSynchronously with
         | Succeeded res -> res
         | Failed err -> raise (InvalidOperationException $"Fiber failed with error: {err}")
-        | Interrupted exn -> raise (InvalidOperationException $"Fiber was interrupted: {exn.Message}")
+        | Interrupted ex -> raise (InvalidOperationException $"Fiber was interrupted: {ex.Message}")
 
     /// <summary>
     /// Synchronously blocks and returns the fiber's error value, or throws if the fiber succeeded.
@@ -363,7 +363,7 @@ and [<Sealed>] Fiber<'R, 'E> internal () =
             |> Async.RunSynchronously with
         | Succeeded res -> raise (InvalidOperationException $"Fiber succeeded with result: {res}")
         | Failed err -> err
-        | Interrupted exn -> raise (InvalidOperationException $"Fiber was interrupted: {exn.Message}")
+        | Interrupted ex -> raise (InvalidOperationException $"Fiber was interrupted: {ex.Message}")
 
     /// <summary>
     /// Synchronously blocks and prints the fiber's result to the console.

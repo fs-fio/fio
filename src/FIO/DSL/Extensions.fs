@@ -109,8 +109,8 @@ type FIO<'R, 'E> with
         let message = defaultArg message "Debug"
         this.Tap(fun res ->
             FIO.attemptExn(fun () -> printfn "%s: %A" message res)
-                .CatchAll(fun exn ->
-                    FIO.attemptExn(fun () -> eprintfn "Debug print failed. Message: %s, Exception: %s" message exn.Message)
+                .CatchAll(fun ex ->
+                    FIO.attemptExn(fun () -> eprintfn "Debug print failed. Message: %s, Exception: %s" message ex.Message)
                         .CatchAll(fun _ -> FIO.unit())))
 
     /// <summary>
@@ -123,8 +123,8 @@ type FIO<'R, 'E> with
         let message = defaultArg message "Debug Error"
         this.TapError(fun err ->
             FIO.attempt((fun () -> printfn "%s: %A" message err), id)
-                .CatchAll(fun exn ->
-                    FIO.attemptExn(fun () -> eprintfn "Debug Error print failed. Message: %s, Exception: %s" message exn.Message)
+                .CatchAll(fun ex ->
+                    FIO.attemptExn(fun () -> eprintfn "Debug Error print failed. Message: %s, Exception: %s" message ex.Message)
                         .CatchAll(fun _ -> FIO.unit())))
 
     /// <summary>

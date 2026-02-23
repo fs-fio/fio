@@ -61,7 +61,7 @@ let private runBenchmark (runtime: FIORuntime, totalRuns, config: BenchmarkConfi
                     match benchRes with
                     | Succeeded time -> time
                     | Failed err -> invalidOp $"BenchmarkRunner: Failed executing benchmark with error: %A{err}"
-                    | Interrupted exn -> invalidOp $"BenchmarkRunner: Benchmark interrupted: %s{exn.Message}"
+                    | Interrupted ex -> invalidOp $"BenchmarkRunner: Benchmark interrupted: %s{ex.Message}"
 
                 printfn $"[FIO.Benchmarks]: Execution completed: Execution Time: %i{executionTime}ms, Memory Usage: %i{memoryUsage}MB, Run (%i{currentRun}/%i{totalRuns})"
                 runs.Add currentRun

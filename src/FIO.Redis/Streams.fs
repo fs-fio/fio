@@ -121,7 +121,7 @@ module Stream =
             |> List.map (fun (n, v) -> NameValueEntry(RedisValue.ofString n, RedisValue.ofString v))
             |> List.toArray
         FIO.awaitGenericTask(
-            db.StreamAddAsync(RedisKey.op_Implicit key, entries, Nullable(), Nullable maxLen),
+            db.StreamAddAsync(RedisKey.op_Implicit key, entries, Nullable(), Nullable (int64 maxLen)),
             fun e -> StreamError(key, e))
             .Map(fun id -> id.ToString())
 

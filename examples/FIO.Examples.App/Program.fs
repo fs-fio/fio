@@ -367,11 +367,11 @@ type AsyncErrorHandlingApp() =
 
     let databaseResult : FIO<string, Error> =
         FIO.awaitAsyncExn(databaseReadTask)
-            .CatchAll(fun exn -> FIO.fail(GeneralError exn.Message))
+            .CatchAll(fun ex -> FIO.fail(GeneralError ex.Message))
 
     let webserviceResult : FIO<int, Error> =
         FIO.awaitAsyncExn(webserviceAwaitTask)
-            .CatchAll(fun exn -> FIO.fail(GeneralError exn.Message))
+            .CatchAll(fun ex -> FIO.fail(GeneralError ex.Message))
 
     override _.effect =
         fio {

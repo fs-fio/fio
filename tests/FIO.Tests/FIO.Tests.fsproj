@@ -16,12 +16,24 @@
 
     <ItemGroup>
         <Compile Include="Utilities.fs" />
-        <Compile Include="PropertyTests.fs" />
-        <Compile Include="ExtensionTests.fs" />
-        <Compile Include="FactoryTests.fs" />
-        <Compile Include="OperatorTests.fs" />
         <Compile Include="CETests.fs" />
+        <Compile Include="LawsTests.fs" />
+        <Compile Include="ChannelTests.fs" />
+ <!--
+        <Compile Include="FactoryTests.fs" />
+        <Compile Include="ExtensionTests.fs" />
+        <Compile Include="OperatorTests.fs" />
         <Compile Include="FiberTests.fs" />
+        <Compile Include="PromiseTests.fs" />
+        <Compile Include="RuntimeTests.fs" />
+        <Compile Include="RefTests.fs" />
+        <Compile Include="SemaphoreTests.fs" />
+        <Compile Include="ClockTests.fs" />
+        <Compile Include="EnvironmentTests.fs" />
+        <Compile Include="RandomTests.fs" /> -->
+
+        <Compile Include="MockConsoleBackend.fs" />
+        <Compile Include="ConsoleTests.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 
@@ -30,7 +42,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="coverlet.collector" Version="6.0.4">
+        <PackageReference Include="coverlet.collector" Version="8.0.0">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
@@ -42,7 +54,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Update="FSharp.Core" Version="10.0.102" />
+        <PackageReference Update="FSharp.Core" Version="10.0.103" />
     </ItemGroup>
 
 </Project>

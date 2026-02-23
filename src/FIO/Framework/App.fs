@@ -151,20 +151,20 @@ type FIOApp<'R, 'E> () as this =
         SysConsole.ResetColor()
 
     /// <summary>Handler invoked when the application is interrupted.</summary>
-    /// <param name="exn">The interruption exception.</param>
+    /// <param name="ex">The interruption exception.</param>
     abstract member onInterrupted: exn -> unit
-    default this.onInterrupted exn =
+    default this.onInterrupted ex =
         if this.verbose then
             SysConsole.ForegroundColor <- ConsoleColor.DarkYellow
-            SysConsole.WriteLine $"interrupted: %s{exn.Message}"
+            SysConsole.WriteLine $"interrupted: %s{ex.Message}"
             SysConsole.ResetColor()
 
     /// <summary>Handler invoked when a fatal error occurs.</summary>
-    /// <param name="exn">The fatal exception.</param>
+    /// <param name="ex">The fatal exception.</param>
     abstract member onFatalError: exn -> unit
-    default _.onFatalError exn =
+    default _.onFatalError ex =
         SysConsole.ForegroundColor <- ConsoleColor.Red
-        SysConsole.WriteLine $"fatal: %s{exn.Message}"
+        SysConsole.WriteLine $"fatal: %s{ex.Message}"
         SysConsole.ResetColor()
 
     /// <summary>Handler invoked when shutdown is requested.</summary>
@@ -204,20 +204,20 @@ type FIOApp<'R, 'E> () as this =
     /// Default: Always prints exception (ignores verbose flag) - exceptions indicate failure.
     /// Override this to integrate with logging frameworks or custom lifecycle management.
     /// </summary>
-    /// <param name="exn">The exception.</param>
+    /// <param name="ex">The exception.</param>
     abstract member onShutdownHookException: exn -> unit
-    default _.onShutdownHookException exn =
+    default _.onShutdownHookException ex =
         SysConsole.ForegroundColor <- ConsoleColor.Red
-        SysConsole.WriteLine $"cleanup failed: %s{exn.Message}"
+        SysConsole.WriteLine $"cleanup failed: %s{ex.Message}"
         SysConsole.ResetColor()
 
     /// <summary>Handler invoked when shutdown hook is interrupted.</summary>
-    /// <param name="exn">The interruption exception.</param>
+    /// <param name="ex">The interruption exception.</param>
     abstract member onShutdownHookInterrupted: FiberInterruptedException -> unit
-    default this.onShutdownHookInterrupted exn =
+    default this.onShutdownHookInterrupted ex =
         if this.verbose then
             SysConsole.ForegroundColor <- ConsoleColor.DarkYellow
-            SysConsole.WriteLine $"cleanup interrupted: %s{exn.Message}"
+            SysConsole.WriteLine $"cleanup interrupted: %s{ex.Message}"
             SysConsole.ResetColor()
 
     /// <summary>Maps a successful result to an exit code.</summary>
@@ -233,13 +233,13 @@ type FIOApp<'R, 'E> () as this =
     default _.exitCodeError _ = 1
 
     /// <summary>Maps an exception to an exit code.</summary>
-    /// <param name="exn">The exception.</param>
+    /// <param name="ex">The exception.</param>
     /// <returns>The exit code.</returns>
     abstract member exitCodeFatalError: exn -> int
     default _.exitCodeFatalError _ = 2
 
     /// <summary>Maps an interruption to an exit code.</summary>
-    /// <param name="exn">The interruption exception.</param>
+    /// <param name="ex">The interruption exception.</param>
     /// <returns>The exit code.</returns>
     abstract member exitCodeInterrupted: FiberInterruptedException -> int
     default _.exitCodeInterrupted _ = 130
@@ -267,12 +267,12 @@ type FIOApp<'R, 'E> () as this =
                 match shutdownResult with
                 | Succeeded _ -> this.onShutdownHookSuccess()
                 | Failed err -> this.onShutdownHookError err
-                | Interrupted exn -> this.onShutdownHookInterrupted exn
+                | Interrupted ex -> this.onShutdownHookInterrupted ex
             with
             | :? TimeoutException ->
                 this.onShutdownHookTimeout this.shutdownHookTimeout
-            | exn ->
-                this.onShutdownHookException exn
+            | ex ->
+                this.onShutdownHookException ex
         }
 
     /// <summary>Executes the effect with lifecycle management and shutdown hooks.</summary>
@@ -310,16 +310,16 @@ type FIOApp<'R, 'E> () as this =
                             | Failed err ->
                                 this.onError err
                                 return this.exitCodeError err
-                            | Interrupted exn ->
-                                this.onInterrupted exn
-                                return this.exitCodeInterrupted exn
+                            | Interrupted ex ->
+                                this.onInterrupted ex
+                                return this.exitCodeInterrupted ex
                         }
 
                     do! this.RunShutdownHook runtime
                     return exitCode
-                with exn ->
-                    this.onFatalError exn
-                    return this.exitCodeFatalError exn
+                with ex ->
+                    this.onFatalError ex
+                    return this.exitCodeFatalError ex
             finally
                 if handlerRegistered then
                     SysConsole.CancelKeyPress.RemoveHandler shutdownHandler

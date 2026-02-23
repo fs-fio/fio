@@ -49,11 +49,11 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="StackExchange.Redis" Version="2.8.41" />
+        <PackageReference Include="StackExchange.Redis" Version="2.11.3" />
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Update="FSharp.Core" Version="10.0.102" />
+        <PackageReference Update="FSharp.Core" Version="10.0.103" />
     </ItemGroup>
 
     <ItemGroup>

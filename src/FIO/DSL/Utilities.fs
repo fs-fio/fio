@@ -17,7 +17,7 @@ module internal Casting =
     /// </summary>
     /// <param name="onError">The error mapping function.</param>
     let inline upcastOnError (onError: exn -> 'E) : (exn -> obj) =
-        fun (exn: exn) -> onError exn :> obj
+        fun (ex: exn) -> onError ex :> obj
 
     /// <summary>
     /// Upcasts a function's return type to obj.

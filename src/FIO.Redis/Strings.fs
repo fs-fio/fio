@@ -73,7 +73,7 @@ module Str =
     let setEx (key: string) (value: string) (expiry: TimeSpan) (conn: RedisConnection) : FIO<unit, RedisError> =
         let db = Redis.getDatabase conn
         FIO.awaitGenericTask(
-            db.StringSetAsync(RedisKey.op_Implicit key, RedisValue.ofString value, Nullable expiry),
+            db.StringSetAsync(RedisKey.op_Implicit key, RedisValue.ofString value, Expiration expiry),
             fun e -> CommandFailed("SETEX", e))
             .Map(fun _ -> ())
 

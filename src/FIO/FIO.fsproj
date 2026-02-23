@@ -17,6 +17,10 @@
         <Version>0.0.40-alpha</Version>
     </PropertyGroup>
 
+    <ItemGroup>
+        <InternalsVisibleTo Include="FIO.Tests" />
+    </ItemGroup>
+
     <PropertyGroup>
         <LangVersion>preview</LangVersion>
         <ParallelCompilation>true</ParallelCompilation>
@@ -32,7 +36,8 @@
         <Compile Include="DSL\Operators.fs" />
         <Compile Include="DSL\CE.fs" />
         <Compile Include="Lib\Clock.fs" />
-        <Compile Include="Lib\Console.fs" />
+        <Compile Include="Lib\Console\ConsoleBackend.fs" />
+        <Compile Include="Lib\Console\Console.fs" />
         <Compile Include="Lib\Environment.fs" />
         <Compile Include="Lib\Promise.fs" />
         <Compile Include="Lib\Random.fs" />
@@ -76,7 +81,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Update="FSharp.Core" Version="10.0.102" />
+        <PackageReference Update="FSharp.Core" Version="10.0.103" />
     </ItemGroup>
 
 </Project>

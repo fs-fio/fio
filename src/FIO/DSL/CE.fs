@@ -112,7 +112,7 @@ type FIOBuilder internal () =
     /// <param name="eff">The FIO effect to try.</param>
     /// <param name="finalizer">The finalizer effect to run after the main effect.</param>
     member inline _.TryFinally<'R, 'E> (eff: FIO<'R, 'E>, finalizer: unit -> FIO<unit, 'E>) : FIO<'R, 'E> =
-        eff.Ensuring <| finalizer ()
+        eff.Ensuring (FIO.suspend finalizer)
 
     /// <summary>
     /// Enables <c>for...do</c> expressions in computation expressions.
@@ -150,7 +150,7 @@ type FIOBuilder internal () =
                 body.FlatMap(fun _ -> loop ())
             else
                 FIO.succeed ()
-        loop ()
+        FIO.suspend loop
 
     /// <summary>
     /// Enables <c>use</c> bindings in computation expressions.
@@ -158,7 +158,11 @@ type FIOBuilder internal () =
     /// <param name="resource">The disposable resource.</param>
     /// <param name="body">The function to run with the resource.</param>
     member inline _.Using<'T, 'R, 'E when 'T :> IDisposable> (resource: 'T, body: 'T -> FIO<'R, 'E>) : FIO<'R, 'E> =
-        let dispose = FIO.suspend(fun () -> resource.Dispose(); FIO.unit())
+        let dispose =
+            FIO.suspend(fun () ->
+                if not (obj.ReferenceEquals(resource, null)) then
+                    resource.Dispose()
+                FIO.unit())
         (body resource).Ensuring dispose
 
     /// <summary>

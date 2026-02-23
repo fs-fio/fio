@@ -11,16 +11,20 @@ open System.IO
 open System.Collections
 
 /// <summary>Platform-specific newline string (\n on Unix, \r\n on Windows).</summary>
-let NewLine = Environment.NewLine
+let NewLine =
+    Environment.NewLine
 
 /// <summary>Number of processors available to the current process.</summary>
-let ProcessorCount = Environment.ProcessorCount
+let ProcessorCount =
+    Environment.ProcessorCount
 
 /// <summary>True if the current process is 64-bit.</summary>
-let Is64BitProcess = Environment.Is64BitProcess
+let Is64BitProcess =
+    Environment.Is64BitProcess
 
 /// <summary>True if the operating system is 64-bit.</summary>
-let Is64BitOperatingSystem = Environment.Is64BitOperatingSystem
+let Is64BitOperatingSystem =
+    Environment.Is64BitOperatingSystem
 
 /// <summary>Gets an environment variable, returning None if not set or empty.</summary>
 /// <param name="name">Environment variable name.</param>

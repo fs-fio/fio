@@ -18,7 +18,7 @@ module FsCheckProperties =
                 Gen.constant (new ConcurrentRuntime() :> FIORuntime)
             ] |> Arb.fromGen
 
-    let fsCheckPropertyTestsConfig =
+    let fsCheckConfig =
         { FsCheckConfig.defaultConfig with
             maxTest = 100
             arbitrary = [ typeof<Generators> ] }
