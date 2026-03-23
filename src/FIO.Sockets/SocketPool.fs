@@ -72,6 +72,10 @@ module SocketPool =
             let lifetime = TimeSpan.FromSeconds(float config.ConnectionLifetime)
             DateTime.UtcNow - createdAt > lifetime
 
+    let private decrementTotalCreated (pool: SocketPool) =
+        if pool.TotalCreated > 0 then
+            pool.TotalCreated <- pool.TotalCreated - 1
+
     /// <summary>
     /// Creates a new socket connection pool.
     /// </summary>
@@ -132,7 +136,7 @@ module SocketPool =
                     if isExpired (createdAt, pool.Config) then
                         // Expired socket: remove it and try to create a new one
                         pool.Available <- rest
-                        pool.TotalCreated <- pool.TotalCreated - 1
+                        decrementTotalCreated pool
                         if pool.TotalCreated < pool.Config.MaxPoolSize then
                             pool.TotalCreated <- pool.TotalCreated + 1
                             CreateNew
@@ -157,12 +161,20 @@ module SocketPool =
                     return socket
                 else
                     do! socket.Close().CatchAll(logAndSuppress "invalid socket close")
-                    lock pool.Lock (fun () ->
-                        pool.TotalCreated <- pool.TotalCreated - 1)
-                    return! SocketClient.connect pool.Config.SocketConfig
+                    return!
+                        (SocketClient.connect pool.Config.SocketConfig)
+                            .CatchAll(fun err ->
+                                lock pool.Lock (fun () ->
+                                    decrementTotalCreated pool)
+                                FIO.fail err)
 
             | CreateNew ->
-                return! SocketClient.connect pool.Config.SocketConfig
+                return!
+                    (SocketClient.connect pool.Config.SocketConfig)
+                        .CatchAll(fun err ->
+                            lock pool.Lock (fun () ->
+                                decrementTotalCreated pool)
+                            FIO.fail err)
 
             | WaitForSlot ->
                 return! FIO.fail (PoolExhausted pool.Config.MaxPoolSize)
@@ -182,7 +194,7 @@ module SocketPool =
                     if socket.IsConnected() then
                         pool.Available <- (socket, DateTime.UtcNow) :: pool.Available
                     else
-                        pool.TotalCreated <- pool.TotalCreated - 1)
+                        decrementTotalCreated pool)
             return ()
         }).CatchAll(logAndSuppress "release to pool")
 
@@ -196,19 +208,23 @@ module SocketPool =
         fio {
             let! socket = acquire pool
 
-            let actionWithCleanup = fio {
-                let! result = action socket
-                do! releaseToPool (socket, pool)
+            let! outcome =
+                (action socket)
+                    .FlatMap(fun result ->
+                        (releaseToPool (socket, pool)).Map(fun _ -> Ok result))
+                    .CatchAll(fun err ->
+                        fio {
+                            do! socket.Close().CatchAll(logAndSuppress "socket close on error")
+                            lock pool.Lock (fun () ->
+                                decrementTotalCreated pool)
+                            return Error err
+                        })
+
+            match outcome with
+            | Ok result ->
                 return result
-            }
-
-            let errorHandler = fio {
-                do! socket.Close().CatchAll(logAndSuppress "socket close on error")
-                lock pool.Lock (fun () ->
-                    pool.TotalCreated <- pool.TotalCreated - 1)
-            }
-
-            return! actionWithCleanup.Ensuring errorHandler
+            | Error err ->
+                return! FIO.fail err
         }
 
     /// <summary>

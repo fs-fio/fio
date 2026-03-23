@@ -1,4 +1,4 @@
-﻿/// <summary>
+/// <summary>
 /// Entry point for the FIO benchmarks application.
 /// </summary>
 module private FIO.Benchmarks.Program
@@ -26,6 +26,38 @@ module private ThreadPoolConfig =
 
 do ThreadPoolConfig.configure()
 
+[<Literal>]
+let private SuccessExitCode = 0
+
+[<Literal>]
+let private RuntimeErrorExitCode = 1
+
+[<Literal>]
+let private InvalidArgsExitCode = 2
+
+let private executeBenchmarkSuite benchmarkArgs =
+    (Suite.BenchmarkRunner.run benchmarkArgs).GetAwaiter().GetResult()
+
+let internal runWithArgsUsing execute args =
+    match Args.parse args with
+    | Args.HelpRequested usage ->
+        printfn "%s" usage
+        SuccessExitCode
+    | Args.InvalidArgs(errorText, usage) ->
+        eprintfn "%s" errorText
+        eprintfn "%s" usage
+        InvalidArgsExitCode
+    | Args.Parsed benchmarkArgs ->
+        try
+            execute benchmarkArgs
+            SuccessExitCode
+        with ex ->
+            eprintfn "%s" (ex.ToString())
+            RuntimeErrorExitCode
+
+let internal runWithArgs args =
+    runWithArgsUsing executeBenchmarkSuite args
+
 /// <summary>
 /// Application entry point. Parses arguments and runs the benchmark suite.
 /// </summary>
@@ -33,9 +65,4 @@ do ThreadPoolConfig.configure()
 /// <returns>Exit code (0 for success).</returns>
 [<EntryPoint>]
 let main args =
-    Args.print args
-    let task =
-        Suite.BenchmarkRunner.run
-        <| Args.parse args
-    task.GetAwaiter().GetResult()
-    0
+    runWithArgs args

@@ -205,7 +205,6 @@ let channelConcurrentTests =
             let eff = fio {
                 let chan = Channel<int>()
                 let! receiverFiber = (chan.Receive()).Fork()
-                do! FIO.sleepExn(TimeSpan.FromMilliseconds 10.0)
                 do! chan.Send(msg).Unit()
                 let! received = receiverFiber.Join()
                 return received
@@ -215,25 +214,25 @@ let channelConcurrentTests =
 
             Expect.equal result msg "Concurrent receiver should get sent message"
 
-//         testPropertyWithConfig fsCheckConfig "Multiple concurrent receivers"
-//         <| fun (runtime: FIORuntime) ->
-//             let eff = fio {
-//                 let chan = Channel<int>()
-//                 let! r1 = chan.Receive().Fork()
-//                 let! r2 = chan.Receive().Fork()
-//                 let! r3 = chan.Receive().Fork()
-//                 do! FIO.sleepExn(TimeSpan.FromMilliseconds 10.0)
-//                 do! chan.Send(1).Unit()
-//                 do! chan.Send(2).Unit()
-//                 let! v1 = r1.Join()
-//                 let! v2 = r2.Join()
-//                 let! v3 = r3.Join()
-//                 return [v1; v2; v3] |> List.sort
-//             }
+        testPropertyWithConfig fsCheckConfig "Multiple concurrent receivers"
+        <| fun (runtime: FIORuntime) ->
+            let eff = fio {
+                let chan = Channel<int>()
+                let! r1 = chan.Receive().Fork()
+                let! r2 = chan.Receive().Fork()
+                let! r3 = chan.Receive().Fork()
+                do! chan.Send(1).Unit()
+                do! chan.Send(2).Unit()
+                do! chan.Send(3).Unit()
+                let! v1 = r1.Join()
+                let! v2 = r2.Join()
+                let! v3 = r3.Join()
+                return [v1; v2; v3] |> List.sort
+            }
 
-//             let result = runtime.Run(eff).UnsafeSuccess()
+            let result = runtime.Run(eff).UnsafeSuccess()
 
-//             Expect.equal result [1; 2; 3] "All receivers should get messages"
+            Expect.equal result [1; 2; 3] "All receivers should get messages"
 
         testPropertyWithConfig fsCheckConfig "Multiple concurrent senders"
         <| fun (runtime: FIORuntime) ->
@@ -315,20 +314,20 @@ let channelTypeTests =
             Expect.equal r1 (Some 42) "Should receive Some 42"
             Expect.equal r2 None "Should receive None"
 
-//         testPropertyWithConfig fsCheckConfig "Channel with record type"
-//         <| fun (runtime: FIORuntime) ->
-//             let eff = fio {
-//                 let chan = Channel<{| Name: string; Value: int |}>()
-//                 let msg = {| Name = "test"; Value = 123 |}
-//                 do! chan.Send(msg).Unit()
-//                 let! received = chan.Receive()
-//                 return received
-//             }
+        testPropertyWithConfig fsCheckConfig "Channel with record type"
+        <| fun (runtime: FIORuntime) ->
+            let eff = fio {
+                let chan = Channel<{| Name: string; Value: int |}>()
+                let msg = {| Name = "test"; Value = 123 |}
+                do! chan.Send(msg).Unit()
+                let! received = chan.Receive()
+                return received
+            }
 
-//             let result = runtime.Run(eff).UnsafeSuccess()
+            let result = runtime.Run(eff).UnsafeSuccess()
 
-//             Expect.equal result.Name "test" "Should receive correct Name"
-//             Expect.equal result.Value 123 "Should receive correct Value"
+            Expect.equal result.Name "test" "Should receive correct Name"
+            Expect.equal result.Value 123 "Should receive correct Value"
 
         testPropertyWithConfig fsCheckConfig "Channel with unit type"
         <| fun (runtime: FIORuntime) ->
@@ -385,97 +384,80 @@ let channelInterruptionTests =
             match fiber.UnsafeResult() with
             | Interrupted _ -> ()
             | _ -> failwith "Fiber should be interrupted"
-
-        // testPropertyWithConfig fsCheckConfig "Channel remains usable after receiver interruption"
-        // <| fun (runtime: FIORuntime) ->
-        //     let eff = fio {
-        //         let chan = Channel<int>()
-        //         let! receiverFiber = (chan.Receive()).Fork()
-        //         do! FIO.sleepExn(System.TimeSpan.FromMilliseconds 5.0)
-        //         do! receiverFiber.Interrupt()
-        //         let! _ = receiverFiber.Join().OrElse(FIO.succeed -1)
-        //         do! chan.Send(99).Unit()
-        //         let! received = chan.Receive()
-        //         return received
-        //     }
-
-        //     let result = runtime.Run(eff).UnsafeSuccess()
-
-        //     Expect.equal result 99 "Channel should still work after interruption"
     ]
 
-// [<Tests>]
-// let channelStressTests =
-//     testList "Channel Stress" [
+[<Tests>]
+let channelStressTests =
+    testList "Channel Stress" [
 
-//         testPropertyWithConfig fsCheckConfig "Multiple concurrent senders and receivers"
-//         <| fun (runtime: FIORuntime) ->
-//             let eff = fio {
-//                 let chan = Channel<int>()
-//                 let! s1 = chan.Send(1).Unit().Fork()
-//                 let! s2 = chan.Send(2).Unit().Fork()
-//                 let! s3 = chan.Send(3).Unit().Fork()
-//                 let! s4 = chan.Send(4).Unit().Fork()
-//                 let! s5 = chan.Send(5).Unit().Fork()
-//                 let! r1 = chan.Receive().Fork()
-//                 let! r2 = chan.Receive().Fork()
-//                 let! r3 = chan.Receive().Fork()
-//                 let! r4 = chan.Receive().Fork()
-//                 let! r5 = chan.Receive().Fork()
-//                 do! s1.Join()
-//                 do! s2.Join()
-//                 do! s3.Join()
-//                 do! s4.Join()
-//                 do! s5.Join()
-//                 let! v1 = r1.Join()
-//                 let! v2 = r2.Join()
-//                 let! v3 = r3.Join()
-//                 let! v4 = r4.Join()
-//                 let! v5 = r5.Join()
-//                 return [v1; v2; v3; v4; v5] |> List.sort
-//             }
+        testPropertyWithConfig fsCheckConfig "Multiple concurrent senders and receivers"
+        <| fun (runtime: FIORuntime) ->
+            let eff = fio {
+                let chan = Channel<int>()
+                let! s1 = chan.Send(1).Unit().Fork()
+                let! s2 = chan.Send(2).Unit().Fork()
+                let! s3 = chan.Send(3).Unit().Fork()
+                let! s4 = chan.Send(4).Unit().Fork()
+                let! s5 = chan.Send(5).Unit().Fork()
+                let! r1 = chan.Receive().Fork()
+                let! r2 = chan.Receive().Fork()
+                let! r3 = chan.Receive().Fork()
+                let! r4 = chan.Receive().Fork()
+                let! r5 = chan.Receive().Fork()
+                do! s1.Join()
+                do! s2.Join()
+                do! s3.Join()
+                do! s4.Join()
+                do! s5.Join()
+                let! v1 = r1.Join()
+                let! v2 = r2.Join()
+                let! v3 = r3.Join()
+                let! v4 = r4.Join()
+                let! v5 = r5.Join()
+                return [v1; v2; v3; v4; v5] |> List.sort
+            }
 
-//             let result = runtime.Run(eff).UnsafeSuccess()
+            let result = runtime.Run(eff).UnsafeSuccess()
 
-//             Expect.equal result [1; 2; 3; 4; 5] "All 5 values should be received"
+            Expect.equal result [1; 2; 3; 4; 5] "All 5 values should be received"
 
-//         testPropertyWithConfig fsCheckConfig "High volume sequential send/receive"
-//         <| fun (runtime: FIORuntime) ->
-//             let messages = [1..10000]
-//             let eff = fio {
-//                 let chan = Channel<int>()
-//                 for msg in messages do
-//                     do! chan.Send(msg).Unit()
-//                 let mutable received = []
-//                 for _ in messages do
-//                     let! msg = chan.Receive()
-//                     received <- received @ [msg]
-//                 return received
-//             }
+        testPropertyWithConfig fsCheckConfig "Large volume sequential send/receive"
+        <| fun (runtime: FIORuntime) ->
+            let messages = [1..1000]
+            let eff = fio {
+                let chan = Channel<int>()
+                for msg in messages do
+                    do! chan.Send(msg).Unit()
+                let mutable received = []
+                for _ in messages do
+                    let! msg = chan.Receive()
+                    received <- received @ [msg]
+                return received
+            }
 
-//             let result = runtime.Run(eff).UnsafeSuccess()
+            let result = runtime.Run(eff).UnsafeSuccess()
 
-//             Expect.equal result messages "FIFO order should be preserved for 10000 messages"
-//    ]
+            Expect.equal result messages "FIFO order should be preserved for 1000 messages"
+   ]
 
-// [<Tests>]
-// let channelInterleavedTests =
-//     testList "Channel Interleaved Operations" [
+[<Tests>]
+let channelInterleavedTests =
+    testList "Channel Interleaved Operations" [
 
-//         testPropertyWithConfig fsCheckConfig "Alternating send and receive"
-//         <| fun (runtime: FIORuntime) ->
-//             let eff = fio {
-//                 let chan = Channel<int>()
-//                 do! chan.Send(1).Unit()
-//                 let! r1 = chan.Receive()
-//                 do! chan.Send(2).Unit()
-//                 let! r2 = chan.Receive()
-//                 do! chan.Send(3).Unit()
-//                 let! r3 = chan.Receive()
-//                 return [r1; r2; r3]
-//             }
+        testPropertyWithConfig fsCheckConfig "Alternating send and receive"
+        <| fun (runtime: FIORuntime) ->
+            let eff = fio {
+                let chan = Channel<int>()
+                do! chan.Send(1).Unit()
+                let! r1 = chan.Receive()
+                do! chan.Send(2).Unit()
+                let! r2 = chan.Receive()
+                do! chan.Send(3).Unit()
+                let! r3 = chan.Receive()
+                return [r1; r2; r3]
+            }
 
-//             let result = runtime.Run(eff).UnsafeSuccess()
+            let result = runtime.Run(eff).UnsafeSuccess()
 
-//             Expect.equal result [1; 2; 3] "Alternating send/receive should work correctly"
-//   ]
+            Expect.equal result [1; 2; 3] "Alternating send/receive should work correctly"
+  ]

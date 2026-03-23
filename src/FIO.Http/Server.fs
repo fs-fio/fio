@@ -5,6 +5,7 @@ open FIO.Runtime.Default
 
 open System.Net
 open Microsoft.Extensions.Hosting
+open Microsoft.Extensions.Logging
 open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Hosting
 
@@ -99,6 +100,7 @@ module Server =
     let start (server: FIOServer) : FIO<FIOServer, exn> =
         fio {
             let builder = WebApplication.CreateBuilder()
+            builder.Logging.ClearProviders() |> ignore
 
             builder.WebHost.ConfigureKestrel(fun options ->
                 options.Listen(IPAddress.Parse server.Config.Host, server.Config.Port)
@@ -110,12 +112,12 @@ module Server =
                 KestrelBridge.handleRequest server.Runtime server.Routes server.Config.MaxRequestBodySize ctx
             ) |> ignore
 
-            let! startResult =
-                try
-                    FIO.awaitTask(app.StartAsync(), id)
-                with exn ->
-                    app.DisposeAsync().AsTask() |> Async.AwaitTask |> Async.RunSynchronously
-                    raise exn
+            do!
+                FIO.awaitTask(app.StartAsync(), id)
+                    .CatchAll(fun startError ->
+                        FIO.awaitTask(app.DisposeAsync().AsTask(), id)
+                            .CatchAll(fun _ -> FIO.unit())
+                            .FlatMap(fun _ -> FIO.fail startError))
    
             printfn $"FIO HTTP Server listening on http://{server.Config.Host}:{server.Config.Port}"
             return { server with Host = Some app }

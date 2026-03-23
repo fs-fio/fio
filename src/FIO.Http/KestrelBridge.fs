@@ -90,42 +90,82 @@ module KestrelBridge =
                         |> Seq.map (fun kvp -> kvp.Key, kvp.Value |> Seq.toList)
                         |> Map.ofSeq
 
-                    let! body =
+                    let! bodyResult =
                         task {
-                            if ctx.Request.ContentLength.HasValue && ctx.Request.ContentLength.Value > 0L then
-                                // Use ArrayPool for efficient buffer management
-                                let length = int ctx.Request.ContentLength.Value
-                                let buffer = ArrayPool<byte>.Shared.Rent(length)
-                                try
-                                    let mutable totalRead = 0
-                                    while totalRead < length do
-                                        let! bytesRead = ctx.Request.Body.ReadAsync(buffer, totalRead, length - totalRead)
-                                        if bytesRead = 0 then
-                                            totalRead <- length // Exit loop on EOF
+                            if ctx.Request.ContentLength.HasValue then
+                                let contentLength = ctx.Request.ContentLength.Value
+                                if contentLength <= 0L then
+                                    return Ok RequestBody.Empty
+                                elif contentLength > int64 Int32.MaxValue then
+                                    return Error $"Request body size ({contentLength} bytes) exceeds supported buffer size ({Int32.MaxValue} bytes)"
+                                else
+                                    let length = int contentLength
+                                    let buffer = ArrayPool<byte>.Shared.Rent(length)
+                                    try
+                                        let mutable totalRead = 0
+                                        while totalRead < length do
+                                            let! bytesRead = ctx.Request.Body.ReadAsync(buffer, totalRead, length - totalRead)
+                                            if bytesRead = 0 then
+                                                totalRead <- length // Exit loop on EOF
+                                            else
+                                                totalRead <- totalRead + bytesRead
+                                        let result = Array.zeroCreate<byte> totalRead
+                                        Buffer.BlockCopy(buffer, 0, result, 0, totalRead)
+                                        if totalRead = 0 then
+                                            return Ok RequestBody.Empty
                                         else
-                                            totalRead <- totalRead + bytesRead
-                                    // Copy exact bytes needed (avoid returning pooled buffer)
-                                    let result = Array.zeroCreate<byte> totalRead
-                                    Buffer.BlockCopy(buffer, 0, result, 0, totalRead)
-                                    return RequestBody.Bytes result
+                                            return Ok <| RequestBody.Bytes result
+                                    finally
+                                        ArrayPool<byte>.Shared.Return(buffer)
+                            else
+                                let bufferSize = 8192
+                                let buffer = ArrayPool<byte>.Shared.Rent(bufferSize)
+                                use stream = new MemoryStream()
+                                try
+                                    let mutable totalRead = 0L
+                                    let mutable loop = true
+                                    let mutable sizeError = None
+
+                                    while loop do
+                                        let! bytesRead = ctx.Request.Body.ReadAsync(buffer, 0, bufferSize)
+                                        if bytesRead = 0 then
+                                            loop <- false
+                                        else
+                                            totalRead <- totalRead + int64 bytesRead
+                                            if totalRead > maxBodySize then
+                                                sizeError <- Some $"Request body size ({totalRead} bytes) exceeds maximum allowed size ({maxBodySize} bytes)"
+                                                loop <- false
+                                            else
+                                                do! stream.WriteAsync(buffer, 0, bytesRead)
+
+                                    match sizeError with
+                                    | Some err ->
+                                        return Error err
+                                    | None ->
+                                        if totalRead = 0L then
+                                            return Ok RequestBody.Empty
+                                        else
+                                            return Ok <| RequestBody.Bytes (stream.ToArray())
                                 finally
                                     ArrayPool<byte>.Shared.Return(buffer)
-                            else
-                                return RequestBody.Empty
                         }
 
-                    // Generate a unique request ID for tracking
-                    let requestId = Guid.NewGuid().ToString()
+                    match bodyResult with
+                    | Error err ->
+                        return Error err
+                    | Ok body ->
+                        // Generate a unique request ID for tracking
+                        let requestId = Guid.NewGuid().ToString()
 
-                    return Ok {
-                        Method = method
-                        Path = path
-                        PathSegments = segments
-                        QueryParams = queryParams
-                        Headers = headers
-                        Body = body
-                        Metadata = Map.empty |> Map.add "RequestId" (box requestId)
-                    }
+                        return Ok {
+                            Method = method
+                            Path = path
+                            PathSegments = segments
+                            QueryParams = queryParams
+                            Headers = headers
+                            Body = body
+                            Metadata = Map.empty |> Map.add "RequestId" (box requestId)
+                        }
         }
 
     /// <summary>
@@ -148,7 +188,6 @@ module KestrelBridge =
                     | Bytes bytes ->
                         return Some bytes
                     | Json obj ->
-                        // Pre-allocate with reasonable initial capacity for JSON
                         use ms = new MemoryStream(256)
                         do! JsonSerializer.SerializeAsync(ms, obj, jsonOptions)
                         return Some (ms.ToArray())

@@ -4,6 +4,8 @@
 [<AutoOpen>]
 module private FIO.DSL.Utilities
 
+open System
+open System.Threading
 open System.Threading.Tasks
 
 /// <summary>
@@ -31,7 +33,24 @@ module internal Casting =
     /// </summary>
     /// <param name="genericTask">The task to upcast.</param>
     let inline upcastTask (genericTask: Task<'R>) : Task<obj> =
-        task {
-            let! res = genericTask
-            return box res
-        }
+        if genericTask.IsCompletedSuccessfully then
+            Task.FromResult(box genericTask.Result)
+        elif genericTask.IsFaulted then
+            Task.FromException<obj>(genericTask.Exception.GetBaseException())
+        elif genericTask.IsCanceled then
+            Task.FromCanceled<obj>(CancellationToken true)
+        else
+            let tcs = TaskCompletionSource<obj> TaskCreationOptions.RunContinuationsAsynchronously
+            genericTask.ContinueWith(
+                Action<Task<'R>>(fun completedTask ->
+                    if completedTask.IsCanceled then
+                        tcs.TrySetCanceled() |> ignore
+                    elif completedTask.IsFaulted then
+                        tcs.TrySetException completedTask.Exception.InnerExceptions |> ignore
+                    else
+                        tcs.TrySetResult(box completedTask.Result) |> ignore),
+                CancellationToken.None,
+                TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default)
+            |> ignore
+            tcs.Task

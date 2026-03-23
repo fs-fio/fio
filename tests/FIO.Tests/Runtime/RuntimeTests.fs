@@ -11,6 +11,68 @@ open FIO.Runtime.Cooperative
 open Expecto
 
 open System
+open System.Diagnostics
+open System.Threading
+open System.Threading.Tasks
+
+let private interruptedJoinEffect () : FIO<int, exn> =
+    fio {
+        let! fiber = FIO.never<int, exn>().Fork()
+        do! fiber.Interrupt()
+        let! _ = fiber.Join<int, exn>()
+        return 42
+    }
+
+let private assertInterruptedChildJoin (runtimeName: string) (runtime: FIORuntime) =
+    try
+        let result =
+            runtime
+                .Run(interruptedJoinEffect ())
+                .Task<int, exn>()
+                .WaitAsync(TimeSpan.FromSeconds 2.0)
+                .GetAwaiter()
+                .GetResult()
+
+        match result with
+        | Interrupted _ ->
+            ()
+        | Succeeded value ->
+            failtest $"{runtimeName} should report interruption when joining an interrupted child, but succeeded with {value}"
+        | Failed err ->
+            failtest $"{runtimeName} should report interruption when joining an interrupted child, but failed with {err}"
+    with
+    | :? TimeoutException ->
+        failtest $"{runtimeName} timed out while joining an interrupted child fiber"
+
+let private assertRunSerialization (runtimeName: string) (runtime: FIORuntime) =
+    use gate = new ManualResetEventSlim(false)
+    let eff : FIO<unit, exn> = FIO.sleepExn (TimeSpan.FromMilliseconds 250.0)
+    let runOne () =
+        Task.Run(fun () ->
+            gate.Wait()
+            runtime.Run(eff).Task<unit, exn>().Wait())
+
+    let t1 = runOne()
+    let t2 = runOne()
+    let sw = Stopwatch.StartNew()
+    gate.Set()
+    Task.WaitAll [| t1; t2 |]
+    sw.Stop()
+
+    Expect.isTrue
+        (sw.ElapsedMilliseconds >= 430L)
+        $"{runtimeName} should serialize concurrent Run calls on the same runtime instance"
+
+let private assertCompletesWithin<'R, 'E> (timeout: TimeSpan) (fiber: Fiber<'R, 'E>) =
+    try
+        fiber
+            .Task<'R, 'E>()
+            .WaitAsync(timeout)
+            .GetAwaiter()
+            .GetResult()
+    with
+    | :? TimeoutException ->
+        failtest $"Expected computation to complete within {timeout}, but it timed out."
 
 [<Tests>]
 let directRuntimeTests =
@@ -18,21 +80,21 @@ let directRuntimeTests =
 
         testCase "DirectRuntime executes basic effect"
         <| fun () ->
-            let runtime = DirectRuntime()
+            let runtime = new DirectRuntime()
             let eff = FIO.succeed 42
             let result = runtime.Run(eff).UnsafeSuccess()
             Expect.equal result 42 "DirectRuntime should execute basic effect"
 
         testCase "DirectRuntime handles error effect"
         <| fun () ->
-            let runtime = DirectRuntime()
+            let runtime = new DirectRuntime()
             let eff : FIO<int, string> = FIO.fail "error"
             let result = runtime.Run(eff).UnsafeError()
             Expect.equal result "error" "DirectRuntime should handle error"
 
         testCase "DirectRuntime handles fork and join"
         <| fun () ->
-            let runtime = DirectRuntime()
+            let runtime = new DirectRuntime()
             let eff = fio {
                 let! fiber = (FIO.succeed 42).Fork()
                 let! result = fiber.Join()
@@ -43,7 +105,7 @@ let directRuntimeTests =
 
         testCase "DirectRuntime handles parallel effects"
         <| fun () ->
-            let runtime = DirectRuntime()
+            let runtime = new DirectRuntime()
             let eff = (FIO.succeed 1).ZipPar(FIO.succeed 2)
             let (r1, r2) = runtime.Run(eff).UnsafeSuccess()
             Expect.equal r1 1 "First result should be 1"
@@ -51,7 +113,7 @@ let directRuntimeTests =
 
         testCase "DirectRuntime handles channel operations"
         <| fun () ->
-            let runtime = DirectRuntime()
+            let runtime = new DirectRuntime()
             let eff = fio {
                 let chan = Channel<int>()
                 do! chan.Send(42).Unit()
@@ -63,12 +125,22 @@ let directRuntimeTests =
 
         testCase "DirectRuntime handles interruption"
         <| fun () ->
-            let runtime = DirectRuntime()
+            let runtime = new DirectRuntime()
             let eff = FIO.interrupt<int, string>(ExplicitInterrupt, "test")
             let result = runtime.Run(eff).UnsafeResult()
             match result with
             | Interrupted _ -> Expect.isTrue true "Should be interrupted"
             | _ -> Expect.isTrue false "Should be interrupted"
+
+        testCase "DirectRuntime join on interrupted child returns interruption"
+        <| fun () ->
+            let runtime = new DirectRuntime() :> FIORuntime
+            assertInterruptedChildJoin "DirectRuntime" runtime
+
+        testCase "DirectRuntime serializes concurrent Run calls on same runtime"
+        <| fun () ->
+            let runtime = new DirectRuntime() :> FIORuntime
+            assertRunSerialization "DirectRuntime" runtime
     ]
 
 [<Tests>]
@@ -77,21 +149,21 @@ let cooperativeRuntimeTests =
 
         testCase "CooperativeRuntime executes basic effect"
         <| fun () ->
-            let runtime = CooperativeRuntime()
+            let runtime = new CooperativeRuntime()
             let eff = FIO.succeed 42
             let result = runtime.Run(eff).UnsafeSuccess()
             Expect.equal result 42 "CooperativeRuntime should execute basic effect"
 
         testCase "CooperativeRuntime handles error effect"
         <| fun () ->
-            let runtime = CooperativeRuntime()
+            let runtime = new CooperativeRuntime()
             let eff : FIO<int, string> = FIO.fail "error"
             let result = runtime.Run(eff).UnsafeError()
             Expect.equal result "error" "CooperativeRuntime should handle error"
 
         testCase "CooperativeRuntime handles fork and join"
         <| fun () ->
-            let runtime = CooperativeRuntime()
+            let runtime = new CooperativeRuntime()
             let eff = fio {
                 let! fiber = (FIO.succeed 42).Fork()
                 let! result = fiber.Join()
@@ -102,7 +174,7 @@ let cooperativeRuntimeTests =
 
         testCase "CooperativeRuntime handles parallel effects"
         <| fun () ->
-            let runtime = CooperativeRuntime()
+            let runtime = new CooperativeRuntime()
             let eff = (FIO.succeed 1).ZipPar(FIO.succeed 2)
             let (r1, r2) = runtime.Run(eff).UnsafeSuccess()
             Expect.equal r1 1 "First result should be 1"
@@ -110,7 +182,7 @@ let cooperativeRuntimeTests =
 
         testCase "CooperativeRuntime handles channel operations"
         <| fun () ->
-            let runtime = CooperativeRuntime()
+            let runtime = new CooperativeRuntime()
             let eff = fio {
                 let chan = Channel<int>()
                 do! chan.Send(42).Unit()
@@ -122,16 +194,88 @@ let cooperativeRuntimeTests =
 
         testCase "CooperativeRuntime handles interruption"
         <| fun () ->
-            let runtime = CooperativeRuntime()
+            let runtime = new CooperativeRuntime()
             let eff = FIO.interrupt<int, string>(ExplicitInterrupt, "test")
             let result = runtime.Run(eff).UnsafeResult()
             match result with
             | Interrupted _ -> Expect.isTrue true "Should be interrupted"
             | _ -> Expect.isTrue false "Should be interrupted"
 
+        testCase "CooperativeRuntime join on interrupted child returns interruption"
+        <| fun () ->
+            let runtime = new CooperativeRuntime() :> FIORuntime
+            assertInterruptedChildJoin "CooperativeRuntime" runtime
+
+        testCase "CooperativeRuntime serializes concurrent Run calls on same runtime"
+        <| fun () ->
+            let runtime = new CooperativeRuntime() :> FIORuntime
+            assertRunSerialization "CooperativeRuntime" runtime
+
+        testCase "CooperativeRuntime polling blocked receive stress completes under timeout"
+        <| fun () ->
+            let runtime = new CooperativeRuntime({ EWC = 2; EWS = 200; BWC = 2 })
+            let total = 1_500
+            let eff = fio {
+                let chan = Channel<int>()
+                let sender =
+                    fio {
+                        for i in 1..total do
+                            do! chan.Send(i).Unit()
+                    }
+                let receiver =
+                    fio {
+                        let mutable received = 0
+                        let mutable sum = 0
+                        while received < total do
+                            let! msg = chan.Receive<int, exn>()
+                            received <- received + 1
+                            sum <- sum + msg
+                        return sum
+                    }
+
+                let! _, sum = sender <&> receiver
+                return sum
+            }
+
+            let result = runtime.Run(eff) |> assertCompletesWithin (TimeSpan.FromSeconds 8.0)
+            match result with
+            | Succeeded sum ->
+                let expected = total * (total + 1) / 2
+                Expect.equal sum expected "Should receive all messages without loss"
+            | Failed err ->
+                failtest $"Unexpected failure in cooperative polling stress test: {err}"
+            | Interrupted ex ->
+                failtest $"Unexpected interruption in cooperative polling stress test: {ex.Message}"
+
+        testCase "CooperativeRuntime polling join stress completes under timeout"
+        <| fun () ->
+            let runtime = new CooperativeRuntime { EWC = 2; EWS = 200; BWC = 2 }
+            let fiberCount = 300
+            let eff = fio {
+                let! fibers =
+                    [1..fiberCount]
+                    |> List.map (fun _ -> FIO.sleepExn(TimeSpan.FromMilliseconds 1.0).Fork())
+                    |> FIO.collectAll
+
+                let! _ =
+                    fibers
+                    |> List.map (fun fiber -> fiber.Join())
+                    |> FIO.collectAll
+                return fiberCount
+            }
+
+            let result = runtime.Run(eff) |> assertCompletesWithin (TimeSpan.FromSeconds 8.0)
+            match result with
+            | Succeeded joinedCount ->
+                Expect.equal joinedCount fiberCount "All forked fibers should join successfully"
+            | Failed err ->
+                failtest $"Unexpected failure in cooperative join polling stress test: {err}"
+            | Interrupted ex ->
+                failtest $"Unexpected interruption in cooperative join polling stress test: {ex.Message}"
+
         testCase "CooperativeRuntime handles many fibers"
         <| fun () ->
-            let runtime = CooperativeRuntime()
+            let runtime = new CooperativeRuntime()
             let eff = fio {
                 let! fibers =
                     [1..50]
@@ -153,21 +297,21 @@ let concurrentRuntimeTests =
 
         testCase "ConcurrentRuntime executes basic effect"
         <| fun () ->
-            let runtime = ConcurrentRuntime()
+            let runtime = new ConcurrentRuntime()
             let eff = FIO.succeed 42
             let result = runtime.Run(eff).UnsafeSuccess()
             Expect.equal result 42 "ConcurrentRuntime should execute basic effect"
 
         testCase "ConcurrentRuntime handles error effect"
         <| fun () ->
-            let runtime = ConcurrentRuntime()
+            let runtime = new ConcurrentRuntime()
             let eff : FIO<int, string> = FIO.fail "error"
             let result = runtime.Run(eff).UnsafeError()
             Expect.equal result "error" "ConcurrentRuntime should handle error"
 
         testCase "ConcurrentRuntime handles fork and join"
         <| fun () ->
-            let runtime = ConcurrentRuntime()
+            let runtime = new ConcurrentRuntime()
             let eff = fio {
                 let! fiber = (FIO.succeed 42).Fork()
                 let! result = fiber.Join()
@@ -178,7 +322,7 @@ let concurrentRuntimeTests =
 
         testCase "ConcurrentRuntime handles parallel effects"
         <| fun () ->
-            let runtime = ConcurrentRuntime()
+            let runtime = new ConcurrentRuntime()
             let eff = (FIO.succeed 1).ZipPar(FIO.succeed 2)
             let (r1, r2) = runtime.Run(eff).UnsafeSuccess()
             Expect.equal r1 1 "First result should be 1"
@@ -186,7 +330,7 @@ let concurrentRuntimeTests =
 
         testCase "ConcurrentRuntime handles channel operations"
         <| fun () ->
-            let runtime = ConcurrentRuntime()
+            let runtime = new ConcurrentRuntime()
             let eff = fio {
                 let chan = Channel<int>()
                 do! chan.Send(42).Unit()
@@ -198,16 +342,62 @@ let concurrentRuntimeTests =
 
         testCase "ConcurrentRuntime handles interruption"
         <| fun () ->
-            let runtime = ConcurrentRuntime()
+            let runtime = new ConcurrentRuntime()
             let eff = FIO.interrupt<int, string>(ExplicitInterrupt, "test")
             let result = runtime.Run(eff).UnsafeResult()
             match result with
             | Interrupted _ -> Expect.isTrue true "Should be interrupted"
             | _ -> Expect.isTrue false "Should be interrupted"
 
+        testCase "ConcurrentRuntime join on interrupted child returns interruption"
+        <| fun () ->
+            let runtime = new ConcurrentRuntime() :> FIORuntime
+            assertInterruptedChildJoin "ConcurrentRuntime" runtime
+
+        testCase "ConcurrentRuntime serializes concurrent Run calls on same runtime"
+        <| fun () ->
+            let runtime = new ConcurrentRuntime() :> FIORuntime
+            assertRunSerialization "ConcurrentRuntime" runtime
+
+        testCase "ConcurrentRuntime channel signal dedup stress has no message loss"
+        <| fun () ->
+            let runtime = new ConcurrentRuntime { EWC = 4; EWS = 200; BWC = 2 }
+            let total = 5_000
+            let eff = fio {
+                let chan = Channel<int>()
+                let sender =
+                    fio {
+                        for i in 1..total do
+                            do! chan.Send(i).Unit()
+                    }
+                let receiver =
+                    fio {
+                        let mutable received = 0
+                        let mutable sum = 0
+                        while received < total do
+                            let! msg = chan.Receive<int, exn>()
+                            received <- received + 1
+                            sum <- sum + msg
+                        return sum
+                    }
+
+                let! (_, sum) = sender <&> receiver
+                return sum
+            }
+
+            let result = runtime.Run eff |> assertCompletesWithin (TimeSpan.FromSeconds 8.0)
+            match result with
+            | Succeeded sum ->
+                let expected = total * (total + 1) / 2
+                Expect.equal sum expected "Concurrent runtime should deliver all channel messages under stress"
+            | Failed err ->
+                failtest $"Unexpected failure in concurrent signal stress test: {err}"
+            | Interrupted ex ->
+                failtest $"Unexpected interruption in concurrent signal stress test: {ex.Message}"
+
         testCase "ConcurrentRuntime handles many concurrent fibers"
         <| fun () ->
-            let runtime = ConcurrentRuntime()
+            let runtime = new ConcurrentRuntime()
             let eff = fio {
                 let! fibers =
                     [1..100]
@@ -230,9 +420,9 @@ let runtimeComparisonTests =
         testPropertyWithConfig fsCheckConfig "All runtimes produce same result for pure effects"
         <| fun (res: int) ->
             let eff = FIO.succeed res
-            let directResult = DirectRuntime().Run(eff).UnsafeSuccess()
-            let cooperativeResult = CooperativeRuntime().Run(eff).UnsafeSuccess()
-            let concurrentResult = ConcurrentRuntime().Run(eff).UnsafeSuccess()
+            let directResult = (new DirectRuntime()).Run(eff).UnsafeSuccess()
+            let cooperativeResult = (new CooperativeRuntime()).Run(eff).UnsafeSuccess()
+            let concurrentResult = (new ConcurrentRuntime()).Run(eff).UnsafeSuccess()
             Expect.equal directResult res "Direct should match"
             Expect.equal cooperativeResult res "Cooperative should match"
             Expect.equal concurrentResult res "Concurrent should match"
@@ -240,9 +430,9 @@ let runtimeComparisonTests =
         testPropertyWithConfig fsCheckConfig "All runtimes produce same result for error effects"
         <| fun (err: string) ->
             let eff : FIO<int, string> = FIO.fail err
-            let directResult = DirectRuntime().Run(eff).UnsafeError()
-            let cooperativeResult = CooperativeRuntime().Run(eff).UnsafeError()
-            let concurrentResult = ConcurrentRuntime().Run(eff).UnsafeError()
+            let directResult = (new DirectRuntime()).Run(eff).UnsafeError()
+            let cooperativeResult = (new CooperativeRuntime()).Run(eff).UnsafeError()
+            let concurrentResult = (new ConcurrentRuntime()).Run(eff).UnsafeError()
             Expect.equal directResult err "Direct should match"
             Expect.equal cooperativeResult err "Cooperative should match"
             Expect.equal concurrentResult err "Concurrent should match"

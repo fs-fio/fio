@@ -77,6 +77,15 @@ module WebSocketPool =
             let lifetime = TimeSpan.FromSeconds(float config.ConnectionLifetime)
             DateTime.UtcNow - createdAt > lifetime
 
+    let private decrementTotalCreated (pool: WebSocketPool) =
+        if pool.TotalCreated > 0 then
+            pool.TotalCreated <- pool.TotalCreated - 1
+
+    type private AcquireDecision =
+        | ReuseSocket of FIO.WebSockets.WebSocket
+        | CreateNew
+        | Exhausted
+
     /// <summary>
     /// Creates a new WebSocket connection pool.
     /// </summary>
@@ -141,48 +150,51 @@ module WebSocketPool =
             if pool.Closed then
                 return! FIO.fail(Closed "Pool is closed")
 
-            let socketOpt = lock pool.Lock (fun () ->
+            let decision = lock pool.Lock (fun () ->
                 match pool.Available with
                 | (ws, createdAt) :: rest ->
+                    pool.Available <- rest
                     if isExpired (createdAt, pool.Config) then
-                        pool.Available <- rest
-                        pool.TotalCreated <- pool.TotalCreated - 1
-                        None
+                        decrementTotalCreated pool
+                        if pool.TotalCreated < pool.Config.MaxPoolSize then
+                            pool.TotalCreated <- pool.TotalCreated + 1
+                            CreateNew
+                        else
+                            Exhausted
                     else
-                        pool.Available <- rest
-                        Some ws
+                        ReuseSocket ws
                 | [] ->
-                    if pool.TotalCreated >= pool.Config.MaxPoolSize then
-                        None
-                    else
+                    if pool.TotalCreated < pool.Config.MaxPoolSize then
                         pool.TotalCreated <- pool.TotalCreated + 1
-                        None)
+                        CreateNew
+                    else
+                        Exhausted)
 
-            match socketOpt with
-            | Some ws ->
+            match decision with
+            | ReuseSocket ws ->
                 let! isValid = validateSocket ws
                 if isValid then
                     return ws
                 else
                     // Socket expired or closed, create new one
                     do! ws.Dispose().CatchAll(logAndSuppress "invalid websocket disposal")
-                    lock pool.Lock (fun () ->
-                        pool.TotalCreated <- pool.TotalCreated - 1)
-                    return! acquire pool
+                    return!
+                        (WebSocketClient.connect pool.Uri pool.WsConfig System.Threading.CancellationToken.None)
+                            .CatchAll(fun err ->
+                                lock pool.Lock (fun () ->
+                                    decrementTotalCreated pool)
+                                FIO.fail err)
 
-            | None ->
-                // Need to create new connection
-                let canCreate = lock pool.Lock (fun () ->
-                    if pool.TotalCreated < pool.Config.MaxPoolSize then
-                        pool.TotalCreated <- pool.TotalCreated + 1
-                        true
-                    else
-                        false)
+            | CreateNew ->
+                return!
+                    (WebSocketClient.connect pool.Uri pool.WsConfig System.Threading.CancellationToken.None)
+                        .CatchAll(fun err ->
+                            lock pool.Lock (fun () ->
+                                decrementTotalCreated pool)
+                            FIO.fail err)
 
-                if canCreate then
-                    return! WebSocketClient.connect pool.Uri pool.WsConfig System.Threading.CancellationToken.None
-                else
-                    return! FIO.fail(PoolExhausted $"Pool exhausted: {pool.TotalCreated}/{pool.Config.MaxPoolSize} connections")
+            | Exhausted ->
+                return! FIO.fail(PoolExhausted $"Pool exhausted: {pool.TotalCreated}/{pool.Config.MaxPoolSize} connections")
         }
 
     /// <summary>
@@ -203,7 +215,7 @@ module WebSocketPool =
                     pool.Available <- (ws, DateTime.UtcNow) :: pool.Available
                     "returned"
                 else
-                    pool.TotalCreated <- pool.TotalCreated - 1
+                    decrementTotalCreated pool
                     "dispose")
 
             match action with

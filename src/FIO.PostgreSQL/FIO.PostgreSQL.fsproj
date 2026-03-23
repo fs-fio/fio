@@ -45,11 +45,11 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Npgsql" Version="10.0.1" />
+        <PackageReference Include="Npgsql" Version="10.0.2" />
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Update="FSharp.Core" Version="10.0.103" />
+        <PackageReference Update="FSharp.Core" Version="10.1.201" />
     </ItemGroup>
 
     <ItemGroup>

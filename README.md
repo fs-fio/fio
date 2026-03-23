@@ -856,6 +856,9 @@ USAGE: FIO.Benchmarks [--help]
                              [--cooperative-runtime <ewc> <ews> <bwc>]
                              [--concurrent-runtime <ewc> <ews> <bwc>]
                              [--runs <runs>]
+                             [--warmup-runs <runs>]
+                             [--quiet]
+                             [--detailed]
                              [--actor-increment <actorInc> <times>]
                              [--round-increment <roundInc> <times>]
                              [--pingpong <roundCount>]
@@ -863,8 +866,8 @@ USAGE: FIO.Benchmarks [--help]
                              [--big <actorCount> <roundCount>]
                              [--bang <actorCount> <roundCount>]
                              [--fork <actorCount>]
-                             [--save <saveToCsv>]
-                             [--savepath <absolutePath>]
+                             [--save]
+                             [--save-path <absolutePath>]
 
 OPTIONS:
 
@@ -873,33 +876,80 @@ OPTIONS:
                           specify Cooperative runtime with ewc, ews and bwc
     --concurrent-runtime <ewc> <ews> <bwc>
                           specify Concurrent runtime with ewc, ews and bwc
-    --runs <runs>         specify number of runs for each benchmark
+    --runs <runs>         specify number of runs for each benchmark (must be >= 1)
+    --warmup-runs <runs>  specify number of warmup runs before measured runs (must be >= 0)
+    --quiet               enable ultra-minimal benchmark output
+    --detailed            enable detailed per-run benchmark output (cannot be combined with --quiet)
     --actor-increment <actorInc> <times>
-                          specify the value of actor increment and the number of times
+                          specify actor increment and increment count (both must be >= 0)
     --round-increment <roundInc> <times>
-                          specify the value of round increment and the number of times
+                          specify round increment and increment count (both must be >= 0)
     --pingpong <roundCount>
-                          specify number of rounds for Pingpong benchmark
+                          specify number of rounds for Pingpong benchmark (must be >= 1)
     --threadring <actorCount> <roundCount>
-                          specify number of actors and rounds for Threadring benchmark
+                          specify number of actors and rounds for Threadring benchmark (actors >= 2, rounds >= 1)
     --big <actorCount> <roundCount>
-                          specify number of actors and rounds for Big benchmark
+                          specify number of actors and rounds for Big benchmark (actors >= 2, rounds >= 1)
     --bang <actorCount> <roundCount>
-                          specify number of actors and rounds for Bang benchmark
-    --fork <actorCount>   specify number of actors for Fork benchmark
-    --save <saveToCsv>    should save benchmark results to csv file
-    --savepath <absolutePath>
-                          specify absolute path to save the benchmark results csv file
+                          specify number of actors and rounds for Bang benchmark (actors >= 1, rounds >= 1)
+    --fork <actorCount>   specify number of actors for Fork benchmark (actors >= 1)
+    --save                save benchmark results to CSV files
+    --save-path <absolutePath>
+                          specify absolute output directory for CSV results (requires --save)
     --help                display this list of options.
 ```
 
+Runtime selection requires at least one runtime flag.
+You can combine runtimes in a single invocation and they execute in fixed order:
+`Direct -> Cooperative -> Concurrent`.
+
+Output verbosity modes:
+- default (no `--quiet` and no `--detailed`): concise tagged progress + summary-only per-runtime tables
+- `--detailed`: per-run logs + full per-runtime tables including run-by-run rows
+- `--quiet`: ultra-minimal output with final summaries/tables
+- `--quiet` and `--detailed` are mutually exclusive
+
+When multiple runtimes are selected, output includes:
+- per-runtime result tables (summary-only in default/quiet, full in detailed mode)
+- a compact per-benchmark comparison summary in a final comparison section
+
+Memory metrics are reported as per-run deltas:
+- `Process WS Delta (MB)`: process working-set change during a run
+- `Managed Heap Delta (MB)`: managed heap change via `GC.GetTotalMemory(false)`
+
+Benchmark CSV files use this exact schema (in order):
+- `Run`
+- `Execution Time (ms)`
+- `Process WS Delta (MB)`
+- `Managed Heap Delta (MB)`
+- `Avg. Execution Time (ms)`
+- `Median Execution Time (ms)`
+- `P95 Execution Time (ms)`
+- `Std. Execution Time (ms)`
+- `Avg. Process WS Delta (MB)`
+- `Std. Process WS Delta (MB)`
+- `Avg. Managed Heap Delta (MB)`
+- `Std. Managed Heap Delta (MB)`
+
+All memory values are emitted in MB with 3-decimal precision.
+
+CSV output uses only the current schema and does not support older benchmark CSV formats.
+Regenerate historical benchmark CSV files with the current `FIO.Benchmarks` version before plotting.
+
+Exit behavior is deterministic:
+- `0` for success or `--help`
+- `2` for argument or usage errors
+- `1` for runtime failures while executing benchmarks
+
 ### Example
 
-To run each benchmark 30 times using the concurrent runtime (39 evaluation workers, 200 evaluation steps, 1 blocking worker):
+To compare all runtimes for the same benchmark settings in one command:
 
 ```bash
---concurrent-runtime 39 200 1 --runs 30 --pingpong 150000 --threadring 10000 10 --big 250 10 --bang 10000 10 --fork 20000
+dotnet run --no-launch-profile -c Release --project benchmarks/FIO.Benchmarks -- --direct-runtime --cooperative-runtime 8 200 1 --concurrent-runtime 8 200 1 --runs 10 --warmup-runs 2 --pingpong 50000 --threadring 4000 8
 ```
+
+Use `--detailed` for full per-run diagnostics or `--quiet` for ultra-minimal output.
 
 ### Experimental Flags
 

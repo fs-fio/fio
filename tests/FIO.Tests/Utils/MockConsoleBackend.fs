@@ -28,7 +28,18 @@ type MockConsoleBackend() =
     let mutable title = ""
     let mutable clearCount = 0
     let mutable beepCount = 0
-    
+    let mutable shouldThrow: exn option = None
+    let mutable isInputRedirected = false
+    let mutable isOutputRedirected = false
+    let mutable isErrorRedirected = false
+
+    let checkThrow () =
+        match shouldThrow with
+        | Some ex ->
+            shouldThrow <- None
+            raise ex
+        | None -> ()
+
     // Custom TextWriter that writes to our StringBuilder
     let stdoutWriter = 
         { new StringWriter(stdoutBuffer) with
@@ -53,7 +64,27 @@ type MockConsoleBackend() =
     /// <summary>Gets the number of times Beep was called.</summary>
     member _.BeepCount =
         beepCount
-    
+
+    /// <summary>When set, the next backend call will throw this exception and reset to None.</summary>
+    member _.ShouldThrow
+        with get() = shouldThrow
+        and set v = shouldThrow <- v
+
+    /// <summary>Gets or sets whether stdin is redirected.</summary>
+    member _.IsInputRedirected
+        with get() = isInputRedirected
+        and set v = isInputRedirected <- v
+
+    /// <summary>Gets or sets whether stdout is redirected.</summary>
+    member _.IsOutputRedirected
+        with get() = isOutputRedirected
+        and set v = isOutputRedirected <- v
+
+    /// <summary>Gets or sets whether stderr is redirected.</summary>
+    member _.IsErrorRedirected
+        with get() = isErrorRedirected
+        and set v = isErrorRedirected <- v
+
     /// <summary>Queues an input line to be returned by ReadLine.</summary>
     /// <param name="line">The line of text to queue.</param>
     member _.QueueInputLine (line: string) =
@@ -101,6 +132,10 @@ type MockConsoleBackend() =
         clearCount <- 0
         beepCount <- 0
         title <- ""
+        shouldThrow <- None
+        isInputRedirected <- false
+        isOutputRedirected <- false
+        isErrorRedirected <- false
     
     /// <summary>Sets window dimensions for testing.</summary>
     /// <param name="width">The window width in columns.</param>
@@ -118,14 +153,17 @@ type MockConsoleBackend() =
     
     interface IConsoleBackend with
         member _.ReadLine () =
+            checkThrow()
             if stdinQueue.Count > 0 then stdinQueue.Dequeue()
             else null
 
         member _.ReadKey _intercept =
+            checkThrow()
             if keyQueue.Count > 0 then keyQueue.Dequeue()
             else ConsoleKeyInfo('\000', ConsoleKey.Enter, false, false, false)
 
         member _.Read () =
+            checkThrow()
             if stdinQueue.Count > 0 then
                 let line = stdinQueue.Peek()
                 if line.Length > 0 then int line[0]
@@ -133,24 +171,30 @@ type MockConsoleBackend() =
             else -1
 
         member _.KeyAvailable =
+            checkThrow()
             keyQueue.Count > 0
 
         member _.Write message =
+            checkThrow()
             stdoutBuffer.Append message |> ignore
 
         member _.WriteLine message =
+            checkThrow()
             stdoutBuffer.AppendLine message |> ignore
 
         member _.WriteBlankLine () =
+            checkThrow()
             stdoutBuffer.AppendLine() |> ignore
 
         member _.Out =
             stdoutWriter :> TextWriter
 
         member _.ErrorWrite message =
+            checkThrow()
             stderrBuffer.Append message |> ignore
 
         member _.ErrorWriteLine message =
+            checkThrow()
             stderrBuffer.AppendLine message |> ignore
 
         member _.Error =
@@ -204,13 +248,13 @@ type MockConsoleBackend() =
             and set v = title <- v
         
         member _.IsInputRedirected =
-            false
-        
+            isInputRedirected
+
         member _.IsOutputRedirected =
-            false
-        
+            isOutputRedirected
+
         member _.IsErrorRedirected =
-            false
+            isErrorRedirected
         
         member _.Clear () =
             clearCount <- clearCount + 1

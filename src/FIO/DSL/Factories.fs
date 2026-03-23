@@ -166,7 +166,7 @@ module FIO =
     /// <param name="onError">A function to map exceptions to the error type.</param>
     let fromGenericTask<'R, 'E> (taskFactory: unit -> Task<'R>, onError: exn -> 'E) : FIO<Fiber<'R, 'E>, 'E> =
         let fiber = new Fiber<'R, 'E>()
-        ForkGenericTPLTask(taskFactory >> upcastTask, onError, fiber, fiber.Internal)
+        ForkGenericTPLTask((fun () -> upcastTask (taskFactory())), onError, fiber, fiber.Internal)
 
     /// <summary>
     /// Forks a lazily-evaluated Task into a Fiber with exceptions as errors.
@@ -225,13 +225,13 @@ module FIO =
             match effArray.Length with
             | 0 -> succeed []
             | _ ->
-                let results = ResizeArray<'R> effArray.Length
+                let results = Array.zeroCreate<'R> effArray.Length
                 let rec loop (index: int) : FIO<'R list, 'E> =
                     if index >= effArray.Length then
-                        succeed(Seq.toList results)
+                        succeed(Array.toList results)
                     else
                         effArray.[index].FlatMap(fun res ->
-                            results.Add res
+                            results.[index] <- res
                             loop (index + 1))
                 loop 0)
 
@@ -248,24 +248,23 @@ module FIO =
             | 0 -> succeed []
             | 1 -> effArray.[0].FlatMap(fun r -> succeed [r])
             | _ ->
-                let forkAllFibers =
-                    effArray
-                    |> Array.map (fun eff -> eff.Fork())
+                let forkEffects = Array.zeroCreate<FIO<Fiber<'R, 'E>, 'E>> effArray.Length
+                for i = 0 to effArray.Length - 1 do
+                    forkEffects.[i] <- effArray.[i].Fork()
 
-                let joinAllFibers (fibers: Fiber<'R, 'E> array) =
-                    let results = ResizeArray<'R> fibers.Length
-                    let rec loop (index: int) : FIO<'R list, 'E> =
-                        if index >= fibers.Length then
-                            succeed(Seq.toList results)
-                        else
-                            fibers.[index].Join().FlatMap(fun res ->
-                                results.Add res
-                                loop (index + 1))
-                    loop 0
-
-                forkAllFibers
-                |> collectAll
-                |> fun forkEff -> forkEff.FlatMap(fun fibers -> joinAllFibers (List.toArray fibers)))
+                collectAll forkEffects
+                |> fun forkEff ->
+                    forkEff.FlatMap(fun fibers ->
+                        let fibersArray = List.toArray fibers
+                        let results = Array.zeroCreate<'R> fibersArray.Length
+                        let rec loop (index: int) : FIO<'R list, 'E> =
+                            if index >= fibersArray.Length then
+                                succeed(Array.toList results)
+                            else
+                                fibersArray.[index].Join().FlatMap(fun res ->
+                                    results.[index] <- res
+                                    loop (index + 1))
+                        loop 0))
 
     /// <summary>
     /// Maps each item in a collection to an effect, then sequences all effects sequentially.

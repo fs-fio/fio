@@ -7,13 +7,30 @@ open System.Globalization
 open System.Collections.Generic
 
 /// <summary>
+/// Shared defaults for worker-based runtimes.
+/// </summary>
+module internal WorkerRuntimeDefaults =
+    let ProcessorReserve = 1
+    let MinimumEvaluationWorkerCount = 2
+    let EvaluationWorkerSteps = 200
+    let BlockingWorkerCount = 1
+
+    let ComputeEvaluationWorkerCount () =
+        let availableWorkers = Environment.ProcessorCount - ProcessorReserve
+        if availableWorkers >= MinimumEvaluationWorkerCount then
+            availableWorkers
+        else
+            MinimumEvaluationWorkerCount
+
+/// <summary>
 /// Object pool for continuation stacks to reduce GC pressure.
 /// Thread-local pooling avoids synchronization overhead.
 /// </summary>
 type internal ContStackPool private () =
     // Configuration constants
     static let DefaultStackCapacity = 32      // Initial capacity for new stacks
-    static let MaxPoolSize = 100              // Maximum stacks per thread pool
+    static let MaxPoolSize = 256              // Maximum stacks per thread pool
+    static let MaxReturnedStackDepth = 4096   // Avoid retaining pathological deep stacks
 
     [<ThreadStatic; DefaultValue>]
     static val mutable private pool: Stack<Stack<ContStackFrame>>
@@ -41,7 +58,6 @@ type internal ContStackPool private () =
         if isNull ContStackPool.pool then
             ContStackPool.pool <- Stack<_>()
 
-        // Only pool if not at capacity (Stack<T> doesn't expose Capacity, so just check pool size)
         if ContStackPool.pool.Count < MaxPoolSize then
             stack.Clear()
             ContStackPool.pool.Push stack
@@ -52,7 +68,7 @@ type internal ContStackPool private () =
 /// </summary>
 type internal WorkItemPool private () =
     // Configuration constants
-    static let MaxPoolSize = 200  // Maximum WorkItems per thread pool
+    static let MaxPoolSize = 512  // Maximum WorkItems per thread pool
 
     [<ThreadStatic; DefaultValue>]
     static val mutable private pool: Stack<WorkItem>
@@ -146,6 +162,14 @@ type WorkerConfig =
       /// Blocking worker count.
       /// </summary>
       BWC: int }
+      
+    /// <summary>
+    /// Default worker configuration based on system resources and sensible defaults.
+    /// </summary>
+    static member Default =
+        { EWC = WorkerRuntimeDefaults.ComputeEvaluationWorkerCount()
+          EWS = WorkerRuntimeDefaults.EvaluationWorkerSteps
+          BWC = WorkerRuntimeDefaults.BlockingWorkerCount }
 
 /// <summary>
 /// Represents a functional worker runtime for interpreting FIO effects.
@@ -162,6 +186,9 @@ type FIOWorkerRuntime internal (config: WorkerConfig) as this =
             invalidArg "config" $"Invalid worker configuration! %s{this.ToString ()}"
 
     do validateWorkerConfiguration ()
+
+    new () =
+        FIOWorkerRuntime WorkerConfig.Default
 
     /// <summary>
     /// Gets the worker configuration.

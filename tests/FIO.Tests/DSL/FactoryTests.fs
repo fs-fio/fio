@@ -325,6 +325,36 @@ let factoryTests =
             let result = runtime.Run(FIO.collectAllPar effects).UnsafeError()
             Expect.equal result "error" "collectAllPar should propagate error"
 
+        // 28b. FIO.collectAll - Large input preserves order
+        testPropertyWithConfig fsCheckConfig "FIO.collectAll large input preserves order"
+        <| fun (runtime: FIORuntime) ->
+            let items = [1..2_000]
+            let effects = items |> List.map FIO.succeed
+            let result = runtime.Run(FIO.collectAll effects).UnsafeSuccess()
+            Expect.equal result items "collectAll should preserve order for large collections"
+
+        // 28c. FIO.collectAllPar - Large input preserves order
+        testPropertyWithConfig fsCheckConfig "FIO.collectAllPar large input preserves order"
+        <| fun (runtime: FIORuntime) ->
+            let items = [1..500]
+            let effects =
+                items
+                |> List.map (fun i ->
+                    FIO.sleepExn(TimeSpan.FromMilliseconds(float ((i % 5) + 1)))
+                        .FlatMap(fun () -> FIO.succeed i))
+            let result = runtime.Run(FIO.collectAllPar effects).UnsafeSuccess()
+            Expect.equal result items "collectAllPar should preserve input order for large collections"
+
+        // 28d. FIO.collectAllPar - Large input propagates first failure
+        testPropertyWithConfig fsCheckConfig "FIO.collectAllPar large input propagates first failure"
+        <| fun (runtime: FIORuntime) ->
+            let effects : FIO<int, string> list =
+                [ for i in 1..1_000 ->
+                    if i = 100 then FIO.fail "boom"
+                    else FIO.succeed i ]
+            let result = runtime.Run(FIO.collectAllPar effects).UnsafeError()
+            Expect.equal result "boom" "collectAllPar should propagate first failure for large input"
+
         // 29. FIO.forEach - Maps and collects sequentially
         testPropertyWithConfig fsCheckConfig "FIO.forEach maps and collects sequentially"
         <| fun (runtime: FIORuntime) ->

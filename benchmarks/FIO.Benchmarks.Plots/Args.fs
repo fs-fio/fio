@@ -1,9 +1,11 @@
-﻿/// <summary>
+/// <summary>
 /// Command-line argument parsing for plot generation.
 /// </summary>
 module internal FIO.Benchmarks.Plots.Args
 
 open Argu
+
+open System
 open System.IO
 
 /// <summary>
@@ -25,55 +27,96 @@ type private Arguments =
     /// <summary>Generate line plot visualization.</summary>
     | [<Unique; AltCommandLine("-l")>] LinePlot
     /// <summary>Path to load benchmark data files from.</summary>
-    | [<AltCommandLine("-p")>] LoadPath of absolutePath: string
+    | [<Unique; AltCommandLine("-p")>] LoadPath of absolutePath: string
 
     interface IArgParserTemplate with
         member this.Usage =
             match this with
-            | BoxPlot -> "Generate box plot"
-            | LinePlot -> "Generate line plot"
-            | LoadPath _ -> "Specify path to load benchmark data files from (default is 'boxplot_data' or 'lineplot_data' in the current directory)."
+            | BoxPlot -> "generate box plot"
+            | LinePlot -> "generate line plot"
+            | LoadPath _ -> "specify absolute path to load benchmark data files from (default uses benchmark subfolder in current directory)"
+
+/// <summary>
+/// Parse outcome for plotting CLI parsing.
+/// </summary>
+type internal ParseOutcome =
+    | Parsed of PlotArgs
+    | HelpRequested of usageText: string
+    | InvalidArgs of errorText: string * usageText: string
 
 let private parser =
-    ArgumentParser.Create<Arguments> (programName = "FIO.Benchmarks.Plots")
+    ArgumentParser.Create<Arguments>(programName = "FIO.Benchmarks.Plots")
 
-/// <summary>
-/// Prints the argument parser usage information.
-/// </summary>
-let printUsage () =
-    parser.PrintUsage ()
-    |> printfn "%s"
+let internal usageText () =
+    parser.PrintUsage()
 
-/// <summary>
-/// Prints the program name and provided arguments.
-/// </summary>
-/// <param name="args">Command-line arguments to print.</param>
-let print args =
-    printfn "%s arguments: %s" parser.ProgramName (String.concat " " args)
+let private invalid errorText =
+    InvalidArgs(errorText, usageText())
+
+let private parseErrorSummary (message: string) =
+    if String.IsNullOrWhiteSpace message then
+        "Invalid command line arguments."
+    else
+        let usageIndex = message.IndexOf("USAGE:", StringComparison.OrdinalIgnoreCase)
+        let rawSummary =
+            if usageIndex > 0 then
+                message.Substring(0, usageIndex).Trim()
+            else
+                message.Trim()
+
+        if String.IsNullOrWhiteSpace rawSummary then
+            "Invalid command line arguments."
+        else
+            rawSummary
+                .Split([| '\r'; '\n' |], StringSplitOptions.RemoveEmptyEntries)
+                |> Array.head
+
+let private buildPlotArgs (results: ParseResults<Arguments>) : Result<PlotArgs, string> =
+    let boxPlotSelected = results.Contains BoxPlot
+    let linePlotSelected = results.Contains LinePlot
+
+    let plotTypeResult =
+        match boxPlotSelected, linePlotSelected with
+        | true, false -> Ok PlotType.BoxPlot
+        | false, true -> Ok PlotType.LinePlot
+        | false, false -> Error "Specify exactly one plot type: --boxplot or --lineplot."
+        | true, true -> Error "Specify only one plot type: --boxplot or --lineplot."
+
+    match plotTypeResult with
+    | Error err -> Error err
+    | Ok plotType ->
+        let loadPath =
+            match results.TryGetResult LoadPath with
+            | Some path when not (Path.IsPathFullyQualified path) ->
+                Error "--loadpath must be an absolute path."
+            | Some path ->
+                Ok path
+            | None ->
+                let subfolder =
+                    match plotType with
+                    | PlotType.BoxPlot -> defaultBoxPlotFolder
+                    | PlotType.LinePlot -> defaultLinePlotFolder
+                Ok (Path.Combine(Directory.GetCurrentDirectory(), subfolder))
+
+        match loadPath with
+        | Error err -> Error err
+        | Ok absolutePath ->
+            Ok { PlotType = plotType; LoadPath = absolutePath }
 
 /// <summary>
 /// Parses command-line arguments into a PlotArgs configuration.
 /// </summary>
 /// <param name="args">Command-line arguments to parse.</param>
-/// <returns>Parsed plot arguments configuration.</returns>
+/// <returns>Parsed plot arguments configuration or parse outcome.</returns>
 let parse args =
-    let results = parser.Parse args
-
-    let plotType =
-        match results.Contains BoxPlot, results.Contains LinePlot with
-        | true, false -> PlotType.BoxPlot
-        | false, true -> PlotType.LinePlot
-        | false, false -> invalidArg  (nameof args) "You must specify one of: --boxplot or --lineplot."
-        | true, true -> invalidArg  (nameof args) "Only one plot type can be specified at a time."
-
-    let loadPath =
-        match results.TryGetResult LoadPath with
-        | Some path -> path
-        | None ->
-            let subfolder =
-                match plotType with
-                | PlotType.BoxPlot -> defaultBoxPlotFolder
-                | PlotType.LinePlot -> defaultLinePlotFolder
-            Path.Combine(Directory.GetCurrentDirectory(), subfolder)
-
-    { PlotType = plotType; LoadPath = loadPath }
+    try
+        let results = parser.Parse(args, raiseOnUsage = false)
+        if results.IsUsageRequested then
+            HelpRequested(usageText())
+        else
+            match buildPlotArgs results with
+            | Ok plotArgs -> Parsed plotArgs
+            | Error errorText -> invalid errorText
+    with
+    | :? ArguParseException as ex ->
+        invalid (parseErrorSummary ex.Message)

@@ -87,14 +87,14 @@ and [<Sealed>] internal UnboundedChannel<'R> (id: Guid) =
     /// <summary>
     /// Adds a message asynchronously.
     /// </summary>
-    member internal _.AddAsync (msg: 'R) =
-        chan.Writer.WriteAsync(msg).AsTask()
+    member internal _.AddAsync (msg: 'R) : ValueTask =
+        chan.Writer.WriteAsync msg
 
     /// <summary>
     /// Takes a message asynchronously.
     /// </summary>
-    member internal _.TakeAsync () =
-        chan.Reader.ReadAsync().AsTask()
+    member internal _.TakeAsync () : ValueTask<'R> =
+        chan.Reader.ReadAsync()
 
     /// <summary>
     /// Tries to take a message without blocking.
@@ -105,8 +105,8 @@ and [<Sealed>] internal UnboundedChannel<'R> (id: Guid) =
     /// <summary>
     /// Waits asynchronously until a message is available.
     /// </summary>
-    member internal _.WaitToTakeAsync () =
-        chan.Reader.WaitToReadAsync().AsTask()
+    member internal _.WaitToTakeAsync () : ValueTask<bool> =
+        chan.Reader.WaitToReadAsync()
 
     /// <summary>
     /// Clears all messages from the channel.
@@ -209,6 +209,14 @@ and [<Sealed>] internal FiberContext () =
         Volatile.Read &state = int FiberContextState.Completed
 
     /// <summary>
+    /// Gets whether the fiber has reached a terminal state (completed or interrupted).
+    /// </summary>
+    member internal _.IsTerminal () =
+        let currentState = Volatile.Read &state
+        currentState = int FiberContextState.Completed ||
+        currentState = int FiberContextState.Interrupted
+
+    /// <summary>
     /// Interrupts the fiber with the specified cause and message.
     /// </summary>
     member internal this.Interrupt (?cause, ?msg) =
@@ -219,9 +227,6 @@ and [<Sealed>] internal FiberContext () =
             let interruptError = Error (FiberInterruptedException(id, cause, msg) :> obj)
             resTcs.TrySetResult interruptError |> ignore
             this.DisposeRegistrations()
-            // Clear blocking work items so they're not orphaned
-            // Note: These will be garbage collected since the fiber is now completed
-            blockingWorkItemChan.Clear()
 
     /// <summary>
     /// Gets whether the fiber has been interrupted.
@@ -246,11 +251,11 @@ and [<Sealed>] internal FiberContext () =
         }
 
     /// <summary>
-    /// Tries to reschedule blocking work items if fiber is completed.
+    /// Tries to reschedule blocking work items if fiber is in a terminal state.
     /// </summary>
     member internal this.TryRescheduleBlockingWorkItems (activeWorkItemChan: UnboundedChannel<WorkItem>) =
         task {
-            if not <| this.Completed() then
+            if not <| this.IsTerminal() then
                 return false
             else
                 do! this.RescheduleBlockingWorkItems activeWorkItemChan
@@ -433,6 +438,9 @@ and [<Sealed>] Fiber<'R, 'E> internal () =
 /// A typed communication queue for sending and receiving messages.
 /// </summary>
 and [<Sealed>] Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, blockingWorkItemChan: UnboundedChannel<WorkItem>) =
+    let upcastLock = obj()
+    let mutable upcastChan: Channel<obj> option = None
+    let mutable signalProcessing = 0
 
     /// <summary>
     /// Creates a new channel with a unique identifier.
@@ -493,7 +501,7 @@ and [<Sealed>] Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, bl
         if blockingWorkItemChan.TryTake &workItem then
             activeWorkItemChan.AddAsync workItem
         else
-            Task.FromResult()
+            ValueTask()
 
     /// <summary>
     /// Tries to reschedule next blocking work item if available.
@@ -510,6 +518,19 @@ and [<Sealed>] Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, bl
         }
 
     /// <summary>
+    /// Attempts to transition the channel to "signal processing" state.
+    /// Returns true if the caller owns signal processing.
+    /// </summary>
+    member internal _.TryBeginSignalProcessing () =
+        Interlocked.CompareExchange(&signalProcessing, 1, 0) = 0
+
+    /// <summary>
+    /// Ends signal processing for the channel.
+    /// </summary>
+    member internal _.EndSignalProcessing () =
+        Volatile.Write(&signalProcessing, 0)
+
+    /// <summary>
     /// Gets the count of blocking work items (for runtime use only).
     /// </summary>
     member internal _.BlockingWorkItemCount =
@@ -522,10 +543,21 @@ and [<Sealed>] Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, bl
         resChan
 
     /// <summary>
-    /// Upcasts the channel to Channel&lt;obj&gt; (for runtime use only).
+    /// Upcasts the channel to Channel (for runtime use only).
     /// </summary>
     member internal _.Upcast () =
-        Channel<obj>(id, resChan, blockingWorkItemChan)
+        match upcastChan with
+        | Some cached ->
+            cached
+        | None ->
+            lock upcastLock (fun () ->
+                match upcastChan with
+                | Some cached ->
+                    cached
+                | None ->
+                    let created = Channel<obj>(id, resChan, blockingWorkItemChan)
+                    upcastChan <- Some created
+                    created)
 
 
 /// <summary>
@@ -554,7 +586,7 @@ and FIO<'R, 'E> =
     /// </summary>
     member this.Fork<'E1> () : FIO<Fiber<'R, 'E>, 'E1> =
         let fiber = new Fiber<'R, 'E>()
-        ForkEffect(this.Upcast(), fiber, fiber.Internal)
+        ForkEffect(this.UpcastBoth(), fiber, fiber.Internal)
 
     /// <summary>
     /// Chains this effect with a continuation function (monadic bind).
@@ -578,10 +610,8 @@ and FIO<'R, 'E> =
     /// <param name="finalizer">The finalizer effect to run.</param>
     member this.Ensuring (finalizer: FIO<unit, 'E>) : FIO<'R, 'E> =
         this.FlatMap(fun res ->
-            // Main effect succeeded - finalizer errors should propagate
             finalizer.FlatMap(fun _ -> Success res))
             .CatchAll(fun mainErr ->
-                // Main effect failed - suppress finalizer errors, preserve main error
                 finalizer.CatchAll(fun _ -> Success()).FlatMap(fun _ -> Failure mainErr))
 
     /// <summary>
@@ -616,9 +646,9 @@ and FIO<'R, 'E> =
         | AwaitGenericTPLTask(task, onError) ->
             AwaitGenericTPLTask(task, onError)
         | ChainSuccess(eff, cont) ->
-            ChainSuccess(eff, fun res -> (cont res).UpcastResult())
+            ChainSuccess(eff, fun res -> cont(res).UpcastResult())
         | ChainError(eff, cont) ->
-            ChainError(eff.UpcastResult(), fun err -> (cont err).UpcastResult())
+            ChainError(eff.UpcastResult(), fun err -> cont(err).UpcastResult())
 
     /// <summary>
     /// Upcasts the error type to obj (for runtime use only).
@@ -652,12 +682,42 @@ and FIO<'R, 'E> =
         | AwaitGenericTPLTask(task, onError) ->
             AwaitGenericTPLTask(task, upcastOnError onError)
         | ChainSuccess(eff, cont) ->
-            ChainSuccess(eff.UpcastError(), fun res -> (cont res).UpcastError())
+            ChainSuccess(eff.UpcastError(), fun res -> cont(res).UpcastError())
         | ChainError(eff, cont) ->
-            ChainError(eff, fun err -> (cont err).UpcastError())
+            ChainError(eff, fun err -> cont(err).UpcastError())
 
     /// <summary>
     /// Upcasts both the result and error types to obj (for runtime use only).
     /// </summary>
-    member internal this.Upcast () : FIO<obj, obj> =
-        this.UpcastResult().UpcastError()
+    member internal this.UpcastBoth () : FIO<obj, obj> =
+        match this with
+        | Success res ->
+            Success (res :> obj)
+        | Failure err ->
+            Failure (err :> obj)
+        | InterruptFiber(cause, msg, fiberContext) ->
+            InterruptFiber(cause, msg, fiberContext)
+        | InterruptSelf(cause, msg) ->
+            InterruptSelf(cause, msg)
+        | Action(func, onError) ->
+            Action(upcastFunc func, upcastOnError onError)
+        | SendChan(msg, chan) ->
+            SendChan(msg :> obj, chan.Upcast())
+        | ReceiveChan chan ->
+            ReceiveChan(chan.Upcast())
+        | ForkEffect(eff, fiber, fiberContext) ->
+            ForkEffect(eff, fiber, fiberContext)
+        | ForkTPLTask(taskFactory, onError, fiber, fiberContext) ->
+            ForkTPLTask(taskFactory, upcastOnError onError, fiber, fiberContext)
+        | ForkGenericTPLTask(taskFactory, onError, fiber, fiberContext) ->
+            ForkGenericTPLTask(taskFactory, upcastOnError onError, fiber, fiberContext)
+        | JoinFiber fiberContext ->
+            JoinFiber fiberContext
+        | AwaitTPLTask(task, onError) ->
+            AwaitTPLTask(task, upcastOnError onError)
+        | AwaitGenericTPLTask(task, onError) ->
+            AwaitGenericTPLTask(task, upcastOnError onError)
+        | ChainSuccess(eff, cont) ->
+            ChainSuccess(eff.UpcastError(), fun res -> cont(res).UpcastResult().UpcastError())
+        | ChainError(eff, cont) ->
+            ChainError(eff.UpcastResult(), fun err -> cont(err).UpcastResult().UpcastError())

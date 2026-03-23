@@ -15,25 +15,43 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <Compile Include="Utilities.fs" />
-        <Compile Include="CETests.fs" />
-        <Compile Include="LawsTests.fs" />
-        <Compile Include="ChannelTests.fs" />
- <!--
-        <Compile Include="FactoryTests.fs" />
-        <Compile Include="ExtensionTests.fs" />
-        <Compile Include="OperatorTests.fs" />
-        <Compile Include="FiberTests.fs" />
-        <Compile Include="PromiseTests.fs" />
-        <Compile Include="RuntimeTests.fs" />
-        <Compile Include="RefTests.fs" />
-        <Compile Include="SemaphoreTests.fs" />
-        <Compile Include="ClockTests.fs" />
-        <Compile Include="EnvironmentTests.fs" />
-        <Compile Include="RandomTests.fs" /> -->
+        <!-- Utils -->
+        <Compile Include="Utils/Utilities.fs" />
+        <Compile Include="Utils/MockConsoleBackend.fs" />
 
-        <Compile Include="MockConsoleBackend.fs" />
-        <Compile Include="ConsoleTests.fs" />
+        <!-- DSL -->
+        <Compile Include="DSL/CETests.fs" />
+        <Compile Include="DSL/ChannelTests.fs" />
+<!--
+        <Compile Include="DSL/MemberTests.fs" />
+        <Compile Include="DSL/FactoryTests.fs" />
+        <Compile Include="DSL/ExtensionTests.fs" />
+        <Compile Include="DSL/OperatorTests.fs" />
+        <Compile Include="DSL/FiberTests.fs" />
+-->
+
+        <!-- Lib -->
+        <Compile Include="Lib/ConsoleTests.fs" />
+<!--
+        <Compile Include="Lib/ClockTests.fs" />
+        <Compile Include="Lib/EnvironmentTests.fs" />
+        <Compile Include="Lib/PromiseTests.fs" />
+        <Compile Include="Lib/RandomTests.fs" />
+        <Compile Include="Lib/RefTests.fs" />
+        <Compile Include="Lib/SemaphoreTests.fs" />
+-->
+
+        <!-- Framework -->
+<!--
+        <Compile Include="Framework/AppTests.fs" />
+-->
+
+        <!-- Cross-cutting -->
+<!--
+        <Compile Include="Runtime/RuntimeTests.fs" />
+        <Compile Include="LawsTests.fs" />
+-->
+
         <Compile Include="Program.fs" />
     </ItemGroup>
 
@@ -42,11 +60,11 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="coverlet.collector" Version="8.0.0">
+        <PackageReference Include="coverlet.collector" Version="8.0.1">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.0.1" />
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
         <PackageReference Include="Expecto" Version="10.2.3" />
         <PackageReference Include="Expecto.FsCheck" Version="10.2.3" />
         <PackageReference Include="FsCheck" Version="2.16.6" />
@@ -54,7 +72,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Update="FSharp.Core" Version="10.0.103" />
+        <PackageReference Update="FSharp.Core" Version="10.1.201" />
     </ItemGroup>
 
 </Project>

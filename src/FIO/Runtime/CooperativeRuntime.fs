@@ -6,8 +6,27 @@ module FIO.Runtime.Cooperative
 open FIO.DSL
 
 open System
+open System.Collections.Generic
 open System.Threading
 open System.Threading.Tasks
+
+module private CooperativePolling =
+    // Blocking worker polling/backoff tuning knobs.
+    let BatchSize = 256
+    let PendingQueueCapacityMultiplier = 2
+
+    let ChannelSpinWaitIterations = 256
+    let ChannelSpinMissThreshold = 4_096
+    let ChannelYieldMissThreshold = 65_536
+
+    let FiberSpinWaitIterations = 128
+    let FiberSpinMissThreshold = 512
+    let FiberYieldMissThreshold = 8_192
+    let FiberDelayStep1MissThreshold = 16_384
+    let FiberDelayStep2MissThreshold = 32_768
+    let FiberDelayStep1Ms = 1
+    let FiberDelayStep2Ms = 2
+    let FiberDelayStep3Ms = 4
 
 /// <summary>
 /// Configuration for an evaluation worker.
@@ -41,7 +60,14 @@ and internal BlockingWorkerConfig =
       /// <summary>
       /// Channel for blocking items awaiting resources.
       /// </summary>
-      ActiveBlockingItemChan: UnboundedChannel<BlockingItem> }
+      ActiveBlockingItemChan: UnboundedChannel<BlockingEntry> }
+
+/// <summary>
+/// Blocking item metadata used by cooperative polling workers.
+/// </summary>
+and [<Struct>] internal BlockingEntry =
+    { Item: BlockingItem
+      MissCount: int }
 
 /// <summary>
 /// Worker that evaluates FIO effects.
@@ -65,7 +91,7 @@ and private EvaluationWorker (config: EvaluationWorkerConfig) =
                             loop <- false
                         else
                             let! workItem = config.ActiveWorkItemChan.TakeAsync()
-                            if not (workItem.FiberContext.Completed()) then
+                            if not (workItem.FiberContext.IsTerminal()) then
                                 do! processWorkItem workItem
                     with
                     | :? OperationCanceledException ->
@@ -85,24 +111,129 @@ and private EvaluationWorker (config: EvaluationWorkerConfig) =
 /// </summary>
 /// <param name="config">The blocking worker configuration.</param>
 and internal BlockingWorker (config: BlockingWorkerConfig) =
+    let batchSize = CooperativePolling.BatchSize
+    let pendingQueueCapacity = batchSize * CooperativePolling.PendingQueueCapacityMultiplier
+    let mutable preferChannelFirst = true
+    let channelPending = Queue<BlockingEntry>(pendingQueueCapacity)
+    let fiberPending = Queue<BlockingEntry>(pendingQueueCapacity)
 
-    /// <summary>
-    /// Processes blocking data by checking if the resource is available.
-    /// </summary>
-    /// <param name="blockingItem">The blocking item to process.</param>
-    let rec processBlockingItem blockingItem =
+    let hasPending () =
+        channelPending.Count > 0 || fiberPending.Count > 0
+
+    let enqueuePending (entry: BlockingEntry) =
+        match entry.Item with
+        | BlockingChannel _ -> channelPending.Enqueue entry
+        | BlockingFiber _ -> fiberPending.Enqueue entry
+
+    let tryTakePending (preferChannel: bool, entry: byref<BlockingEntry>) =
+        if preferChannel then
+            if channelPending.Count > 0 then
+                entry <- channelPending.Dequeue()
+                true
+            elif fiberPending.Count > 0 then
+                entry <- fiberPending.Dequeue()
+                true
+            else
+                false
+        else
+            if fiberPending.Count > 0 then
+                entry <- fiberPending.Dequeue()
+                true
+            elif channelPending.Count > 0 then
+                entry <- channelPending.Dequeue()
+                true
+            else
+                false
+
+    let isReady (entry: BlockingEntry) =
+        match entry.Item with
+        | BlockingChannel (chan, _) -> chan.Count > 0
+        | BlockingFiber (fiberContext, _) -> fiberContext.IsTerminal()
+
+    let getWorkItem (entry: BlockingEntry) =
+        match entry.Item with
+        | BlockingChannel (_, workItem) -> workItem
+        | BlockingFiber (_, workItem) -> workItem
+
+    let queueActive (workItem: WorkItem) =
         task {
-            match blockingItem with
-            | BlockingChannel (chan, workItem) ->
-                if chan.Count > 0 then
-                    do! config.ActiveWorkItemChan.AddAsync workItem
+            let addVt = config.ActiveWorkItemChan.AddAsync workItem
+            if not addVt.IsCompletedSuccessfully then
+                do! addVt.AsTask()
+        }
+
+    let applyBackoff (maxChannelMiss: int, maxFiberMiss: int) =
+        task {
+            if maxChannelMiss > 0 then
+                if maxChannelMiss < CooperativePolling.ChannelSpinMissThreshold then
+                    Thread.SpinWait CooperativePolling.ChannelSpinWaitIterations
+                elif maxChannelMiss < CooperativePolling.ChannelYieldMissThreshold then
+                    Thread.Yield() |> ignore
                 else
-                    do! config.ActiveBlockingItemChan.AddAsync blockingItem
-            | BlockingFiber (fiberContext, workItem) ->
-                if fiberContext.Completed() then
-                    do! config.ActiveWorkItemChan.AddAsync workItem
+                    do! Task.Yield()
+            elif maxFiberMiss > 0 then
+                if maxFiberMiss < CooperativePolling.FiberSpinMissThreshold then
+                    Thread.SpinWait CooperativePolling.FiberSpinWaitIterations
+                elif maxFiberMiss < CooperativePolling.FiberYieldMissThreshold then
+                    do! Task.Yield()
                 else
-                    do! config.ActiveBlockingItemChan.AddAsync blockingItem
+                    let delayMs =
+                        if maxFiberMiss < CooperativePolling.FiberDelayStep1MissThreshold then CooperativePolling.FiberDelayStep1Ms
+                        elif maxFiberMiss < CooperativePolling.FiberDelayStep2MissThreshold then CooperativePolling.FiberDelayStep2Ms
+                        else CooperativePolling.FiberDelayStep3Ms
+                    do! Task.Delay delayMs
+        }
+
+    let processBatch () =
+        task {
+            let mutable processed = 0
+            let mutable maxChannelMiss = 0
+            let mutable maxFiberMiss = 0
+            let mutable entry = Unchecked.defaultof<BlockingEntry>
+            let mutable hasEntry = true
+
+            while processed < batchSize && hasEntry do
+                hasEntry <- tryTakePending(preferChannelFirst, &entry)
+                if hasEntry then
+                    processed <- processed + 1
+                    if isReady entry then
+                        do! queueActive (getWorkItem entry)
+                    else
+                        let missed = { entry with MissCount = entry.MissCount + 1 }
+                        enqueuePending missed
+                        match missed.Item with
+                        | BlockingChannel _ ->
+                            if missed.MissCount > maxChannelMiss then
+                                maxChannelMiss <- missed.MissCount
+                        | BlockingFiber _ ->
+                            if missed.MissCount > maxFiberMiss then
+                                maxFiberMiss <- missed.MissCount
+
+            preferChannelFirst <- not preferChannelFirst
+
+            if maxChannelMiss > 0 || maxFiberMiss > 0 then
+                do! applyBackoff (maxChannelMiss, maxFiberMiss)
+        }
+
+    let tryDrainIncoming () =
+        let mutable drained = 0
+        let mutable entry = Unchecked.defaultof<BlockingEntry>
+        while drained < batchSize && config.ActiveBlockingItemChan.TryTake(&entry) do
+            enqueuePending entry
+            drained <- drained + 1
+
+    let waitForFirstIfNeeded (ct: CancellationToken) =
+        task {
+            if hasPending() then
+                return true
+            else
+                let! hasBlockingItem = config.ActiveBlockingItemChan.WaitToTakeAsync()
+                if not hasBlockingItem || ct.IsCancellationRequested then
+                    return false
+                else
+                    let! blockingEntry = config.ActiveBlockingItemChan.TakeAsync()
+                    enqueuePending blockingEntry
+                    return true
         }
     
     let cancellationTokenSource = new CancellationTokenSource ()
@@ -113,12 +244,12 @@ and internal BlockingWorker (config: BlockingWorkerConfig) =
                 let mutable loop = true
                 while loop && not cancellationTokenSource.Token.IsCancellationRequested do
                     try
-                        let! hasBlockingItem = config.ActiveBlockingItemChan.WaitToTakeAsync()
-                        if not hasBlockingItem || cancellationTokenSource.Token.IsCancellationRequested then
+                        let! hasItemToProcess = waitForFirstIfNeeded cancellationTokenSource.Token
+                        if not hasItemToProcess || cancellationTokenSource.Token.IsCancellationRequested then
                             loop <- false
                         else
-                            let! blockingItem = config.ActiveBlockingItemChan.TakeAsync()
-                            do! processBlockingItem blockingItem
+                            tryDrainIncoming()
+                            do! processBatch()
                     with
                     | :? OperationCanceledException ->
                         loop <- false
@@ -137,7 +268,10 @@ and internal BlockingWorker (config: BlockingWorkerConfig) =
     /// </summary>
     /// <param name="blockingItem">The blocking item for the work item.</param>
     member internal _.RescheduleForBlocking blockingItem =
-        config.ActiveBlockingItemChan.AddAsync blockingItem
+        config.ActiveBlockingItemChan.AddAsync {
+            Item = blockingItem
+            MissCount = 0
+        }
 
 /// <summary>
 /// The cooperative runtime for FIO, interpreting effects concurrently using work-stealing.
@@ -147,18 +281,20 @@ and CooperativeRuntime (config: WorkerConfig) as this =
     inherit FIOWorkerRuntime(config)
 
     let activeWorkItemChan = UnboundedChannel<WorkItem>()
-    let activeBlockingItemChan = UnboundedChannel<BlockingItem>()
+    let activeBlockingItemChan = UnboundedChannel<BlockingEntry>()
     let mutable currentFiber: FiberContext option = None
     let runLock = obj()
 
-    let blockingWorker =
-        new BlockingWorker({
-            ActiveWorkItemChan = activeWorkItemChan
-            ActiveBlockingItemChan = activeBlockingItemChan
-        })
+    let blockingWorkers =
+        List.init config.BWC <| fun _ ->
+            new BlockingWorker({
+                ActiveWorkItemChan = activeWorkItemChan
+                ActiveBlockingItemChan = activeBlockingItemChan
+            })
 
     let evaluationWorkers =
-        List.init config.EWC <| fun _ ->
+        List.init config.EWC <| fun i ->
+            let blockingWorker = blockingWorkers.[i % blockingWorkers.Length]
             new EvaluationWorker({
                 Runtime = this
                 ActiveWorkItemChan = activeWorkItemChan
@@ -171,19 +307,14 @@ and CooperativeRuntime (config: WorkerConfig) as this =
 
     interface IDisposable with
         member _.Dispose () =
-            (blockingWorker :> IDisposable).Dispose()
+            blockingWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
             evaluationWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
 
     /// <summary>
     /// Creates a new CooperativeRuntime with default configuration.
     /// </summary>
     new() =
-        new CooperativeRuntime
-            { EWC =
-                let coreCount = Environment.ProcessorCount - 1
-                if coreCount >= 2 then coreCount else 2
-              BWC = 1
-              EWS = 200 }
+        new CooperativeRuntime(WorkerConfig.Default)
 
     /// <summary>
     /// Interprets an FIO effect asynchronously with step-limited evaluation.
@@ -341,7 +472,7 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                                 } :> Task)
                             processSuccess fiber
                         | JoinFiber fiberContext ->
-                            if fiberContext.Completed() then
+                            if fiberContext.IsTerminal() then
                                 let! res = fiberContext.Task
                                 processResult res
                             else
@@ -354,13 +485,19 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                             try
                                 let! res = task.WaitAsync currentFiberContext.CancellationToken
                                 processSuccess res
-                            with exn ->
+                            with
+                            | :? OperationCanceledException when currentFiberContext.CancellationToken.IsCancellationRequested ->
+                                processInterruptError (FiberInterruptedException (currentFiberContext.Id, ExplicitInterrupt, "Task has been cancelled."))
+                            | exn ->
                                 processError (onError exn)
                         | AwaitGenericTPLTask(task, onError) ->
                             try
                                 let! res = task.WaitAsync currentFiberContext.CancellationToken
                                 processSuccess res
-                            with exn ->
+                            with
+                            | :? OperationCanceledException when currentFiberContext.CancellationToken.IsCancellationRequested ->
+                                processInterruptError (FiberInterruptedException (currentFiberContext.Id, ExplicitInterrupt, "Task has been cancelled."))
+                            | exn ->
                                 processError (onError exn)
                         | ChainSuccess(eff, cont) ->
                             currentEff <- eff
@@ -390,20 +527,19 @@ and CooperativeRuntime (config: WorkerConfig) as this =
     override _.Run<'R, 'E> (eff: FIO<'R, 'E>) : Fiber<'R, 'E> =
         lock runLock (fun () ->
             match currentFiber with
-            | Some fiberContext when not (fiberContext.Completed()) ->
+            | Some fiberContext when not (fiberContext.IsTerminal()) ->
                 fiberContext.Task
                 |> Async.AwaitTask
                 |> Async.RunSynchronously
                 |> ignore
-            | _ -> ())
+            | _ -> ()
 
-        this.Reset()
-        let fiber = new Fiber<'R, 'E>()
+            this.Reset()
+            let fiber = new Fiber<'R, 'E>()
+            currentFiber <- Some fiber.Internal
 
-        lock runLock (fun () ->
-            currentFiber <- Some fiber.Internal)
+            let workItem = WorkItemPool.Rent(eff.UpcastBoth(), fiber.Internal, ContStackPool.Rent())
+            activeWorkItemChan.AddAsync workItem
+            |> ignore
 
-        let workItem = WorkItemPool.Rent(eff.Upcast(), fiber.Internal, ContStackPool.Rent())
-        activeWorkItemChan.AddAsync workItem
-        |> ignore
-        fiber
+            fiber)

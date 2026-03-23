@@ -175,13 +175,19 @@ type DirectRuntime () =
                             try
                                 let! res = task.WaitAsync currentFiberContext.CancellationToken
                                 processSuccess res
-                            with exn ->
+                            with
+                            | :? OperationCanceledException when currentFiberContext.CancellationToken.IsCancellationRequested ->
+                                processInterruptError (FiberInterruptedException (currentFiberContext.Id, ExplicitInterrupt, "Task has been cancelled."))
+                            | exn ->
                                 processError(onError exn)
                         | AwaitGenericTPLTask(task, onError) ->
                             try
                                 let! res = task.WaitAsync currentFiberContext.CancellationToken
                                 processSuccess res
-                            with exn ->
+                            with
+                            | :? OperationCanceledException when currentFiberContext.CancellationToken.IsCancellationRequested ->
+                                processInterruptError (FiberInterruptedException (currentFiberContext.Id, ExplicitInterrupt, "Task has been cancelled."))
+                            | exn ->
                                 processError(onError exn)
                         | ChainSuccess(eff, cont) ->
                             currentEff <- eff
@@ -202,23 +208,22 @@ type DirectRuntime () =
     override this.Run<'R, 'E> (eff: FIO<'R, 'E>) : Fiber<'R, 'E> =
         lock runLock (fun () ->
             match currentFiber with
-            | Some fiberContext when not (fiberContext.Completed()) ->
+            | Some fiberContext when not (fiberContext.IsTerminal()) ->
                 fiberContext.Task
                 |> Async.AwaitTask
                 |> Async.RunSynchronously
                 |> ignore
-            | _ -> ())
+            | _ -> ()
 
-        let fiber = new Fiber<'R, 'E>()
+            let fiber = new Fiber<'R, 'E>()
+            currentFiber <- Some fiber.Internal
 
-        lock runLock (fun () ->
-            currentFiber <- Some fiber.Internal)
+            task {
+                try
+                    let! res = this.InterpretAsync (eff.UpcastBoth(), fiber.Internal)
+                    fiber.Internal.Complete res
+                finally
+                    (fiber.Internal :> IDisposable).Dispose()
+            } |> ignore
 
-        task {
-            try
-                let! res = this.InterpretAsync (eff.Upcast(), fiber.Internal)
-                fiber.Internal.Complete res
-            finally
-                (fiber.Internal :> IDisposable).Dispose()
-        } |> ignore
-        fiber
+            fiber)

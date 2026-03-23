@@ -240,8 +240,19 @@ type RefValue<'T when 'T : struct> private (initial: 'T) =
     member _.CompareAndSet (expected: 'T, newValue: 'T, onError: exn -> 'E) : FIO<bool, 'E> =
         FIO.attempt((fun () ->
             let boxedExpected = box expected
-            let result = Interlocked.CompareExchange(&value, box newValue, boxedExpected)
-            obj.Equals(result, boxedExpected)), onError)
+            let boxedNewValue = box newValue
+            let mutable finished = false
+            let mutable swapped = false
+
+            while not finished do
+                let current = Volatile.Read(&value)
+                if not <| obj.Equals(current, boxedExpected) then
+                    finished <- true
+                elif obj.ReferenceEquals(Interlocked.CompareExchange(&value, boxedNewValue, current), current) then
+                    swapped <- true
+                    finished <- true
+
+            swapped), onError)
 
     /// <summary>Atomically compares and sets if current value equals expected, returning true if successful.</summary>
     /// <param name="expected">Expected current value.</param>
@@ -249,8 +260,19 @@ type RefValue<'T when 'T : struct> private (initial: 'T) =
     member _.CompareAndSetExn (expected: 'T, newValue: 'T) : FIO<bool, exn> =
         FIO.attemptExn(fun () ->
             let boxedExpected = box expected
-            let result = Interlocked.CompareExchange(&value, box newValue, boxedExpected)
-            obj.Equals(result, boxedExpected))
+            let boxedNewValue = box newValue
+            let mutable finished = false
+            let mutable swapped = false
+
+            while not finished do
+                let current = Volatile.Read(&value)
+                if not <| obj.Equals(current, boxedExpected) then
+                    finished <- true
+                elif obj.ReferenceEquals(Interlocked.CompareExchange(&value, boxedNewValue, current), current) then
+                    swapped <- true
+                    finished <- true
+
+            swapped)
 
     /// <summary>Atomically modifies the value and returns a computed result.</summary>
     /// <param name="f">Function returning (new value, result) tuple.</param>
