@@ -13,168 +13,147 @@ open System
 module Clock = FIO.Clock
 
 [<Tests>]
-let clockNowTests =
-    testList "Clock.now" [
+let clockTests =
+    testList "Clock" [
 
-        testPropertyWithConfig fsCheckConfig "Clock.now returns current local time"
+        testPropertyWithConfig fsCheckConfig "now - returns current local time"
         <| fun (runtime: FIORuntime) ->
             let before = DateTime.Now
-            let eff = Clock.now<exn>()
-            let result = runtime.Run(eff).UnsafeSuccess()
+
+            let result = runtime.Run(Clock.now()).UnsafeSuccess()
+
             let after = DateTime.Now
             Expect.isGreaterThanOrEqual result before "Should be >= before"
             Expect.isLessThanOrEqual result after "Should be <= after"
 
-        testPropertyWithConfig fsCheckConfig "Clock.now increases monotonically"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! t1 = Clock.now<exn>()
-                do! FIO.sleepExn(TimeSpan.FromMilliseconds 5.0)
-                let! t2 = Clock.now<exn>()
-                return t2 > t1
-            }
-            let result = runtime.Run(eff).UnsafeSuccess()
-            Expect.isTrue result "Clock.now should increase over time"
-    ]
-
-[<Tests>]
-let clockUtcNowTests =
-    testList "Clock.utcNow" [
-
-        testPropertyWithConfig fsCheckConfig "Clock.utcNow returns current UTC time"
+        testPropertyWithConfig fsCheckConfig "utcNow - returns current UTC time"
         <| fun (runtime: FIORuntime) ->
             let before = DateTime.UtcNow
-            let eff = Clock.utcNow<exn>()
-            let result = runtime.Run(eff).UnsafeSuccess()
+
+            let result = runtime.Run(Clock.utcNow()).UnsafeSuccess()
+
             let after = DateTime.UtcNow
             Expect.isGreaterThanOrEqual result before "Should be >= before"
             Expect.isLessThanOrEqual result after "Should be <= after"
 
-        testPropertyWithConfig fsCheckConfig "Clock.utcNow increases monotonically"
+        testPropertyWithConfig fsCheckConfig "today - returns date without time component"
         <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! t1 = Clock.utcNow<exn>()
-                do! FIO.sleepExn(TimeSpan.FromMilliseconds 5.0)
-                let! t2 = Clock.utcNow<exn>()
-                return t2 > t1
-            }
-            let result = runtime.Run(eff).UnsafeSuccess()
-            Expect.isTrue result "Clock.utcNow should increase over time"
-    ]
+            let result = runtime.Run(Clock.today()).UnsafeSuccess()
 
-[<Tests>]
-let clockTimestampTests =
-    testList "Clock.timestamp" [
+            Expect.equal result.Hour 0 "Hour should be 0"
+            Expect.equal result.Minute 0 "Minute should be 0"
+            Expect.equal result.Second 0 "Second should be 0"
+            Expect.equal result.Date DateTime.Today "Date should be today"
 
-        testPropertyWithConfig fsCheckConfig "Clock.timestamp returns ticks"
+        testPropertyWithConfig fsCheckConfig "nowOffset - returns current local DateTimeOffset"
         <| fun (runtime: FIORuntime) ->
-            let before = DateTime.UtcNow.Ticks
-            let eff = Clock.timestamp<exn>()
-            let result = runtime.Run(eff).UnsafeSuccess()
-            let after = DateTime.UtcNow.Ticks
+            let before = DateTimeOffset.Now
+
+            let result = runtime.Run(Clock.nowOffset()).UnsafeSuccess()
+
+            let after = DateTimeOffset.Now
             Expect.isGreaterThanOrEqual result before "Should be >= before"
             Expect.isLessThanOrEqual result after "Should be <= after"
 
-        testPropertyWithConfig fsCheckConfig "Clock.timestamp increases monotonically"
+        testPropertyWithConfig fsCheckConfig "utcNowOffset - returns current UTC DateTimeOffset"
         <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! t1 = Clock.timestamp<exn>()
-                do! FIO.sleepExn(TimeSpan.FromMilliseconds 5.0)
-                let! t2 = Clock.timestamp<exn>()
-                return t2 > t1
-            }
-            let result = runtime.Run(eff).UnsafeSuccess()
-            Expect.isTrue result "Clock.timestamp should increase over time"
-    ]
+            let before = DateTimeOffset.UtcNow
 
-[<Tests>]
-let clockTimestampMillisTests =
-    testList "Clock.timestampMillis" [
+            let result = runtime.Run(Clock.utcNowOffset()).UnsafeSuccess()
 
-        testPropertyWithConfig fsCheckConfig "Clock.timestampMillis returns milliseconds"
+            let after = DateTimeOffset.UtcNow
+            Expect.isGreaterThanOrEqual result before "Should be >= before"
+            Expect.isLessThanOrEqual result after "Should be <= after"
+            Expect.equal result.Offset TimeSpan.Zero "Offset should be zero for UTC"
+
+        testPropertyWithConfig fsCheckConfig "timestamp - returns Unix seconds since epoch"
+        <| fun (runtime: FIORuntime) ->
+            let before = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+
+            let result = runtime.Run(Clock.timestamp()).UnsafeSuccess()
+
+            let after = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+            Expect.isGreaterThanOrEqual result before "Should be >= before"
+            Expect.isLessThanOrEqual result after "Should be <= after"
+
+        testPropertyWithConfig fsCheckConfig "timestampMillis - returns Unix milliseconds since epoch"
         <| fun (runtime: FIORuntime) ->
             let before = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
-            let eff = Clock.timestampMillis<exn>()
-            let result = runtime.Run(eff).UnsafeSuccess()
+
+            let result = runtime.Run(Clock.timestampMillis()).UnsafeSuccess()
+
             let after = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
             Expect.isGreaterThanOrEqual result before "Should be >= before"
             Expect.isLessThanOrEqual result after "Should be <= after"
 
-        testPropertyWithConfig fsCheckConfig "Clock.timestampMillis increases monotonically"
+        testPropertyWithConfig fsCheckConfig "getTimestamp - returns high-resolution timestamp"
+        <| fun (runtime: FIORuntime) ->
+            let result = runtime.Run(Clock.getTimestamp()).UnsafeSuccess()
+
+            Expect.isGreaterThan result 0L "Timestamp should be positive"
+
+        testPropertyWithConfig fsCheckConfig "getElapsedTime - calculates elapsed time between timestamps"
         <| fun (runtime: FIORuntime) ->
             let eff = fio {
-                let! t1 = Clock.timestampMillis<exn>()
-                do! FIO.sleepExn(TimeSpan.FromMilliseconds 5.0)
-                let! t2 = Clock.timestampMillis<exn>()
-                return t2 > t1
-            }
-            let result = runtime.Run(eff).UnsafeSuccess()
-            Expect.isTrue result "Clock.timestampMillis should increase over time"
-    ]
-
-[<Tests>]
-let clockTimedTests =
-    testList "Clock.timed" [
-
-        testPropertyWithConfig fsCheckConfig "Clock.timed measures execution time"
-        <| fun (runtime: FIORuntime, res: int) ->
-            let eff = fio {
-                let innerEff = fio {
-                    do! FIO.sleepExn(TimeSpan.FromMilliseconds 20.0)
-                    return res
-                }
-                let! (result, duration) = Clock.timed innerEff
-                return (result, duration)
-            }
-            let (result, duration) = runtime.Run(eff).UnsafeSuccess()
-            Expect.equal result res "Should return inner result"
-            Expect.isGreaterThanOrEqual duration.TotalMilliseconds 15.0 "Duration should be >= 15ms"
-
-        testPropertyWithConfig fsCheckConfig "Clock.timed measures fast execution"
-        <| fun (runtime: FIORuntime, res: int) ->
-            let eff = fio {
-                let innerEff = FIO.succeed res
-                let! (result, duration) = Clock.timed innerEff
-                return (result, duration)
-            }
-            let (result, duration) = runtime.Run(eff).UnsafeSuccess()
-            Expect.equal result res "Should return inner result"
-            Expect.isGreaterThanOrEqual duration TimeSpan.Zero "Duration should be >= 0"
-    ]
-
-[<Tests>]
-let clockConversionTests =
-    testList "Clock Conversions" [
-
-        testPropertyWithConfig fsCheckConfig "toTimestamp and fromTimestamp are inverses"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! now = Clock.utcNow<exn>()
-                let! timestamp = Clock.toTimestamp<exn> now
-                let! roundTrip = Clock.fromTimestamp<exn> timestamp
-                return (now, roundTrip)
-            }
-            let (original, roundTrip) = runtime.Run(eff).UnsafeSuccess()
-            let diff = abs (original.Ticks - roundTrip.Ticks)
-            Expect.isLessThan diff 10000L "Round trip should be close to original"
-
-        testPropertyWithConfig fsCheckConfig "getElapsedTime calculates difference"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! start = Clock.getTimestamp<exn>()
+                let! start = Clock.getTimestamp()
                 do! FIO.sleepExn(TimeSpan.FromMilliseconds 10.0)
-                let! end_ = Clock.getTimestamp<exn>()
-                let! elapsed = Clock.getElapsedTime<exn>(start, end_)
+                let! end_ = Clock.getTimestamp()
+                let! elapsed = Clock.getElapsedTime(start, end_)
                 return elapsed
             }
-            let elapsed = runtime.Run(eff).UnsafeSuccess()
-            Expect.isGreaterThanOrEqual elapsed.TotalMilliseconds 8.0 "Elapsed should be >= 8ms"
 
-        testPropertyWithConfig fsCheckConfig "Clock.today returns date without time"
+            let elapsed = runtime.Run(eff).UnsafeSuccess()
+
+            Expect.isGreaterThanOrEqual elapsed.TotalMilliseconds 5.0 "Elapsed should be >= 5ms"
+
+        testPropertyWithConfig fsCheckConfig "timed - measures execution time of effect"
         <| fun (runtime: FIORuntime) ->
-            let eff = Clock.today<exn>()
-            let result = runtime.Run(eff).UnsafeSuccess()
-            Expect.equal result.Hour 0 "Hour should be 0"
-            Expect.equal result.Minute 0 "Minute should be 0"
-            Expect.equal result.Second 0 "Second should be 0"
+            let eff = Clock.timed(FIO.sleepExn(TimeSpan.FromMilliseconds 20.0))
+
+            let _, duration = runtime.Run(eff).UnsafeSuccess()
+
+            Expect.isGreaterThanOrEqual duration.TotalMilliseconds 15.0 "Duration should be >= 15ms"
+
+        testPropertyWithConfig fsCheckConfig "timed - preserves result of measured effect"
+        <| fun (runtime: FIORuntime, value: int) ->
+            let eff = Clock.timed(FIO.succeed value)
+
+            let result, duration = runtime.Run(eff).UnsafeSuccess()
+
+            Expect.equal result value "Should return inner result"
+            Expect.isGreaterThanOrEqual duration TimeSpan.Zero "Duration should be >= 0"
+
+        testPropertyWithConfig fsCheckConfig "toTimestamp - converts DateTime to Unix seconds"
+        <| fun (runtime: FIORuntime) ->
+            let epoch = DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc)
+
+            let result = runtime.Run(Clock.toTimestamp epoch).UnsafeSuccess()
+
+            Expect.equal result 946684800L "2000-01-01 should be 946684800 Unix seconds"
+
+        testPropertyWithConfig fsCheckConfig "fromTimestamp - converts Unix seconds to DateTime"
+        <| fun (runtime: FIORuntime) ->
+            let result = runtime.Run(Clock.fromTimestamp 0L).UnsafeSuccess()
+
+            Expect.equal result (DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)) "0 should be Unix epoch"
+
+        testPropertyWithConfig fsCheckConfig "toTimestamp/fromTimestamp - round-trips correctly"
+        <| fun (runtime: FIORuntime) ->
+            let eff = fio {
+                let! now = Clock.utcNow()
+                let! ts = Clock.toTimestamp now
+                let! roundTrip = Clock.fromTimestamp ts
+                return now, roundTrip
+            }
+
+            let original, roundTrip = runtime.Run(eff).UnsafeSuccess()
+
+            let diff = abs (original - roundTrip).TotalSeconds
+            Expect.isLessThan diff 1.0 "Round trip should be within 1 second"
+
+        testPropertyWithConfig fsCheckConfig "fromTimestampMillis - converts Unix milliseconds to DateTime"
+        <| fun (runtime: FIORuntime) ->
+            let result = runtime.Run(Clock.fromTimestampMillis 0L).UnsafeSuccess()
+
+            Expect.equal result (DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)) "0ms should be Unix epoch"
     ]

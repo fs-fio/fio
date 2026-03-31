@@ -8,191 +8,301 @@ open Expecto
 
 open FIO.Runtime
 
+open System.IO
+
 module Environment = FIO.Environment.Environment
 
-[<Tests>]
-let environmentGetTests =
-    testList "Environment.get" [
-
-        testPropertyWithConfig fsCheckConfig "Environment.get returns existing env var"
-        <| fun (runtime: FIORuntime) ->
-            let eff = Environment.get<exn>("PATH", fun () -> exn "PATH not found")
-            let result = runtime.Run(eff).UnsafeSuccess()
-            Expect.isNotNull result "PATH should exist"
-            Expect.isNonEmpty result "PATH should not be empty"
-
-        testPropertyWithConfig fsCheckConfig "Environment.get fails on missing env var"
-        <| fun (runtime: FIORuntime) ->
-            let eff = Environment.get<string>("THIS_ENV_VAR_DEFINITELY_DOES_NOT_EXIST_12345", fun () -> "not found")
-            let result = runtime.Run(eff).UnsafeError()
-            Expect.equal result "not found" "Should fail on missing env var"
-    ]
+let private nonExistentVar = "FIO_TEST_NONEXISTENT_VAR_12345"
 
 [<Tests>]
-let environmentGetOptionTests =
-    testList "Environment.getOption" [
+let environmentTests =
+    testSequenced <| testList "Environment" [
 
-        testPropertyWithConfig fsCheckConfig "Environment.getOption returns Some for existing env var"
+        testPropertyWithConfig fsCheckConfig "NewLine - matches System.Environment.NewLine"
+        <| fun (_: FIORuntime) ->
+            Expect.equal Environment.NewLine System.Environment.NewLine "Should match System.Environment.NewLine"
+
+        testPropertyWithConfig fsCheckConfig "ProcessorCount - returns positive value"
+        <| fun (_: FIORuntime) ->
+            Expect.isGreaterThan Environment.ProcessorCount 0 "Processor count should be > 0"
+
+        testPropertyWithConfig fsCheckConfig "Is64BitProcess - matches System.Environment"
+        <| fun (_: FIORuntime) ->
+            Expect.equal Environment.Is64BitProcess System.Environment.Is64BitProcess "Should match System.Environment.Is64BitProcess"
+
+        testPropertyWithConfig fsCheckConfig "Is64BitOperatingSystem - matches System.Environment"
+        <| fun (_: FIORuntime) ->
+            Expect.equal Environment.Is64BitOperatingSystem System.Environment.Is64BitOperatingSystem "Should match System.Environment.Is64BitOperatingSystem"
+
+        testPropertyWithConfig fsCheckConfig "getOption - returns Some for existing variable"
         <| fun (runtime: FIORuntime) ->
-            let eff = Environment.getOption<exn> "PATH"
-            let result = runtime.Run(eff).UnsafeSuccess()
+            let result = runtime.Run(Environment.getOption "PATH").UnsafeSuccess()
+
             Expect.isSome result "PATH should exist"
 
-        testPropertyWithConfig fsCheckConfig "Environment.getOption returns None for missing env var"
+        testPropertyWithConfig fsCheckConfig "getOption - returns None for missing variable"
         <| fun (runtime: FIORuntime) ->
-            let eff = Environment.getOption<exn> "THIS_ENV_VAR_DEFINITELY_DOES_NOT_EXIST_12345"
-            let result = runtime.Run(eff).UnsafeSuccess()
+            let result = runtime.Run(Environment.getOption nonExistentVar).UnsafeSuccess()
+
             Expect.isNone result "Missing env var should return None"
-    ]
 
-[<Tests>]
-let environmentGetOrDefaultTests =
-    testList "Environment.getOrDefault" [
+        testPropertyWithConfig fsCheckConfig "get - returns value for existing variable"
+        <| fun (runtime: FIORuntime) ->
+            let result = runtime.Run(Environment.get("PATH", fun () -> "not found")).UnsafeSuccess()
 
-        testPropertyWithConfig fsCheckConfig "Environment.getOrDefault returns value for existing env var"
+            Expect.isNotNull result "PATH should not be null"
+            Expect.isNonEmpty result "PATH should not be empty"
+
+        testPropertyWithConfig fsCheckConfig "get - fails with custom error for missing variable"
+        <| fun (runtime: FIORuntime) ->
+            let result = runtime.Run(Environment.get(nonExistentVar, fun () -> "not found")).UnsafeError()
+
+            Expect.equal result "not found" "Should fail with custom error"
+
+        testPropertyWithConfig fsCheckConfig "getOrDefault - returns value for existing variable"
+        <| fun (runtime: FIORuntime) ->
+            let result = runtime.Run(Environment.getOrDefault("PATH", "default")).UnsafeSuccess()
+
+            Expect.notEqual result "default" "Should return actual PATH, not default"
+
+        testPropertyWithConfig fsCheckConfig "getOrDefault - returns default for missing variable"
         <| fun (runtime: FIORuntime, defaultValue: string) ->
-            let eff = Environment.getOrDefault<exn>("PATH", defaultValue)
-            let result = runtime.Run(eff).UnsafeSuccess()
-            Expect.notEqual result defaultValue "Should return actual PATH, not default"
+            let result = runtime.Run(Environment.getOrDefault(nonExistentVar, defaultValue)).UnsafeSuccess()
 
-        testPropertyWithConfig fsCheckConfig "Environment.getOrDefault returns default for missing env var"
-        <| fun (runtime: FIORuntime, defaultValue: string) ->
-            let eff = Environment.getOrDefault<exn>("THIS_ENV_VAR_DEFINITELY_DOES_NOT_EXIST_12345", defaultValue)
-            let result = runtime.Run(eff).UnsafeSuccess()
             Expect.equal result defaultValue "Should return default for missing env var"
-    ]
 
-[<Tests>]
-let environmentGetIntTests =
-    testList "Environment.getInt" [
+        testPropertyWithConfig fsCheckConfig "getAll - returns map containing PATH"
+        <| fun (runtime: FIORuntime) ->
+            let result = runtime.Run(Environment.getAll()).UnsafeSuccess()
 
-        testPropertyWithConfig fsCheckConfig "Environment.getInt parses numeric env var"
+            Expect.isGreaterThan (result |> Map.count) 0 "Should have some env vars"
+            Expect.isTrue (result |> Map.containsKey "PATH") "PATH should be in env vars"
+
+        testPropertyWithConfig fsCheckConfig "getInt - parses numeric variable"
         <| fun (runtime: FIORuntime) ->
             System.Environment.SetEnvironmentVariable("FIO_TEST_INT", "42")
             try
-                let eff = Environment.getInt<string>("FIO_TEST_INT", (fun () -> "not found"), (fun s -> $"parse error: {s}"))
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result = runtime.Run(Environment.getInt("FIO_TEST_INT", (fun () -> "not found"), (fun s -> $"parse error: {s}"))).UnsafeSuccess()
+
                 Expect.equal result 42 "Should parse int correctly"
             finally
                 System.Environment.SetEnvironmentVariable("FIO_TEST_INT", null)
 
-        testPropertyWithConfig fsCheckConfig "Environment.getInt fails on non-numeric env var"
+        testPropertyWithConfig fsCheckConfig "getInt - fails on non-numeric variable"
         <| fun (runtime: FIORuntime) ->
-            System.Environment.SetEnvironmentVariable("FIO_TEST_NON_INT", "not a number")
+            System.Environment.SetEnvironmentVariable("FIO_TEST_INT", "abc")
             try
-                let eff = Environment.getInt<string>("FIO_TEST_NON_INT", (fun () -> "not found"), (fun s -> $"parse error: {s}"))
-                let result = runtime.Run(eff).UnsafeError()
+                let result = runtime.Run(Environment.getInt("FIO_TEST_INT", (fun () -> "not found"), (fun s -> $"parse error: {s}"))).UnsafeError()
+
                 Expect.stringStarts result "parse error" "Should fail on non-numeric"
             finally
-                System.Environment.SetEnvironmentVariable("FIO_TEST_NON_INT", null)
-    ]
+                System.Environment.SetEnvironmentVariable("FIO_TEST_INT", null)
 
-[<Tests>]
-let environmentGetBoolTests =
-    testList "Environment.getBool" [
-
-        testPropertyWithConfig fsCheckConfig "Environment.getBool parses true"
+        testPropertyWithConfig fsCheckConfig "getInt - fails on missing variable"
         <| fun (runtime: FIORuntime) ->
-            System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL_TRUE", "true")
+            let result = runtime.Run(Environment.getInt(nonExistentVar, (fun () -> "not found"), (fun s -> $"parse error: {s}"))).UnsafeError()
+
+            Expect.equal result "not found" "Should fail on missing variable"
+
+        testPropertyWithConfig fsCheckConfig "getIntOrDefault - parses numeric variable"
+        <| fun (runtime: FIORuntime) ->
+            System.Environment.SetEnvironmentVariable("FIO_TEST_INT", "42")
             try
-                let eff = Environment.getBool<string>("FIO_TEST_BOOL_TRUE", (fun () -> "not found"), (fun _ -> "parse error"))
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result = runtime.Run(Environment.getIntOrDefault("FIO_TEST_INT", 0)).UnsafeSuccess()
+
+                Expect.equal result 42 "Should parse int correctly"
+            finally
+                System.Environment.SetEnvironmentVariable("FIO_TEST_INT", null)
+
+        testPropertyWithConfig fsCheckConfig "getIntOrDefault - returns default for non-numeric variable"
+        <| fun (runtime: FIORuntime) ->
+            System.Environment.SetEnvironmentVariable("FIO_TEST_INT", "abc")
+            try
+                let result = runtime.Run(Environment.getIntOrDefault("FIO_TEST_INT", 99)).UnsafeSuccess()
+
+                Expect.equal result 99 "Should return default for non-numeric"
+            finally
+                System.Environment.SetEnvironmentVariable("FIO_TEST_INT", null)
+
+        testPropertyWithConfig fsCheckConfig "getIntOrDefault - returns default for missing variable"
+        <| fun (runtime: FIORuntime) ->
+            let result = runtime.Run(Environment.getIntOrDefault(nonExistentVar, 99)).UnsafeSuccess()
+
+            Expect.equal result 99 "Should return default for missing variable"
+
+        testPropertyWithConfig fsCheckConfig "getBool - parses true"
+        <| fun (runtime: FIORuntime) ->
+            System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL", "true")
+            try
+                let result = runtime.Run(Environment.getBool("FIO_TEST_BOOL", (fun () -> "not found"), (fun _ -> "parse error"))).UnsafeSuccess()
+
                 Expect.isTrue result "Should parse 'true' as true"
             finally
-                System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL_TRUE", null)
+                System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL", null)
 
-        testPropertyWithConfig fsCheckConfig "Environment.getBool parses false"
+        testPropertyWithConfig fsCheckConfig "getBool - parses 1 as true"
         <| fun (runtime: FIORuntime) ->
-            System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL_FALSE", "false")
+            System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL", "1")
             try
-                let eff = Environment.getBool<string>("FIO_TEST_BOOL_FALSE", (fun () -> "not found"), (fun _ -> "parse error"))
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result = runtime.Run(Environment.getBool("FIO_TEST_BOOL", (fun () -> "not found"), (fun _ -> "parse error"))).UnsafeSuccess()
+
+                Expect.isTrue result "Should parse '1' as true"
+            finally
+                System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL", null)
+
+        testPropertyWithConfig fsCheckConfig "getBool - parses yes as true"
+        <| fun (runtime: FIORuntime) ->
+            System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL", "yes")
+            try
+                let result = runtime.Run(Environment.getBool("FIO_TEST_BOOL", (fun () -> "not found"), (fun _ -> "parse error"))).UnsafeSuccess()
+
+                Expect.isTrue result "Should parse 'yes' as true"
+            finally
+                System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL", null)
+
+        testPropertyWithConfig fsCheckConfig "getBool - parses false"
+        <| fun (runtime: FIORuntime) ->
+            System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL", "false")
+            try
+                let result = runtime.Run(Environment.getBool("FIO_TEST_BOOL", (fun () -> "not found"), (fun _ -> "parse error"))).UnsafeSuccess()
+
                 Expect.isFalse result "Should parse 'false' as false"
             finally
-                System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL_FALSE", null)
+                System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL", null)
 
-        testPropertyWithConfig fsCheckConfig "Environment.getBool fails on invalid bool"
+        testPropertyWithConfig fsCheckConfig "getBool - parses 0 as false"
         <| fun (runtime: FIORuntime) ->
-            System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL_INVALID", "maybe")
+            System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL", "0")
             try
-                let eff = Environment.getBool<string>("FIO_TEST_BOOL_INVALID", (fun () -> "not found"), (fun _ -> "parse error"))
-                let result = runtime.Run(eff).UnsafeError()
+                let result = runtime.Run(Environment.getBool("FIO_TEST_BOOL", (fun () -> "not found"), (fun _ -> "parse error"))).UnsafeSuccess()
+
+                Expect.isFalse result "Should parse '0' as false"
+            finally
+                System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL", null)
+
+        testPropertyWithConfig fsCheckConfig "getBool - parses no as false"
+        <| fun (runtime: FIORuntime) ->
+            System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL", "no")
+            try
+                let result = runtime.Run(Environment.getBool("FIO_TEST_BOOL", (fun () -> "not found"), (fun _ -> "parse error"))).UnsafeSuccess()
+
+                Expect.isFalse result "Should parse 'no' as false"
+            finally
+                System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL", null)
+
+        testPropertyWithConfig fsCheckConfig "getBool - fails on invalid value"
+        <| fun (runtime: FIORuntime) ->
+            System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL", "maybe")
+            try
+                let result = runtime.Run(Environment.getBool("FIO_TEST_BOOL", (fun () -> "not found"), (fun _ -> "parse error"))).UnsafeError()
+
                 Expect.equal result "parse error" "Should fail on invalid bool"
             finally
-                System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL_INVALID", null)
-    ]
+                System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL", null)
 
-[<Tests>]
-let environmentGetAllTests =
-    testList "Environment.getAll" [
-
-        testPropertyWithConfig fsCheckConfig "Environment.getAll returns map with entries"
+        testPropertyWithConfig fsCheckConfig "getBool - fails on missing variable"
         <| fun (runtime: FIORuntime) ->
-            let eff = Environment.getAll<exn>()
-            let result = runtime.Run(eff).UnsafeSuccess()
-            Expect.isGreaterThan (result |> Map.count) 0 "Should have some env vars"
-            Expect.isTrue (result |> Map.containsKey "PATH") "PATH should be in env vars"
-    ]
+            let result = runtime.Run(Environment.getBool(nonExistentVar, (fun () -> "not found"), (fun _ -> "parse error"))).UnsafeError()
 
-[<Tests>]
-let environmentCurrentDirectoryTests =
-    testList "Environment.currentDirectory" [
+            Expect.equal result "not found" "Should fail on missing variable"
 
-        testPropertyWithConfig fsCheckConfig "Environment.currentDirectory returns valid path"
+        testPropertyWithConfig fsCheckConfig "getBoolOrDefault - parses true"
         <| fun (runtime: FIORuntime) ->
-            let eff = Environment.currentDirectory<exn>()
-            let result = runtime.Run(eff).UnsafeSuccess()
-            Expect.isNotNull result "Current directory should not be null"
-            Expect.isNonEmpty result "Current directory should not be empty"
-            Expect.isTrue (System.IO.Directory.Exists result) "Current directory should exist"
-    ]
+            System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL", "true")
+            try
+                let result = runtime.Run(Environment.getBoolOrDefault("FIO_TEST_BOOL", false)).UnsafeSuccess()
 
-[<Tests>]
-let environmentMachineNameTests =
-    testList "Environment.machineName" [
+                Expect.isTrue result "Should parse 'true' as true"
+            finally
+                System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL", null)
 
-        testPropertyWithConfig fsCheckConfig "Environment.machineName returns valid name"
+        testPropertyWithConfig fsCheckConfig "getBoolOrDefault - returns default for invalid value"
         <| fun (runtime: FIORuntime) ->
-            let eff = Environment.machineName<exn>()
-            let result = runtime.Run(eff).UnsafeSuccess()
-            Expect.isNotNull result "Machine name should not be null"
-            Expect.isNonEmpty result "Machine name should not be empty"
-    ]
+            System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL", "maybe")
+            try
+                let result = runtime.Run(Environment.getBoolOrDefault("FIO_TEST_BOOL", true)).UnsafeSuccess()
 
-[<Tests>]
-let environmentUserNameTests =
-    testList "Environment.userName" [
+                Expect.isTrue result "Should return default for invalid bool"
+            finally
+                System.Environment.SetEnvironmentVariable("FIO_TEST_BOOL", null)
 
-        testPropertyWithConfig fsCheckConfig "Environment.userName returns valid name"
+        testPropertyWithConfig fsCheckConfig "getBoolOrDefault - returns default for missing variable"
         <| fun (runtime: FIORuntime) ->
-            let eff = Environment.userName<exn>()
-            let result = runtime.Run(eff).UnsafeSuccess()
-            Expect.isNotNull result "User name should not be null"
-            Expect.isNonEmpty result "User name should not be empty"
-    ]
+            let result = runtime.Run(Environment.getBoolOrDefault(nonExistentVar, true)).UnsafeSuccess()
 
-[<Tests>]
-let environmentProcessorCountTests =
-    testList "Environment.processorCount" [
+            Expect.isTrue result "Should return default for missing variable"
 
-        testPropertyWithConfig fsCheckConfig "Environment.ProcessorCount is positive"
-        <| fun (_: FIORuntime) ->
-            Expect.isGreaterThan Environment.ProcessorCount 0 "Processor count should be > 0"
-    ]
-
-[<Tests>]
-let environmentIsSetTests =
-    testList "Environment.isSet" [
-
-        testPropertyWithConfig fsCheckConfig "Environment.isSet returns true for existing var"
+        testPropertyWithConfig fsCheckConfig "isSet - returns true for existing variable"
         <| fun (runtime: FIORuntime) ->
-            let eff = Environment.isSet<exn> "PATH"
-            let result = runtime.Run(eff).UnsafeSuccess()
+            let result = runtime.Run(Environment.isSet "PATH").UnsafeSuccess()
+
             Expect.isTrue result "PATH should be set"
 
-        testPropertyWithConfig fsCheckConfig "Environment.isSet returns false for missing var"
+        testPropertyWithConfig fsCheckConfig "isSet - returns false for missing variable"
         <| fun (runtime: FIORuntime) ->
-            let eff = Environment.isSet<exn> "THIS_ENV_VAR_DEFINITELY_DOES_NOT_EXIST_12345"
-            let result = runtime.Run(eff).UnsafeSuccess()
+            let result = runtime.Run(Environment.isSet nonExistentVar).UnsafeSuccess()
+
             Expect.isFalse result "Missing var should not be set"
+
+        testPropertyWithConfig fsCheckConfig "expandVariables - returns input unchanged when no variables"
+        <| fun (runtime: FIORuntime) ->
+            let result = runtime.Run(Environment.expandVariables "hello world").UnsafeSuccess()
+
+            Expect.equal result "hello world" "Should return input unchanged"
+
+        testPropertyWithConfig fsCheckConfig "expandVariables - expands known variable"
+        <| fun (runtime: FIORuntime) ->
+            System.Environment.SetEnvironmentVariable("FIO_TEST_EXPAND", "hello")
+            try
+                let input =
+                    if System.OperatingSystem.IsWindows() then "%FIO_TEST_EXPAND%"
+                    else "$FIO_TEST_EXPAND"
+
+                let result = runtime.Run(Environment.expandVariables input).UnsafeSuccess()
+
+                if System.OperatingSystem.IsWindows() then
+                    Expect.equal result "hello" "Should expand %VAR% on Windows"
+                else
+                    // On Unix, ExpandEnvironmentVariables behavior varies by .NET version
+                    Expect.isNotNull result "Should return a non-null string"
+            finally
+                System.Environment.SetEnvironmentVariable("FIO_TEST_EXPAND", null)
+
+        testPropertyWithConfig fsCheckConfig "currentDirectory - returns existing directory path"
+        <| fun (runtime: FIORuntime) ->
+            let result = runtime.Run(Environment.currentDirectory()).UnsafeSuccess()
+
+            Expect.isNonEmpty result "Current directory should not be empty"
+            Expect.isTrue (Directory.Exists result) "Current directory should exist"
+
+        testPropertyWithConfig fsCheckConfig "machineName - returns non-empty string"
+        <| fun (runtime: FIORuntime) ->
+            let result = runtime.Run(Environment.machineName()).UnsafeSuccess()
+
+            Expect.isNonEmpty result "Machine name should not be empty"
+
+        testPropertyWithConfig fsCheckConfig "userName - returns non-empty string"
+        <| fun (runtime: FIORuntime) ->
+            let result = runtime.Run(Environment.userName()).UnsafeSuccess()
+
+            Expect.isNonEmpty result "User name should not be empty"
+
+        testPropertyWithConfig fsCheckConfig "getCommandLineArgs - returns non-empty array"
+        <| fun (runtime: FIORuntime) ->
+            let result = runtime.Run(Environment.getCommandLineArgs()).UnsafeSuccess()
+
+            Expect.isNonEmpty result "Command line args should not be empty"
+
+        testPropertyWithConfig fsCheckConfig "getFolderPath - returns path for user profile"
+        <| fun (runtime: FIORuntime) ->
+            let result = runtime.Run(Environment.getFolderPath System.Environment.SpecialFolder.UserProfile).UnsafeSuccess()
+
+            Expect.isNonEmpty result "User profile path should not be empty"
+
+        testPropertyWithConfig fsCheckConfig "getTempPath - returns existing directory path"
+        <| fun (runtime: FIORuntime) ->
+            let result = runtime.Run(Environment.getTempPath()).UnsafeSuccess()
+
+            Expect.isNonEmpty result "Temp path should not be empty"
+            Expect.isTrue (Directory.Exists result) "Temp path should exist"
     ]

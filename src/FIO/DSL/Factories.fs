@@ -8,11 +8,6 @@ open System
 open System.Threading.Tasks
 
 /// <summary>
-/// Module-level singleton TaskCompletionSource for FIO.never to avoid memory leaks.
-/// </summary>
-let private neverTcs = TaskCompletionSource<obj> TaskCreationOptions.RunContinuationsAsynchronously
-
-/// <summary>
 /// Factory functions for creating FIO effects.
 /// </summary>
 [<RequireQualifiedAccess>]
@@ -199,11 +194,13 @@ module FIO =
 
     /// <summary>
     /// Creates an effect that never completes (runs forever).
-    /// Uses a singleton TaskCompletionSource to avoid memory leaks.
+    /// Uses a channel receive on an empty channel that cooperates with
+    /// the runtime's blocking mechanism instead of pinning evaluation workers.
     /// </summary>
     let never<'R, 'E> () : FIO<'R, 'E> =
-        awaitGenericTask(neverTcs.Task, fun _ -> Unchecked.defaultof<'E>)
-            .FlatMap(fun obj -> succeed(obj :?> 'R))
+        suspend(fun () ->
+            let chan = new Channel<'R>()
+            chan.Receive())
 
     /// <summary>
     /// Implements the acquire-release pattern for safe resource management.
