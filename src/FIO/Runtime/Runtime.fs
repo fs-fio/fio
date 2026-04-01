@@ -89,9 +89,13 @@ type internal WorkItemPool private () =
             workItem.Eff <- eff
             workItem.FiberContext <- fiberContext
             workItem.Stack <- stack
+            workItem.InterruptionSuppressed <- 0
             workItem
         else
-            { Eff = eff; FiberContext = fiberContext; Stack = stack }
+            { Eff = eff;
+              FiberContext = fiberContext;
+              Stack = stack;
+              InterruptionSuppressed = 0 }
 
     /// <summary>
     /// Returns a WorkItem to the pool for reuse.
@@ -105,6 +109,7 @@ type internal WorkItemPool private () =
             workItem.Eff <- Unchecked.defaultof<_>
             workItem.FiberContext <- Unchecked.defaultof<_>
             workItem.Stack <- Unchecked.defaultof<_>
+            workItem.InterruptionSuppressed <- 0
             WorkItemPool.pool.Push workItem
 
 /// <summary>

@@ -84,7 +84,7 @@ type Semaphore internal (permits: int) =
     /// <param name="onError">Maps exceptions to error type.</param>
     member this.WithPermits (count: int, effect: FIO<'R, 'E>, onError: exn -> 'E) : FIO<'R, 'E> =
         let acquireMany =
-            FIO.collectAll(List.replicate count (this.Acquire onError))
+            FIO.collectAll(List.init count (fun _ -> this.Acquire onError))
                 .Map(fun _ -> ())
         FIO.acquireRelease(
             acquireMany,
@@ -96,7 +96,7 @@ type Semaphore internal (permits: int) =
     /// <param name="effect">Effect to execute.</param>
     member this.WithPermitsExn (count: int, effect: FIO<'R, exn>) : FIO<'R, exn> =
         let acquireMany =
-            FIO.collectAll(List.replicate count (this.AcquireExn()))
+            FIO.collectAll(List.init count (fun _ -> this.AcquireExn()))
                 .Map(fun _ -> ())
         FIO.acquireRelease(
             acquireMany,

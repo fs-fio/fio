@@ -17,6 +17,7 @@ open System.Collections.Concurrent
 type internal Cont =
     | SuccessCont of cont: (obj -> FIO<obj, obj>)
     | FailureCont of cont: (obj -> FIO<obj, obj>)
+    | FinalizerCont of finalizer: FIO<obj, obj>
 
 /// <summary>
 /// Internal stack frame for continuation tracking during effect execution.
@@ -37,7 +38,8 @@ and internal ContStack =
 and internal WorkItem =
     { mutable Eff: FIO<obj, obj>
       mutable FiberContext: FiberContext
-      mutable Stack: ContStack }
+      mutable Stack: ContStack
+      mutable InterruptionSuppressed: int }
 
 /// <summary>
 /// Discriminated union representing effects that are blocked waiting for resources.
@@ -580,6 +582,9 @@ and FIO<'R, 'E> =
     | AwaitGenericTPLTask of task: Task<obj> * onError: (exn -> 'E)
     | ChainSuccess of eff: FIO<obj, 'E> * cont: (obj -> FIO<'R, 'E>)
     | ChainError of eff: FIO<'R, obj> * cont: (obj -> FIO<'R, 'E>)
+    | OnFinalize of eff: FIO<'R, 'E> * finalizer: FIO<obj, obj>
+    | ResumeInterrupt of err: obj
+    | FinalizerResult of result: Result<obj, obj>
 
     /// <summary>
     /// Executes this effect concurrently in a new Fiber.
@@ -609,10 +614,7 @@ and FIO<'R, 'E> =
     /// </summary>
     /// <param name="finalizer">The finalizer effect to run.</param>
     member this.Ensuring (finalizer: FIO<unit, 'E>) : FIO<'R, 'E> =
-        this.FlatMap(fun res ->
-            finalizer.FlatMap(fun _ -> Success res))
-            .CatchAll(fun mainErr ->
-                finalizer.CatchAll(fun _ -> Success()).FlatMap(fun _ -> Failure mainErr))
+        OnFinalize(this, finalizer.UpcastBoth())
 
     /// <summary>
     /// Upcasts the result type to obj (for runtime use only).
@@ -649,6 +651,12 @@ and FIO<'R, 'E> =
             ChainSuccess(eff, fun res -> cont(res).UpcastResult())
         | ChainError(eff, cont) ->
             ChainError(eff.UpcastResult(), fun err -> cont(err).UpcastResult())
+        | OnFinalize(eff, finalizer) ->
+            OnFinalize(eff.UpcastResult(), finalizer)
+        | ResumeInterrupt err ->
+            ResumeInterrupt err
+        | FinalizerResult res ->
+            FinalizerResult res
 
     /// <summary>
     /// Upcasts the error type to obj (for runtime use only).
@@ -685,6 +693,12 @@ and FIO<'R, 'E> =
             ChainSuccess(eff.UpcastError(), fun res -> cont(res).UpcastError())
         | ChainError(eff, cont) ->
             ChainError(eff, fun err -> cont(err).UpcastError())
+        | OnFinalize(eff, finalizer) ->
+            OnFinalize(eff.UpcastError(), finalizer)
+        | ResumeInterrupt err ->
+            ResumeInterrupt err
+        | FinalizerResult res ->
+            FinalizerResult res
 
     /// <summary>
     /// Upcasts both the result and error types to obj (for runtime use only).
@@ -721,3 +735,9 @@ and FIO<'R, 'E> =
             ChainSuccess(eff.UpcastError(), fun res -> cont(res).UpcastResult().UpcastError())
         | ChainError(eff, cont) ->
             ChainError(eff.UpcastResult(), fun err -> cont(err).UpcastResult().UpcastError())
+        | OnFinalize(eff, finalizer) ->
+            OnFinalize(eff.UpcastResult().UpcastError(), finalizer)
+        | ResumeInterrupt err ->
+            ResumeInterrupt err
+        | FinalizerResult res ->
+            FinalizerResult res

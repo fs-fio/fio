@@ -32,23 +32,13 @@
         <Compile Include="Lib/ClockTests.fs" />
         <Compile Include="Lib/ConsoleTests.fs" />
         <Compile Include="Lib/EnvironmentTests.fs" />
-<!--
         <Compile Include="Lib/PromiseTests.fs" />
         <Compile Include="Lib/RandomTests.fs" />
         <Compile Include="Lib/RefTests.fs" />
         <Compile Include="Lib/SemaphoreTests.fs" />
--->
 
         <!-- Framework -->
-<!--
         <Compile Include="Framework/AppTests.fs" />
--->
-
-        <!-- Cross-cutting -->
-<!--
-        <Compile Include="Runtime/RuntimeTests.fs" />
-        <Compile Include="LawsTests.fs" />
--->
 
         <Compile Include="Program.fs" />
     </ItemGroup>

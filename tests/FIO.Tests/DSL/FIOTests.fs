@@ -3,10 +3,13 @@ module FIO.Tests.FIOTests
 open FIO.Tests.Utilities.FsCheckProperties
 
 open FIO.DSL
+open FIO.Ref
 open FIO.Runtime
 open FIO.Runtime.Direct
 open FIO.Runtime.Cooperative
 open FIO.Runtime.Concurrent
+
+open System
 
 open Expecto
 
@@ -213,4 +216,82 @@ let fioTests =
             let result = runtime.Run(eff).UnsafeError()
 
             Expect.equal result "finalizer failed" "Finalizer error should be returned when main succeeds"
+
+        testAllRuntimes "Ensuring - finalizer runs on self-interruption"
+        <| fun (runtime: FIORuntime) ->
+            let eff = fio {
+                let! ref = Ref.makeValue false
+                let! fiber =
+                    FIO.interrupt(ExplicitInterrupt, "self-interrupt")
+                        .Ensuring(ref.SetExn true)
+                        .Fork()
+                do! fiber.Join().CatchAll(fun _ -> FIO.unit())
+                do! FIO.sleepExn(TimeSpan.FromMilliseconds 50.0)
+                return! ref.Get()
+            }
+
+            let result = runtime.Run(eff).UnsafeSuccess()
+
+            Expect.isTrue result "Finalizer should run on self-interruption"
+
+        testAllRuntimes "Ensuring - finalizer runs on external interruption"
+        <| fun (runtime: FIORuntime) ->
+            let eff = fio {
+                let! ref = Ref.makeValue false
+                let! fiber =
+                    FIO.sleepExn(TimeSpan.FromSeconds 60.0)
+                        .Ensuring(ref.SetExn true)
+                        .Fork()
+                do! FIO.sleepExn(TimeSpan.FromMilliseconds 50.0)
+                do! fiber.Interrupt()
+                do! fiber.Join().CatchAll(fun _ -> FIO.unit())
+                do! FIO.sleepExn(TimeSpan.FromMilliseconds 50.0)
+                return! ref.Get()
+            }
+
+            let result = runtime.Run(eff).UnsafeSuccess()
+
+            Expect.isTrue result "Finalizer should run on external interruption"
+
+        testAllRuntimes "Ensuring - nested finalizers both run on interrupt"
+        <| fun (runtime: FIORuntime) ->
+            let eff = fio {
+                let! ref1 = Ref.makeValue false
+                let! ref2 = Ref.makeValue false
+                let! fiber =
+                    FIO.sleepExn(TimeSpan.FromSeconds 60.0)
+                        .Ensuring(ref1.SetExn true)
+                        .Ensuring(ref2.SetExn true)
+                        .Fork()
+                do! FIO.sleepExn(TimeSpan.FromMilliseconds 50.0)
+                do! fiber.Interrupt()
+                do! fiber.Join().CatchAll(fun _ -> FIO.unit())
+                do! FIO.sleepExn(TimeSpan.FromMilliseconds 50.0)
+                let! v1 = ref1.Get()
+                let! v2 = ref2.Get()
+                return v1, v2
+            }
+
+            let v1, v2 = runtime.Run(eff).UnsafeSuccess()
+
+            Expect.isTrue v1 "Inner finalizer should run on interrupt"
+            Expect.isTrue v2 "Outer finalizer should run on interrupt"
+
+        testAllRuntimes "Ensuring - result is still interrupted when finalizer fails"
+        <| fun (runtime: FIORuntime) ->
+            let eff = fio {
+                let! fiber =
+                    FIO.sleepExn(TimeSpan.FromSeconds 60.0)
+                        .Ensuring(FIO.fail(exn "finalizer error"))
+                        .Fork()
+                do! FIO.sleepExn(TimeSpan.FromMilliseconds 50.0)
+                do! fiber.Interrupt()
+                return! fiber.Join()
+            }
+
+            let result = runtime.Run(eff).UnsafeResult()
+
+            match result with
+            | Interrupted _ -> ()
+            | other -> failtest $"Expected Interrupted but got {other}"
     ]

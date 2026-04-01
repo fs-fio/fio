@@ -330,6 +330,7 @@ and CooperativeRuntime (config: WorkerConfig) as this =
         let mutable currentEWSteps = evalSteps
         let mutable currentFiberContext = workItem.FiberContext
         let mutable completed = false
+        let mutable interruptionSuppressed = workItem.InterruptionSuppressed
 
         let inline processSuccess res =
             let mutable loop = true
@@ -347,6 +348,14 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                         loop <- false
                     | FailureCont _ ->
                         ()
+                    | FinalizerCont finalizer ->
+                        interruptionSuppressed <- interruptionSuppressed + 1
+                        let onFinSuccess: obj -> FIO<obj, obj> = fun _ -> FinalizerResult(Ok res)
+                        let onFinError: obj -> FIO<obj, obj> = fun finErr -> FinalizerResult(Error finErr)
+                        currentContStack.Push(ContStackFrame(FailureCont onFinError))
+                        currentContStack.Push(ContStackFrame(SuccessCont onFinSuccess))
+                        currentEff <- finalizer
+                        loop <- false
 
         let inline processError err =
             let mutable loop = true
@@ -364,11 +373,34 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                     | FailureCont cont ->
                         currentEff <- cont err
                         loop <- false
+                    | FinalizerCont finalizer ->
+                        interruptionSuppressed <- interruptionSuppressed + 1
+                        let onFinDone: obj -> FIO<obj, obj> = fun _ -> FinalizerResult(Error err)
+                        currentContStack.Push(ContStackFrame(FailureCont onFinDone))
+                        currentContStack.Push(ContStackFrame(SuccessCont onFinDone))
+                        currentEff <- finalizer
+                        loop <- false
 
         let inline processInterruptError err =
-            ContStackPool.Return currentContStack
-            currentFiberContext.Complete(Error err)
-            completed <- true
+            let mutable loop = true
+            while loop do
+                if currentContStack.Count = 0 then
+                    ContStackPool.Return currentContStack
+                    currentFiberContext.Complete(Error err)
+                    completed <- true
+                    loop <- false
+                else
+                    let stackFrame = currentContStack.Pop()
+                    match stackFrame.Cont with
+                    | SuccessCont _ | FailureCont _ ->
+                        ()
+                    | FinalizerCont finalizer ->
+                        interruptionSuppressed <- interruptionSuppressed + 1
+                        let resumeInterrupt: obj -> FIO<obj, obj> = fun _ -> ResumeInterrupt err
+                        currentContStack.Push(ContStackFrame(FailureCont resumeInterrupt))
+                        currentContStack.Push(ContStackFrame(SuccessCont resumeInterrupt))
+                        currentEff <- finalizer
+                        loop <- false
 
         let inline processResult res =
             match res with
@@ -381,7 +413,7 @@ and CooperativeRuntime (config: WorkerConfig) as this =
             let mutable workItemOwnership = true
             try
                 while not completed do
-                    if currentFiberContext.CancellationToken.IsCancellationRequested then
+                    if interruptionSuppressed = 0 && currentFiberContext.CancellationToken.IsCancellationRequested then
                         match! currentFiberContext.Task with
                         | Ok _ ->
                             raise (InvalidOperationException "Fiber was cancelled but completed successfully.")
@@ -389,6 +421,7 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                             processInterruptError err
                     elif currentEWSteps = 0 then
                         let newWorkItem = WorkItemPool.Rent(currentEff, currentFiberContext, currentContStack)
+                        newWorkItem.InterruptionSuppressed <- interruptionSuppressed
                         do! activeWorkItemChan.AddAsync newWorkItem
                         workItemOwnership <- false
                         completed <- true
@@ -420,6 +453,7 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                                 processSuccess res
                             else
                                 let newWorkItem = WorkItemPool.Rent(ReceiveChan chan, currentFiberContext, currentContStack)
+                                newWorkItem.InterruptionSuppressed <- interruptionSuppressed
                                 do! blockingWorker.RescheduleForBlocking
                                     <| BlockingChannel (chan, newWorkItem)
                                 workItemOwnership <- false
@@ -477,14 +511,18 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                                 processResult res
                             else
                                 let newWorkItem = WorkItemPool.Rent(JoinFiber fiberContext, currentFiberContext, currentContStack)
+                                newWorkItem.InterruptionSuppressed <- interruptionSuppressed
                                 do! blockingWorker.RescheduleForBlocking
                                     <| BlockingFiber (fiberContext, newWorkItem)
                                 workItemOwnership <- false
                                 completed <- true
                         | AwaitTPLTask(task, onError) ->
                             try
-                                let! res = task.WaitAsync currentFiberContext.CancellationToken
-                                processSuccess res
+                                if interruptionSuppressed > 0 then
+                                    do! task
+                                else
+                                    do! task.WaitAsync currentFiberContext.CancellationToken
+                                processSuccess()
                             with
                             | :? OperationCanceledException when currentFiberContext.CancellationToken.IsCancellationRequested ->
                                 processInterruptError (FiberInterruptedException (currentFiberContext.Id, ExplicitInterrupt, "Task has been cancelled."))
@@ -492,7 +530,11 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                                 processError (onError exn)
                         | AwaitGenericTPLTask(task, onError) ->
                             try
-                                let! res = task.WaitAsync currentFiberContext.CancellationToken
+                                let! res =
+                                    if interruptionSuppressed > 0 then
+                                        task
+                                    else
+                                        task.WaitAsync currentFiberContext.CancellationToken
                                 processSuccess res
                             with
                             | :? OperationCanceledException when currentFiberContext.CancellationToken.IsCancellationRequested ->
@@ -505,6 +547,17 @@ and CooperativeRuntime (config: WorkerConfig) as this =
                         | ChainError (eff, cont) ->
                             currentEff <- eff
                             currentContStack.Push(ContStackFrame (FailureCont cont))
+                        | OnFinalize(eff, finalizer) ->
+                            currentContStack.Push(ContStackFrame(FinalizerCont finalizer))
+                            currentEff <- eff
+                        | ResumeInterrupt err ->
+                            interruptionSuppressed <- interruptionSuppressed - 1
+                            processInterruptError err
+                        | FinalizerResult r ->
+                            interruptionSuppressed <- interruptionSuppressed - 1
+                            match r with
+                            | Ok res -> processSuccess res
+                            | Error err -> processError err
                 return ()
             finally
                 if not completed then
