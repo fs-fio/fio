@@ -128,17 +128,26 @@ module Middleware =
 
     /// <summary>
     /// Creates middleware that times out requests after a duration.
+    /// Uses concurrent racing: whichever completes first wins, the loser is interrupted.
     /// </summary>
     /// <param name="duration">The timeout duration.</param>
-    let timeout (duration: TimeSpan) : Middleware<exn> =
+    /// <param name="onError">Error mapping function for sleep exceptions.</param>
+    let timeout (duration: TimeSpan) (onError: exn -> 'E) : Middleware<'E> =
         create (fun handler ->
             fun request ->
-                fio {
-                    let effect = handler request
-                    let timeoutEffect = FIO.sleep(duration, id) >>= fun () -> FIO.succeed Response.requestTimeout
-                    let! response = effect <|> timeoutEffect
-                    return response
-                })
+                let handlerEffect = handler request
+                let timeoutEffect =
+                    FIO.sleep(duration, onError)
+                        .FlatMap(fun () -> FIO.succeed Response.requestTimeout)
+                handlerEffect.Race(timeoutEffect))
+
+    /// <summary>
+    /// Creates middleware that times out requests after a duration.
+    /// Convenience wrapper using exn as the error type.
+    /// </summary>
+    /// <param name="duration">The timeout duration.</param>
+    let timeoutExn (duration: TimeSpan) : Middleware<exn> =
+        timeout duration id
 
     /// <summary>
     /// Creates CORS middleware with support for preflight OPTIONS requests.
@@ -157,25 +166,24 @@ module Middleware =
 
                 if not isAllowed then
                     FIO.succeed Response.forbidden
+                elif request.Method = HttpMethod.OPTIONS then
+                    // Short-circuit preflight: return 204 with CORS headers without calling handler
+                    let preflightResponse =
+                        Response.noContent
+                        |> HttpResponse.withHeader "Access-Control-Allow-Origin" (origin |> Option.defaultValue "*")
+                        |> HttpResponse.withHeader "Access-Control-Allow-Methods" (String.concat ", " allowedMethods)
+                        |> HttpResponse.withHeader "Access-Control-Allow-Headers" (String.concat ", " allowedHeaders)
+                        |> HttpResponse.withHeader "Access-Control-Max-Age" "86400"
+                    FIO.succeed preflightResponse
                 else
                     fio {
                         let! response = handler request
-
-                        // Add CORS headers to all responses
                         let withCors =
                             response
                             |> HttpResponse.withHeader "Access-Control-Allow-Origin" (origin |> Option.defaultValue "*")
                             |> HttpResponse.withHeader "Access-Control-Allow-Methods" (String.concat ", " allowedMethods)
                             |> HttpResponse.withHeader "Access-Control-Allow-Headers" (String.concat ", " allowedHeaders)
-
-                        // Add preflight-specific headers for OPTIONS requests
-                        let finalResponse =
-                            if request.Method = HttpMethod.OPTIONS then
-                                withCors |> HttpResponse.withHeader "Access-Control-Max-Age" "86400"
-                            else
-                                withCors
-
-                        return finalResponse
+                        return withCors
                     })
 
     /// <summary>
@@ -189,16 +197,22 @@ module Middleware =
                     match HttpRequest.header "Authorization" request with
                     | Some authHeader when authHeader.StartsWith "Basic " ->
                         let encoded = authHeader.Substring 6
-                        let decoded = Text.Encoding.UTF8.GetString(Convert.FromBase64String encoded)
-                        // Split only on the first colon to allow colons in passwords
-                        match decoded.Split([|':'|], 2) with
-                        | [| username; password |] ->
-                            let! isValid = authenticate username password
-                            if isValid then
-                                return! handler request
-                            else
+                        let decoded =
+                            try Some (Text.Encoding.UTF8.GetString(Convert.FromBase64String encoded))
+                            with _ -> None
+                        match decoded with
+                        | Some credentials ->
+                            // Split only on the first colon to allow colons in passwords
+                            match credentials.Split([|':'|], 2) with
+                            | [| username; password |] ->
+                                let! isValid = authenticate username password
+                                if isValid then
+                                    return! handler request
+                                else
+                                    return Response.unauthorizedWith "Basic realm=\"Protected\""
+                            | _ ->
                                 return Response.unauthorizedWith "Basic realm=\"Protected\""
-                        | _ ->
+                        | None ->
                             return Response.unauthorizedWith "Basic realm=\"Protected\""
                     | _ ->
                         return Response.unauthorizedWith "Basic realm=\"Protected\""

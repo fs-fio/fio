@@ -83,25 +83,34 @@ type Semaphore internal (permits: int) =
     /// <param name="effect">Effect to execute.</param>
     /// <param name="onError">Maps exceptions to error type.</param>
     member this.WithPermits (count: int, effect: FIO<'R, 'E>, onError: exn -> 'E) : FIO<'R, 'E> =
-        let acquireMany =
-            FIO.collectAll(List.init count (fun _ -> this.Acquire onError))
-                .Map(fun _ -> ())
-        FIO.acquireRelease(
-            acquireMany,
-            (fun () -> this.ReleaseMany(count, onError)),
-            fun () -> effect)
+        // Nest acquireRelease per permit so each successful acquire independently sets up its own release.
+        // If acquire k+1 fails, only the k already-acquired permits are released — not the full count.
+        FIO.suspend(fun () ->
+            let rec loop remaining =
+                if remaining <= 0 then
+                    effect
+                else
+                    FIO.acquireRelease(
+                        this.Acquire onError,
+                        (fun () -> this.Release onError),
+                        fun () -> loop (remaining - 1))
+            loop count)
 
     /// <summary>Executes an effect while holding multiple permits, automatically releasing when complete.</summary>
     /// <param name="count">Number of permits.</param>
     /// <param name="effect">Effect to execute.</param>
     member this.WithPermitsExn (count: int, effect: FIO<'R, exn>) : FIO<'R, exn> =
-        let acquireMany =
-            FIO.collectAll(List.init count (fun _ -> this.AcquireExn()))
-                .Map(fun _ -> ())
-        FIO.acquireRelease(
-            acquireMany,
-            (fun () -> this.ReleaseManyExn count),
-            fun () -> effect)
+        // See WithPermits for the rationale on nested acquireRelease.
+        FIO.suspend(fun () ->
+            let rec loop remaining =
+                if remaining <= 0 then
+                    effect
+                else
+                    FIO.acquireRelease(
+                        this.AcquireExn(),
+                        (fun () -> this.ReleaseExn()),
+                        fun () -> loop (remaining - 1))
+            loop count)
 
     member private _.Dispose (disposing: bool) =
         if Interlocked.CompareExchange(&disposed, 1, 0) = 0 then

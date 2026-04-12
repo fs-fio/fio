@@ -42,7 +42,6 @@ jobs:
           dotnet pack src/FIO.Sockets/FIO.Sockets.fsproj -c Release -o ./nupkgs
           dotnet pack src/FIO.WebSockets/FIO.WebSockets.fsproj -c Release -o ./nupkgs
           dotnet pack src/FIO.Http/FIO.Http.fsproj -c Release -o ./nupkgs
-          dotnet pack src/FIO.PostgreSQL/FIO.PostgreSQL.fsproj -c Release -o ./nupkgs
 
       - name: Upload packages as artifacts
         uses: actions/upload-artifact@v4

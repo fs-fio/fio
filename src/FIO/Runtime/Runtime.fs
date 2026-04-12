@@ -58,7 +58,7 @@ type internal ContStackPool private () =
         if isNull ContStackPool.pool then
             ContStackPool.pool <- Stack<_>()
 
-        if ContStackPool.pool.Count < MaxPoolSize then
+        if ContStackPool.pool.Count < MaxPoolSize && stack.Count <= MaxReturnedStackDepth then
             stack.Clear()
             ContStackPool.pool.Push stack
 

@@ -85,7 +85,7 @@ let fiberTests =
                 let eff = fio {
                     let! fiber = FIO.succeed(value).Fork()
                     let! _result = fiber.Join()
-                    return fiber.Completed()
+                    return fiber.IsCompleted ()
                 }
 
                 let completed = runtime.Run(eff).UnsafeSuccess()
@@ -95,9 +95,8 @@ let fiberTests =
             testAllRuntimes "Returns true after fiber fails" (fun runtime ->
                 let eff = fio {
                     let! fiber = FIO.fail("boom").Fork()
-                    // Join and catch the error to ensure the fiber has completed
                     let! _result = fiber.Join().CatchAll(fun (_err: string) -> FIO.succeed 0)
-                    return fiber.Completed()
+                    return fiber.IsCompleted ()
                 }
 
                 let completed = runtime.Run(eff).UnsafeSuccess()
@@ -112,7 +111,7 @@ let fiberTests =
                 let eff = fio {
                     let! fiber = FIO.succeed(value).Fork()
                     let! _result = fiber.Join()
-                    return fiber.Interrupted
+                    return fiber.IsInterrupted ()
                 }
 
                 let interrupted = runtime.Run(eff).UnsafeSuccess()
@@ -124,7 +123,7 @@ let fiberTests =
                     let! fiber = FIO.never().Fork()
                     do! fiber.Interrupt()
                     do! FIO.sleepExn(TimeSpan.FromMilliseconds 50.0).MapError(fun _ -> "err")
-                    return fiber.Interrupted
+                    return fiber.IsInterrupted ()
                 }
 
                 let interrupted = runtime.Run(eff).UnsafeSuccess()
@@ -261,69 +260,9 @@ let fiberTests =
             testAllRuntimes "Does not throw on success" (fun runtime ->
                 let fiber = runtime.Run(FIO.succeed 42)
 
-                // UnsafePrintResult should complete without throwing
                 fiber.UnsafePrintResult()
 
-                Expect.isTrue (fiber.Completed()) "Fiber should be completed after UnsafePrintResult")
-        ]
-
-        testList "Fiber - UnsafeComplete" [
-
-            testPropertyWithConfig fsCheckConfig "Completes fiber with Ok result"
-            <| fun (runtime: FIORuntime, value: int) ->
-                let eff = fio {
-                    let! fiber = FIO.never().Fork()
-                    return fiber
-                }
-
-                let parentFiber = runtime.Run eff
-                let childFiber = parentFiber.UnsafeSuccess()
-                childFiber.UnsafeComplete(Ok value)
-                let result = childFiber.UnsafeResult()
-
-                match result with
-                | Succeeded r -> Expect.equal r value "UnsafeComplete Ok should set Succeeded result"
-                | _ -> failtest $"Expected Succeeded, got {result}"
-
-            testAllRuntimes "Completes fiber with Error result" (fun runtime ->
-                let eff = fio {
-                    let! fiber = FIO.never().Fork()
-                    return fiber
-                }
-
-                let parentFiber = runtime.Run eff
-                let childFiber = parentFiber.UnsafeSuccess()
-                childFiber.UnsafeComplete(Error "completed-error")
-                let result = childFiber.UnsafeResult()
-
-                match result with
-                | Failed e -> Expect.equal e "completed-error" "UnsafeComplete Error should set Failed result"
-                | _ -> failtest $"Expected Failed, got {result}")
-        ]
-
-        testList "Fiber - UnsafeInterrupt" [
-
-            testAllRuntimes "Interrupts fiber from outside effect system" (fun runtime ->
-                let fiber = runtime.Run(FIO.never())
-                fiber.UnsafeInterrupt()
-                let result = fiber.UnsafeResult()
-
-                match result with
-                | Interrupted ex ->
-                    Expect.equal ex.cause ExplicitInterrupt "Default cause should be ExplicitInterrupt"
-                | _ -> failtest $"Expected Interrupted, got {result}")
-
-            testAllRuntimes "Accepts custom cause and message" (fun runtime ->
-                let fiber = runtime.Run(FIO.never())
-                fiber.UnsafeInterrupt(cause = Timeout 5000.0, msg = "timed out")
-                let result = fiber.UnsafeResult()
-
-                match result with
-                | Interrupted ex ->
-                    match ex.cause with
-                    | Timeout ms -> Expect.equal ms 5000.0 "Timeout duration should match"
-                    | other -> failtest $"Expected Timeout cause, got {other}"
-                | _ -> failtest $"Expected Interrupted, got {result}")
+                Expect.isTrue (fiber.IsCompleted()) "Fiber should be completed after UnsafePrintResult")
         ]
 
         testList "Fiber - Interrupt" [
@@ -333,7 +272,7 @@ let fiberTests =
                     let! fiber = FIO.never().Fork()
                     do! fiber.Interrupt()
                     do! FIO.sleepExn(TimeSpan.FromMilliseconds 50.0).MapError(fun _ -> "err")
-                    return fiber.Interrupted
+                    return fiber.IsInterrupted ()
                 }
 
                 let interrupted = runtime.Run(eff).UnsafeSuccess()
@@ -380,7 +319,6 @@ let fiberTests =
 
                 (fiber :> IDisposable).Dispose()
 
-                // Disposing should not throw; fiber is already completed
                 Expect.isTrue true "Dispose should not throw on completed fiber")
 
             testAllRuntimes "Double dispose does not throw" (fun runtime ->
@@ -391,6 +329,186 @@ let fiberTests =
                 (fiber :> IDisposable).Dispose()
 
                 Expect.isTrue true "Double dispose should not throw")
+        ]
+
+        testList "Fiber - Await" [
+
+            testPropertyWithConfig fsCheckConfig "Returns Succeeded for successful fiber"
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = fio {
+                    let! fiber = FIO.succeed(value).Fork()
+                    return! fiber.Await()
+                }
+
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                match result with
+                | Succeeded r -> Expect.equal r value "Await should return Succeeded with value"
+                | Failed _ -> failtest "Expected Succeeded but got Failed"
+                | Interrupted _ -> failtest "Expected Succeeded but got Interrupted"
+
+            testPropertyWithConfig fsCheckConfig "Returns Failed for failed fiber without re-raising"
+            <| fun (runtime: FIORuntime, err: string) ->
+                let eff = fio {
+                    let! fiber = FIO.fail(err).Fork()
+                    return! fiber.Await()
+                }
+
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                match result with
+                | Succeeded _ -> failtest "Expected Failed but got Succeeded"
+                | Failed e -> Expect.equal e err "Await should return Failed with error"
+                | Interrupted _ -> failtest "Expected Failed but got Interrupted"
+
+            testAllRuntimes "Returns Interrupted for interrupted fiber without re-raising" (fun runtime ->
+                let eff : FIO<FiberResult<int, string>, string> = fio {
+                    let! fiber = FIO.never<int, string>().Fork()
+                    do! fiber.Interrupt()
+                    do! FIO.sleepExn(TimeSpan.FromMilliseconds 50.0).MapError(fun _ -> "err")
+                    return! fiber.Await()
+                }
+
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                match result with
+                | Succeeded _ -> failtest "Expected Interrupted but got Succeeded"
+                | Failed _ -> failtest "Expected Interrupted but got Failed"
+                | Interrupted ex -> Expect.equal ex.cause ExplicitInterrupt "Await should return Interrupted with cause")
+        ]
+
+        testList "Fiber - InterruptAwait" [
+
+            testAllRuntimes "Interrupts and returns Interrupted result" (fun runtime ->
+                let eff : FIO<FiberResult<int, string>, string> = fio {
+                    let! fiber = FIO.never<int, string>().Fork()
+                    return! fiber.InterruptAwait()
+                }
+
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                match result with
+                | Interrupted ex -> Expect.equal ex.cause ExplicitInterrupt "InterruptAwait should return Interrupted"
+                | _ -> failtest $"Expected Interrupted, got {result}")
+
+            testAllRuntimes "Custom cause propagates through InterruptAwait" (fun runtime ->
+                let eff : FIO<FiberResult<int, string>, string> = fio {
+                    let! fiber = FIO.never<int, string>().Fork()
+                    return! fiber.InterruptAwait(cause = ResourceExhaustion "out of memory")
+                }
+
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                match result with
+                | Interrupted ex ->
+                    match ex.cause with
+                    | ResourceExhaustion reason -> Expect.equal reason "out of memory" "Custom cause should propagate"
+                    | other -> failtest $"Expected ResourceExhaustion, got {other}"
+                | _ -> failtest $"Expected Interrupted, got {result}")
+
+            testPropertyWithConfig fsCheckConfig "Returns Succeeded if fiber completes before interrupt"
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff : FIO<FiberResult<int, string>, string> = fio {
+                    let! fiber = FIO.succeed(value).Fork()
+                    let! _result = fiber.Join()
+                    return! fiber.InterruptAwait()
+                }
+
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                match result with
+                | Succeeded r -> Expect.equal r value "Should return Succeeded if already completed"
+                | Interrupted _ -> () // Also acceptable — interrupt may arrive first
+                | Failed _ -> failtest "Should not get Failed"
+        ]
+
+        testList "Fiber - Poll" [
+
+            testPropertyWithConfig fsCheckConfig "Returns Some Succeeded for completed fiber"
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = fio {
+                    let! fiber = FIO.succeed(value).Fork()
+                    let! _result = fiber.Join()
+                    return! fiber.Poll()
+                }
+
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                match result with
+                | Some(Succeeded r) -> Expect.equal r value "Poll should return Some Succeeded"
+                | other -> failtest $"Expected Some Succeeded, got {other}"
+
+            testAllRuntimes "Returns None for running fiber" (fun runtime ->
+                let eff = fio {
+                    let! fiber = FIO.never<int, string>().Fork()
+                    let! poll = fiber.Poll()
+                    do! fiber.Interrupt()
+                    return poll
+                }
+
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                Expect.isNone result "Poll should return None for running fiber")
+
+            testPropertyWithConfig fsCheckConfig "Returns Some Failed for failed fiber"
+            <| fun (runtime: FIORuntime, err: string) ->
+                let eff = fio {
+                    let! fiber = FIO.fail(err).Fork()
+                    let! _result = fiber.Join().CatchAll(fun (_: string) -> FIO.succeed 0)
+                    return! fiber.Poll()
+                }
+
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                match result with
+                | Some(Failed e) -> Expect.equal e err "Poll should return Some Failed"
+                | other -> failtest $"Expected Some Failed, got {other}"
+        ]
+
+        testList "Fiber - JoinWith" [
+
+            testPropertyWithConfig fsCheckConfig "Calls onSucceeded for successful fiber"
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = fio {
+                    let! fiber = FIO.succeed(value).Fork()
+                    return! fiber.JoinWith(
+                        (fun r -> FIO.succeed(r * 2)),
+                        (fun (_: string) -> FIO.succeed -1),
+                        (fun _ -> FIO.succeed -2))
+                }
+
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                Expect.equal result (value * 2) "JoinWith should call onSucceeded"
+
+            testPropertyWithConfig fsCheckConfig "Calls onFailed for failed fiber"
+            <| fun (runtime: FIORuntime, err: string) ->
+                let eff : FIO<string, string> = fio {
+                    let! fiber = FIO.fail(err).Fork()
+                    return! fiber.JoinWith(
+                        (fun (_: int) -> FIO.succeed "success"),
+                        (fun e -> FIO.succeed($"caught: {e}")),
+                        (fun _ -> FIO.succeed "interrupted"))
+                }
+
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                Expect.equal result $"caught: {err}" "JoinWith should call onFailed"
+
+            testAllRuntimes "Calls onInterrupted for interrupted fiber" (fun runtime ->
+                let eff : FIO<string, string> = fio {
+                    let! fiber = FIO.never<int, string>().Fork()
+                    do! fiber.Interrupt()
+                    do! FIO.sleepExn(TimeSpan.FromMilliseconds 50.0).MapError(fun _ -> "err")
+                    return! fiber.JoinWith(
+                        (fun _ -> FIO.succeed "success"),
+                        (fun _ -> FIO.succeed "failed"),
+                        (fun _ -> FIO.succeed "interrupted"))
+                }
+
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                Expect.equal result "interrupted" "JoinWith should call onInterrupted")
         ]
 
         testList "FiberResult - Pattern Matching" [

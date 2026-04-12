@@ -43,6 +43,7 @@
         <Compile Include="Lib\Random.fs" />
         <Compile Include="Lib\Ref.fs" />
         <Compile Include="Lib\Semaphore.fs" />
+        <Compile Include="Lib\Fiber.fs" />
         <Compile Include="Runtime\Runtime.fs" />
         <Compile Include="Runtime\DirectRuntime.fs" />
         <Compile Include="Runtime\CooperativeRuntime.fs" />

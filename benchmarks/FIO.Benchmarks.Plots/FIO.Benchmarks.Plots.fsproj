@@ -23,7 +23,7 @@
     <ItemGroup>
         <PackageReference Include="Argu" Version="6.2.5" />
         <PackageReference Include="Plotly.NET" Version="5.1.0" />
-        <PackageReference Include="FSharp.Data" Version="8.1.2" />
+        <PackageReference Include="FSharp.Data" Version="8.1.4" />
     </ItemGroup>
 
     <ItemGroup>

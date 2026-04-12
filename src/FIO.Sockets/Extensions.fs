@@ -17,7 +17,7 @@ module SocketExtensions =
         /// </summary>
         /// <param name="value">The value to send.</param>
         /// <param name="options">Optional JSON serializer options.</param>
-        member this.SendJson<'T>(value: 'T, ?options: JsonSerializerOptions) : FIO<unit, SocketError> =
+        member this.SendJson<'T> (value: 'T, ?options) =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
                 let codec = Codec.jsonWithOptions<'T> opts
@@ -30,7 +30,7 @@ module SocketExtensions =
         /// <param name="maxBytes">Maximum number of bytes to receive.</param>
         /// <param name="options">Optional JSON serializer options.</param>
         /// <returns>The deserialized JSON value.</returns>
-        member this.ReceiveJson<'T>(maxBytes: int, ?options: JsonSerializerOptions) : FIO<'T, SocketError> =
+        member this.ReceiveJson<'T> (maxBytes: int, ?options) =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
                 let codec = Codec.jsonWithOptions<'T> opts
@@ -42,7 +42,7 @@ module SocketExtensions =
         /// </summary>
         /// <param name="value">The value to send.</param>
         /// <param name="options">Optional JSON serializer options.</param>
-        member this.SendJsonLine<'T>(value: 'T, ?options: JsonSerializerOptions) : FIO<unit, SocketError> =
+        member this.SendJsonLine<'T> (value: 'T, ?options) =
             fio {
                 let codec = Codec.jsonLine<'T> options
                 do! this.Send(codec, value)
@@ -54,7 +54,7 @@ module SocketExtensions =
         /// <param name="maxBytes">Maximum number of bytes to receive.</param>
         /// <param name="options">Optional JSON serializer options.</param>
         /// <returns>The deserialized JSON value.</returns>
-        member this.ReceiveJsonLine<'T>(maxBytes: int, ?options: JsonSerializerOptions) : FIO<'T, SocketError> =
+        member this.ReceiveJsonLine<'T> (maxBytes: int, ?options) =
             fio {
                 let codec = Codec.jsonLine<'T> options
                 return! this.Receive(codec, maxBytes)

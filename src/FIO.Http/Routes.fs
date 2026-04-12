@@ -139,7 +139,8 @@ module Routes =
     /// <param name="request">The HTTP request.</param>
     /// <param name="routes">The route collection.</param>
     let dispatch (request: HttpRequest) (routes: Routes<'E>) : FIO<HttpResponse, 'E> =
-        let key = request.Method, request.Path
+        let normalizedPath = "/" + String.concat "/" request.PathSegments
+        let key = request.Method, normalizedPath
         match Map.tryFind key routes.ExactMatchIndex with
         | Some handler ->
             handler [] request

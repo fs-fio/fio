@@ -66,7 +66,7 @@ module Codec =
     /// </summary>
     /// <param name="options">JSON serializer options.</param>
     /// <returns>The JSON codec.</returns>
-    let jsonWithOptions<'T> (options: JsonSerializerOptions) : SocketCodec<'T> =
+    let jsonWithOptions<'T> (options: JsonSerializerOptions) =
         { Encode = fun value ->
             FIO.attempt((fun () ->
                 let json = JsonSerializer.Serialize(value, options)
@@ -81,7 +81,7 @@ module Codec =
     /// <summary>
     /// JSON codec with default options.
     /// </summary>
-    let json<'T> : SocketCodec<'T> =
+    let json<'T> =
         jsonWithOptions<'T> (JsonSerializerOptions())
 
     /// <summary>
@@ -89,7 +89,7 @@ module Codec =
     /// </summary>
     /// <param name="options">Optional JSON serializer options.</param>
     /// <returns>The line-delimited JSON codec.</returns>
-    let jsonLine<'T> (options: JsonSerializerOptions option) : SocketCodec<'T> =
+    let jsonLine<'T> options =
         let opts = defaultArg options (JsonSerializerOptions())
         { Encode = fun value ->
             FIO.attempt((fun () ->
@@ -109,7 +109,7 @@ module Codec =
     /// <param name="g">Function to convert from 'B to 'A.</param>
     /// <param name="codec">The source codec.</param>
     /// <returns>The mapped codec.</returns>
-    let map (f: 'A -> 'B) (g: 'B -> 'A) (codec: SocketCodec<'A>) : SocketCodec<'B> =
+    let map (f: 'A -> 'B) (g: 'B -> 'A) (codec: SocketCodec<'A>) =
         { Encode = fun b -> codec.Encode(g b)
           Decode = fun bytes ->
             fio {
@@ -123,13 +123,12 @@ module Codec =
     /// <param name="codec1">Codec for the first element.</param>
     /// <param name="codec2">Codec for the second element.</param>
     /// <returns>The composed codec for pairs.</returns>
-    let compose (codec1: SocketCodec<'A>) (codec2: SocketCodec<'B>) : SocketCodec<'A * 'B> =
+    let compose (codec1: SocketCodec<'A>) (codec2: SocketCodec<'B>) =
         { Encode = fun (a, b) ->
             fio {
                 let! bytes1 = codec1.Encode a
                 let! bytes2 = codec2.Encode b
 
-                // Encode with length prefixes: [len1:4bytes][payload1][len2:4bytes][payload2]
                 let len1Bytes = BitConverter.GetBytes bytes1.Length
                 let len2Bytes = BitConverter.GetBytes bytes2.Length
 
@@ -141,24 +140,20 @@ module Codec =
                     return! FIO.fail(
                         CodecError("Insufficient bytes for pair decoding (need at least 8 bytes for length prefixes)", Exception()))
 
-                // Read first length prefix
                 let len1 = BitConverter.ToInt32(bytes, 0)
 
                 if bytes.Length < 4 + len1 + 4 then
                     return! FIO.fail(
                         CodecError($"Incomplete first payload: expected {len1} bytes plus second length prefix", Exception()))
 
-                // Extract first payload
                 let bytes1 = bytes.[4 .. 4 + len1 - 1]
 
-                // Read second length prefix
                 let len2 = BitConverter.ToInt32(bytes, 4 + len1)
 
                 if bytes.Length < 4 + len1 + 4 + len2 then
                     return! FIO.fail(
                         CodecError($"Incomplete second payload: expected {len2} bytes", Exception()))
-
-                // Extract second payload
+                
                 let bytes2 = bytes.[4 + len1 + 4 .. 4 + len1 + 4 + len2 - 1]
 
                 let! a = codec1.Decode bytes1
@@ -171,7 +166,7 @@ module Codec =
     /// </summary>
     /// <param name="innerCodec">The codec to wrap with length-prefixing.</param>
     /// <returns>The length-prefixed codec.</returns>
-    let lengthPrefixed<'T> (innerCodec: SocketCodec<'T>) : SocketCodec<'T> =
+    let lengthPrefixed<'T> (innerCodec: SocketCodec<'T>) =
         { Encode = fun value ->
             fio {
                 let! payload = innerCodec.Encode value
@@ -200,7 +195,7 @@ module Codec =
     /// <param name="encode">Encoding function.</param>
     /// <param name="decode">Decoding function.</param>
     /// <returns>The created codec.</returns>
-    let create (encode: 'T -> FIO<byte[], SocketError>) (decode: byte[] -> FIO<'T, SocketError>) : SocketCodec<'T> =
+    let create (encode: 'T -> FIO<byte[], SocketError>) (decode: byte[] -> FIO<'T, SocketError>) =
         { Encode = encode; Decode = decode }
 
     /// <summary>
@@ -209,7 +204,7 @@ module Codec =
     /// <param name="encode">Pure encoding function.</param>
     /// <param name="decode">Pure decoding function.</param>
     /// <returns>The created codec.</returns>
-    let createPure (encode: 'T -> byte[]) (decode: byte[] -> 'T) : SocketCodec<'T> =
+    let createPure (encode: 'T -> byte[]) (decode: byte[] -> 'T) =
         { Encode = fun value ->
             FIO.attempt(
                 (fun () -> encode value),

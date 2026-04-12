@@ -19,10 +19,10 @@ module WebSocketExtensions =
         /// <param name="value">The value to send.</param>
         /// <param name="options">Optional JSON serializer options.</param>
         /// <param name="cancellationToken">Optional cancellation token.</param>
-        member this.SendJson<'T>(value: 'T, ?options: JsonSerializerOptions, ?cancellationToken: CancellationToken) : FIO<unit, WsError> =
+        member this.SendJson<'T> (value: 'T, ?options: JsonSerializerOptions, ?ct: CancellationToken) =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
-                let ct = defaultArg cancellationToken CancellationToken.None
+                let ct = defaultArg ct CancellationToken.None
                 let! jsonString = FIO.attempt(
                     (fun () -> JsonSerializer.Serialize(value, opts)),
                     WsError.fromException)
@@ -36,10 +36,10 @@ module WebSocketExtensions =
         /// <param name="options">Optional JSON serializer options.</param>
         /// <param name="cancellationToken">Optional cancellation token.</param>
         /// <returns>The deserialized value.</returns>
-        member this.ReceiveJson<'T>(?options: JsonSerializerOptions, ?cancellationToken: CancellationToken) : FIO<'T, WsError> =
+        member this.ReceiveJson<'T> (?options: JsonSerializerOptions, ?ct: CancellationToken) =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
-                let ct = defaultArg cancellationToken CancellationToken.None
+                let ct = defaultArg ct CancellationToken.None
                 match! this.ReceiveMessage ct with
                 | Frame(Text json) ->
                     return! FIO.attempt(
@@ -61,14 +61,14 @@ module WebSocketExtensions =
         /// Sends a string as a text frame (convenience method).
         /// </summary>
         /// <param name="text">The string to send.</param>
-        member this.SendString(text: string) : FIO<unit, WsError> =
+        member this.SendString (text: string) =
             this.SendText text
 
         /// <summary>
         /// Receives a text frame as a string (convenience method).
         /// </summary>
         /// <returns>The received text string.</returns>
-        member this.ReceiveString() : FIO<string, WsError> =
+        member this.ReceiveString () =
             fio {
                 match! this.ReceiveMessage() with
                 | Frame(Text text) ->
@@ -88,14 +88,14 @@ module WebSocketExtensions =
         /// Sends binary data (convenience method).
         /// </summary>
         /// <param name="data">The binary data to send.</param>
-        member this.SendBytes(data: byte[]) : FIO<unit, WsError> =
+        member this.SendBytes (data: byte[]) =
             this.SendBinary data
 
         /// <summary>
         /// Receives binary data (convenience method).
         /// </summary>
         /// <returns>The received binary data.</returns>
-        member this.ReceiveBytes() : FIO<byte[], WsError> =
+        member this.ReceiveBytes () =
             fio {
                 match! this.ReceiveMessage() with
                 | Frame(Binary data) -> return data

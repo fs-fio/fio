@@ -322,10 +322,10 @@ type FIO<'R, 'E> with
                                 let interruptLoser =
                                     match choice with
                                     | Choice1Of2 _ ->
-                                        FIO.attemptExn(fun () -> fiber2.Internal.Interrupt(ExplicitInterrupt, "Lost race"))
+                                        FIO.attemptExn(fun () -> fiber2.Context.Interrupt(ExplicitInterrupt, "Lost race"))
                                             .CatchAll(fun _ -> FIO.unit())
                                     | Choice2Of2 _ ->
-                                        FIO.attemptExn(fun () -> fiber1.Internal.Interrupt(ExplicitInterrupt, "Lost race"))
+                                        FIO.attemptExn(fun () -> fiber1.Context.Interrupt(ExplicitInterrupt, "Lost race"))
                                             .CatchAll(fun _ -> FIO.unit())
 
                                 interruptLoser.FlatMap(fun () ->
@@ -352,11 +352,11 @@ type FIO<'R, 'E> with
     /// Repeats this effect N times, returning the result of the last execution.
     /// </summary>
     /// <param name="n">The number of times to repeat.</param>
-    member inline this.RepeatN<'R, 'E> (n: int) : FIO<'R, 'E> =
-        let rec loop count =
-            if count <= 1 then this
-            else this.ZipRight(loop(count - 1))
-        loop(n)
+    member this.RepeatN<'R, 'E> (n: int) : FIO<'R, 'E> =
+        if n <= 1 then
+            this
+        else
+            this.FlatMap(fun _ -> FIO.suspend(fun () -> this.RepeatN(n - 1)))
 
     /// <summary>
     /// Recovers from specific errors using a partial function.

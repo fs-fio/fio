@@ -15,7 +15,7 @@ module ServerSocket =
     /// Internal: Logs an error and suppresses it.
     /// Used for cleanup operations where errors should not propagate.
     /// </summary>
-    let private logAndSuppress (context: string) (err: SocketError) : FIO<unit, SocketError> =
+    let private logAndSuppress (context: string) (err: SocketError) =
         fio {
             let str = err.ToString()
             do! FIO.attempt((fun () ->
@@ -28,7 +28,7 @@ module ServerSocket =
     /// </summary>
     /// <param name="config">Server socket configuration.</param>
     /// <returns>The bound server socket.</returns>
-    let bind (config: ServerSocketConfig) : FIO<ServerSocket, SocketError> =
+    let bind (config: ServerSocketConfig) =
         fio {
             let! netSocket = FIO.attempt((fun () ->
                 new Sockets.Socket(config.AddressFamily, config.SocketType, config.ProtocolType)),
@@ -51,7 +51,7 @@ module ServerSocket =
     /// Closes the server socket.
     /// </summary>
     /// <param name="serverSocket">The server socket to close.</param>
-    let close (serverSocket: ServerSocket) : FIO<unit, FIO.Sockets.SocketError> =
+    let close (serverSocket: ServerSocket) =
         FIO.attempt((fun () ->
             serverSocket.NetSocket.Close()
             serverSocket.NetSocket.Dispose()),
@@ -63,7 +63,7 @@ module ServerSocket =
     /// </summary>
     /// <param name="config">Server socket configuration.</param>
     /// <returns>The acquired server socket.</returns>
-    let acquire (config: ServerSocketConfig) : FIO<ServerSocket, SocketError> =
+    let acquire (config: ServerSocketConfig) =
         bind config
 
     /// <summary>
@@ -71,7 +71,7 @@ module ServerSocket =
     /// Suppresses errors during cleanup to avoid masking original failures.
     /// </summary>
     /// <param name="serverSocket">The server socket to release.</param>
-    let release (serverSocket: ServerSocket) : FIO<unit, SocketError> =
+    let release (serverSocket: ServerSocket) =
         close serverSocket
 
     /// <summary>
@@ -80,7 +80,7 @@ module ServerSocket =
     /// <param name="config">Server socket configuration.</param>
     /// <param name="action">Action to execute with the server socket.</param>
     /// <returns>The result of the action.</returns>
-    let withServerSocket (config: ServerSocketConfig, action: ServerSocket -> FIO<'R, SocketError>) : FIO<'R, SocketError> =
+    let withServerSocket (config: ServerSocketConfig, action: ServerSocket -> FIO<'R, SocketError>) =
         FIO.acquireRelease(acquire config, release, action)
 
     /// <summary>
@@ -88,7 +88,7 @@ module ServerSocket =
     /// </summary>
     /// <param name="serverSocket">The server socket to accept from.</param>
     /// <returns>The connected socket.</returns>
-    let accept (serverSocket: ServerSocket) : FIO<Socket, SocketError> =
+    let accept (serverSocket: ServerSocket) =
         fio {
             let! netSocket = FIO.awaitGenericTask(serverSocket.NetSocket.AcceptAsync(), AcceptFailed)
             let config =
@@ -136,7 +136,7 @@ module ServerSocket =
     /// </summary>
     /// <param name="serverSocket">The server socket to query.</param>
     /// <returns>The server socket configuration.</returns>
-    let getConfig (serverSocket: ServerSocket) : ServerSocketConfig =
+    let getConfig (serverSocket: ServerSocket) =
         serverSocket.Config
 
     /// <summary>
@@ -144,7 +144,7 @@ module ServerSocket =
     /// </summary>
     /// <param name="serverSocket">The server socket to query.</param>
     /// <returns>The local endpoint.</returns>
-    let getLocalEndPoint (serverSocket: ServerSocket) : FIO<EndPoint, SocketError> =
+    let getLocalEndPoint (serverSocket: ServerSocket) =
         FIO.attempt((fun () ->
             serverSocket.NetSocket.LocalEndPoint), SocketError.fromException)
 
@@ -154,7 +154,7 @@ module ServerSocket =
     /// </summary>
     /// <param name="config">Server socket configuration.</param>
     /// <param name="handler">Handler to process each accepted connection.</param>
-    let serve (config: ServerSocketConfig, handler: Socket -> FIO<unit, SocketError>) : FIO<unit, SocketError> =
+    let serve (config: ServerSocketConfig, handler: Socket -> FIO<unit, SocketError>) =
         withServerSocket(config, fun serverSocket -> acceptLoop (handler, serverSocket))
 
     /// <summary>
@@ -171,8 +171,7 @@ module ServerSocket =
          responseCodec: SocketCodec<'Resp>,
          handler: 'Req -> FIO<'Resp, SocketError>,
          config: ServerSocketConfig,
-         bufferSize: int)
-         : FIO<unit, SocketError> =
+         bufferSize: int) =
         let connectionHandler (socket: Socket) = fio {
             let! request = socket.Receive(requestCodec, bufferSize)
             let! response = handler request
@@ -193,6 +192,5 @@ module ServerSocket =
         (requestCodec: SocketCodec<'Req>,
          responseCodec: SocketCodec<'Resp>,
          handler: 'Req -> FIO<'Resp, SocketError>,
-         config: ServerSocketConfig)
-         : FIO<unit, SocketError> =
+         config: ServerSocketConfig) =
         serveWithBufferSize(requestCodec, responseCodec, handler, config, 8192)

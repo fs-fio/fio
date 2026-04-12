@@ -145,7 +145,7 @@ module FIO =
     /// <param name="onError">A function to map exceptions to the error type.</param>
     let fromTask<'E> (taskFactory: unit -> Task, onError: exn -> 'E) : FIO<Fiber<unit, 'E>, 'E> =
         let fiber = new Fiber<unit, 'E>()
-        ForkTPLTask(taskFactory, onError, fiber, fiber.Internal)
+        ForkTPLTask(taskFactory, onError, fiber, fiber.Context)
 
     /// <summary>
     /// Forks a lazily-evaluated Task into a Fiber with exceptions as errors.
@@ -161,7 +161,7 @@ module FIO =
     /// <param name="onError">A function to map exceptions to the error type.</param>
     let fromGenericTask<'R, 'E> (taskFactory: unit -> Task<'R>, onError: exn -> 'E) : FIO<Fiber<'R, 'E>, 'E> =
         let fiber = new Fiber<'R, 'E>()
-        ForkGenericTPLTask((fun () -> upcastTask (taskFactory())), onError, fiber, fiber.Internal)
+        ForkGenericTPLTask((fun () -> upcastTask (taskFactory())), onError, fiber, fiber.Context)
 
     /// <summary>
     /// Forks a lazily-evaluated Task into a Fiber with exceptions as errors.
@@ -236,6 +236,7 @@ module FIO =
     /// Executes a collection of effects in parallel, collecting their results into a list.
     /// The results maintain the same order as the input effects.
     /// All effects are forked simultaneously, then awaited together.
+    /// If any fiber fails, the remaining unjoined fibers are interrupted before propagating the error.
     /// </summary>
     /// <param name="effSeq">The sequence of effects to execute in parallel.</param>
     let collectAllPar<'R, 'E> (effSeq: seq<FIO<'R, 'E>>) : FIO<'R list, 'E> =
@@ -254,13 +255,24 @@ module FIO =
                     forkEff.FlatMap(fun fibers ->
                         let fibersArray = List.toArray fibers
                         let results = Array.zeroCreate<'R> fibersArray.Length
+
+                        let rec interruptFrom (i: int) =
+                            if i >= fibersArray.Length then
+                                unit()
+                            else
+                                fibersArray.[i].Interrupt(ExplicitInterrupt, "collectAllPar sibling failed")
+                                    .FlatMap(fun () -> interruptFrom (i + 1))
+                        
                         let rec loop (index: int) : FIO<'R list, 'E> =
                             if index >= fibersArray.Length then
                                 succeed(Array.toList results)
                             else
-                                fibersArray.[index].Join().FlatMap(fun res ->
-                                    results.[index] <- res
-                                    loop (index + 1))
+                                fibersArray.[index].Join()
+                                    .FlatMap(fun res ->
+                                        results.[index] <- res
+                                        loop (index + 1))
+                                    .CatchAll(fun err ->
+                                        (interruptFrom (index + 1)).FlatMap(fun () -> fail err))
                         loop 0))
 
     /// <summary>

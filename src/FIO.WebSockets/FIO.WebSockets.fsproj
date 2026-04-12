@@ -35,7 +35,6 @@
         <Compile Include="WebSocket.fs" />
         <Compile Include="WebSocketClient.fs" />
         <Compile Include="WebSocketServer.fs" />
-        <Compile Include="WebSocketPool.fs" />
         <Compile Include="Extensions.fs" />
     </ItemGroup>
 

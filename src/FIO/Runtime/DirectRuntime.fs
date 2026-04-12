@@ -127,7 +127,7 @@ type DirectRuntime () =
                             processSuccess()
                         | InterruptSelf(cause, msg) ->
                             currentFiberContext.Interrupt(cause, msg)
-                            processSuccess()
+                            processInterruptError (FiberInterruptedException(currentFiberContext.Id, cause, msg) :> obj)
                         | Action(func, onError) ->
                             try
                                 let res = func()
@@ -265,14 +265,11 @@ type DirectRuntime () =
             | _ -> ()
 
             let fiber = new Fiber<'R, 'E>()
-            currentFiber <- Some fiber.Internal
+            currentFiber <- Some fiber.Context
 
             task {
-                try
-                    let! res = this.InterpretAsync (eff.UpcastBoth(), fiber.Internal)
-                    fiber.Internal.Complete res
-                finally
-                    (fiber.Internal :> IDisposable).Dispose()
+                let! res = this.InterpretAsync (eff.UpcastBoth(), fiber.Context)
+                fiber.Context.Complete res
             } |> ignore
 
             fiber)

@@ -65,7 +65,7 @@ and private CompletionAction =
 /// </summary>
 /// <param name="config">The evaluation worker configuration.</param>
 and private EvaluationWorker (config: EvaluationWorkerConfig) =
-    
+
     /// <summary>
     /// Processes a work item by interpreting its effect.
     /// </summary>
@@ -74,25 +74,31 @@ and private EvaluationWorker (config: EvaluationWorkerConfig) =
         config.Runtime.InterpretAsync (workItem, config.EWSteps, config.ActiveWorkItemChan)
 
     let cts = new CancellationTokenSource()
+    let mutable workerTask: Task = Unchecked.defaultof<_>
 
     let startWorker () =
-        (new Task((fun () ->
-            task {
-                let mutable loop = true
-                while loop && not cts.Token.IsCancellationRequested do
-                    try
-                        let! hasWorkItem = config.ActiveWorkItemChan.WaitToTakeAsync()
-                        if not hasWorkItem || cts.Token.IsCancellationRequested then
-                            loop <- false
-                        else
-                            let! workItem = config.ActiveWorkItemChan.TakeAsync()
-                            if not (workItem.FiberContext.IsTerminal()) then
-                                do! processWorkItem workItem
-                    with
-                    | :? OperationCanceledException ->
-                        loop <- false
-            } |> ignore), TaskCreationOptions.LongRunning))
-            .Start TaskScheduler.Default
+        workerTask <-
+            Task.Factory.StartNew(
+                Func<Task>(fun () ->
+                    task {
+                        let mutable loop = true
+                        while loop && not cts.Token.IsCancellationRequested do
+                            try
+                                let! hasWorkItem = config.ActiveWorkItemChan.WaitToTakeAsync cts.Token
+                                if not hasWorkItem || cts.Token.IsCancellationRequested then
+                                    loop <- false
+                                else
+                                    let! workItem = config.ActiveWorkItemChan.TakeAsync()
+                                    if not (workItem.FiberContext.IsTerminal()) then
+                                        do! processWorkItem workItem
+                            with
+                            | :? OperationCanceledException ->
+                                loop <- false
+                    } :> Task),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default
+            ).Unwrap()
 
     do startWorker()
 
@@ -130,24 +136,30 @@ and private BlockingWorker (config: BlockingWorkerConfig) =
         }
 
     let cancellationTokenSource = new CancellationTokenSource()
+    let mutable workerTask: Task = Unchecked.defaultof<_>
 
     let startWorker () =
-        (new Task((fun () ->
-            task {
-                let mutable loop = true
-                while loop && not cancellationTokenSource.Token.IsCancellationRequested do
-                    try
-                        let! hasBlockingItem = config.ActiveBlockingEventChan.WaitToTakeAsync()
-                        if not hasBlockingItem || cancellationTokenSource.Token.IsCancellationRequested then
-                            loop <- false
-                        else
-                            let! blockingChanEvent = config.ActiveBlockingEventChan.TakeAsync()
-                            do! processBlockingChannel blockingChanEvent
-                    with
-                    | :? OperationCanceledException ->
-                        loop <- false
-            } |> ignore), TaskCreationOptions.LongRunning))
-            .Start TaskScheduler.Default
+        workerTask <-
+            Task.Factory.StartNew(
+                Func<Task>(fun () ->
+                    task {
+                        let mutable loop = true
+                        while loop && not cancellationTokenSource.Token.IsCancellationRequested do
+                            try
+                                let! hasBlockingItem = config.ActiveBlockingEventChan.WaitToTakeAsync cancellationTokenSource.Token
+                                if not hasBlockingItem || cancellationTokenSource.Token.IsCancellationRequested then
+                                    loop <- false
+                                else
+                                    let! blockingChanEvent = config.ActiveBlockingEventChan.TakeAsync()
+                                    do! processBlockingChannel blockingChanEvent
+                            with
+                            | :? OperationCanceledException ->
+                                loop <- false
+                    } :> Task),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default
+            ).Unwrap()
 
     do startWorker ()
 
@@ -292,6 +304,14 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
             | Error err ->
                 processError err
 
+        let signalBlockingWorkerIfPending (chan: Channel<obj>) =
+            task {
+                if chan.Count > 0 &&
+                   chan.BlockingWorkItemCount > 0 &&
+                   chan.TryBeginSignalProcessing() then
+                    do! activeBlockingEventChan.AddAsync chan
+            }
+
         task {
             try
                 while not completed do
@@ -318,7 +338,7 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
                             processSuccess()
                         | InterruptSelf(cause, msg) ->
                             currentFiberContext.Interrupt(cause, msg)
-                            processSuccess()
+                            processInterruptError (FiberInterruptedException(currentFiberContext.Id, cause, msg) :> obj)
                         | Action(func, onError) ->
                             try
                                 let res = func()
@@ -327,9 +347,7 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
                                 processError (onError exn)
                         | SendChan(msg, chan) ->
                             do! chan.SendAsync msg
-                            if chan.BlockingWorkItemCount > 0 &&
-                               chan.TryBeginSignalProcessing() then
-                                do! activeBlockingEventChan.AddAsync chan
+                            do! signalBlockingWorkerIfPending chan
                             processSuccess msg
                         | ReceiveChan chan ->
                             let mutable res = Unchecked.defaultof<_>
@@ -339,9 +357,7 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
                                 let newWorkItem = WorkItemPool.Rent(ReceiveChan chan, currentFiberContext, currentContStack)
                                 newWorkItem.InterruptionSuppressed <- interruptionSuppressed
                                 do! chan.AddBlockingWorkItem newWorkItem
-                                if chan.Count > 0 &&
-                                   chan.TryBeginSignalProcessing() then
-                                    do! activeBlockingEventChan.AddAsync chan
+                                do! signalBlockingWorkerIfPending chan
                                 completed <- true
                         | ForkEffect(eff, fiber, fiberContext) ->
                             let registration = currentFiberContext.CancellationToken.Register(fun () ->
@@ -400,7 +416,7 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
                                 let newWorkItem = WorkItemPool.Rent(JoinFiber fiberContext, currentFiberContext, currentContStack)
                                 newWorkItem.InterruptionSuppressed <- interruptionSuppressed
                                 do! fiberContext.AddBlockingWorkItem newWorkItem
-                                do fiberContext.TryRescheduleBlockingWorkItems activeWorkItemChan |> ignore
+                                let! _ = fiberContext.TryRescheduleBlockingWorkItems activeWorkItemChan
                                 completed <- true
                         | AwaitTPLTask(task, onError) ->
                             try
@@ -482,9 +498,9 @@ and ConcurrentRuntime (config: WorkerConfig) as this =
 
             this.Reset()
             let fiber = new Fiber<'R, 'E>()
-            currentFiber <- Some fiber.Internal
+            currentFiber <- Some fiber.Context
 
-            let workItem = WorkItemPool.Rent(eff.UpcastBoth(), fiber.Internal, ContStackPool.Rent())
+            let workItem = WorkItemPool.Rent(eff.UpcastBoth(), fiber.Context, ContStackPool.Rent())
             activeWorkItemChan.AddAsync workItem
             |> ignore
 

@@ -61,7 +61,7 @@ module Codec =
     /// <typeparam name="T">The type to encode/decode.</typeparam>
     /// <param name="options">JSON serializer options.</param>
     /// <returns>A codec for JSON serialization.</returns>
-    let jsonWithOptions<'T> (options: JsonSerializerOptions) : WebSocketCodec<'T> =
+    let jsonWithOptions<'T> (options: JsonSerializerOptions) =
         { Encode = fun value ->
             FIO.attempt(
                 (fun () ->
@@ -85,7 +85,7 @@ module Codec =
     /// <summary>
     /// JSON codec with default options.
     /// </summary>
-    let json<'T> : WebSocketCodec<'T> =
+    let json<'T> =
         jsonWithOptions<'T> (JsonSerializerOptions())
 
     /// <summary>
@@ -94,7 +94,7 @@ module Codec =
     /// <typeparam name="T">The type to encode/decode.</typeparam>
     /// <param name="options">Optional JSON serializer options.</param>
     /// <returns>A codec for line-delimited JSON.</returns>
-    let jsonLine<'T> (options: JsonSerializerOptions option) : WebSocketCodec<'T> =
+    let jsonLine<'T> (options: JsonSerializerOptions option) =
         let opts = defaultArg options (JsonSerializerOptions())
 
         { Encode = fun value ->
@@ -128,7 +128,7 @@ module Codec =
     /// <param name="g">Function to convert from 'B to 'A.</param>
     /// <param name="codec">The source codec.</param>
     /// <returns>A new codec for the target type.</returns>
-    let map (f: 'A -> 'B) (g: 'B -> 'A) (codec: WebSocketCodec<'A>) : WebSocketCodec<'B> =
+    let map (f: 'A -> 'B) (g: 'B -> 'A) codec =
         { Encode = fun b -> codec.Encode(g b)
           Decode = fun frame ->
             fio {
@@ -144,7 +144,9 @@ module Codec =
     /// <param name="codec1">Codec for the first element.</param>
     /// <param name="codec2">Codec for the second element.</param>
     /// <returns>A codec for tuple pairs encoded as JSON array.</returns>
-    let compose (codec1: WebSocketCodec<'A>) (codec2: WebSocketCodec<'B>) : WebSocketCodec<'A * 'B> =
+    
+    // TODO: This function seems to be broken.
+    let compose (codec1: WebSocketCodec<'A>) (codec2: WebSocketCodec<'B>) =
         { Encode = fun (a, b) ->
             FIO.attempt(
                 (fun () ->
@@ -172,7 +174,6 @@ module Codec =
                         if arr.Length <> 2 then
                             raise (Exception $"Expected 2 elements, got {arr.Length}")
 
-                        // Decode each element as a separate JSON string
                         let jsonA =
                             match arr.[0].ValueKind with
                             | JsonValueKind.String -> arr.[0].GetString()
@@ -200,8 +201,7 @@ module Codec =
     /// <returns>A new codec.</returns>
     let create
         (encode: 'T -> FIO<WebSocketFrame, WsError>)
-        (decode: WebSocketFrame -> FIO<'T, WsError>)
-        : WebSocketCodec<'T> =
+        (decode: WebSocketFrame -> FIO<'T, WsError>) =
         { Encode = encode; Decode = decode }
 
     /// <summary>
@@ -211,7 +211,7 @@ module Codec =
     /// <param name="encode">Pure encoding function.</param>
     /// <param name="decode">Pure decoding function.</param>
     /// <returns>A new codec wrapping the pure functions.</returns>
-    let createPure (encode: 'T -> WebSocketFrame) (decode: WebSocketFrame -> 'T) : WebSocketCodec<'T> =
+    let createPure (encode: 'T -> WebSocketFrame) (decode: WebSocketFrame -> 'T) =
         { Encode = fun value ->
             FIO.attempt((fun () -> encode value), WsError.fromException)
           Decode = fun frame ->

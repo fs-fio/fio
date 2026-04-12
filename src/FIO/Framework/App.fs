@@ -21,6 +21,8 @@ type private SysConsole = System.Console
 [<AbstractClass>]
 type FIOApp<'R, 'E> () as this =
 
+    static let mutable defaultThreadPoolConfigured = 0
+
     let id = Guid.NewGuid()
 
     let lazyRuntime = lazy (
@@ -90,16 +92,19 @@ type FIOApp<'R, 'E> () as this =
     default _.runtime =
         new DefaultRuntime()
 
-    /// <summary>Configures the .NET ThreadPool before runtime creation.</summary>
+    /// <summary>
+    /// Configures the .NET ThreadPool before runtime creation.
+    /// </summary>
     abstract member configureThreadPool: unit -> unit
     default _.configureThreadPool() =
-        let cores = Environment.ProcessorCount
-        let minWorkerThreads = cores * 2
-        let maxWorkerThreads = cores * 50
-        let minIOThreads = cores
-        let maxIOThreads = cores * 10
-        ThreadPool.SetMinThreads(minWorkerThreads, minIOThreads) |> ignore
-        ThreadPool.SetMaxThreads(maxWorkerThreads, maxIOThreads) |> ignore
+        if Interlocked.CompareExchange(&defaultThreadPoolConfigured, 1, 0) = 0 then
+            let cores = Environment.ProcessorCount
+            let minWorkerThreads = cores * 2
+            let maxWorkerThreads = cores * 50
+            let minIOThreads = cores
+            let maxIOThreads = cores * 10
+            ThreadPool.SetMinThreads(minWorkerThreads, minIOThreads) |> ignore
+            ThreadPool.SetMaxThreads(maxWorkerThreads, maxIOThreads) |> ignore
 
     /// <summary>Whether to print verbose lifecycle messages.</summary>
     /// <returns>True if verbose mode is enabled.</returns>
@@ -260,9 +265,12 @@ type FIOApp<'R, 'E> () as this =
     /// <param name="runtime">The runtime instance.</param>
     member private this.RunShutdownHook(runtime: FIORuntime) =
         task {
+            let mutable shutdownFiberOpt = None
+            let mutable timedOut = false
             try
-                let shutdownFiber = runtime.Run(this.shutdownHook())
-                let shutdownTask = shutdownFiber.Task()
+                let fiber = runtime.Run(this.shutdownHook())
+                shutdownFiberOpt <- Some fiber
+                let shutdownTask = fiber.Task()
                 let! shutdownResult = shutdownTask.WaitAsync this.shutdownHookTimeout
                 match shutdownResult with
                 | Succeeded _ -> this.onShutdownHookSuccess()
@@ -270,9 +278,22 @@ type FIOApp<'R, 'E> () as this =
                 | Interrupted ex -> this.onShutdownHookInterrupted ex
             with
             | :? TimeoutException ->
+                timedOut <- true
                 this.onShutdownHookTimeout this.shutdownHookTimeout
             | ex ->
                 this.onShutdownHookException ex
+            // On timeout, interrupt the still-running shutdown fiber and wait briefly for it to settle.
+            // Without this, the fiber would keep running in the background after the app reports "cleanup timeout".
+            if timedOut then
+                match shutdownFiberOpt with
+                | Some fiber ->
+                    fiber.Context.Interrupt(ExplicitInterrupt, "Shutdown hook exceeded timeout.")
+                    try
+                        let! _ = fiber.Task().WaitAsync(TimeSpan.FromSeconds 2.0)
+                        ()
+                    with
+                    | :? TimeoutException -> ()
+                | None -> ()
         }
 
     /// <summary>Executes the effect with lifecycle management and shutdown hooks.</summary>
@@ -296,7 +317,7 @@ type FIOApp<'R, 'E> () as this =
                             shutdownRequested <- true
                             eventArgs.Cancel <- true
                             this.onShutdownRequested()
-                            fiber.UnsafeInterrupt(ExplicitInterrupt, "Application shutdown requested from console.")
+                            fiber.Context.Interrupt(ExplicitInterrupt, "Application shutdown requested from console.")
                     )
                     SysConsole.CancelKeyPress.AddHandler shutdownHandler
                     handlerRegistered <- true

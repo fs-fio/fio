@@ -15,7 +15,7 @@ module SocketClient =
     /// </summary>
     /// <param name="config">Socket configuration including host and port.</param>
     /// <returns>The connected socket.</returns>
-    let connect (config: SocketConfig) : FIO<Socket, SocketError> =
+    let connect (config: SocketConfig) =
         fio {
             let! netSocket = FIO.attempt((fun () ->
                 let s = new Sockets.Socket(config.AddressFamily, config.SocketType, config.ProtocolType)
@@ -40,7 +40,7 @@ module SocketClient =
     /// <param name="host">The remote host to connect to.</param>
     /// <param name="port">The remote port to connect to.</param>
     /// <returns>The connected socket.</returns>
-    let connectWith (host: string) (port: int) : FIO<Socket, SocketError> =
+    let connectWith (host: string) (port: int) =
         fio {
             let! config = SocketConfig.create (host, port)
             return! connect config
@@ -52,7 +52,7 @@ module SocketClient =
     /// <param name="config">Socket configuration.</param>
     /// <param name="action">Action to execute with the socket.</param>
     /// <returns>The result of the action.</returns>
-    let withConnection (config: SocketConfig) (action: Socket -> FIO<'R, SocketError>) : FIO<'R, SocketError> =
+    let withConnection (config: SocketConfig) (action: Socket -> FIO<'R, SocketError>) =
         FIO.acquireRelease(
             connect config,
             (fun socket -> socket.Close().CatchAll(fun _ -> FIO.unit())),
@@ -66,7 +66,7 @@ module SocketClient =
     /// <param name="port">The remote port to connect to.</param>
     /// <param name="action">Action to execute with the socket.</param>
     /// <returns>The result of the action.</returns>
-    let withConnectionTo (host: string) (port: int) (action: Socket -> FIO<'R, SocketError>) : FIO<'R, SocketError> =
+    let withConnectionTo (host: string) (port: int) (action: Socket -> FIO<'R, SocketError>) =
         fio {
             let! config = SocketConfig.create (host, port)
             return! withConnection config action
@@ -78,7 +78,7 @@ module SocketClient =
     /// <param name="codec">The codec to use for encoding.</param>
     /// <param name="value">The value to send.</param>
     /// <param name="config">Socket configuration.</param>
-    let sendWith<'T> (codec: SocketCodec<'T>) (value: 'T) (config: SocketConfig) : FIO<unit, SocketError> =
+    let sendWith<'T> (codec: SocketCodec<'T>) (value: 'T) (config: SocketConfig) =
         withConnection config (fun socket -> socket.Send(codec, value))
 
     /// <summary>
@@ -88,5 +88,5 @@ module SocketClient =
     /// <param name="maxBytes">Maximum number of bytes to receive.</param>
     /// <param name="config">Socket configuration.</param>
     /// <returns>The decoded value.</returns>
-    let receiveWith<'T> (codec: SocketCodec<'T>) (maxBytes: int) (config: SocketConfig) : FIO<'T, SocketError> =
+    let receiveWith<'T> (codec: SocketCodec<'T>) (maxBytes: int) (config: SocketConfig) =
         withConnection config (fun socket -> socket.Receive(codec, maxBytes))

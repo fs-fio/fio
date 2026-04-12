@@ -19,7 +19,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     let receiveLock = new SemaphoreSlim(1, 1)
 
     // Internal: Logs an error and suppresses it (used for cleanup)
-    let logAndSuppress (context: string) (err: WsError) : FIO<unit, WsError> =
+    let logAndSuppress (context: string) (err: WsError) =
         fio {
             let str = err.ToString()
             do! FIO.attempt((fun () ->
@@ -28,20 +28,20 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
         }
 
     // Partially applied functions for consistent error handling
-    let fromFunc (func: unit -> 'T) : FIO<'T, WsError> =
+    let fromFunc (func: unit -> 'T) =
         FIO.attempt(func, WsError.fromException)
 
-    let awaitTask (task: Task) : FIO<unit, WsError> =
+    let awaitTask (task: Task) =
         FIO.awaitTask(task, WsError.fromException)
 
-    let awaitTaskT (task: Task<'T>) : FIO<'T, WsError> =
+    let awaitTaskT (task: Task<'T>) =
         FIO.awaitGenericTask(task, WsError.fromException)
 
     /// <summary>
     /// Receives a complete message from the WebSocket.
     /// </summary>
     /// <param name="cancellationToken">Optional cancellation token.</param>
-    member _.ReceiveMessage(cancellationToken: CancellationToken) : FIO<WebSocketMessage, WsError> =
+    member _.ReceiveMessage (ct: CancellationToken) =
         fio {
             let! state = fromFunc <| fun () -> socket.State
 
@@ -58,7 +58,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
 
             let! linkedCts =
                 fromFunc
-                <| fun () -> CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token)
+                <| fun () -> CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token)
 
             let effectiveToken = linkedCts.Token
 
@@ -131,7 +131,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// <summary>
     /// Receives a complete message from the WebSocket.
     /// </summary>
-    member this.ReceiveMessage() : FIO<WebSocketMessage, WsError> =
+    member this.ReceiveMessage () =
         this.ReceiveMessage CancellationToken.None
 
     /// <summary>
@@ -139,7 +139,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// </summary>
     /// <param name="frame">The frame to send.</param>
     /// <param name="cancellationToken">Optional cancellation token.</param>
-    member _.SendFrame(frame: WebSocketFrame, cancellationToken: CancellationToken) : FIO<unit, WsError> =
+    member _.SendFrame (frame: WebSocketFrame, ct: CancellationToken) =
         fio {
             let! state = fromFunc <| fun () -> socket.State
 
@@ -153,7 +153,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
                     new CancellationTokenSource()
 
             let! linkedCts = fromFunc <| fun () ->
-                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token)
+                CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token)
 
             let effectiveToken = linkedCts.Token
 
@@ -209,7 +209,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// Sends a WebSocket frame.
     /// </summary>
     /// <param name="frame">The frame to send.</param>
-    member this.SendFrame(frame: WebSocketFrame) : FIO<unit, WsError> =
+    member this.SendFrame (frame: WebSocketFrame) =
         this.SendFrame(frame, CancellationToken.None)
 
     /// <summary>
@@ -217,14 +217,14 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// </summary>
     /// <param name="text">The text to send.</param>
     /// <param name="cancellationToken">Optional cancellation token.</param>
-    member this.SendText(text: string, cancellationToken: CancellationToken) : FIO<unit, WsError> =
-        this.SendFrame(Text text, cancellationToken)
+    member this.SendText (text: string, ct: CancellationToken) =
+        this.SendFrame(Text text, ct)
 
     /// <summary>
     /// Sends a text frame.
     /// </summary>
     /// <param name="text">The text to send.</param>
-    member this.SendText(text: string) : FIO<unit, WsError> =
+    member this.SendText (text: string) =
         this.SendText(text, CancellationToken.None)
 
     /// <summary>
@@ -232,14 +232,14 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// </summary>
     /// <param name="data">The binary data to send.</param>
     /// <param name="cancellationToken">Optional cancellation token.</param>
-    member this.SendBinary(data: byte[], cancellationToken: CancellationToken) : FIO<unit, WsError> =
-        this.SendFrame(Binary data, cancellationToken)
+    member this.SendBinary (data: byte[], ct: CancellationToken) =
+        this.SendFrame(Binary data, ct)
 
     /// <summary>
     /// Sends a binary frame.
     /// </summary>
     /// <param name="data">The binary data to send.</param>
-    member this.SendBinary(data: byte[]) : FIO<unit, WsError> =
+    member this.SendBinary (data: byte[]) =
         this.SendBinary(data, CancellationToken.None)
 
     /// <summary>
@@ -248,12 +248,12 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// <param name="codec">The codec to use for encoding.</param>
     /// <param name="value">The value to send.</param>
     /// <param name="cancellationToken">Optional cancellation token.</param>
-    member this.Send<'T>(codec: WebSocketCodec<'T>, value: 'T, cancellationToken: CancellationToken) : FIO<unit, WsError> =
+    member this.Send<'T> (codec: WebSocketCodec<'T>, value: 'T, ct: CancellationToken) =
         fio {
             let! frameResult =
-                (codec.Encode value)
-                    .CatchAll(fun err -> FIO.fail(err))
-            do! this.SendFrame(frameResult, cancellationToken)
+                codec.Encode(value)
+                    .CatchAll(fun err -> FIO.fail err)
+            do! this.SendFrame(frameResult, ct)
         }
 
     /// <summary>
@@ -261,7 +261,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// </summary>
     /// <param name="codec">The codec to use for encoding.</param>
     /// <param name="value">The value to send.</param>
-    member this.Send<'T>(codec: WebSocketCodec<'T>, value: 'T) : FIO<unit, WsError> =
+    member this.Send<'T> (codec: WebSocketCodec<'T>, value: 'T) =
         this.Send(codec, value, CancellationToken.None)
 
     /// <summary>
@@ -269,9 +269,9 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// </summary>
     /// <param name="codec">The codec to use for decoding.</param>
     /// <param name="cancellationToken">Optional cancellation token.</param>
-    member this.Receive<'T>(codec: WebSocketCodec<'T>, cancellationToken: CancellationToken) : FIO<'T, WsError> =
+    member this.Receive<'T> (codec: WebSocketCodec<'T>, ct: CancellationToken) =
         fio {
-            match! this.ReceiveMessage cancellationToken with
+            match! this.ReceiveMessage ct with
             | Frame frame ->
                 return! codec.Decode(frame)
                     .CatchAll(fun err -> FIO.fail err)
@@ -283,7 +283,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// Receives and decodes a value using a codec.
     /// </summary>
     /// <param name="codec">The codec to use for decoding.</param>
-    member this.Receive<'T>(codec: WebSocketCodec<'T>) : FIO<'T, WsError> =
+    member this.Receive<'T> (codec: WebSocketCodec<'T>) =
         this.Receive(codec, CancellationToken.None)
 
     /// <summary>
@@ -292,18 +292,18 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// <param name="closeStatus">The WebSocket close status.</param>
     /// <param name="statusDescription">A description for the close status.</param>
     /// <param name="cancellationToken">Optional cancellation token.</param>
-    member _.Close(closeStatus: WebSocketCloseStatus, statusDescription: string, cancellationToken: CancellationToken) : FIO<unit, WsError> =
+    member _.Close (closeStatus: WebSocketCloseStatus, statusDescription: string, ct: CancellationToken) =
         fio {
-            let! sendLockTask = fromFunc <| fun () -> sendLock.WaitAsync cancellationToken
+            let! sendLockTask = fromFunc <| fun () -> sendLock.WaitAsync ct
             do! awaitTask sendLockTask
-            let! receiveLockTask = fromFunc <| fun () -> receiveLock.WaitAsync cancellationToken
+            let! receiveLockTask = fromFunc <| fun () -> receiveLock.WaitAsync ct
             do! awaitTask receiveLockTask
 
             let closeOp =
                 fio {
                     let! closeTask =
                         fromFunc
-                        <| fun () -> socket.CloseAsync(closeStatus, statusDescription, cancellationToken)
+                        <| fun () -> socket.CloseAsync(closeStatus, statusDescription, ct)
 
                     do! awaitTask closeTask
                 }
@@ -322,20 +322,20 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// </summary>
     /// <param name="closeStatus">The WebSocket close status.</param>
     /// <param name="statusDescription">A description for the close status.</param>
-    member this.Close(closeStatus: WebSocketCloseStatus, statusDescription: string) : FIO<unit, WsError> =
+    member this.Close (closeStatus: WebSocketCloseStatus, statusDescription: string) =
         this.Close(closeStatus, statusDescription, CancellationToken.None)
 
     /// <summary>
     /// Closes the WebSocket connection with normal closure.
     /// </summary>
     /// <param name="cancellationToken">Optional cancellation token.</param>
-    member this.Close(cancellationToken: CancellationToken) : FIO<unit, WsError> =
-        this.Close(WebSocketCloseStatus.NormalClosure, "Normal closure", cancellationToken)
+    member this.Close (ct: CancellationToken) : FIO<unit, WsError> =
+        this.Close(WebSocketCloseStatus.NormalClosure, "Normal closure", ct)
 
     /// <summary>
     /// Closes the WebSocket connection with normal closure.
     /// </summary>
-    member this.Close() : FIO<unit, WsError> =
+    member this.Close () =
         this.Close CancellationToken.None
 
     /// <summary>
@@ -344,16 +344,16 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// <param name="closeStatus">The WebSocket close status.</param>
     /// <param name="statusDescription">A description for the close status.</param>
     /// <param name="cancellationToken">Optional cancellation token.</param>
-    member _.CloseOutput(closeStatus: WebSocketCloseStatus, statusDescription: string, cancellationToken: CancellationToken) : FIO<unit, WsError> =
+    member _.CloseOutput (closeStatus: WebSocketCloseStatus, statusDescription: string, ct: CancellationToken) =
         fio {
-            let! sendLockTask = fromFunc <| fun () -> sendLock.WaitAsync cancellationToken
+            let! sendLockTask = fromFunc <| fun () -> sendLock.WaitAsync ct
             do! awaitTask sendLockTask
 
             let closeOp =
                 fio {
                     let! closeTask =
                         fromFunc
-                        <| fun () -> socket.CloseOutputAsync(closeStatus, statusDescription, cancellationToken)
+                        <| fun () -> socket.CloseOutputAsync(closeStatus, statusDescription, ct)
 
                     do! awaitTask closeTask
                 }
@@ -367,19 +367,19 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// </summary>
     /// <param name="closeStatus">The WebSocket close status.</param>
     /// <param name="statusDescription">A description for the close status.</param>
-    member this.CloseOutput(closeStatus: WebSocketCloseStatus, statusDescription: string) : FIO<unit, WsError> =
+    member this.CloseOutput (closeStatus: WebSocketCloseStatus, statusDescription: string) =
         this.CloseOutput(closeStatus, statusDescription, CancellationToken.None)
 
     /// <summary>
     /// Closes the outgoing side with normal closure.
     /// </summary>
-    member this.CloseOutput() : FIO<unit, WsError> =
+    member this.CloseOutput () =
         this.CloseOutput(WebSocketCloseStatus.NormalClosure, "Normal closure", CancellationToken.None)
 
     /// <summary>
     /// Aborts the WebSocket connection immediately.
     /// </summary>
-    member _.Abort() : FIO<unit, WsError> =
+    member _.Abort () =
         fio {
             do! fromFunc <| fun () -> socket.Abort()
         }
@@ -387,7 +387,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// <summary>
     /// Gets the current state of the WebSocket connection.
     /// </summary>
-    member _.State() : FIO<WebSocketState, WsError> =
+    member _.State () =
         fio {
             return! fromFunc <| fun () -> socket.State
         }
@@ -395,7 +395,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// <summary>
     /// Gets the close status if the connection is closed.
     /// </summary>
-    member _.CloseStatus() : FIO<WebSocketCloseStatus option, WsError> =
+    member _.CloseStatus () =
         fio {
             return! fromFunc <| fun () -> Option.ofNullable socket.CloseStatus
         }
@@ -403,7 +403,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// <summary>
     /// Gets the close status description if the connection is closed.
     /// </summary>
-    member _.CloseStatusDescription() : FIO<string, WsError> =
+    member _.CloseStatusDescription () =
         fio {
             return! fromFunc <| fun () -> socket.CloseStatusDescription
         }
@@ -411,7 +411,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// <summary>
     /// Gets the negotiated subprotocol, if any.
     /// </summary>
-    member _.Subprotocol() : FIO<string, WsError> =
+    member _.Subprotocol () =
         fio {
             return! fromFunc <| fun () -> socket.SubProtocol
         }
@@ -421,7 +421,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// This is a synchronous FIO effect wrapper for cleanup.
     /// Note: Prefer using Close() in FIO code for proper async cleanup.
     /// </summary>
-    member _.Dispose() : FIO<unit, WsError> =
+    member _.Dispose () =
         fio {
             do! fromFunc(fun () -> socket.Dispose()).CatchAll(logAndSuppress "socket disposal")
             do! fromFunc(fun () -> sendLock.Dispose()).CatchAll(logAndSuppress "sendLock disposal")

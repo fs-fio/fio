@@ -175,22 +175,32 @@ type internal SystemConsoleBackend() =
 
 /// <summary>
 /// Global console backend configuration for testing.
+///
+/// <para><b>Thread safety / test isolation:</b> the backend reference is
+/// process-global and unsynchronised. Tests that call <c>set</c> / <c>reset</c>
+/// to install a mock backend MUST run under <c>testSequenced</c> — running
+/// them in parallel will cause one test's mock to leak into another's assertion
+/// window, producing non-deterministic failures.</para>
 /// </summary>
 [<RequireQualifiedAccess>]
 module internal ConsoleBackend =
 
     let mutable private current: IConsoleBackend =
         SystemConsoleBackend()
-    
+
     /// <summary>Gets the current console backend.</summary>
     let get () =
         current
-    
-    /// <summary>Sets the console backend (for testing).</summary>
+
+    /// <summary>
+    /// Sets the console backend (for testing).
+    /// Mutates process-global state — callers must ensure no other thread
+    /// is concurrently reading/writing <c>current</c>; see module docs.
+    /// </summary>
     /// <param name="backend">The IConsoleBackend implementation to use.</param>
     let set (backend: IConsoleBackend) =
         current <- backend
-    
+
     /// <summary>Resets to the real System.Console backend.</summary>
     let reset () =
         current <- SystemConsoleBackend()

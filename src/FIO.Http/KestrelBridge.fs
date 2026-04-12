@@ -21,9 +21,10 @@ module KestrelBridge =
     /// Uses camelCase naming policy for JavaScript/frontend compatibility.
     /// This is a pre-configured, immutable instance for optimal performance.
     /// </summary>
-    let DefaultJsonOptions = 
+    let DefaultJsonOptions =
         let options = JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
-        options.MakeReadOnly()  // Make immutable for thread-safety and performance
+        options.TypeInfoResolver <- Serialization.Metadata.DefaultJsonTypeInfoResolver()
+        options.MakeReadOnly()
         options
 
     /// <summary>
@@ -103,18 +104,22 @@ module KestrelBridge =
                                     let buffer = ArrayPool<byte>.Shared.Rent(length)
                                     try
                                         let mutable totalRead = 0
-                                        while totalRead < length do
+                                        let mutable eof = false
+                                        while totalRead < length && not eof do
                                             let! bytesRead = ctx.Request.Body.ReadAsync(buffer, totalRead, length - totalRead)
                                             if bytesRead = 0 then
-                                                totalRead <- length // Exit loop on EOF
+                                                eof <- true
                                             else
                                                 totalRead <- totalRead + bytesRead
-                                        let result = Array.zeroCreate<byte> totalRead
-                                        Buffer.BlockCopy(buffer, 0, result, 0, totalRead)
-                                        if totalRead = 0 then
-                                            return Ok RequestBody.Empty
+                                        if eof && totalRead < length then
+                                            return Error $"Request body truncated: received {totalRead} of {length} declared bytes"
                                         else
-                                            return Ok <| RequestBody.Bytes result
+                                            let result = Array.zeroCreate<byte> totalRead
+                                            Buffer.BlockCopy(buffer, 0, result, 0, totalRead)
+                                            if totalRead = 0 then
+                                                return Ok RequestBody.Empty
+                                            else
+                                                return Ok <| RequestBody.Bytes result
                                     finally
                                         ArrayPool<byte>.Shared.Return(buffer)
                             else
@@ -170,7 +175,7 @@ module KestrelBridge =
 
     /// <summary>
     /// Writes an FIO HttpResponse to an ASP.NET Core HttpContext.
-    /// Note: Stream bodies are NOT automatically disposed. Callers are responsible for disposing streams.
+    /// Note: Stream bodies are automatically disposed after being written to the response.
     /// </summary>
     /// <param name="jsonOptions">JSON serializer options for response serialization.</param>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
@@ -232,14 +237,16 @@ module KestrelBridge =
                 | Some length -> ctx.Response.ContentLength <- Nullable<int64> length
                 | None -> () // No Content-Length header; Kestrel will use chunked transfer encoding
 
-                // Copy stream to response body
-                // Note: Caller is responsible for disposing the stream
-                do! stream.CopyToAsync ctx.Response.Body
+                // Copy stream to response body and dispose when done
+                try
+                    do! stream.CopyToAsync ctx.Response.Body
+                finally
+                    stream.Dispose()
         }
 
     /// <summary>
     /// Writes an FIO HttpResponse to an ASP.NET Core HttpContext.
-    /// Note: Stream bodies are NOT automatically disposed. Callers are responsible for disposing streams.
+    /// Note: Stream bodies are automatically disposed after being written to the response.
     /// </summary>
     /// <param name="jsonOptions">Optional JSON serializer options. Uses DefaultJsonOptions if None.</param>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
@@ -251,7 +258,7 @@ module KestrelBridge =
 
     /// <summary>
     /// Writes an FIO HttpResponse to an ASP.NET Core HttpContext using DefaultJsonOptions.
-    /// Note: Stream bodies are NOT automatically disposed. Callers are responsible for disposing streams.
+    /// Note: Stream bodies are automatically disposed after being written to the response.
     /// </summary>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
     /// <param name="response">The FIO HTTP response to write.</param>

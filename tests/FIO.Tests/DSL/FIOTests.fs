@@ -294,4 +294,71 @@ let fioTests =
             match result with
             | Interrupted _ -> ()
             | other -> failtest $"Expected Interrupted but got {other}"
+
+        testAllRuntimes "Stack safety - deep left-chained FlatMap via Fork and CatchAll"
+        <| fun (runtime: FIORuntime) ->
+            let depth = 10000
+            let mutable eff = FIO.succeed 0
+            for _ in 1 .. depth do
+                eff <- eff.FlatMap(fun n -> FIO.succeed (n + 1))
+
+            let forked = eff.Fork()
+            let caught = eff.CatchAll(fun _ -> FIO.succeed -1)
+
+            let joined = fio {
+                let! fiber = forked
+                let! fromFork = fiber.Join()
+                let! fromCatch = caught
+                return fromFork, fromCatch
+            }
+
+            let fromFork, fromCatch = runtime.Run(joined).UnsafeSuccess()
+            Expect.equal fromFork depth $"Forked deep FlatMap chain should yield {depth}"
+            Expect.equal fromCatch depth $"Caught deep FlatMap chain should yield {depth}"
+
+        testAllRuntimes "Stack safety - deep left-chained CatchAll via Fork and CatchAll"
+        <| fun (runtime: FIORuntime) ->
+            let depth = 10000
+            let mutable eff = FIO.fail(exn "seed")
+            for _ in 1 .. depth do
+                eff <- eff.CatchAll(fun _ -> FIO.fail(exn "next"))
+            
+            let recovered = eff.CatchAll(fun _ -> FIO.succeed 42)
+
+            let joined = fio {
+                let! fiber = recovered.Fork()
+                return! fiber.Join()
+            }
+
+            let result = runtime.Run(joined).UnsafeSuccess()
+            Expect.equal result 42 "Deep CatchAll chain should recover to 42"
+
+        testAllRuntimes "Stack safety - deep left-chained Ensuring via Fork"
+        <| fun (runtime: FIORuntime) ->
+            let depth = 10000
+            let mutable eff = FIO.succeed 0
+            for _ in 1 .. depth do
+                eff <- eff.Ensuring(FIO.unit())
+
+            let joined = fio {
+                let! fiber = eff.Fork()
+                return! fiber.Join()
+            }
+
+            let result = runtime.Run(joined).UnsafeSuccess()
+            Expect.equal result 0 "Deep Ensuring chain should yield the seed value"
+
+        testAllRuntimes "AddRegistration - fast-completing forked effects do not wedge under load"
+        <| fun (runtime: FIORuntime) ->
+            let counter = ref 0
+            let eff = fio {
+                for _ in 1 .. 200 do
+                    let! fiber = FIO.succeed(1).Fork()
+                    let! _ = fiber.Join()
+                    counter.Value <- counter.Value + 1
+                return counter.Value
+            }
+
+            let result = runtime.Run(eff).UnsafeSuccess()
+            Expect.equal result 200 "All fast-completing forks should be observed"
     ]

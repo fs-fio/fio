@@ -3,6 +3,121 @@ namespace FIO.Http
 open System
 
 /// <summary>
+/// Represents a route path pattern for URL matching.
+/// </summary>
+type RoutePath =
+    /// <summary>
+    /// Exact path match.
+    /// </summary>
+    | Exact of string list
+    /// <summary>
+    /// Prefix path match.
+    /// </summary>
+    | Prefix of string list
+    /// <summary>
+    /// Custom pattern matcher.
+    /// </summary>
+    | Pattern of (string list -> (obj list * string list) option)
+
+/// <summary>
+/// Functions for creating and matching route paths.
+/// </summary>
+module RoutePath =
+    /// <summary>
+    /// Creates an exact path match.
+    /// </summary>
+    /// <param name="segments">The path segments to match exactly.</param>
+    let exact (segments: string list) : RoutePath =
+        Exact segments
+
+    /// <summary>
+    /// Creates a prefix path match.
+    /// </summary>
+    /// <param name="segments">The path segments to match as prefix.</param>
+    let prefix (segments: string list) : RoutePath =
+        Prefix segments
+
+    /// <summary>
+    /// Parses a path string into a route path.
+    /// </summary>
+    /// <param name="path">The path string to parse.</param>
+    let ofString (path: string) : RoutePath =
+        let segments =
+            path.Split([| '/' |], StringSplitOptions.RemoveEmptyEntries)
+            |> Array.toList
+        Exact segments
+
+    /// <summary>
+    /// Attempts to match a route path against URL segments.
+    /// </summary>
+    /// <param name="routePath">The route path pattern.</param>
+    /// <param name="segments">The URL segments to match.</param>
+    let tryMatch (routePath: RoutePath) (segments: string list) : (obj list * string list) option =
+        match routePath with
+        | Exact expected ->
+            if segments = expected then
+                Some([], [])
+            else
+                None
+        | Prefix expected ->
+            let rec matchPrefix exp seg =
+                match exp, seg with
+                | [], remaining -> Some([], remaining)
+                | e :: et, s :: st when e = s -> matchPrefix et st
+                | _ -> None
+            matchPrefix expected segments
+        | Pattern matcher -> matcher segments
+
+    /// <summary>
+    /// Creates a route path with an integer parameter.
+    /// </summary>
+    /// <param name="before">The path segments before the parameter.</param>
+    /// <param name="after">The path segments after the parameter.</param>
+    let withInt (before: string list) (after: string list) : RoutePath =
+        Pattern(fun segments ->
+            let rec matchBefore b s =
+                match b, s with
+                | [], remaining -> Some remaining
+                | bh :: bt, sh :: st when bh = sh -> matchBefore bt st
+                | _ -> None
+
+            let rec matchAfter a s acc =
+                match a, s with
+                | [], remaining -> Some(List.rev acc, remaining)
+                | ah :: at, sh :: st when ah = sh -> matchAfter at st acc
+                | _ -> None
+
+            match matchBefore before segments with
+            | Some (param :: remaining) ->
+                match Int32.TryParse param with
+                | true, value -> matchAfter after remaining [box value]
+                | false, _ -> None
+            | _ -> None)
+
+    /// <summary>
+    /// Creates a route path with a string parameter.
+    /// </summary>
+    /// <param name="before">The path segments before the parameter.</param>
+    /// <param name="after">The path segments after the parameter.</param>
+    let withString (before: string list) (after: string list) : RoutePath =
+        Pattern(fun segments ->
+            let rec matchBefore b s =
+                match b, s with
+                | [], remaining -> Some remaining
+                | bh :: bt, sh :: st when bh = sh -> matchBefore bt st
+                | _ -> None
+
+            let rec matchAfter a s acc =
+                match a, s with
+                | [], remaining -> Some(List.rev acc, remaining)
+                | ah :: at, sh :: st when ah = sh -> matchAfter at st acc
+                | _ -> None
+
+            match matchBefore before segments with
+            | Some (param :: remaining) -> matchAfter after remaining [box param]
+            | _ -> None)
+
+/// <summary>
 /// Represents an HTTP route pattern combining method and path matching.
 /// </summary>
 type RoutePattern =

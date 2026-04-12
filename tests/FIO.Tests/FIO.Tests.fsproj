@@ -36,6 +36,7 @@
         <Compile Include="Lib/RandomTests.fs" />
         <Compile Include="Lib/RefTests.fs" />
         <Compile Include="Lib/SemaphoreTests.fs" />
+        <Compile Include="Lib/FiberModuleTests.fs" />
 
         <!-- Framework -->
         <Compile Include="Framework/AppTests.fs" />

@@ -89,13 +89,13 @@ and [<Sealed>] internal UnboundedChannel<'R> (id: Guid) =
     /// <summary>
     /// Adds a message asynchronously.
     /// </summary>
-    member internal _.AddAsync (msg: 'R) : ValueTask =
+    member internal _.AddAsync msg =
         chan.Writer.WriteAsync msg
 
     /// <summary>
     /// Takes a message asynchronously.
     /// </summary>
-    member internal _.TakeAsync () : ValueTask<'R> =
+    member internal _.TakeAsync () =
         chan.Reader.ReadAsync()
 
     /// <summary>
@@ -105,10 +105,10 @@ and [<Sealed>] internal UnboundedChannel<'R> (id: Guid) =
         chan.Reader.TryRead &res
 
     /// <summary>
-    /// Waits asynchronously until a message is available.
+    /// Waits asynchronously until a message is available, observing the given cancellation token.
     /// </summary>
-    member internal _.WaitToTakeAsync () : ValueTask<bool> =
-        chan.Reader.WaitToReadAsync()
+    member internal _.WaitToTakeAsync (ct: CancellationToken) =
+        chan.Reader.WaitToReadAsync ct
 
     /// <summary>
     /// Clears all messages from the channel.
@@ -135,7 +135,11 @@ and [<Sealed>] internal FiberContext () =
     let blockingWorkItemChan = UnboundedChannel<WorkItem>()
     let resTcs = TaskCompletionSource<Result<obj, obj>> TaskCreationOptions.RunContinuationsAsynchronously
     let cts = new CancellationTokenSource()
-    let registrations = ConcurrentBag<IDisposable>()
+
+    [<VolatileField>]
+    let mutable registrations: ConcurrentBag<IDisposable> = null
+
+    [<VolatileField>]
     let mutable disposed = false
 
     /// <summary>
@@ -157,33 +161,12 @@ and [<Sealed>] internal FiberContext () =
         cts.Token
 
     /// <summary>
-    /// Adds a disposable registration to be cleaned up when the fiber completes.
-    /// </summary>
-    member internal _.AddRegistration (registration: IDisposable) =
-        registrations.Add registration
-
-    /// <summary>
-    /// Disposes all registrations.
-    /// </summary>
-    member private _.DisposeRegistrations () =
-        let mutable registration = Unchecked.defaultof<_>
-        while registrations.TryTake(&registration) do
-            try
-                registration.Dispose()
-            with :? ObjectDisposedException ->
-                ()
-
-    /// <summary>
     /// Completes the fiber with the given result.
     /// </summary>
     member internal this.Complete res =
-        let oldState = Interlocked.CompareExchange(&state, int FiberContextState.Completed, int FiberContextState.Running)
-        if oldState = int FiberContextState.Running then
-            resTcs.TrySetResult res |> ignore
+        if Interlocked.CompareExchange(&state, int FiberContextState.Completed, int FiberContextState.Running) = int FiberContextState.Running then
             this.DisposeRegistrations()
-        elif oldState = int FiberContextState.Interrupted then
             resTcs.TrySetResult res |> ignore
-            this.DisposeRegistrations()
 
     /// <summary>
     /// Completes the fiber and reschedules blocking work items.
@@ -192,31 +175,16 @@ and [<Sealed>] internal FiberContext () =
         task {
             let oldState = Interlocked.CompareExchange(&state, int FiberContextState.Completed, int FiberContextState.Running)
             if oldState = int FiberContextState.Running then
-                resTcs.TrySetResult res |> ignore
                 this.DisposeRegistrations()
+                resTcs.TrySetResult res |> ignore
                 if blockingWorkItemChan.Count > 0 then
                     do! this.RescheduleBlockingWorkItems activeWorkItemChan
             elif oldState = int FiberContextState.Interrupted then
-                resTcs.TrySetResult res |> ignore
                 this.DisposeRegistrations()
-                // Reschedule blocking work items so they can observe the interruption
+                resTcs.TrySetResult res |> ignore
                 if blockingWorkItemChan.Count > 0 then
                     do! this.RescheduleBlockingWorkItems activeWorkItemChan
         }
-
-    /// <summary>
-    /// Gets whether the fiber has completed.
-    /// </summary>
-    member internal _.Completed () =
-        Volatile.Read &state = int FiberContextState.Completed
-
-    /// <summary>
-    /// Gets whether the fiber has reached a terminal state (completed or interrupted).
-    /// </summary>
-    member internal _.IsTerminal () =
-        let currentState = Volatile.Read &state
-        currentState = int FiberContextState.Completed ||
-        currentState = int FiberContextState.Interrupted
 
     /// <summary>
     /// Interrupts the fiber with the specified cause and message.
@@ -225,21 +193,15 @@ and [<Sealed>] internal FiberContext () =
         let cause = defaultArg cause ExplicitInterrupt
         let msg = defaultArg msg "Fiber was interrupted."
         if Interlocked.CompareExchange(&state, int FiberContextState.Interrupted, int FiberContextState.Running) = int FiberContextState.Running then
-            cts.Cancel()
+            cts.Cancel(throwOnFirstException = false)
+            this.DisposeRegistrations()
             let interruptError = Error (FiberInterruptedException(id, cause, msg) :> obj)
             resTcs.TrySetResult interruptError |> ignore
-            this.DisposeRegistrations()
-
-    /// <summary>
-    /// Gets whether the fiber has been interrupted.
-    /// </summary>
-    member internal _.Interrupted () =
-        Volatile.Read &state = int FiberContextState.Interrupted
 
     /// <summary>
     /// Adds a blocking work item to the queue.
     /// </summary>
-    member internal _.AddBlockingWorkItem (blockingWorkItem: WorkItem) =
+    member internal _.AddBlockingWorkItem blockingWorkItem =
         blockingWorkItemChan.AddAsync blockingWorkItem
 
     /// <summary>
@@ -264,6 +226,55 @@ and [<Sealed>] internal FiberContext () =
                 return true
         }
 
+    /// <summary>
+    /// Adds a disposable registration to be cleaned up when the fiber completes.
+    /// </summary>
+    member internal this.AddRegistration (registration: IDisposable) =
+        let mutable bag = Volatile.Read &registrations
+        if isNull bag then
+            let created = ConcurrentBag<IDisposable>()
+            let existing = Interlocked.CompareExchange(&registrations, created, null)
+            bag <- if isNull existing then created else existing
+        bag.Add registration
+        if this.IsTerminal() then
+            let mutable victim = Unchecked.defaultof<_>
+            while bag.TryTake &victim do
+                try
+                    victim.Dispose()
+                with :? ObjectDisposedException ->
+                    ()
+
+    /// <summary>
+    /// Gets whether the fiber has completed.
+    /// </summary>
+    member internal _.IsCompleted () =
+        Volatile.Read &state = int FiberContextState.Completed
+
+    /// <summary>
+    /// Gets whether the fiber has been interrupted.
+    /// </summary>
+    member internal _.IsInterrupted () =
+        Volatile.Read &state = int FiberContextState.Interrupted
+
+    /// <summary>
+    /// Gets whether the fiber has reached a terminal state (completed or interrupted).
+    /// </summary>
+    member internal _.IsTerminal () =
+        Volatile.Read &state <> int FiberContextState.Running
+
+    /// <summary>
+    /// Disposes all registrations.
+    /// </summary>
+    member private _.DisposeRegistrations () =
+        let bag = Volatile.Read &registrations
+        if not (isNull bag) then
+            let mutable registration = Unchecked.defaultof<_>
+            while bag.TryTake &registration do
+                try
+                    registration.Dispose()
+                with :? ObjectDisposedException ->
+                    ()
+
     member private _.Dispose disposing =
         if not disposed then
             disposed <- true
@@ -283,7 +294,6 @@ and [<Sealed>] internal FiberContext () =
 /// </summary>
 and [<Sealed>] Fiber<'R, 'E> internal () =
     let fiberContext = new FiberContext()
-    let mutable disposed = false
 
     /// <summary>
     /// Gets the unique identifier.
@@ -298,42 +308,111 @@ and [<Sealed>] Fiber<'R, 'E> internal () =
         fiberContext.CancellationToken
 
     /// <summary>
-    /// Gets whether the fiber has completed.
+    /// Returns the fiber's result as a Task&lt;FiberResult&lt;'R, 'E&gt;&gt;.
     /// </summary>
-    member _.Completed () =
-        fiberContext.Completed()
-
-    /// <summary>
-    /// Gets whether the fiber has been interrupted.
-    /// </summary>
-    member _.Interrupted =
-        fiberContext.Interrupted()
+    member _.Task () =
+        task {
+            match! fiberContext.Task with
+            | Ok res ->
+                return Succeeded(res :?> 'R)
+            | Error err ->
+                match err with
+                | :? FiberInterruptedException as ex ->
+                    return Interrupted ex
+                | _ ->
+                    return Failed(err :?> 'E)
+        }
 
     /// <summary>
     /// Awaits the fiber's completion and returns its result.
     /// </summary>
-    member _.Join<'R, 'E> () : FIO<'R, 'E> =
+    member _.Join () : FIO<'R, 'E> =
         JoinFiber fiberContext
 
     /// <summary>
-    /// Returns the fiber's result as a Task&lt;FiberResult&lt;'R, 'E&gt;&gt;.
+    /// Interrupts the fiber with the specified cause and message.
     /// </summary>
-    member _.Task<'R, 'E> () =
-        task {
-            match! fiberContext.Task with
-            | Ok res -> return Succeeded(res :?> 'R)
-            | Error err ->
-                match err with
-                | :? FiberInterruptedException as ex -> return Interrupted ex
-                | _ -> return Failed(err :?> 'E)
-        }
+    /// <param name="cause">The interruption cause.</param>
+    /// <param name="msg">The interruption message.</param>
+    member _.Interrupt (?cause: InterruptionCause, ?msg: string) : FIO<unit, 'E> =
+        let cause = defaultArg cause ExplicitInterrupt
+        let msg = defaultArg msg "Fiber was interrupted."
+        InterruptFiber(cause, msg, fiberContext)
+
+    /// <summary>
+    /// Awaits the fiber's completion and returns its FiberResult without re-raising errors or propagating interruptions.
+    /// </summary>
+    member this.Await<'E2> () : FIO<FiberResult<'R, 'E>, 'E2> =
+        AwaitGenericTPLTask(upcastTask (this.Task()), fun ex -> raise ex)
+
+    /// <summary>
+    /// Interrupts the fiber and awaits its terminal result.
+    /// Unlike Interrupt(), which is fire-and-forget, this waits for the fiber to reach a terminal state.
+    /// </summary>
+    /// <param name="cause">The interruption cause.</param>
+    /// <param name="msg">The interruption message.</param>
+    member this.InterruptAwait<'E2> (?cause: InterruptionCause, ?msg: string) : FIO<FiberResult<'R, 'E>, 'E2> =
+        let cause = defaultArg cause ExplicitInterrupt
+        let msg = defaultArg msg "Fiber was interrupted."
+        Action((fun () -> fiberContext.Interrupt(cause, msg)), fun ex -> raise ex)
+            .FlatMap(fun () -> this.Await())
+
+    /// <summary>
+    /// Non-blocking check of the fiber's result.
+    /// Returns Some(result) if the fiber is terminal, None if still running.
+    /// </summary>
+    member this.Poll<'E2> () : FIO<FiberResult<'R, 'E> option, 'E2> =
+        Action(
+            (fun () ->
+                if not (fiberContext.IsTerminal()) then
+                    None
+                else
+                    let t = fiberContext.Task
+                    match t.Result with
+                    | Ok res -> Some(Succeeded(res :?> 'R))
+                    | Error err ->
+                        match err with
+                        | :? FiberInterruptedException as ex -> Some(Interrupted ex)
+                        | _ -> Some(Failed(err :?> 'E))),
+            fun ex -> raise ex)
+
+    /// <summary>
+    /// Awaits the fiber's completion and handles all three outcome cases with separate effectful handlers.
+    /// </summary>
+    /// <param name="onSucceeded">Handler for a successful result.</param>
+    /// <param name="onFailed">Handler for a failed result.</param>
+    /// <param name="onInterrupted">Handler for an interrupted result.</param>
+    member this.JoinWith<'R1, 'E1> (onSucceeded: 'R -> FIO<'R1, 'E1>, onFailed: 'E -> FIO<'R1, 'E1>, onInterrupted: FiberInterruptedException -> FIO<'R1, 'E1>) : FIO<'R1, 'E1> =
+        this.Await().FlatMap(fun result ->
+            match result with
+            | Succeeded r -> onSucceeded r
+            | Failed e -> onFailed e
+            | Interrupted ex -> onInterrupted ex)
+
+    /// <summary>
+    /// Gets whether the fiber has completed.
+    /// </summary>
+    member _.IsCompleted () =
+        fiberContext.IsCompleted()
+
+    /// <summary>
+    /// Gets whether the fiber has been interrupted.
+    /// </summary>
+    member _.IsInterrupted () =
+        fiberContext.IsInterrupted()
+
+    /// <summary>
+    /// Gets whether the fiber has reached a terminal state (completed or interrupted).
+    /// </summary>
+    member _.IsTerminal () =
+        fiberContext.IsTerminal()
 
     /// <summary>
     /// Synchronously blocks and returns the fiber's FiberResult.
     /// Prefer Join() within effects or Task() for async interop.
     /// </summary>
     /// <returns>FiberResult&lt;'R, 'E&gt; with Succeeded, Failed, or Interrupted.</returns>
-    member this.UnsafeResult<'R, 'E> () =
+    member this.UnsafeResult () =
         this.Task()
         |> Async.AwaitTask
         |> Async.RunSynchronously
@@ -342,15 +421,11 @@ and [<Sealed>] Fiber<'R, 'E> internal () =
     /// Synchronously blocks and returns the fiber's success value, or throws if the fiber failed.
     /// This is an unsafe blocking operation that should be used with caution.
     /// Prefer using Join() within an effect context or Task() for async/await interop.
-    /// Use this when you need to synchronously extract a successful result and want to fail fast on errors (e.g., in simple CLI tools or test assertions).
     /// </summary>
     /// <returns>The success value of type 'R.</returns>
     /// <exception cref="InvalidOperationException">Thrown if the fiber completed with an error.</exception>
-    member this.UnsafeSuccess<'R, 'E> () =
-        match
-            this.Task()
-            |> Async.AwaitTask
-            |> Async.RunSynchronously with
+    member this.UnsafeSuccess () =
+        match this.UnsafeResult () with
         | Succeeded res -> res
         | Failed err -> raise (InvalidOperationException $"Fiber failed with error: {err}")
         | Interrupted ex -> raise (InvalidOperationException $"Fiber was interrupted: {ex.Message}")
@@ -359,15 +434,11 @@ and [<Sealed>] Fiber<'R, 'E> internal () =
     /// Synchronously blocks and returns the fiber's error value, or throws if the fiber succeeded.
     /// This is an unsafe blocking operation that should be used with caution.
     /// Prefer using Join() within an effect context or Task() for async/await interop.
-    /// Use this when you need to synchronously extract an error for testing or debugging purposes.
     /// </summary>
     /// <returns>The error value of type 'E.</returns>
     /// <exception cref="InvalidOperationException">Thrown if the fiber completed successfully.</exception>
-    member this.UnsafeError<'R, 'E> () =
-        match
-            this.Task()
-            |> Async.AwaitTask
-            |> Async.RunSynchronously with
+    member this.UnsafeError () =
+        match this.UnsafeResult () with
         | Succeeded res -> raise (InvalidOperationException $"Fiber succeeded with result: {res}")
         | Failed err -> err
         | Interrupted ex -> raise (InvalidOperationException $"Fiber was interrupted: {ex.Message}")
@@ -375,73 +446,31 @@ and [<Sealed>] Fiber<'R, 'E> internal () =
     /// <summary>
     /// Synchronously blocks and prints the fiber's result to the console.
     /// This is an unsafe blocking operation that should be used with caution.
-    /// Use this for quick debugging or in simple CLI applications where blocking is acceptable.
-    /// For production code, prefer using Join() with FConsole.printLine within the effect system.
     /// </summary>
-    member this.UnsafePrintResult<'R, 'E> () =
-        printfn "%A" (this.UnsafeResult<'R, 'E>())
+    member this.UnsafePrintResult () =
+        printfn "%A" (this.UnsafeResult ())
 
-    /// <summary>
-    /// Synchronously completes the fiber with the specified result.
-    /// This is an unsafe side-effecting operation that bypasses the FIO effect system.
-    /// Use this when you need to complete a fiber from outside an effect context (e.g., callbacks, interop).
-    /// </summary>
-    /// <param name="res">The result to complete the fiber with (Ok for success, Error for failure).</param>
-    member _.UnsafeComplete (res: Result<'R, 'E>) =
-        match res with
-        | Ok res -> fiberContext.Complete(Ok(res :> obj))
-        | Error err -> fiberContext.Complete(Error(err :> obj))
-
-    /// <summary>
-    /// Synchronously interrupts the fiber with the specified cause and message.
-    /// Unlike Interrupt(), this is an unsafe side-effecting operation that bypasses the FIO effect system.
-    /// Use this when you need to interrupt a fiber from outside an effect context (e.g., event handlers, cancellation callbacks).
-    /// This will cancel the fiber's CancellationToken and complete it with FiberInterruptedException.
-    /// </summary>
-    /// <param name="cause">The interruption cause. Defaults to ExplicitInterrupt.</param>
-    /// <param name="msg">The interruption message. Defaults to "Fiber was interrupted."</param>
-    member _.UnsafeInterrupt (?cause: InterruptionCause, ?msg: string) =
-        fiberContext.Interrupt(?cause = cause, ?msg = msg)
-
-    /// <summary>
-    /// Interrupts the fiber with the specified cause and message.
-    /// </summary>
-    /// <param name="cause">The interruption cause.</param>
-    /// <param name="msg">The interruption message.</param>
-    member _.Interrupt<'E> (?cause: InterruptionCause, ?msg: string) : FIO<unit, 'E> =
-        let cause = defaultArg cause ExplicitInterrupt
-        let msg = defaultArg msg "Fiber was interrupted."
-        InterruptFiber(cause, msg, fiberContext)
-
-    /// <summary>
-    /// Gets the internal fiber context (for runtime use only).
-    /// </summary>
-    member internal _.Internal =
-        fiberContext
-
-    override this.ToString () = 
+    override this.ToString () =
         this.Id.ToString()
 
-    member private _.Dispose disposing =
-        if not disposed then
-            disposed <- true
-            if disposing then
-                (fiberContext :> IDisposable).Dispose()
+    /// <summary>
+    /// Gets the fiber context (for runtime use only).
+    /// </summary>
+    member internal _.Context =
+        fiberContext
 
     interface IDisposable with
-        member this.Dispose () =
-            this.Dispose true
-            GC.SuppressFinalize this
 
-    override this.Finalize () =
-        this.Dispose false
+        member _.Dispose () =
+            (fiberContext :> IDisposable).Dispose()
 
 /// <summary>
 /// A typed communication queue for sending and receiving messages.
 /// </summary>
 and [<Sealed>] Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, blockingWorkItemChan: UnboundedChannel<WorkItem>) =
     let upcastLock = obj()
-    let mutable upcastChan: Channel<obj> option = None
+    [<VolatileField>]
+    let mutable upcastChan = None
     let mutable signalProcessing = 0
 
     /// <summary>
@@ -465,13 +494,13 @@ and [<Sealed>] Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, bl
     /// Sends a message to the channel.
     /// </summary>
     /// <param name="msg">The message to send.</param>
-    member this.Send<'R, 'E> (msg: 'R) : FIO<'R, 'E> =
+    member this.Send<'E> msg : FIO<'R, 'E> =
         SendChan(msg, this)
 
     /// <summary>
     /// Receives a message from the channel (blocking if empty).
     /// </summary>
-    member this.Receive<'R, 'E> () : FIO<'R, 'E> =
+    member this.Receive<'E> () : FIO<'R, 'E> =
         ReceiveChan this
 
     /// <summary>
@@ -494,16 +523,6 @@ and [<Sealed>] Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, bl
     /// </summary>
     member internal _.AddBlockingWorkItem blockingItem =
         blockingWorkItemChan.AddAsync blockingItem
-
-    /// <summary>
-    /// Reschedules the next blocking work item to the active work item channel (for runtime use only).
-    /// </summary>
-    member internal _.RescheduleNextBlockingWorkItem (activeWorkItemChan: UnboundedChannel<WorkItem>) =
-        let mutable workItem = Unchecked.defaultof<_>
-        if blockingWorkItemChan.TryTake &workItem then
-            activeWorkItemChan.AddAsync workItem
-        else
-            ValueTask()
 
     /// <summary>
     /// Tries to reschedule next blocking work item if available.
@@ -561,7 +580,6 @@ and [<Sealed>] Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, bl
                     upcastChan <- Some created
                     created)
 
-
 /// <summary>
 /// A functional effect that succeeds with a result or fails with an error when interpreted.
 /// </summary>
@@ -591,7 +609,7 @@ and FIO<'R, 'E> =
     /// </summary>
     member this.Fork<'E1> () : FIO<Fiber<'R, 'E>, 'E1> =
         let fiber = new Fiber<'R, 'E>()
-        ForkEffect(this.UpcastBoth(), fiber, fiber.Internal)
+        ForkEffect(this.UpcastBoth(), fiber, fiber.Context)
 
     /// <summary>
     /// Chains this effect with a continuation function (monadic bind).
@@ -650,9 +668,37 @@ and FIO<'R, 'E> =
         | ChainSuccess(eff, cont) ->
             ChainSuccess(eff, fun res -> cont(res).UpcastResult())
         | ChainError(eff, cont) ->
-            ChainError(eff.UpcastResult(), fun err -> cont(err).UpcastResult())
+            let innerConts = ResizeArray<obj -> FIO<'R, obj>>()
+            let mutable current = eff
+            let mutable stopped = false
+            while not stopped do
+                match current with
+                | ChainError(innerEff, innerCont) ->
+                    innerConts.Add innerCont
+                    current <- innerEff
+                | _ ->
+                    stopped <- true
+            let mutable rebuilt = current.UpcastResult()
+            for i = innerConts.Count - 1 downto 0 do
+                let innerCont = innerConts[i]
+                rebuilt <- ChainError(rebuilt, fun err -> innerCont(err).UpcastResult())
+            ChainError(rebuilt, fun err -> cont(err).UpcastResult())
         | OnFinalize(eff, finalizer) ->
-            OnFinalize(eff.UpcastResult(), finalizer)
+            let finalizers = ResizeArray<FIO<obj, obj>>()
+            finalizers.Add finalizer
+            let mutable current = eff
+            let mutable stopped = false
+            while not stopped do
+                match current with
+                | OnFinalize(innerEff, innerFin) ->
+                    finalizers.Add innerFin
+                    current <- innerEff
+                | _ ->
+                    stopped <- true
+            let mutable rebuilt = current.UpcastResult()
+            for i = finalizers.Count - 1 downto 0 do
+                rebuilt <- OnFinalize(rebuilt, finalizers[i])
+            rebuilt
         | ResumeInterrupt err ->
             ResumeInterrupt err
         | FinalizerResult res ->
@@ -690,11 +736,39 @@ and FIO<'R, 'E> =
         | AwaitGenericTPLTask(task, onError) ->
             AwaitGenericTPLTask(task, upcastOnError onError)
         | ChainSuccess(eff, cont) ->
-            ChainSuccess(eff.UpcastError(), fun res -> cont(res).UpcastError())
+            let innerConts = ResizeArray<obj -> FIO<obj, 'E>>()
+            let mutable current = eff
+            let mutable stopped = false
+            while not stopped do
+                match current with
+                | ChainSuccess(innerEff, innerCont) ->
+                    innerConts.Add innerCont
+                    current <- innerEff
+                | _ ->
+                    stopped <- true
+            let mutable rebuilt = current.UpcastError()
+            for i = innerConts.Count - 1 downto 0 do
+                let innerCont = innerConts[i]
+                rebuilt <- ChainSuccess(rebuilt, fun res -> innerCont(res).UpcastError())
+            ChainSuccess(rebuilt, fun res -> cont(res).UpcastError())
         | ChainError(eff, cont) ->
             ChainError(eff, fun err -> cont(err).UpcastError())
         | OnFinalize(eff, finalizer) ->
-            OnFinalize(eff.UpcastError(), finalizer)
+            let finalizers = ResizeArray<FIO<obj, obj>>()
+            finalizers.Add finalizer
+            let mutable current = eff
+            let mutable stopped = false
+            while not stopped do
+                match current with
+                | OnFinalize(innerEff, innerFin) ->
+                    finalizers.Add innerFin
+                    current <- innerEff
+                | _ ->
+                    stopped <- true
+            let mutable rebuilt = current.UpcastError()
+            for i = finalizers.Count - 1 downto 0 do
+                rebuilt <- OnFinalize(rebuilt, finalizers[i])
+            rebuilt
         | ResumeInterrupt err ->
             ResumeInterrupt err
         | FinalizerResult res ->
@@ -732,11 +806,53 @@ and FIO<'R, 'E> =
         | AwaitGenericTPLTask(task, onError) ->
             AwaitGenericTPLTask(task, upcastOnError onError)
         | ChainSuccess(eff, cont) ->
-            ChainSuccess(eff.UpcastError(), fun res -> cont(res).UpcastResult().UpcastError())
+            let innerConts = ResizeArray<obj -> FIO<obj, 'E>>()
+            let mutable current: FIO<obj, 'E> = eff
+            let mutable stopped = false
+            while not stopped do
+                match current with
+                | ChainSuccess(innerEff, innerCont) ->
+                    innerConts.Add innerCont
+                    current <- innerEff
+                | _ ->
+                    stopped <- true
+            let mutable rebuilt: FIO<obj, obj> = current.UpcastError()
+            for i = innerConts.Count - 1 downto 0 do
+                let innerCont = innerConts[i]
+                rebuilt <- ChainSuccess(rebuilt, fun res -> innerCont(res).UpcastError())
+            ChainSuccess(rebuilt, fun res -> cont(res).UpcastBoth())
         | ChainError(eff, cont) ->
-            ChainError(eff.UpcastResult(), fun err -> cont(err).UpcastResult().UpcastError())
+            let innerConts = ResizeArray<obj -> FIO<'R, obj>>()
+            let mutable current = eff
+            let mutable stopped = false
+            while not stopped do
+                match current with
+                | ChainError(innerEff, innerCont) ->
+                    innerConts.Add innerCont
+                    current <- innerEff
+                | _ ->
+                    stopped <- true
+            let mutable rebuilt = current.UpcastResult()
+            for i = innerConts.Count - 1 downto 0 do
+                let innerCont = innerConts[i]
+                rebuilt <- ChainError(rebuilt, fun err -> innerCont(err).UpcastResult())
+            ChainError(rebuilt, fun err -> cont(err).UpcastBoth())
         | OnFinalize(eff, finalizer) ->
-            OnFinalize(eff.UpcastResult().UpcastError(), finalizer)
+            let finalizers = ResizeArray<FIO<obj, obj>>()
+            finalizers.Add finalizer
+            let mutable current = eff
+            let mutable stopped = false
+            while not stopped do
+                match current with
+                | OnFinalize(innerEff, innerFin) ->
+                    finalizers.Add innerFin
+                    current <- innerEff
+                | _ ->
+                    stopped <- true
+            let mutable rebuilt = current.UpcastBoth()
+            for i = finalizers.Count - 1 downto 0 do
+                rebuilt <- OnFinalize(rebuilt, finalizers[i])
+            rebuilt
         | ResumeInterrupt err ->
             ResumeInterrupt err
         | FinalizerResult res ->
