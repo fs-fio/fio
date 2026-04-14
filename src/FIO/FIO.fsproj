@@ -22,7 +22,6 @@
     </ItemGroup>
 
     <PropertyGroup>
-        <LangVersion>preview</LangVersion>
         <ParallelCompilation>true</ParallelCompilation>
         <Deterministic>false</Deterministic>
     </PropertyGroup>
@@ -43,8 +42,7 @@
         <Compile Include="Lib\Random.fs" />
         <Compile Include="Lib\Ref.fs" />
         <Compile Include="Lib\Semaphore.fs" />
-        <Compile Include="Runtime.Tools\Monitor.fs" />
-        <Compile Include="Runtime.Tools\DeadlockDetector.fs" />
+        <Compile Include="Lib\Fiber.fs" />
         <Compile Include="Runtime\Runtime.fs" />
         <Compile Include="Runtime\DirectRuntime.fs" />
         <Compile Include="Runtime\CooperativeRuntime.fs" />
@@ -81,7 +79,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Update="FSharp.Core" Version="10.0.103" />
+        <PackageReference Update="FSharp.Core" Version="10.1.201" />
     </ItemGroup>
 
 </Project>

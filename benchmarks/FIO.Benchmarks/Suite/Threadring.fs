@@ -23,13 +23,14 @@ open System
 /// Actor in the ring with send and receive channels to adjacent actors.
 /// </summary>
 type private Actor =
-    { /// <summary>Channel for sending messages to the next actor.</summary>
-      SendChan: Channel<int>
-      /// <summary>Channel for receiving messages from the previous actor.</summary>
-      ReceiveChan: Channel<int>
+    {
+        /// <summary>Channel for sending messages to the next actor.</summary>
+        SendChan: Channel<int>
+        /// <summary>Channel for receiving messages from the previous actor.</summary>
+        ReceiveChan: Channel<int>
 #if DEBUG
-      /// <summary>Actor name for debugging.</summary>
-      Name: string
+        /// <summary>Actor name for debugging.</summary>
+        Name: string
 #endif
     }
 
@@ -43,18 +44,18 @@ type private Actor =
 let private actorEff (actor, isLastActor, roundCount, timerChan: Channel<TimerMessage<int>>) =
     fio {
         do! timerChan.Send(Start).Unit()
-        
+
         for round in 1..roundCount do
             let! receivedMsg = actor.ReceiveChan.Receive()
-            #if DEBUG
-            do! Console.printLineExn $"[DEBUG]: %s{actor.Name} received: %i{receivedMsg}"
-            #endif
+#if DEBUG
+            do! Console.printLine ($"[DEBUG]: %s{actor.Name} received: %i{receivedMsg}", id)
+#endif
             if not (isLastActor && round = roundCount) then
                 // The last actor of the last round should not send a message
                 let! _sentMsg = actor.SendChan.Send(receivedMsg + 1)
-                #if DEBUG
-                do! Console.printLineExn $"[DEBUG]: %s{actor.Name} sent: %i{_sentMsg}"
-                #endif
+#if DEBUG
+                do! Console.printLine ($"[DEBUG]: %s{actor.Name} sent: %i{_sentMsg}", id)
+#endif
                 ()
 
         do! timerChan.Send(Stop).Unit()
@@ -69,14 +70,16 @@ let private actorEff (actor, isLastActor, roundCount, timerChan: Channel<TimerMe
 let private threadringEff (actors: Actor list, roundCount: int, timerChan: Channel<TimerMessage<int>>) =
     fio {
         do! timerChan.Send(MsgChannel actors.Head.ReceiveChan).Unit()
-        let headEff = actorEff(actors.Head, false, roundCount, timerChan)
+        let headEff = actorEff (actors.Head, false, roundCount, timerChan)
+
         return!
             actors.Tail
             |> List.indexed
-            |> List.fold (fun acc (i, actor) ->
-                // +2 to compensate for the first actor and 0-indexed
-                let isLastActor = i + 2 = actors.Length
-                actorEff(actor, isLastActor, roundCount, timerChan) <&&> acc)
+            |> List.fold
+                (fun acc (i, actor) ->
+                    // +2 to compensate for the first actor and 0-indexed
+                    let isLastActor = i + 2 = actors.Length
+                    actorEff (actor, isLastActor, roundCount, timerChan) <&&> acc)
                 headEff
     }
 
@@ -92,18 +95,20 @@ let private threadringEff (actors: Actor list, roundCount: int, timerChan: Chann
 let rec private createActors (chans, allChans: Channel<int> list, index, acc) =
     match chans with
     | [] -> acc
-    | chan'::chans' ->
+    | chan' :: chans' ->
         let actor =
-            { SendChan = chan'
-              ReceiveChan =
-                match index with
-                | index when index - 1 < 0 -> allChans.Item(List.length allChans - 1)
-                | index -> allChans.Item(index - 1)
+            {
+                SendChan = chan'
+                ReceiveChan =
+                    match index with
+                    | index when index - 1 < 0 -> allChans.Item(List.length allChans - 1)
+                    | index -> allChans.Item(index - 1)
 #if DEBUG
-              Name = $"Actor-{index}"
+                Name = $"Actor-{index}"
 #endif
             }
-        createActors (chans', allChans, index + 1, acc @ [actor])
+
+        createActors (chans', allChans, index + 1, acc @ [ actor ])
 
 /// <summary>
 /// Creates and runs the threadring benchmark, returning execution time in milliseconds.
@@ -114,19 +119,37 @@ let benchmark config : FIO<int64, exn> =
     fio {
         let! actorCount, roundCount =
             match config with
-            | ThreadringConfig(ac, rc) -> FIO.succeed(ac, rc)
-            | _ -> FIO.fail(ArgumentException("Threadring benchmark initialization failed: Requires a ThreadringConfig", nameof config))
-        
+            | ThreadringConfig(ac, rc) -> FIO.succeed (ac, rc)
+            | _ ->
+                FIO.fail (
+                    ArgumentException(
+                        "Threadring benchmark initialization failed: Requires a ThreadringConfig",
+                        nameof config
+                    )
+                )
+
         if actorCount < 2 then
-            return! FIO.fail(ArgumentException($"Threadring benchmark initialization failed: At least 2 actors should be specified. actorCount = %i{actorCount}", nameof actorCount))
-        
+            return!
+                FIO.fail (
+                    ArgumentException(
+                        $"Threadring benchmark initialization failed: At least 2 actors should be specified. actorCount = %i{actorCount}",
+                        nameof actorCount
+                    )
+                )
+
         if roundCount < 1 then
-            return! FIO.fail(ArgumentException($"Threadring benchmark initialization failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount))
-        
-        let chans = [for _ in 1..actorCount -> Channel<int>()]
+            return!
+                FIO.fail (
+                    ArgumentException(
+                        $"Threadring benchmark initialization failed: At least 1 round should be specified. roundCount = %i{roundCount}",
+                        nameof roundCount
+                    )
+                )
+
+        let chans = [ for _ in 1..actorCount -> Channel<int>() ]
         let timerChan = Channel<TimerMessage<int>>()
-        let actors = createActors(chans, chans, 0, [])
+        let actors = createActors (chans, chans, 0, [])
         let! fiber = timerEff(actorCount, 1, actorCount, timerChan).Fork()
-        do! threadringEff(actors, roundCount, timerChan)
+        do! threadringEff (actors, roundCount, timerChan)
         return! fiber.Join()
     }

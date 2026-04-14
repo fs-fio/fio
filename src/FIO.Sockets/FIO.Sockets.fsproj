@@ -24,7 +24,6 @@
     </PropertyGroup>
 
     <PropertyGroup>
-        <LangVersion>preview</LangVersion>
         <ParallelCompilation>true</ParallelCompilation>
         <Deterministic>false</Deterministic>
     </PropertyGroup>
@@ -35,7 +34,6 @@
         <Compile Include="Socket.fs" />
         <Compile Include="SocketClient.fs" />
         <Compile Include="ServerSocket.fs" />
-        <Compile Include="SocketPool.fs" />
         <Compile Include="Extensions.fs" />
     </ItemGroup>
 
@@ -44,7 +42,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Update="FSharp.Core" Version="10.0.103" />
+        <PackageReference Update="FSharp.Core" Version="10.1.201" />
     </ItemGroup>
 
     <ItemGroup>

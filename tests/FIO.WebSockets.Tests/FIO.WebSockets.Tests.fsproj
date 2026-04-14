@@ -1,0 +1,48 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+        <WarningsAsErrors>true</WarningsAsErrors>
+        <GenerateProgramFile>false</GenerateProgramFile>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <ParallelCompilation>true</ParallelCompilation>
+        <Deterministic>false</Deterministic>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="Utils/Utilities.fs" />
+        <Compile Include="TypesTests.fs" />
+        <Compile Include="CodecTests.fs" />
+        <Compile Include="WebSocketTests.fs" />
+        <Compile Include="WebSocketClientTests.fs" />
+        <Compile Include="WebSocketServerTests.fs" />
+        <Compile Include="ExtensionsTests.fs" />
+        <Compile Include="Program.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\FIO\FIO.fsproj" />
+        <ProjectReference Include="..\..\src\FIO.WebSockets\FIO.WebSockets.fsproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="coverlet.collector" Version="8.0.1">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
+        <PackageReference Include="Expecto" Version="10.2.3" />
+        <PackageReference Include="Expecto.FsCheck" Version="10.2.3" />
+        <PackageReference Include="FsCheck" Version="2.16.6" />
+        <PackageReference Include="YoloDev.Expecto.TestSdk" Version="0.15.5" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Update="FSharp.Core" Version="10.1.201" />
+    </ItemGroup>
+
+</Project>

@@ -21,8 +21,7 @@ type private HttpApp() =
     /// <summary>
     /// Simple text response handler.
     /// </summary>
-    let helloHandler =
-        HttpHandler.text "Hello from FIO HTTP!"
+    let helloHandler = HttpHandler.text "Hello from FIO HTTP!"
 
     /// <summary>
     /// JSON response handler with timestamp.
@@ -40,22 +39,21 @@ type private HttpApp() =
     /// Route definitions combining all handlers.
     /// </summary>
     let routes =
-        get "/" helloHandler
-        ++ get "/json" jsonHandler
-        ++ get "/echo" echoHandler
+        get "/" helloHandler ++ get "/json" jsonHandler ++ get "/echo" echoHandler
 
     /// <summary>
     /// Logging middleware that prints request info.
     /// </summary>
     let logging =
         Middleware.before (fun request ->
-            FIO.attempt((fun () ->
-                let ts = DateTime.Now.ToString "HH:mm:ss"
-                printfn $"[{ts}] {request.Method} {request.Path}"), id))
+            FIO.attempt (
+                (fun () ->
+                    let ts = DateTime.Now.ToString "HH:mm:ss"
+                    printfn $"[{ts}] {request.Method} {request.Path}"),
+                id
+            ))
 
-    override _.effect =
-        Server.runServer ServerConfig.defaultConfig (routes @@ logging)
+    override _.effect = Server.runServer ServerConfig.defaultConfig (routes @@ logging)
 
 [<EntryPoint>]
-let main _ =
-    HttpApp().Run()
+let main _ = HttpApp().Run()

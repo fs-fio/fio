@@ -18,14 +18,13 @@ module WebSocketExtensions =
         /// </summary>
         /// <param name="value">The value to send.</param>
         /// <param name="options">Optional JSON serializer options.</param>
-        /// <param name="cancellationToken">Optional cancellation token.</param>
-        member this.SendJson<'T>(value: 'T, ?options: JsonSerializerOptions, ?cancellationToken: CancellationToken) : FIO<unit, WsError> =
+        /// <param name="ct">Optional cancellation token.</param>
+        /// <returns>Effect that sends the JSON value.</returns>
+        member this.SendJson<'T>(value: 'T, ?options: JsonSerializerOptions, ?ct: CancellationToken) =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
-                let ct = defaultArg cancellationToken CancellationToken.None
-                let! jsonString = FIO.attempt(
-                    (fun () -> JsonSerializer.Serialize(value, opts)),
-                    WsError.fromException)
+                let ct = defaultArg ct CancellationToken.None
+                let! jsonString = FIO.attempt ((fun () -> JsonSerializer.Serialize(value, opts)), WsError.fromException)
                 do! this.SendText(jsonString, ct)
             }
 
@@ -34,77 +33,86 @@ module WebSocketExtensions =
         /// </summary>
         /// <typeparam name="T">The type to deserialize to.</typeparam>
         /// <param name="options">Optional JSON serializer options.</param>
-        /// <param name="cancellationToken">Optional cancellation token.</param>
+        /// <param name="ct">Optional cancellation token.</param>
         /// <returns>The deserialized value.</returns>
-        member this.ReceiveJson<'T>(?options: JsonSerializerOptions, ?cancellationToken: CancellationToken) : FIO<'T, WsError> =
+        member this.ReceiveJson<'T>(?options: JsonSerializerOptions, ?ct: CancellationToken) =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
-                let ct = defaultArg cancellationToken CancellationToken.None
+                let ct = defaultArg ct CancellationToken.None
+
                 match! this.ReceiveMessage ct with
                 | Frame(Text json) ->
-                    return! FIO.attempt(
-                        (fun () -> JsonSerializer.Deserialize<'T>(json, opts)),
-                        WsError.fromException)
+                    return! FIO.attempt ((fun () -> JsonSerializer.Deserialize<'T>(json, opts)), WsError.fromException)
                 | Frame(Binary data) ->
-                    return! FIO.attempt(
-                        (fun () -> JsonSerializer.Deserialize<'T>(System.ReadOnlySpan<byte> data, opts)),
-                        WsError.fromException)
+                    return!
+                        FIO.attempt (
+                            (fun () -> JsonSerializer.Deserialize<'T>(System.ReadOnlySpan<byte> data, opts)),
+                            WsError.fromException
+                        )
                 | Frame(Close _) ->
-                    return! FIO.fail(
-                        WsError.fromException(System.Exception "Connection closed while waiting for JSON"))
+                    return!
+                        FIO.fail (WsError.fromException (System.Exception "Connection closed while waiting for JSON"))
                 | ConnectionClosed(status, desc) ->
-                    return! FIO.fail(
-                        WsError.fromException(System.Exception $"Connection closed. Status: {status}, Description: {desc}"))
+                    return!
+                        FIO.fail (
+                            WsError.fromException (
+                                System.Exception $"Connection closed. Status: {status}, Description: {desc}"
+                            )
+                        )
             }
 
         /// <summary>
         /// Sends a string as a text frame (convenience method).
         /// </summary>
         /// <param name="text">The string to send.</param>
-        member this.SendString(text: string) : FIO<unit, WsError> =
-            this.SendText text
+        /// <returns>Effect that sends the text frame.</returns>
+        member this.SendString(text: string) = this.SendText text
 
         /// <summary>
         /// Receives a text frame as a string (convenience method).
         /// </summary>
         /// <returns>The received text string.</returns>
-        member this.ReceiveString() : FIO<string, WsError> =
+        member this.ReceiveString() =
             fio {
                 match! this.ReceiveMessage() with
-                | Frame(Text text) ->
-                    return text
+                | Frame(Text text) -> return text
                 | Frame(Binary _) ->
-                    return! FIO.fail(
-                        WsError.fromException(System.Exception "Expected text frame, got binary"))
+                    return! FIO.fail (WsError.fromException (System.Exception "Expected text frame, got binary"))
                 | Frame(Close _) ->
-                    return! FIO.fail(
-                        WsError.fromException(System.Exception "Expected text frame, got close frame"))
+                    return! FIO.fail (WsError.fromException (System.Exception "Expected text frame, got close frame"))
                 | ConnectionClosed(status, desc) ->
-                    return! FIO.fail(
-                        WsError.fromException(System.Exception $"Connection closed. Status: {status}, Description: {desc}"))
+                    return!
+                        FIO.fail (
+                            WsError.fromException (
+                                System.Exception $"Connection closed. Status: {status}, Description: {desc}"
+                            )
+                        )
             }
 
         /// <summary>
         /// Sends binary data (convenience method).
         /// </summary>
         /// <param name="data">The binary data to send.</param>
-        member this.SendBytes(data: byte[]) : FIO<unit, WsError> =
-            this.SendBinary data
+        /// <returns>Effect that sends the binary frame.</returns>
+        member this.SendBytes(data: byte[]) = this.SendBinary data
 
         /// <summary>
         /// Receives binary data (convenience method).
         /// </summary>
         /// <returns>The received binary data.</returns>
-        member this.ReceiveBytes() : FIO<byte[], WsError> =
+        member this.ReceiveBytes() =
             fio {
                 match! this.ReceiveMessage() with
                 | Frame(Binary data) -> return data
                 | Frame(Text _) ->
-                    return! FIO.fail(
-                        WsError.fromException(System.Exception "Expected binary frame, got text"))
+                    return! FIO.fail (WsError.fromException (System.Exception "Expected binary frame, got text"))
                 | Frame(Close _) ->
-                    return! FIO.fail(
-                        WsError.fromException(System.Exception "Expected binary frame, got close frame"))
+                    return! FIO.fail (WsError.fromException (System.Exception "Expected binary frame, got close frame"))
                 | ConnectionClosed(status, desc) ->
-                    return! FIO.fail(WsError.fromException(System.Exception $"Connection closed. Status: {status}, Description: {desc}"))
+                    return!
+                        FIO.fail (
+                            WsError.fromException (
+                                System.Exception $"Connection closed. Status: {status}, Description: {desc}"
+                            )
+                        )
             }

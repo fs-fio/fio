@@ -68,32 +68,20 @@ type SocketError =
     /// <returns>A human-readable error message.</returns>
     override this.ToString() =
         match this with
-        | ConnectionFailed(host, port, exn) ->
-            $"Failed to connect to {host}:{port}: {exn.Message}"
-        | ConnectionClosed msg ->
-            $"Connection closed: {msg}"
-        | SendFailed exn ->
-            $"Send failed: {exn.Message}"
-        | ReceiveFailed exn ->
-            $"Receive failed: {exn.Message}"
-        | TimeoutError msg ->
-            $"Timeout: {msg}"
+        | ConnectionFailed(host, port, exn) -> $"Failed to connect to {host}:{port}: {exn.Message}"
+        | ConnectionClosed msg -> $"Connection closed: {msg}"
+        | SendFailed exn -> $"Send failed: {exn.Message}"
+        | ReceiveFailed exn -> $"Receive failed: {exn.Message}"
+        | TimeoutError msg -> $"Timeout: {msg}"
         | BufferOverflow(requested, available) ->
             $"Buffer overflow: requested {requested} bytes, only {available} available"
-        | InvalidState(expected, actual) ->
-            $"Invalid state: expected {expected}, actual {actual}"
-        | BindFailed(addr, port, exn) ->
-            $"Failed to bind to {addr}:{port}: {exn.Message}"
-        | AcceptFailed exn ->
-            $"Accept failed: {exn.Message}"
-        | PoolExhausted maxSize ->
-            $"Pool exhausted: maximum {maxSize} connections"
-        | PoolClosed ->
-            "Pool is closed"
-        | CodecError(msg, exn) ->
-            $"Codec error: {msg} - {exn.Message}"
-        | GeneralError exn ->
-            $"Socket error: {exn.Message}"
+        | InvalidState(expected, actual) -> $"Invalid state: expected {expected}, actual {actual}"
+        | BindFailed(addr, port, exn) -> $"Failed to bind to {addr}:{port}: {exn.Message}"
+        | AcceptFailed exn -> $"Accept failed: {exn.Message}"
+        | PoolExhausted maxSize -> $"Pool exhausted: maximum {maxSize} connections"
+        | PoolClosed -> "Pool is closed"
+        | CodecError(msg, exn) -> $"Codec error: {msg} - {exn.Message}"
+        | GeneralError exn -> $"Socket error: {exn.Message}"
 
 /// <summary>
 /// Module functions for working with SocketError.
@@ -105,15 +93,14 @@ module SocketError =
     /// </summary>
     /// <param name="exn">The exception to convert.</param>
     /// <returns>The socket error.</returns>
-    let fromException (exn: exn) : SocketError =
-        GeneralError exn
+    let fromException exn = GeneralError exn
 
     /// <summary>
     /// Converts a SocketError to an exception.
     /// </summary>
     /// <param name="err">The socket error.</param>
     /// <returns>The exception.</returns>
-    let toException (err: SocketError) : exn =
+    let toException err =
         match err with
         | GeneralError exn -> exn
         | _ -> Exception(err.ToString())
@@ -184,27 +171,29 @@ module SocketConfig =
     /// <param name="host">The remote host to connect to.</param>
     /// <param name="port">The remote port to connect to (1-65535).</param>
     /// <returns>The socket configuration.</returns>
-    let create (host: string, port: int) : FIO<SocketConfig, SocketError> =
+    let create (host: string, port: int) =
         fio {
             if String.IsNullOrWhiteSpace host then
-                return! FIO.fail(InvalidState("non-empty host", "empty or whitespace"))
+                return! FIO.fail (InvalidState("non-empty host", "empty or whitespace"))
 
             if port < 1 || port > 65535 then
-                return! FIO.fail(InvalidState("port in range 1-65535", $"{port}"))
+                return! FIO.fail (InvalidState("port in range 1-65535", $"{port}"))
 
             return
-                { Host = host
-                  Port = port
-                  AddressFamily = Sockets.AddressFamily.InterNetwork
-                  SocketType = Sockets.SocketType.Stream
-                  ProtocolType = Sockets.ProtocolType.Tcp
-                  SendBufferSize = 8192
-                  ReceiveBufferSize = 8192
-                  SendTimeout = 30000
-                  ReceiveTimeout = 30000
-                  NoDelay = true
-                  LingerEnabled = true
-                  LingerTimeout = 0 }
+                {
+                    Host = host
+                    Port = port
+                    AddressFamily = Sockets.AddressFamily.InterNetwork
+                    SocketType = Sockets.SocketType.Stream
+                    ProtocolType = Sockets.ProtocolType.Tcp
+                    SendBufferSize = 8192
+                    ReceiveBufferSize = 8192
+                    SendTimeout = 30000
+                    ReceiveTimeout = 30000
+                    NoDelay = true
+                    LingerEnabled = true
+                    LingerTimeout = 0
+                }
         }
 
     /// <summary>
@@ -213,8 +202,7 @@ module SocketConfig =
     /// <param name="size">The buffer size in bytes.</param>
     /// <param name="config">The socket configuration.</param>
     /// <returns>The updated socket configuration.</returns>
-    let withSendBufferSize (size: int, config: SocketConfig) : SocketConfig =
-        { config with SendBufferSize = size }
+    let withSendBufferSize (size: int, config: SocketConfig) = { config with SendBufferSize = size }
 
     /// <summary>
     /// Sets the receive buffer size.
@@ -222,7 +210,7 @@ module SocketConfig =
     /// <param name="size">The buffer size in bytes.</param>
     /// <param name="config">The socket configuration.</param>
     /// <returns>The updated socket configuration.</returns>
-    let withReceiveBufferSize (size: int, config: SocketConfig) : SocketConfig =
+    let withReceiveBufferSize (size: int, config: SocketConfig) =
         { config with ReceiveBufferSize = size }
 
     /// <summary>
@@ -231,8 +219,7 @@ module SocketConfig =
     /// <param name="timeout">The timeout in milliseconds.</param>
     /// <param name="config">The socket configuration.</param>
     /// <returns>The updated socket configuration.</returns>
-    let withSendTimeout (timeout: int, config: SocketConfig) : SocketConfig =
-        { config with SendTimeout = timeout }
+    let withSendTimeout (timeout: int, config: SocketConfig) = { config with SendTimeout = timeout }
 
     /// <summary>
     /// Sets the receive timeout in milliseconds.
@@ -240,7 +227,7 @@ module SocketConfig =
     /// <param name="timeout">The timeout in milliseconds.</param>
     /// <param name="config">The socket configuration.</param>
     /// <returns>The updated socket configuration.</returns>
-    let withReceiveTimeout (timeout: int, config: SocketConfig) : SocketConfig =
+    let withReceiveTimeout (timeout: int, config: SocketConfig) =
         { config with ReceiveTimeout = timeout }
 
     /// <summary>
@@ -249,8 +236,7 @@ module SocketConfig =
     /// <param name="noDelay">True to disable Nagle's algorithm, false to enable it.</param>
     /// <param name="config">The socket configuration.</param>
     /// <returns>The updated socket configuration.</returns>
-    let withNoDelay (noDelay: bool, config: SocketConfig) : SocketConfig =
-        { config with NoDelay = noDelay }
+    let withNoDelay (noDelay: bool, config: SocketConfig) = { config with NoDelay = noDelay }
 
     /// <summary>
     /// Sets the address family.
@@ -258,8 +244,7 @@ module SocketConfig =
     /// <param name="family">The address family (IPv4, IPv6, etc.).</param>
     /// <param name="config">The socket configuration.</param>
     /// <returns>The updated socket configuration.</returns>
-    let withAddressFamily (family: Sockets.AddressFamily, config: SocketConfig) : SocketConfig =
-        { config with AddressFamily = family }
+    let withAddressFamily (family: Sockets.AddressFamily, config: SocketConfig) = { config with AddressFamily = family }
 
 /// <summary>
 /// Configuration options for TCP server sockets.
@@ -304,14 +289,17 @@ module ServerSocketConfig =
     /// <summary>
     /// Default configuration for localhost:8080.
     /// </summary>
-    let defaultConfig : ServerSocketConfig =
-        { BindAddress = "127.0.0.1"
-          BindPort = 8080
-          AddressFamily = Sockets.AddressFamily.InterNetwork
-          SocketType = Sockets.SocketType.Stream
-          ProtocolType = Sockets.ProtocolType.Tcp
-          Backlog = 100
-          AcceptedSocketConfig = None }
+    /// <returns>The default server socket configuration.</returns>
+    let defaultConfig =
+        {
+            BindAddress = "127.0.0.1"
+            BindPort = 8080
+            AddressFamily = Sockets.AddressFamily.InterNetwork
+            SocketType = Sockets.SocketType.Stream
+            ProtocolType = Sockets.ProtocolType.Tcp
+            Backlog = 100
+            AcceptedSocketConfig = None
+        }
 
     /// <summary>
     /// Creates a default TCP server configuration.
@@ -319,22 +307,24 @@ module ServerSocketConfig =
     /// <param name="bindAddress">The local address to bind to.</param>
     /// <param name="bindPort">The local port to bind to (0-65535, where 0 = any available port).</param>
     /// <returns>The server socket configuration.</returns>
-    let create (bindAddress: string, bindPort: int) : FIO<ServerSocketConfig, SocketError> =
+    let create (bindAddress: string, bindPort: int) =
         fio {
             if String.IsNullOrWhiteSpace bindAddress then
-                return! FIO.fail(InvalidState("non-empty bind address", "empty or whitespace"))
+                return! FIO.fail (InvalidState("non-empty bind address", "empty or whitespace"))
 
             if bindPort < 0 || bindPort > 65535 then
-                return! FIO.fail(InvalidState("port in range 0-65535", $"{bindPort}"))
+                return! FIO.fail (InvalidState("port in range 0-65535", $"{bindPort}"))
 
             return
-                { BindAddress = bindAddress
-                  BindPort = bindPort
-                  AddressFamily = Sockets.AddressFamily.InterNetwork
-                  SocketType = Sockets.SocketType.Stream
-                  ProtocolType = Sockets.ProtocolType.Tcp
-                  Backlog = 100
-                  AcceptedSocketConfig = None }
+                {
+                    BindAddress = bindAddress
+                    BindPort = bindPort
+                    AddressFamily = Sockets.AddressFamily.InterNetwork
+                    SocketType = Sockets.SocketType.Stream
+                    ProtocolType = Sockets.ProtocolType.Tcp
+                    Backlog = 100
+                    AcceptedSocketConfig = None
+                }
         }
 
     /// <summary>
@@ -343,8 +333,7 @@ module ServerSocketConfig =
     /// <param name="backlog">The maximum length of the pending connections queue.</param>
     /// <param name="config">The server socket configuration.</param>
     /// <returns>The updated server socket configuration.</returns>
-    let withBacklog (backlog: int, config: ServerSocketConfig) : ServerSocketConfig =
-        { config with Backlog = backlog }
+    let withBacklog (backlog: int, config: ServerSocketConfig) = { config with Backlog = backlog }
 
     /// <summary>
     /// Sets the default configuration for accepted connections.
@@ -352,7 +341,7 @@ module ServerSocketConfig =
     /// <param name="acceptedConfig">The socket configuration to apply to accepted connections.</param>
     /// <param name="config">The server socket configuration.</param>
     /// <returns>The updated server socket configuration.</returns>
-    let withAcceptedConfig (acceptedConfig: SocketConfig, config: ServerSocketConfig) : ServerSocketConfig =
+    let withAcceptedConfig (acceptedConfig: SocketConfig, config: ServerSocketConfig) =
         { config with AcceptedSocketConfig = Some acceptedConfig }
 
     /// <summary>
@@ -361,7 +350,7 @@ module ServerSocketConfig =
     /// <param name="family">The address family (IPv4, IPv6, etc.).</param>
     /// <param name="config">The server socket configuration.</param>
     /// <returns>The updated server socket configuration.</returns>
-    let withAddressFamily (family: Sockets.AddressFamily, config: ServerSocketConfig) : ServerSocketConfig =
+    let withAddressFamily (family: Sockets.AddressFamily, config: ServerSocketConfig) =
         { config with AddressFamily = family }
 
 /// <summary>
@@ -401,7 +390,7 @@ module SocketPoolConfig =
     /// </summary>
     /// <param name="socketConfig">The socket configuration for connections in the pool.</param>
     /// <returns>The socket pool configuration.</returns>
-    let create (socketConfig: SocketConfig) : FIO<SocketPoolConfig, SocketError> =
+    let create (socketConfig: SocketConfig) =
         fio {
             // Default values
             let minPoolSize = 0
@@ -409,23 +398,31 @@ module SocketPoolConfig =
             let connectionLifetime = 300
 
             if minPoolSize < 0 then
-                return! FIO.fail(InvalidState("MinPoolSize >= 0", $"{minPoolSize}"))
+                return! FIO.fail (InvalidState("MinPoolSize >= 0", $"{minPoolSize}"))
 
             if maxPoolSize <= 0 then
-                return! FIO.fail(InvalidState("MaxPoolSize > 0", $"{maxPoolSize}"))
+                return! FIO.fail (InvalidState("MaxPoolSize > 0", $"{maxPoolSize}"))
 
             if maxPoolSize < minPoolSize then
-                return! FIO.fail(InvalidState($"MaxPoolSize ({maxPoolSize}) >= MinPoolSize ({minPoolSize})", "MaxPoolSize < MinPoolSize"))
+                return!
+                    FIO.fail (
+                        InvalidState(
+                            $"MaxPoolSize ({maxPoolSize}) >= MinPoolSize ({minPoolSize})",
+                            "MaxPoolSize < MinPoolSize"
+                        )
+                    )
 
             if connectionLifetime < 0 then
-                return! FIO.fail(InvalidState("ConnectionLifetime >= 0", $"{connectionLifetime}"))
+                return! FIO.fail (InvalidState("ConnectionLifetime >= 0", $"{connectionLifetime}"))
 
             return
-                { SocketConfig = socketConfig
-                  MinPoolSize = minPoolSize
-                  MaxPoolSize = maxPoolSize
-                  ConnectionLifetime = connectionLifetime
-                  ValidateOnAcquire = true }
+                {
+                    SocketConfig = socketConfig
+                    MinPoolSize = minPoolSize
+                    MaxPoolSize = maxPoolSize
+                    ConnectionLifetime = connectionLifetime
+                    ValidateOnAcquire = true
+                }
         }
 
     /// <summary>
@@ -434,13 +431,19 @@ module SocketPoolConfig =
     /// <param name="size">The minimum number of connections in the pool.</param>
     /// <param name="config">The socket pool configuration.</param>
     /// <returns>The updated socket pool configuration.</returns>
-    let withMinPoolSize (size: int, config: SocketPoolConfig) : FIO<SocketPoolConfig, SocketError> =
+    let withMinPoolSize (size: int, config: SocketPoolConfig) =
         fio {
             if size < 0 then
-                return! FIO.fail(InvalidState("MinPoolSize >= 0", $"{size}"))
+                return! FIO.fail (InvalidState("MinPoolSize >= 0", $"{size}"))
 
             if size > config.MaxPoolSize then
-                return! FIO.fail(InvalidState($"MinPoolSize ({size}) <= MaxPoolSize ({config.MaxPoolSize})", "MinPoolSize > MaxPoolSize"))
+                return!
+                    FIO.fail (
+                        InvalidState(
+                            $"MinPoolSize ({size}) <= MaxPoolSize ({config.MaxPoolSize})",
+                            "MinPoolSize > MaxPoolSize"
+                        )
+                    )
 
             return { config with MinPoolSize = size }
         }
@@ -451,13 +454,19 @@ module SocketPoolConfig =
     /// <param name="size">The maximum number of connections in the pool.</param>
     /// <param name="config">The socket pool configuration.</param>
     /// <returns>The updated socket pool configuration.</returns>
-    let withMaxPoolSize (size: int, config: SocketPoolConfig) : FIO<SocketPoolConfig, SocketError> =
+    let withMaxPoolSize (size: int, config: SocketPoolConfig) =
         fio {
             if size <= 0 then
-                return! FIO.fail(InvalidState("MaxPoolSize > 0", $"{size}"))
+                return! FIO.fail (InvalidState("MaxPoolSize > 0", $"{size}"))
 
             if size < config.MinPoolSize then
-                return! FIO.fail(InvalidState($"MaxPoolSize ({size}) >= MinPoolSize ({config.MinPoolSize})", "MaxPoolSize < MinPoolSize"))
+                return!
+                    FIO.fail (
+                        InvalidState(
+                            $"MaxPoolSize ({size}) >= MinPoolSize ({config.MinPoolSize})",
+                            "MaxPoolSize < MinPoolSize"
+                        )
+                    )
 
             return { config with MaxPoolSize = size }
         }
@@ -468,7 +477,7 @@ module SocketPoolConfig =
     /// <param name="lifetime">The connection lifetime in seconds (0 = infinite).</param>
     /// <param name="config">The socket pool configuration.</param>
     /// <returns>The updated socket pool configuration.</returns>
-    let withConnectionLifetime (lifetime: int, config: SocketPoolConfig) : SocketPoolConfig =
+    let withConnectionLifetime (lifetime: int, config: SocketPoolConfig) =
         { config with ConnectionLifetime = lifetime }
 
     /// <summary>
@@ -477,7 +486,7 @@ module SocketPoolConfig =
     /// <param name="validate">True to validate connections before reuse, false otherwise.</param>
     /// <param name="config">The socket pool configuration.</param>
     /// <returns>The updated socket pool configuration.</returns>
-    let withValidateOnAcquire (validate: bool, config: SocketPoolConfig) : SocketPoolConfig =
+    let withValidateOnAcquire (validate: bool, config: SocketPoolConfig) =
         { config with ValidateOnAcquire = validate }
 
 /// <summary>

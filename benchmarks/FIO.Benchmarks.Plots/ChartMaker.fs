@@ -21,19 +21,21 @@ module internal PlotType =
     /// </summary>
     /// <param name="plotType">Plot type to convert.</param>
     /// <returns>String representation of the plot type.</returns>
-    let toString = function
+    let toString =
+        function
         | BoxPlot -> "BoxPlot"
         | LinePlot -> "LinePlot"
 
 /// <summary>
 /// Arguments controlling plot generation including type and data path.
 /// </summary>
-type PlotArgs = {
-    /// <summary>Type of plot to generate.</summary>
-    PlotType : PlotType
-    /// <summary>Path to load benchmark data files from.</summary>
-    LoadPath : string
-}
+type PlotArgs =
+    {
+        /// <summary>Type of plot to generate.</summary>
+        PlotType: PlotType
+        /// <summary>Path to load benchmark data files from.</summary>
+        LoadPath: string
+    }
 
 /// <summary>
 /// Functions for generating and displaying benchmark charts.
@@ -46,18 +48,20 @@ module internal PlotArgs =
     /// <param name="count">Number of colors to generate.</param>
     /// <returns>List of RGB color strings.</returns>
     let private generatePastelPurples (count: int) : string list =
-        if count <= 0 then []
+        if count <= 0 then
+            []
         else
             let baseR, baseG, baseB = 147, 112, 219
             let stepSize = 15
 
             let generateBalancedDeltas (n: int) : int list =
-                if n = 1 then [0]
+                if n = 1 then
+                    [ 0 ]
                 else
                     let steps = [ for i in 1 .. (n / 2) -> stepSize * i ]
                     let negatives = List.map (~-) steps
                     let positives = steps
-                    let middle = if n % 2 = 1 then [0] else []
+                    let middle = if n % 2 = 1 then [ 0 ] else []
                     negatives @ middle @ positives
 
             let deltas = generateBalancedDeltas count
@@ -84,11 +88,31 @@ module internal PlotArgs =
     let private groupPredicates enablePingpong =
         [
             if enablePingpong then
-                yield fun d -> d |> List.head |> fst |> fun fm -> fm.BenchmarkName.ToLowerInvariant () = "pingpong"
-            yield fun d -> d |> List.head |> fst |> fun fm -> fm.BenchmarkName.ToLowerInvariant () = "threadring"
-            yield fun d -> d |> List.head |> fst |> fun fm -> fm.BenchmarkName.ToLowerInvariant () = "big"
-            yield fun d -> d |> List.head |> fst |> fun fm -> fm.BenchmarkName.ToLowerInvariant () = "bang"
-            yield fun d -> d |> List.head |> fst |> fun fm -> fm.BenchmarkName.ToLowerInvariant () = "fork"
+                yield
+                    fun d ->
+                        d
+                        |> List.head
+                        |> fst
+                        |> fun fm -> fm.BenchmarkName.ToLowerInvariant() = "pingpong"
+            yield
+                fun d ->
+                    d
+                    |> List.head
+                    |> fst
+                    |> fun fm -> fm.BenchmarkName.ToLowerInvariant() = "threadring"
+            yield fun d -> d |> List.head |> fst |> (fun fm -> fm.BenchmarkName.ToLowerInvariant() = "big")
+            yield
+                fun d ->
+                    d
+                    |> List.head
+                    |> fst
+                    |> fun fm -> fm.BenchmarkName.ToLowerInvariant() = "bang"
+            yield
+                fun d ->
+                    d
+                    |> List.head
+                    |> fst
+                    |> fun fm -> fm.BenchmarkName.ToLowerInvariant() = "fork"
         ]
 
     /// <summary>
@@ -107,6 +131,7 @@ module internal PlotArgs =
                     let remaining' = List.filter ((<>) matchItem) remaining
                     loop rest remaining' (matchItem :: acc)
                 | None -> failwith "No matching item found for predicate"
+
         loop predicates items []
 
     /// <summary>
@@ -118,18 +143,19 @@ module internal PlotArgs =
     /// <returns>Tuple of row count, column count, titles, and charts.</returns>
     let private generateBoxPlotCharts path boxPlotWidth plotHeight =
         let boxplotData =
-            reorderByPredicates (groupPredicates true)
-            <| CsvResults.getAll path
+            reorderByPredicates (groupPredicates true) <| CsvResults.getAll path
+
         let colors = generatePastelPurples boxplotData.Length
-        let rowCount, colCount =
-            boxplotData.Length + 1, 1
+        let rowCount, colCount = boxplotData.Length + 1, 1
 
         let titles, charts =
-            List.map (fun (innerList, color) ->
-                let metadata: FileMetadata = innerList |> List.head |> fst
-                let plotWidth = innerList.Length * boxPlotWidth
-                FileMetadata.title metadata, Charts.boxPlot innerList plotWidth plotHeight color) (List.zip boxplotData colors)
-                |> List.unzip
+            List.map
+                (fun (innerList, color) ->
+                    let metadata: FileMetadata = innerList |> List.head |> fst
+                    let plotWidth = innerList.Length * boxPlotWidth
+                    FileMetadata.title metadata, Charts.boxPlot innerList plotWidth plotHeight color)
+                (List.zip boxplotData colors)
+            |> List.unzip
 
         rowCount, colCount, titles, charts
 
@@ -145,10 +171,12 @@ module internal PlotArgs =
             CsvResults.getAll path
             |> List.collect id
             |> List.groupBy (fst >> _.BenchmarkName)
+
         let reorderedGroups =
             rawLineData
             |> List.map snd // discard benchmark name keys
             |> reorderByPredicates (groupPredicates false)
+
         let linePlotData =
             reorderedGroups
             |> List.map (fun group ->
@@ -156,22 +184,23 @@ module internal PlotArgs =
                 |> List.groupBy (fst >> _.RuntimeName)
                 |> List.map (snd >> List.sortBy (fst >> _.ActorCount)))
 
-        let rowCount, colCount =
-            linePlotData.Length + 1, 1
+        let rowCount, colCount = linePlotData.Length + 1, 1
 
-        let colors  =
+        let colors =
             let colors = generatePastelPurples linePlotData.Length
             let first = List.head colors
             let last = List.last colors
             let middle = colors.[List.length colors / 2]
-            [first; middle; last]
+            [ first; middle; last ]
 
         let titles, charts =
-            List.map (fun innerList ->
-                let metadata: FileMetadata = innerList |> List.head |> List.head |> fst
-                let plotWidth = innerList.Length * linePlotWidth
-                metadata.BenchmarkName, Charts.linePlot innerList plotWidth plotHeight colors) linePlotData
-                |> List.unzip
+            List.map
+                (fun innerList ->
+                    let metadata: FileMetadata = innerList |> List.head |> List.head |> fst
+                    let plotWidth = innerList.Length * linePlotWidth
+                    metadata.BenchmarkName, Charts.linePlot innerList plotWidth plotHeight colors)
+                linePlotData
+            |> List.unzip
 
         rowCount, colCount, titles, charts
 
@@ -184,5 +213,5 @@ module internal PlotArgs =
             match args.PlotType with
             | BoxPlot -> generateBoxPlotCharts args.LoadPath 100 6000
             | LinePlot -> generateLineCharts args.LoadPath 350 1800
-        Chart.Grid (rowCount, colCount, SubPlotTitles = titles) charts
-        |> Chart.show
+
+        Chart.Grid (rowCount, colCount, SubPlotTitles = titles) charts |> Chart.show

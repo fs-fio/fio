@@ -24,7 +24,6 @@
     </PropertyGroup>
 
     <PropertyGroup>
-        <LangVersion>preview</LangVersion>
         <ParallelCompilation>true</ParallelCompilation>
         <Deterministic>false</Deterministic>
     </PropertyGroup>
@@ -33,7 +32,6 @@
         <Compile Include="Types.fs" />
         <Compile Include="Response.fs" />
         <Compile Include="Handler.fs" />
-        <Compile Include="PathCodec.fs" />
         <Compile Include="RoutePattern.fs" />
         <Compile Include="Routes.fs" />
         <Compile Include="Middleware.fs" />
@@ -50,7 +48,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Update="FSharp.Core" Version="10.0.103" />
+        <PackageReference Update="FSharp.Core" Version="10.1.201" />
     </ItemGroup>
 
     <ItemGroup>

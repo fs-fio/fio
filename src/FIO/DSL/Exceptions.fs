@@ -1,37 +1,24 @@
-﻿/// <summary>
-/// Exception types for fiber interruption in the FIO effect system.
-/// </summary>
+﻿/// Exception types for fiber interruption.
 [<AutoOpen>]
 module FIO.DSL.Exceptions
 
 open System
 
-/// <summary>
-/// Represents the cause or reason for fiber interruption.
-/// </summary>
+/// Represents the cause of fiber interruption.
 type InterruptionCause =
-    /// <summary>
-    /// Fiber was interrupted due to a timeout.
-    /// </summary>
+    /// Interrupted due to a timeout.
     | Timeout of durationMs: float
-    /// <summary>
-    /// Fiber was interrupted because its parent fiber was interrupted.
-    /// </summary>
+    /// Interrupted because the parent fiber was interrupted.
     | ParentInterrupted of parentFiberId: Guid
-    /// <summary>
-    /// Fiber was explicitly interrupted via Fiber.Interrupt().
-    /// </summary>
+    /// Explicitly interrupted via Fiber.Interrupt().
     | ExplicitInterrupt
-    /// <summary>
-    /// Fiber was interrupted due to invalid argument or precondition violation.
-    /// </summary>
+    /// Interrupted due to invalid argument or precondition violation.
     | InvalidArgument of argumentName: string * reason: string
-    /// <summary>
-    /// Fiber was interrupted due to resource exhaustion or system limits.
-    /// </summary>
+    /// Interrupted due to resource exhaustion.
     | ResourceExhaustion of reason: string
 
-    override this.ToString () =
+    /// Returns a human-readable representation of the interruption cause.
+    override this.ToString() =
         match this with
         | Timeout ms -> $"Timeout ({ms}ms)"
         | ParentInterrupted id -> $"ParentInterrupted ({id})"
@@ -39,10 +26,9 @@ type InterruptionCause =
         | InvalidArgument(arg, reason) -> $"InvalidArgument ({arg}: {reason})"
         | ResourceExhaustion reason -> $"ResourceExhaustion ({reason})"
 
-/// <summary>
-/// Exception thrown when a fiber is interrupted during execution.
-/// </summary>
+/// Exception thrown when a fiber is interrupted.
 exception FiberInterruptedException of fiberId: Guid * cause: InterruptionCause * message: string with
 
+    /// Gets the formatted exception message.
     override this.Message =
         $"Fiber {this.fiberId} interrupted. Cause: {this.cause}. Message: {this.message}"

@@ -30,26 +30,18 @@ type HttpError =
     /// <summary>
     /// Gets a human-readable error message.
     /// </summary>
+    /// <returns>A human-readable error message.</returns>
     override this.ToString() =
         match this with
-        | InvalidRoute pattern ->
-            $"Invalid route: {pattern}"
-        | ParsingFailed(msg, exn) ->
-            $"Parsing failed: {msg} - {exn.Message}"
-        | HandlerFailed(path, exn) ->
-            $"Handler failed [{path}]: {exn.Message}"
-        | MiddlewareFailed(name, exn) ->
-            $"Middleware {name} failed: {exn.Message}"
-        | ServerFailed exn ->
-            $"Server error: {exn.Message}"
-        | BodyReadFailed exn ->
-            $"Body read failed: {exn.Message}"
-        | JsonFailed exn ->
-            $"JSON error: {exn.Message}"
-        | TimeoutError msg ->
-            $"Timeout: {msg}"
-        | GeneralError exn ->
-            $"HTTP error: {exn.Message}"
+        | InvalidRoute pattern -> $"Invalid route: {pattern}"
+        | ParsingFailed(msg, exn) -> $"Parsing failed: {msg} - {exn.Message}"
+        | HandlerFailed(path, exn) -> $"Handler failed [{path}]: {exn.Message}"
+        | MiddlewareFailed(name, exn) -> $"Middleware {name} failed: {exn.Message}"
+        | ServerFailed exn -> $"Server error: {exn.Message}"
+        | BodyReadFailed exn -> $"Body read failed: {exn.Message}"
+        | JsonFailed exn -> $"JSON error: {exn.Message}"
+        | TimeoutError msg -> $"Timeout: {msg}"
+        | GeneralError exn -> $"HTTP error: {exn.Message}"
 
 /// <summary>
 /// Module functions for working with HttpError.
@@ -59,12 +51,15 @@ module HttpError =
     /// <summary>
     /// Converts an exception to an HttpError.
     /// </summary>
-    let fromException (exn: exn) : HttpError =
-        GeneralError exn
-    
+    /// <param name="exn">The exception to convert.</param>
+    /// <returns>The HttpError.</returns>
+    let fromException (exn: exn) : HttpError = GeneralError exn
+
     /// <summary>
     /// Converts an HttpError to an exception.
     /// </summary>
+    /// <param name="err">The HttpError to convert.</param>
+    /// <returns>The exception.</returns>
     let toException (err: HttpError) : exn =
         match err with
         | GeneralError exn -> exn
@@ -92,6 +87,7 @@ type HttpMethod =
     /// <summary>
     /// Returns the string representation of the HTTP method.
     /// </summary>
+    /// <returns>The HTTP method string.</returns>
     override this.ToString() =
         match this with
         | GET -> "GET"
@@ -114,6 +110,7 @@ module HttpMethod =
     /// Parses an HTTP method from a string.
     /// </summary>
     /// <param name="str">The HTTP method string.</param>
+    /// <returns>The parsed HTTP method.</returns>
     let fromString (str: string) : HttpMethod =
         match str.ToUpperInvariant() with
         | "GET" -> HttpMethod.GET
@@ -206,6 +203,7 @@ type RequestBody =
     /// <summary>
     /// Converts the request body to a byte array.
     /// </summary>
+    /// <returns>The byte array representation.</returns>
     member this.AsBytes() =
         match this with
         | Empty -> Array.empty
@@ -215,6 +213,7 @@ type RequestBody =
     /// <summary>
     /// Converts the request body to a string.
     /// </summary>
+    /// <returns>The string representation.</returns>
     member this.AsString() =
         match this with
         | Empty -> ""
@@ -236,26 +235,28 @@ type ResponseBody =
     /// <summary>
     /// Gets the content length of the response body.
     /// </summary>
+    /// <returns>The content length in bytes, or None if not determinable.</returns>
     member this.ContentLength =
         match this with
         | Empty -> Some 0L
-        | Bytes bytes -> Some (int64 bytes.Length)
-        | Text text -> Some (int64 (Encoding.UTF8.GetByteCount text))
-        | Stream (_, length) -> length
+        | Bytes bytes -> Some(int64 bytes.Length)
+        | Text text -> Some(int64 (Encoding.UTF8.GetByteCount text))
+        | Stream(_, length) -> length
         | Json _ -> None // Will be determined after serialization
 
 /// <summary>
 /// Represents an HTTP request.
 /// </summary>
-type HttpRequest = {
-    Method: HttpMethod
-    Path: string
-    PathSegments: string list
-    QueryParams: Map<string, string list>
-    Headers: Map<string, string list>
-    Body: RequestBody
-    Metadata: Map<string, obj>
-}
+type HttpRequest =
+    {
+        Method: HttpMethod
+        Path: string
+        PathSegments: string list
+        QueryParams: Map<string, string list>
+        Headers: Map<string, string list>
+        Body: RequestBody
+        Metadata: Map<string, obj>
+    }
 
 /// <summary>
 /// Functions for working with HTTP requests.
@@ -267,13 +268,12 @@ module HttpRequest =
     /// </summary>
     /// <param name="method">The HTTP method.</param>
     /// <param name="path">The request path.</param>
+    /// <returns>The new HTTP request.</returns>
     let create method (path: string) =
         {
             Method = method
             Path = path
-            PathSegments =
-                path.Split([| '/' |], StringSplitOptions.RemoveEmptyEntries)
-                |> Array.toList
+            PathSegments = path.Split([| '/' |], StringSplitOptions.RemoveEmptyEntries) |> Array.toList
             QueryParams = Map.empty
             Headers = Map.empty
             Body = RequestBody.Empty
@@ -286,14 +286,17 @@ module HttpRequest =
     /// <param name="name">The parameter name.</param>
     /// <param name="value">The parameter value.</param>
     /// <param name="request">The request to modify.</param>
+    /// <returns>The modified request.</returns>
     let withQueryParam name value request =
         let values =
             request.QueryParams
             |> Map.tryFind name
             |> Option.defaultValue []
-            |> fun existing -> existing @ [value]
+            |> fun existing -> existing @ [ value ]
 
-        { request with QueryParams = Map.add name values request.QueryParams }
+        { request with
+            QueryParams = Map.add name values request.QueryParams
+        }
 
     /// <summary>
     /// Adds a header to the request.
@@ -301,22 +304,25 @@ module HttpRequest =
     /// <param name="name">The header name.</param>
     /// <param name="value">The header value.</param>
     /// <param name="request">The request to modify.</param>
+    /// <returns>The modified request.</returns>
     let withHeader name value request =
         let values =
             request.Headers
             |> Map.tryFind name
             |> Option.defaultValue []
-            |> fun existing -> existing @ [value]
+            |> fun existing -> existing @ [ value ]
 
-        { request with Headers = Map.add name values request.Headers }
+        { request with
+            Headers = Map.add name values request.Headers
+        }
 
     /// <summary>
     /// Sets the body of the request.
     /// </summary>
     /// <param name="body">The request body.</param>
     /// <param name="request">The request to modify.</param>
-    let withBody body request =
-        { request with Body = body }
+    /// <returns>The modified request.</returns>
+    let withBody body request = { request with Body = body }
 
     /// <summary>
     /// Adds metadata to the request.
@@ -324,48 +330,47 @@ module HttpRequest =
     /// <param name="key">The metadata key.</param>
     /// <param name="value">The metadata value.</param>
     /// <param name="request">The request to modify.</param>
+    /// <returns>The modified request.</returns>
     let withMetadata key value request =
-        { request with Metadata = Map.add key value request.Metadata }
+        { request with
+            Metadata = Map.add key value request.Metadata
+        }
 
     /// <summary>
     /// Gets a single query parameter value.
     /// </summary>
     /// <param name="name">The parameter name.</param>
     /// <param name="request">The request to query.</param>
+    /// <returns>The first parameter value, or None.</returns>
     let queryParam name request =
-        request.QueryParams
-        |> Map.tryFind name
-        |> Option.bind List.tryHead
+        request.QueryParams |> Map.tryFind name |> Option.bind List.tryHead
 
     /// <summary>
     /// Gets all values for a query parameter.
     /// </summary>
     /// <param name="name">The parameter name.</param>
     /// <param name="request">The request to query.</param>
+    /// <returns>The list of parameter values.</returns>
     let queryParams name request =
-        request.QueryParams
-        |> Map.tryFind name
-        |> Option.defaultValue []
+        request.QueryParams |> Map.tryFind name |> Option.defaultValue []
 
     /// <summary>
     /// Gets a single header value.
     /// </summary>
     /// <param name="name">The header name.</param>
     /// <param name="request">The request to query.</param>
+    /// <returns>The first header value, or None.</returns>
     let header name request =
-        request.Headers
-        |> Map.tryFind name
-        |> Option.bind List.tryHead
+        request.Headers |> Map.tryFind name |> Option.bind List.tryHead
 
     /// <summary>
     /// Gets all values for a header.
     /// </summary>
     /// <param name="name">The header name.</param>
     /// <param name="request">The request to query.</param>
+    /// <returns>The list of header values.</returns>
     let headers name request =
-        request.Headers
-        |> Map.tryFind name
-        |> Option.defaultValue []
+        request.Headers |> Map.tryFind name |> Option.defaultValue []
 
     /// <summary>
     /// Gets typed metadata from the request.
@@ -373,6 +378,7 @@ module HttpRequest =
     /// </summary>
     /// <param name="key">The metadata key.</param>
     /// <param name="request">The request to query.</param>
+    /// <returns>The typed metadata value, or None.</returns>
     let metadata<'T> key request =
         request.Metadata
         |> Map.tryFind key
@@ -384,11 +390,12 @@ module HttpRequest =
 /// <summary>
 /// Represents an HTTP response.
 /// </summary>
-type HttpResponse = {
-    Status: HttpStatusCode
-    Headers: Map<string, string list>
-    Body: ResponseBody
-}
+type HttpResponse =
+    {
+        Status: HttpStatusCode
+        Headers: Map<string, string list>
+        Body: ResponseBody
+    }
 
 /// <summary>
 /// Functions for working with HTTP responses.
@@ -400,6 +407,7 @@ module HttpResponse =
     /// Header names must consist of visible ASCII characters except delimiters.
     /// </summary>
     /// <param name="name">The header name to validate.</param>
+    /// <returns>True if the header name is valid.</returns>
     let private isValidHeaderName (name: string) =
         if String.IsNullOrWhiteSpace name then
             false
@@ -407,21 +415,34 @@ module HttpResponse =
             // RFC 7230: token = 1*tchar
             // tchar = "!" / "#" / "$" / "%" / "&" / "'" / "*" / "+" / "-" / "." /
             //         "0"-"9" / "A"-"Z" / "^" / "_" / "`" / "a"-"z" / "|" / "~"
-            name |> Seq.forall (fun c ->
-                c >= 'a' && c <= 'z' || (c >= 'A' && c <= 'Z') || c >= '0' && c <= '9' ||
-                c = '!' || c = '#' || c = '$' || c = '%' || c = '&' || c = '\'' || c = '*' ||
-                c = '+' || c = '-' || c = '.' || c = '^' || c = '_' || c = '`' || c = '|' || c = '~')
+            name
+            |> Seq.forall (fun c ->
+                c >= 'a' && c <= 'z'
+                || (c >= 'A' && c <= 'Z')
+                || c >= '0' && c <= '9'
+                || c = '!'
+                || c = '#'
+                || c = '$'
+                || c = '%'
+                || c = '&'
+                || c = '\''
+                || c = '*'
+                || c = '+'
+                || c = '-'
+                || c = '.'
+                || c = '^'
+                || c = '_'
+                || c = '`'
+                || c = '|'
+                || c = '~')
 
     /// <summary>
     /// Creates a new HTTP response with the specified status code.
     /// </summary>
     /// <param name="status">The HTTP status code.</param>
+    /// <returns>The new HTTP response.</returns>
     let create status =
-        {
-            Status = status
-            Headers = Map.empty
-            Body = Empty
-        }
+        { Status = status; Headers = Map.empty; Body = Empty }
 
     /// <summary>
     /// Adds a header to the response.
@@ -430,50 +451,55 @@ module HttpResponse =
     /// <param name="name">The header name.</param>
     /// <param name="value">The header value.</param>
     /// <param name="response">The response to modify.</param>
+    /// <returns>The modified response.</returns>
     let withHeader name value response =
         if not (isValidHeaderName name) then
-            invalidArg "name" (sprintf "Invalid HTTP header name: '%s'. Header names must consist of visible ASCII characters (RFC 7230)." name)
+            invalidArg
+                "name"
+                (sprintf
+                    "Invalid HTTP header name: '%s'. Header names must consist of visible ASCII characters (RFC 7230)."
+                    name)
 
         let values =
             response.Headers
             |> Map.tryFind name
             |> Option.defaultValue []
-            |> fun existing -> existing @ [value]
+            |> fun existing -> existing @ [ value ]
 
-        { response with Headers = Map.add name values response.Headers }
+        { response with
+            Headers = Map.add name values response.Headers
+        }
 
     /// <summary>
     /// Sets the body of the response.
     /// </summary>
     /// <param name="body">The response body.</param>
     /// <param name="response">The response to modify.</param>
-    let withBody (body: ResponseBody) (response: HttpResponse) : HttpResponse =
-        { response with Body = body }
+    /// <returns>The modified response.</returns>
+    let withBody (body: ResponseBody) (response: HttpResponse) : HttpResponse = { response with Body = body }
 
     /// <summary>
     /// Sets the status code of the response.
     /// </summary>
     /// <param name="status">The HTTP status code.</param>
     /// <param name="response">The response to modify.</param>
-    let withStatus status response =
-        { response with Status = status }
+    /// <returns>The modified response.</returns>
+    let withStatus status response = { response with Status = status }
 
     /// <summary>
     /// Gets a single header value from the response.
     /// </summary>
     /// <param name="name">The header name.</param>
     /// <param name="response">The response to query.</param>
+    /// <returns>The first header value, or None.</returns>
     let header name response =
-        response.Headers
-        |> Map.tryFind name
-        |> Option.bind List.tryHead
+        response.Headers |> Map.tryFind name |> Option.bind List.tryHead
 
     /// <summary>
     /// Gets all values for a header from the response.
     /// </summary>
     /// <param name="name">The header name.</param>
     /// <param name="response">The response to query.</param>
+    /// <returns>The list of header values.</returns>
     let headers name response =
-        response.Headers
-        |> Map.tryFind name
-        |> Option.defaultValue []
+        response.Headers |> Map.tryFind name |> Option.defaultValue []

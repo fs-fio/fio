@@ -1,0 +1,41 @@
+# EditorConfig — https://editorconfig.org
+
+root = true
+
+[*]
+charset = utf-8
+indent_style = space
+indent_size = 4
+end_of_line = lf
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.{yml,yaml}]
+indent_size = 2
+
+[*.{fs,fsx,fsi}]
+max_line_length = 120
+
+# Fantomas settings
+fsharp_multiline_bracket_style = aligned
+fsharp_bar_before_discriminated_union_declaration = true
+fsharp_space_before_parameter = true
+fsharp_space_before_member = false
+fsharp_space_before_class_constructor = false
+fsharp_space_before_lowercase_invocation = true
+fsharp_space_before_uppercase_invocation = false
+fsharp_space_before_colon = false
+fsharp_space_after_comma = true
+fsharp_space_around_delimiter = true
+fsharp_max_if_then_else_short_width = 60
+fsharp_max_infix_operator_expression = 80
+fsharp_max_record_width = 60
+fsharp_max_array_or_list_width = 80
+fsharp_max_value_binding_width = 80
+fsharp_max_function_binding_width = 40
+fsharp_newline_before_multiline_computation_expression = true
+fsharp_align_function_signature_to_indentation = false
+fsharp_keep_max_number_of_blank_lines = 1
