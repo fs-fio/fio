@@ -317,7 +317,7 @@ let channelTests =
                     fio {
                         let chan = Channel<int>()
                         let! receiverFiber = (chan.Receive()).Fork()
-                        do! FIO.sleepExn (TimeSpan.FromMilliseconds 10.0)
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 10.0, id)
                         do! receiverFiber.Interrupt()
                         return receiverFiber
                     }

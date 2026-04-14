@@ -48,13 +48,13 @@ let private actorEff (actor, isLastActor, roundCount, timerChan: Channel<TimerMe
         for round in 1..roundCount do
             let! receivedMsg = actor.ReceiveChan.Receive()
 #if DEBUG
-            do! Console.printLineExn $"[DEBUG]: %s{actor.Name} received: %i{receivedMsg}"
+            do! Console.printLine ($"[DEBUG]: %s{actor.Name} received: %i{receivedMsg}", id)
 #endif
             if not (isLastActor && round = roundCount) then
                 // The last actor of the last round should not send a message
                 let! _sentMsg = actor.SendChan.Send(receivedMsg + 1)
 #if DEBUG
-                do! Console.printLineExn $"[DEBUG]: %s{actor.Name} sent: %i{_sentMsg}"
+                do! Console.printLine ($"[DEBUG]: %s{actor.Name} sent: %i{_sentMsg}", id)
 #endif
                 ()
 

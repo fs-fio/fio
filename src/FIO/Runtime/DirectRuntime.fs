@@ -1,6 +1,4 @@
-﻿/// <summary>
-/// Provides the direct runtime for interpreting FIO effects, executing effects on the current thread.
-/// </summary>
+﻿/// Direct runtime for interpreting FIO effects on the current thread.
 module FIO.Runtime.Direct
 
 open FIO.DSL
@@ -8,22 +6,17 @@ open FIO.DSL
 open System
 open System.Threading.Tasks
 
-/// <summary>
-/// The direct runtime for FIO, interpreting effects on the current thread.
-/// </summary>
+/// Runtime that interprets FIO effects on the current thread using .NET Tasks.
 type DirectRuntime() =
     inherit FIORuntime()
 
     let mutable currentFiber: FiberContext option = None
+
     let runLock = obj ()
 
     override _.Name = "DirectRuntime"
 
-    /// <summary>
-    /// Interprets an FIO effect asynchronously within the given fiber context.
-    /// </summary>
-    /// <param name="eff">The effect to interpret.</param>
-    /// <param name="currentFiberContext">The fiber context for execution.</param>
+    /// Interprets an FIO effect iteratively with an explicit continuation stack.
     [<TailCall>]
     member private this.InterpretAsync(eff, currentFiberContext: FiberContext) =
         let mutable currentEff = eff
@@ -165,46 +158,7 @@ type DirectRuntime() =
                             |> ignore
 
                             processSuccess fiber
-                        | ForkTPLTask(taskFactory, onError, fiber, fiberContext) ->
-                            let registration =
-                                currentFiberContext.CancellationToken.Register(fun () ->
-                                    fiberContext.Interrupt(
-                                        ParentInterrupted currentFiberContext.Id,
-                                        "Parent fiber was interrupted."
-                                    ))
-
-                            fiberContext.AddRegistration registration
-
-                            Task.Run(fun () ->
-                                task {
-                                    try
-                                        let t = taskFactory ()
-
-                                        try
-                                            do! t.WaitAsync fiberContext.CancellationToken
-                                            fiberContext.Complete(Ok())
-                                        with
-                                        | :? OperationCanceledException ->
-                                            fiberContext.Complete(
-                                                Error(
-                                                    onError (
-                                                        FiberInterruptedException(
-                                                            fiberContext.Id,
-                                                            ExplicitInterrupt,
-                                                            "Task has been cancelled."
-                                                        )
-                                                    )
-                                                )
-                                            )
-                                        | exn -> fiberContext.Complete(Error(onError exn))
-                                    finally
-                                        registration.Dispose()
-                                }
-                                :> Task)
-                            |> ignore
-
-                            processSuccess fiber
-                        | ForkGenericTPLTask(taskFactory, onError, fiber, fiberContext) ->
+                        | ForkTask(taskFactory, onError, fiber, fiberContext) ->
                             let registration =
                                 currentFiberContext.CancellationToken.Register(fun () ->
                                     fiberContext.Interrupt(
@@ -246,27 +200,7 @@ type DirectRuntime() =
                         | JoinFiber fiberContext ->
                             let! res = fiberContext.Task
                             processResult res
-                        | AwaitTPLTask(task, onError) ->
-                            try
-                                if interruptionSuppressed > 0 then
-                                    do! task
-                                else
-                                    do! task.WaitAsync currentFiberContext.CancellationToken
-
-                                processSuccess ()
-                            with
-                            | :? OperationCanceledException when
-                                currentFiberContext.CancellationToken.IsCancellationRequested
-                                ->
-                                processInterruptError (
-                                    FiberInterruptedException(
-                                        currentFiberContext.Id,
-                                        ExplicitInterrupt,
-                                        "Task has been cancelled."
-                                    )
-                                )
-                            | exn -> processError (onError exn)
-                        | AwaitGenericTPLTask(task, onError) ->
+                        | AwaitTask(task, onError) ->
                             try
                                 let! res =
                                     if interruptionSuppressed > 0 then
@@ -311,11 +245,6 @@ type DirectRuntime() =
                 ContStackPool.Return currentContStack
         }
 
-    /// <summary>
-    /// Runs an FIO effect and returns a fiber representing its execution.
-    /// </summary>
-    /// <param name="eff">The FIO effect to run.</param>
-    /// <returns>A fiber representing the running effect.</returns>
     override this.Run<'R, 'E>(eff: FIO<'R, 'E>) : Fiber<'R, 'E> =
         lock runLock (fun () ->
             match currentFiber with

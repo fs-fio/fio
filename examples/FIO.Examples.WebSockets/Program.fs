@@ -13,11 +13,12 @@ open System.Net
 /// <summary>
 /// WebSocket demo app with echo server and interactive client.
 /// </summary>
-/// <param name="host">Server hostname or IP address.</param>
-/// <param name="port">Server port number.</param>
 type private WebSocketApp(host, port) =
     inherit FIOApp<unit, WsError>()
 
+    /// <summary>
+    /// Echo server that accepts a WebSocket connection and echoes received messages.
+    /// </summary>
     let server () =
 
         let handleClient (ws: WebSocket) (listener: HttpListener) =
@@ -56,6 +57,9 @@ type private WebSocketApp(host, port) =
             do! handleClient ws listener
         }
 
+    /// <summary>
+    /// Interactive client that reads user input and sends it to the server.
+    /// </summary>
     let client () =
         fio {
             let url = $"ws://{host}:{port}/"

@@ -1,6 +1,4 @@
-/// <summary>
 /// Semaphore for controlling concurrent access to resources.
-/// </summary>
 [<AutoOpen>]
 module FIO.Semaphore
 
@@ -9,71 +7,42 @@ open System.Threading
 
 open FIO.DSL
 
-/// <summary>
 /// Counting semaphore that limits concurrent access using SemaphoreSlim.
-/// </summary>
 [<Sealed>]
 type Semaphore internal (permits: int) =
     let sem = new SemaphoreSlim(permits, permits)
-    let mutable disposed = 0 // 0 = false, 1 = true (for atomic CAS)
+    let mutable disposed = 0
 
-    /// <summary>Acquires a permit, blocking until one is available.</summary>
-    /// <param name="onError">Maps exceptions to error type.</param>
+    /// Acquires a permit, semantically blocking until one is available.
     member _.Acquire(onError: exn -> 'E) : FIO<unit, 'E> =
         FIO.awaitTask (sem.WaitAsync(), onError)
 
-    /// <summary>Acquires a permit, blocking until one is available.</summary>
-    member _.AcquireExn() : FIO<unit, exn> = FIO.awaitTaskExn (sem.WaitAsync())
-
-    /// <summary>Acquires a permit with a timeout, returning true if acquired or false if timed out.</summary>
-    /// <param name="timeout">Maximum wait time.</param>
-    /// <param name="onError">Maps exceptions to error type.</param>
+    /// Tries to acquire a permit within a timeout.
+    /// <returns><c>true</c> if the permit was acquired, <c>false</c> on timeout.</returns>
     member _.TryAcquire(timeout: TimeSpan, onError: exn -> 'E) : FIO<bool, 'E> =
         FIO.awaitGenericTask (sem.WaitAsync(timeout), onError)
 
-    /// <summary>Acquires a permit with a timeout, returning true if acquired or false if timed out.</summary>
-    /// <param name="timeout">Maximum wait time.</param>
-    member _.TryAcquireExn(timeout: TimeSpan) : FIO<bool, exn> =
-        FIO.awaitGenericTaskExn (sem.WaitAsync(timeout))
-
-    /// <summary>Releases a permit back to the semaphore.</summary>
-    /// <param name="onError">Maps exceptions to error type.</param>
+    /// Releases a single permit back to the semaphore.
     member _.Release(onError: exn -> 'E) : FIO<unit, 'E> =
         FIO.attempt ((fun () -> sem.Release() |> ignore), onError)
 
-    /// <summary>Releases a permit back to the semaphore.</summary>
-    member _.ReleaseExn() : FIO<unit, exn> =
-        FIO.attemptExn (fun () -> sem.Release() |> ignore)
-
-    /// <summary>Releases multiple permits back to the semaphore.</summary>
-    /// <param name="count">Number of permits.</param>
-    /// <param name="onError">Maps exceptions to error type.</param>
+    /// Releases multiple permits back to the semaphore.
+    /// <param name="count">Number of permits to release.</param>
     member _.ReleaseMany(count: int, onError: exn -> 'E) : FIO<unit, 'E> =
         FIO.attempt ((fun () -> sem.Release count |> ignore), onError)
 
-    /// <summary>Releases multiple permits back to the semaphore.</summary>
-    /// <param name="count">Number of permits.</param>
-    member _.ReleaseManyExn(count: int) : FIO<unit, exn> =
-        FIO.attemptExn (fun () -> sem.Release count |> ignore)
+    /// Gets the current number of available permits.
+    member _.Available<'E>() : FIO<int, 'E> =
+        FIO.attempt ((fun () -> sem.CurrentCount), fun ex -> raise ex)
 
-    /// <summary>Gets the current number of available permits.</summary>
-    member _.Available<'E>() : FIO<int, 'E> = FIO.succeed sem.CurrentCount
-
-    /// <summary>Executes an effect while holding a permit, automatically releasing when complete.</summary>
-    /// <param name="effect">Effect to execute.</param>
-    /// <param name="onError">Maps exceptions to error type.</param>
+    /// Runs an effect while holding a permit, releasing it on completion, error, or interruption.
+    /// <param name="effect">The effect to run under the permit.</param>
     member this.WithPermit(effect: FIO<'R, 'E>, onError: exn -> 'E) : FIO<'R, 'E> =
         FIO.acquireRelease (this.Acquire onError, (fun () -> this.Release onError), fun () -> effect)
 
-    /// <summary>Executes an effect while holding a permit, automatically releasing when complete.</summary>
-    /// <param name="effect">Effect to execute.</param>
-    member this.WithPermitExn(effect: FIO<'R, exn>) : FIO<'R, exn> =
-        FIO.acquireRelease (this.AcquireExn(), (fun () -> this.ReleaseExn()), fun () -> effect)
-
-    /// <summary>Executes an effect while holding multiple permits, automatically releasing when complete.</summary>
-    /// <param name="count">Number of permits.</param>
-    /// <param name="effect">Effect to execute.</param>
-    /// <param name="onError">Maps exceptions to error type.</param>
+    /// Runs an effect while holding multiple permits, releasing them on completion, error, or interruption.
+    /// <param name="count">Number of permits to acquire.</param>
+    /// <param name="effect">The effect to run under the permits.</param>
     member this.WithPermits(count: int, effect: FIO<'R, 'E>, onError: exn -> 'E) : FIO<'R, 'E> =
         // Nest acquireRelease per permit so each successful acquire independently sets up its own release.
         // If acquire k+1 fails, only the k already-acquired permits are released — not the full count.
@@ -90,24 +59,7 @@ type Semaphore internal (permits: int) =
 
             loop count)
 
-    /// <summary>Executes an effect while holding multiple permits, automatically releasing when complete.</summary>
-    /// <param name="count">Number of permits.</param>
-    /// <param name="effect">Effect to execute.</param>
-    member this.WithPermitsExn(count: int, effect: FIO<'R, exn>) : FIO<'R, exn> =
-        // See WithPermits for the rationale on nested acquireRelease.
-        FIO.suspend (fun () ->
-            let rec loop remaining =
-                if remaining <= 0 then
-                    effect
-                else
-                    FIO.acquireRelease (
-                        this.AcquireExn(),
-                        (fun () -> this.ReleaseExn()),
-                        fun () -> loop (remaining - 1)
-                    )
-
-            loop count)
-
+    /// Disposes the underlying SemaphoreSlim if not already disposed.
     member private _.Dispose(disposing: bool) =
         if Interlocked.CompareExchange(&disposed, 1, 0) = 0 then
             if disposing then
@@ -120,15 +72,16 @@ type Semaphore internal (permits: int) =
 
     override this.Finalize() = this.Dispose false
 
-/// <summary>Factory functions for creating Semaphore instances.</summary>
+/// Factory functions for creating Semaphore instances.
 module Semaphore =
-    /// <summary>Creates a new semaphore with the specified number of permits.</summary>
+    /// Creates a new semaphore with the specified number of permits.
     /// <param name="permits">Initial number of permits (must be >= 1).</param>
+    /// <returns>Interrupts with InvalidArgument if permits is less than 1.</returns>
     let make<'E> (permits: int) : FIO<Semaphore, 'E> =
         if permits < 1 then
             FIO.interrupt (InvalidArgument("permits", "must be >= 1"), "Invalid argument: permits must be >= 1")
         else
             FIO.succeed (new Semaphore(permits))
 
-    /// <summary>Creates a binary semaphore with 1 permit.</summary>
+    /// Creates a binary semaphore (mutex) with 1 permit.
     let binary<'E> () : FIO<Semaphore, 'E> = make 1

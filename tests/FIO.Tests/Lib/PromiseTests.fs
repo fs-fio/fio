@@ -52,8 +52,8 @@ let promiseSucceedTests =
                 let eff =
                     fio {
                         let! promise = Promise.make ()
-                        let! completed = promise.SucceedExn res
-                        let! value = promise.AwaitExn()
+                        let! completed = promise.Succeed(res, id)
+                        let! value = promise.Await id
                         return completed, value
                     }
 
@@ -67,9 +67,9 @@ let promiseSucceedTests =
                 let eff =
                     fio {
                         let! promise = Promise.make ()
-                        let! first = promise.SucceedExn res1
-                        let! second = promise.SucceedExn res2
-                        let! value = promise.AwaitExn()
+                        let! first = promise.Succeed(res1, id)
+                        let! second = promise.Succeed(res2, id)
+                        let! value = promise.Await id
                         return first, second, value
                     }
 
@@ -113,8 +113,8 @@ let promiseFailTests =
                 let eff =
                     fio {
                         let! promise = Promise.make ()
-                        let! completed = promise.FailExn err
-                        let! poll = promise.PollExn()
+                        let! completed = promise.Fail(err, id)
+                        let! poll = promise.Poll id
                         return completed, poll
                     }
 
@@ -134,8 +134,8 @@ let promiseFailTests =
                 let eff =
                     fio {
                         let! promise = Promise.make ()
-                        let! first = promise.FailExn err1
-                        let! second = promise.FailExn err2
+                        let! first = promise.Fail(err1, id)
+                        let! second = promise.Fail(err2, id)
                         return first, second
                     }
 
@@ -171,8 +171,8 @@ let promiseCompleteTests =
                 let eff =
                     fio {
                         let! promise = Promise.make ()
-                        let! completed = promise.CompleteExn(Ok res)
-                        let! value = promise.AwaitExn()
+                        let! completed = promise.Complete(Ok res, id)
+                        let! value = promise.Await id
                         return completed, value
                     }
 
@@ -188,8 +188,8 @@ let promiseCompleteTests =
                 let eff =
                     fio {
                         let! promise = Promise.make ()
-                        let! completed = promise.CompleteExn(Error err)
-                        let! poll = promise.PollExn()
+                        let! completed = promise.Complete(Error err, id)
+                        let! poll = promise.Poll id
                         return completed, poll
                     }
 
@@ -206,9 +206,9 @@ let promiseCompleteTests =
                 let eff =
                     fio {
                         let! promise = Promise.make ()
-                        let! first = promise.CompleteExn(Ok res1)
-                        let! second = promise.CompleteExn(Ok res2)
-                        let! value = promise.AwaitExn()
+                        let! first = promise.Complete(Ok res1, id)
+                        let! second = promise.Complete(Ok res2, id)
+                        let! value = promise.Await id
                         return first, second, value
                     }
 
@@ -244,8 +244,8 @@ let promiseAwaitTests =
                 let eff =
                     fio {
                         let! promise = Promise.make ()
-                        let! _ = promise.SucceedExn res
-                        let! value = promise.AwaitExn()
+                        let! _ = promise.Succeed(res, id)
+                        let! value = promise.Await id
                         return value
                     }
 
@@ -260,8 +260,8 @@ let promiseAwaitTests =
                 let eff =
                     fio {
                         let! promise = Promise.make ()
-                        let! _ = promise.FailExn err
-                        let! _ = promise.AwaitExn()
+                        let! _ = promise.Fail(err, id)
+                        let! _ = promise.Await id
                         return 0
                     }
 
@@ -277,12 +277,12 @@ let promiseAwaitTests =
                         let! promise = Promise.make ()
 
                         let completer =
-                            FIO.sleepExn (TimeSpan.FromMilliseconds 10.0)
-                            >>= fun _ -> promise.SucceedExn 42
+                            FIO.sleep (TimeSpan.FromMilliseconds 10.0, id)
+                            >>= fun _ -> promise.Succeed(42, id)
                             >>= fun _ -> FIO.unit ()
 
                         let! _ = completer.Fork()
-                        let! value = promise.AwaitExn()
+                        let! value = promise.Await id
                         return value
                     }
 
@@ -294,10 +294,10 @@ let promiseAwaitTests =
                 let eff =
                     fio {
                         let! promise = Promise.make ()
-                        let! f1 = promise.AwaitExn().Fork()
-                        let! f2 = promise.AwaitExn().Fork()
-                        let! f3 = promise.AwaitExn().Fork()
-                        let! _ = promise.SucceedExn 99
+                        let! f1 = promise.Await(id).Fork()
+                        let! f2 = promise.Await(id).Fork()
+                        let! f3 = promise.Await(id).Fork()
+                        let! _ = promise.Succeed(99, id)
                         let! v1 = f1.Join()
                         let! v2 = f2.Join()
                         let! v3 = f3.Join()
@@ -333,7 +333,7 @@ let promisePollTests =
                 let eff =
                     fio {
                         let! promise = Promise.make ()
-                        let! poll = promise.PollExn()
+                        let! poll = promise.Poll id
                         return poll
                     }
 
@@ -346,8 +346,8 @@ let promisePollTests =
                 let eff =
                     fio {
                         let! promise = Promise.make ()
-                        let! _ = promise.SucceedExn res
-                        let! poll = promise.PollExn()
+                        let! _ = promise.Succeed(res, id)
+                        let! poll = promise.Poll id
                         return poll
                     }
 
@@ -364,8 +364,8 @@ let promisePollTests =
                 let eff =
                     fio {
                         let! promise = Promise.make ()
-                        let! _ = promise.FailExn err
-                        let! poll = promise.PollExn()
+                        let! _ = promise.Fail(err, id)
+                        let! poll = promise.Poll id
                         return poll
                     }
 
@@ -400,7 +400,7 @@ let promiseIsDoneTests =
                 let eff =
                     fio {
                         let! promise = Promise.make<int, exn> ()
-                        let! _ = promise.SucceedExn res
+                        let! _ = promise.Succeed(res, id)
                         let! isDone = promise.IsDone()
                         return isDone
                     }
@@ -416,7 +416,7 @@ let promiseIsDoneTests =
                 let eff =
                     fio {
                         let! promise = Promise.make ()
-                        let! _ = promise.FailExn err
+                        let! _ = promise.Fail(err, id)
                         let! isDone = promise.IsDone()
                         return isDone
                     }
@@ -469,8 +469,8 @@ let promiseSucceedFailFactoryTests =
             <| fun (runtime: FIORuntime, res: int) ->
                 let eff =
                     fio {
-                        let! promise = Promise.succeedExn res
-                        let! value = promise.AwaitExn()
+                        let! promise = Promise.succeed (res, id)
+                        let! value = promise.Await id
                         return value
                     }
 
@@ -501,8 +501,8 @@ let promiseSucceedFailFactoryTests =
 
                 let eff =
                     fio {
-                        let! promise = Promise.failExn err
-                        let! poll = promise.PollExn()
+                        let! promise = Promise.fail (err, id)
+                        let! poll = promise.Poll id
                         return poll
                     }
 
@@ -538,8 +538,8 @@ let promiseCompleteWithTests =
                 let eff =
                     fio {
                         let! promise = Promise.make ()
-                        do! Promise.completeWithExn (promise, FIO.succeed res)
-                        let! value = promise.AwaitExn()
+                        do! Promise.completeWith (promise, FIO.succeed res, id)
+                        let! value = promise.Await id
                         return value
                     }
 
@@ -554,8 +554,8 @@ let promiseCompleteWithTests =
                 let eff =
                     fio {
                         let! promise = Promise.make ()
-                        do! Promise.completeWithExn (promise, FIO.fail err)
-                        let! poll = promise.PollExn()
+                        do! Promise.completeWith (promise, FIO.fail err, id)
+                        let! poll = promise.Poll id
                         return poll
                     }
 

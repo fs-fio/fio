@@ -51,11 +51,11 @@ let private pingerEff (pinger, ping, roundCount, startChan: Channel<int>, timerC
         for _ in 1..roundCount do
             do! pinger.SendChan.Send(currentPing).Unit()
 #if DEBUG
-            do! Console.printLineExn $"[DEBUG]: %s{pinger.Name} sent ping: %i{currentPing}"
+            do! Console.printLine ($"[DEBUG]: %s{pinger.Name} sent ping: %i{currentPing}", id)
 #endif
             let! pong = pinger.ReceiveChan.Receive()
 #if DEBUG
-            do! Console.printLineExn $"[DEBUG]: %s{pinger.Name} received pong: %i{pong}"
+            do! Console.printLine ($"[DEBUG]: %s{pinger.Name} received pong: %i{pong}", id)
 #endif
             currentPing <- pong + 1
 
@@ -75,11 +75,11 @@ let private pongerEff (ponger, roundCount, startChan: Channel<int>) =
         for _ in 1..roundCount do
             let! ping = ponger.ReceiveChan.Receive()
 #if DEBUG
-            do! Console.printLineExn $"[DEBUG]: %s{ponger.Name} received ping: %i{ping}"
+            do! Console.printLine ($"[DEBUG]: %s{ponger.Name} received ping: %i{ping}", id)
 #endif
             let! _pong = ponger.SendChan.Send(ping + 1)
 #if DEBUG
-            do! Console.printLineExn $"[DEBUG]: %s{ponger.Name} sent pong: %i{_pong}"
+            do! Console.printLine ($"[DEBUG]: %s{ponger.Name} sent pong: %i{_pong}", id)
 #endif
             ()
     }

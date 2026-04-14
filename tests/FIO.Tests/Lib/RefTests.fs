@@ -57,7 +57,7 @@ let refSetTests =
                 let eff =
                     fio {
                         let! ref = Ref.make initial
-                        do! ref.SetExn newValue
+                        do! ref.Set(newValue, id)
                         let! value = ref.Get()
                         return value
                     }
@@ -71,9 +71,9 @@ let refSetTests =
                 let eff =
                     fio {
                         let! ref = Ref.make "initial"
-                        do! ref.SetExn v1
-                        do! ref.SetExn v2
-                        do! ref.SetExn v3
+                        do! ref.Set(v1, id)
+                        do! ref.Set(v2, id)
+                        do! ref.Set(v3, id)
                         let! value = ref.Get()
                         return value
                     }
@@ -109,7 +109,7 @@ let refGetAndSetTests =
                 let eff =
                     fio {
                         let! ref = Ref.make initial
-                        let! oldValue = ref.GetAndSetExn newValue
+                        let! oldValue = ref.GetAndSet(newValue, id)
                         let! currentValue = ref.Get()
                         return oldValue, currentValue
                     }
@@ -146,7 +146,7 @@ let refGetAndUpdateTests =
                 let eff =
                     fio {
                         let! ref = Ref.makeValue initial
-                        let! oldValue = ref.GetAndUpdateExn(fun x -> x + 10)
+                        let! oldValue = ref.GetAndUpdate((fun x -> x + 10), id)
                         let! currentValue = ref.Get()
                         return oldValue, currentValue
                     }
@@ -161,7 +161,7 @@ let refGetAndUpdateTests =
                 let eff =
                     fio {
                         let! ref = Ref.makeValue initial
-                        let! oldValue = ref.GetAndUpdateExn id
+                        let! oldValue = ref.GetAndUpdate(id, id)
                         let! currentValue = ref.Get()
                         return oldValue, currentValue
                     }
@@ -198,7 +198,7 @@ let refUpdateAndGetTests =
                 let eff =
                     fio {
                         let! ref = Ref.makeValue initial
-                        let! newValue = ref.UpdateAndGetExn(fun x -> x * 2)
+                        let! newValue = ref.UpdateAndGet((fun x -> x * 2), id)
                         let! currentValue = ref.Get()
                         return newValue, currentValue
                     }
@@ -213,7 +213,7 @@ let refUpdateAndGetTests =
                 let eff =
                     fio {
                         let! ref = Ref.makeValue initial
-                        let! newValue = ref.UpdateAndGetExn(fun _ -> constant)
+                        let! newValue = ref.UpdateAndGet((fun _ -> constant), id)
                         return newValue
                     }
 
@@ -247,7 +247,7 @@ let refUpdateTests =
                 let eff =
                     fio {
                         let! ref = Ref.makeValue initial
-                        do! ref.UpdateExn(fun x -> x + 5)
+                        do! ref.Update((fun x -> x + 5), id)
                         let! value = ref.Get()
                         return value
                     }
@@ -261,9 +261,9 @@ let refUpdateTests =
                 let eff =
                     fio {
                         let! ref = Ref.makeValue initial
-                        do! ref.UpdateExn(fun x -> x + 1)
-                        do! ref.UpdateExn(fun x -> x * 2)
-                        do! ref.UpdateExn(fun x -> x - 3)
+                        do! ref.Update((fun x -> x + 1), id)
+                        do! ref.Update((fun x -> x * 2), id)
+                        do! ref.Update((fun x -> x - 3), id)
                         let! value = ref.Get()
                         return value
                     }
@@ -300,7 +300,7 @@ let refCompareAndSetTests =
                 let eff =
                     fio {
                         let! ref = Ref.makeValue initial
-                        let! success = ref.CompareAndSetExn(initial, newValue)
+                        let! success = ref.CompareAndSet(initial, newValue, id)
                         let! currentValue = ref.Get()
                         return success, currentValue
                     }
@@ -318,7 +318,7 @@ let refCompareAndSetTests =
                     let eff =
                         fio {
                             let! ref = Ref.makeValue initial
-                            let! success = ref.CompareAndSetExn(wrongExpected, newValue)
+                            let! success = ref.CompareAndSet(wrongExpected, newValue, id)
                             let! currentValue = ref.Get()
                             return success, currentValue
                         }
@@ -335,7 +335,7 @@ let refCompareAndSetTests =
                 let eff =
                     fio {
                         let! ref = Ref.makeValue 10
-                        let! success = ref.CompareAndSetExn(10, 99)
+                        let! success = ref.CompareAndSet(10, 99, id)
                         let! value = ref.Get()
                         return success, value
                     }
@@ -352,7 +352,7 @@ let refCompareAndSetTests =
                 let eff =
                     fio {
                         let! ref = Ref.makeValue 10
-                        let! success = ref.CompareAndSetExn(11, 99)
+                        let! success = ref.CompareAndSet(11, 99, id)
                         let! value = ref.Get()
                         return success, value
                     }
@@ -389,7 +389,7 @@ let refModifyTests =
                 let eff =
                     fio {
                         let! ref = Ref.makeValue initial
-                        let! result = ref.ModifyExn(fun x -> x * 2, x.ToString())
+                        let! result = ref.Modify((fun x -> (x * 2, x.ToString())), id)
                         let! currentValue = ref.Get()
                         return result, currentValue
                     }
@@ -404,7 +404,7 @@ let refModifyTests =
                 let eff =
                     fio {
                         let! ref = Ref.makeValue initial
-                        let! oldValue = ref.ModifyExn(fun x -> x + 100, x)
+                        let! oldValue = ref.Modify((fun x -> (x + 100, x)), id)
                         let! newValue = ref.Get()
                         return oldValue, newValue
                     }
@@ -439,7 +439,7 @@ let refValueTypeTests =
                 let eff =
                     fio {
                         let! ref = Ref.makeValue initial
-                        do! ref.SetExn newValue
+                        do! ref.Set(newValue, id)
                         let! value = ref.Get()
                         return value
                     }
@@ -453,7 +453,7 @@ let refValueTypeTests =
                 let eff =
                     fio {
                         let! ref = Ref.makeValue initial
-                        let! oldValue = ref.GetAndSetExn newValue
+                        let! oldValue = ref.GetAndSet(newValue, id)
                         let! currentValue = ref.Get()
                         return oldValue, currentValue
                     }
@@ -471,7 +471,7 @@ let refValueTypeTests =
                 let eff =
                     fio {
                         let! ref = Ref.makeValue initial
-                        do! ref.SetExn newValue
+                        do! ref.Set(newValue, id)
                         let! value = ref.Get()
                         return value
                     }
@@ -529,10 +529,10 @@ let refConcurrencyTests =
 
                         let casFiber id =
                             fio {
-                                let! success = ref.CompareAndSetExn(0, id)
+                                let! success = ref.CompareAndSet(0, id, Operators.id)
 
                                 if success then
-                                    do! successCount.UpdateExn(fun x -> x + 1)
+                                    do! successCount.Update((fun x -> x + 1), Operators.id)
                             }
 
                         let! fibers = [ 1..10 ] |> List.map (fun id -> (casFiber id).Fork()) |> FIO.collectAll

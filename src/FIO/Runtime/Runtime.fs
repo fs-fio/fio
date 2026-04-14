@@ -6,15 +6,21 @@ open System
 open System.Globalization
 open System.Collections.Generic
 
-/// <summary>
 /// Shared defaults for worker-based runtimes.
-/// </summary>
 module internal WorkerRuntimeDefaults =
+    /// Number of processors reserved for the system, excluded from worker allocation.
     let ProcessorReserve = 1
+
+    /// Minimum number of evaluation workers regardless of processor count.
     let MinimumEvaluationWorkerCount = 2
+
+    /// Default number of evaluation steps per work item before rescheduling.
     let EvaluationWorkerSteps = 200
+
+    /// Default number of blocking workers.
     let BlockingWorkerCount = 1
 
+    /// Computes the evaluation worker count based on available processors.
     let ComputeEvaluationWorkerCount () =
         let availableWorkers = Environment.ProcessorCount - ProcessorReserve
 
@@ -23,23 +29,16 @@ module internal WorkerRuntimeDefaults =
         else
             MinimumEvaluationWorkerCount
 
-/// <summary>
-/// Object pool for continuation stacks to reduce GC pressure.
-/// Thread-local pooling avoids synchronization overhead.
-/// </summary>
+/// Object pool for continuation stacks. Thread-local to avoid synchronization.
 type internal ContStackPool private () =
-    // Configuration constants
-    static let DefaultStackCapacity = 32 // Initial capacity for new stacks
-    static let MaxPoolSize = 256 // Maximum stacks per thread pool
-    static let MaxReturnedStackDepth = 4096 // Avoid retaining pathological deep stacks
+    static let DefaultStackCapacity = 32
+    static let MaxPoolSize = 256
+    static let MaxReturnedStackDepth = 4096
 
     [<ThreadStatic; DefaultValue>]
     static val mutable private pool: Stack<Stack<ContStackFrame>>
 
-    /// <summary>
     /// Rents a continuation stack from the pool or creates a new one.
-    /// </summary>
-    /// <returns>A continuation stack ready for use.</returns>
     static member inline Rent() =
         if isNull ContStackPool.pool then
             ContStackPool.pool <- Stack<_>()
@@ -51,10 +50,7 @@ type internal ContStackPool private () =
         else
             Stack<ContStackFrame> DefaultStackCapacity
 
-    /// <summary>
     /// Returns a continuation stack to the pool for reuse.
-    /// </summary>
-    /// <param name="stack">The stack to return to the pool.</param>
     static member inline Return(stack: Stack<ContStackFrame>) =
         if isNull ContStackPool.pool then
             ContStackPool.pool <- Stack<_>()
@@ -63,24 +59,14 @@ type internal ContStackPool private () =
             stack.Clear()
             ContStackPool.pool.Push stack
 
-/// <summary>
-/// Object pool for WorkItems to reduce GC pressure.
-/// Thread-local pooling avoids synchronization overhead.
-/// </summary>
+/// Object pool for WorkItems. Thread-local to avoid synchronization.
 type internal WorkItemPool private () =
-    // Configuration constants
-    static let MaxPoolSize = 512 // Maximum WorkItems per thread pool
+    static let MaxPoolSize = 512
 
     [<ThreadStatic; DefaultValue>]
     static val mutable private pool: Stack<WorkItem>
 
-    /// <summary>
     /// Rents a WorkItem from the pool or creates a new one.
-    /// </summary>
-    /// <param name="eff">The effect to execute.</param>
-    /// <param name="fiberContext">The fiber context for execution.</param>
-    /// <param name="stack">The continuation stack.</param>
-    /// <returns>A WorkItem ready for use.</returns>
     static member inline Rent(eff: FIO<obj, obj>, fiberContext: FiberContext, stack: ContStack) : WorkItem =
         if isNull WorkItemPool.pool then
             WorkItemPool.pool <- Stack<WorkItem>()
@@ -100,14 +86,11 @@ type internal WorkItemPool private () =
                 InterruptionSuppressed = 0
             }
 
-    /// <summary>
     /// Returns a WorkItem to the pool for reuse.
-    /// </summary>
     static member inline Return(workItem: WorkItem) =
         if isNull WorkItemPool.pool then
             WorkItemPool.pool <- Stack<WorkItem>()
 
-        // Only pool if not at capacity
         if WorkItemPool.pool.Count < MaxPoolSize then
             workItem.Eff <- Unchecked.defaultof<_>
             workItem.FiberContext <- Unchecked.defaultof<_>
@@ -115,60 +98,38 @@ type internal WorkItemPool private () =
             workItem.InterruptionSuppressed <- 0
             WorkItemPool.pool.Push workItem
 
-/// <summary>
-/// Represents a functional runtime for interpreting FIO effects.
-/// </summary>
+/// Runtime for interpreting FIO effects.
 [<AbstractClass>]
 type FIORuntime internal () =
-    /// <summary>
-    /// Gets the name of the runtime.
-    /// </summary>
+    /// Gets the name of this runtime.
     abstract member Name: string
 
-    /// <summary>
-    /// Gets the configuration string for the runtime.
-    /// </summary>
+    /// Gets a string describing this runtime's configuration.
     abstract member ConfigString: string
 
     override this.ConfigString = this.Name
 
-    /// <summary>
     /// Runs an FIO effect and returns a fiber representing its execution.
-    /// </summary>
-    /// <param name="eff">The FIO effect to run.</param>
     abstract member Run<'R, 'E> : FIO<'R, 'E> -> Fiber<'R, 'E>
 
-    /// <summary>
-    /// Gets a file-friendly string representation of the runtime.
-    /// </summary>
-    /// <returns>A lowercase string suitable for file names.</returns>
+    /// Returns a lowercase, file-friendly string representation of the runtime.
     member this.ToFileString() =
         this.ToString().ToLowerInvariant().Replace("(", "").Replace(")", "").Replace(":", "").Replace(' ', '-')
 
     override this.ToString() = this.ConfigString
 
-/// <summary>
-/// Represents the configuration for a worker runtime.
-/// </summary>
+/// Configuration for a worker runtime.
 type WorkerConfig =
     {
-        /// <summary>
         /// Evaluation worker count.
-        /// </summary>
         EWC: int
-        /// <summary>
         /// Evaluation worker steps per work item before rescheduling.
-        /// </summary>
         EWS: int
-        /// <summary>
         /// Blocking worker count.
-        /// </summary>
         BWC: int
     }
 
-    /// <summary>
-    /// Default worker configuration based on system resources and sensible defaults.
-    /// </summary>
+    /// Default worker configuration based on system resources.
     static member Default =
         {
             EWC = WorkerRuntimeDefaults.ComputeEvaluationWorkerCount()
@@ -176,10 +137,7 @@ type WorkerConfig =
             BWC = WorkerRuntimeDefaults.BlockingWorkerCount
         }
 
-/// <summary>
-/// Represents a functional worker runtime for interpreting FIO effects.
-/// </summary>
-/// <param name="config">The worker configuration.</param>
+/// Base class for worker-based FIO runtimes.
 [<AbstractClass>]
 type FIOWorkerRuntime internal (config: WorkerConfig) as this =
     inherit FIORuntime()
@@ -190,13 +148,7 @@ type FIOWorkerRuntime internal (config: WorkerConfig) as this =
 
     do validateWorkerConfiguration ()
 
-    new() = FIOWorkerRuntime WorkerConfig.Default
-
-    /// <summary>
-    /// Gets the worker configuration.
-    /// </summary>
-    /// <returns>The worker configuration.</returns>
-    member _.GetWorkerConfiguration() = config
+    member _.WorkerConfig = config
 
     override _.ConfigString =
         let ci = CultureInfo "en-US"

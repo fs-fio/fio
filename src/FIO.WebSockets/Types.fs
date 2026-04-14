@@ -38,6 +38,7 @@ module WebSocketConfig =
     /// <summary>
     /// Default WebSocket configuration.
     /// </summary>
+    /// <returns>The default WebSocket configuration.</returns>
     let defaultConfig =
         {
             ReceiveBufferSize = 4096
@@ -160,6 +161,10 @@ type WsError =
     /// </summary>
     | GeneralError of string
 
+    /// <summary>
+    /// Gets a human-readable error message.
+    /// </summary>
+    /// <returns>A human-readable error message.</returns>
     override this.ToString() : string =
         match this with
         | ConnectionFailed msg -> $"Connection failed: {msg}"
@@ -250,6 +255,7 @@ module WebSocketPoolConfig =
     /// <summary>
     /// Default pool configuration (min=5, max=20).
     /// </summary>
+    /// <returns>The default pool configuration.</returns>
     let defaultConfig = create (5, 20)
 
     /// <summary>

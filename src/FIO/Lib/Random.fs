@@ -1,6 +1,4 @@
-/// <summary>
 /// Random number generation as FIO effects.
-/// </summary>
 [<RequireQualifiedAccess>]
 module FIO.Random.Random
 
@@ -8,123 +6,92 @@ open FIO.DSL
 
 open System
 
-/// <summary>Generates a random non-negative integer.</summary>
-/// <returns>Effect returning a random non-negative integer.</returns>
-let nextInt<'E> () : FIO<int, 'E> =
-    FIO.attemptExn (fun () -> Random.Shared.Next())
-    |> fun eff -> eff.CatchAll(fun _ -> FIO.succeed 0)
+let inline private rethrow (ex: exn) : 'E = raise ex
 
-/// <summary>Generates a random integer in the range [0, max).</summary>
-/// <param name="max">Exclusive upper bound.</param>
-/// <returns>Effect returning a random integer in [0, max).</returns>
-let nextIntBounded<'E> (max: int) : FIO<int, 'E> =
-    FIO.attemptExn (fun () -> Random.Shared.Next max)
-    |> fun eff -> eff.CatchAll(fun _ -> FIO.succeed 0)
+/// Generates a random non-negative integer in [0, Int32.MaxValue).
+let inline nextInt<'E> () : FIO<int, 'E> =
+    FIO.attempt ((fun () -> Random.Shared.Next()), rethrow)
 
-/// <summary>Generates a random integer in the range [min, max).</summary>
-/// <param name="min">Inclusive lower bound.</param>
-/// <param name="max">Exclusive upper bound.</param>
-/// <returns>Effect returning a random integer in [min, max).</returns>
-let nextIntRange<'E> (min: int, max: int) : FIO<int, 'E> =
-    FIO.attemptExn (fun () -> Random.Shared.Next(min, max))
-    |> fun eff -> eff.CatchAll(fun _ -> FIO.succeed min)
+/// Generates a random integer in [0, max).
+let inline nextIntBounded<'E> (max: int) : FIO<int, 'E> =
+    FIO.attempt ((fun () -> Random.Shared.Next max), rethrow)
 
-/// <summary>Generates a random non-negative 64-bit integer.</summary>
-/// <returns>Effect returning a random non-negative int64.</returns>
-let nextInt64<'E> () : FIO<int64, 'E> =
-    FIO.attemptExn (fun () -> Random.Shared.NextInt64())
-    |> fun eff -> eff.CatchAll(fun _ -> FIO.succeed 0L)
+/// Generates a random integer in [min, max).
+let inline nextIntRange<'E> (min: int, max: int) : FIO<int, 'E> =
+    FIO.attempt ((fun () -> Random.Shared.Next(min, max)), rethrow)
 
-/// <summary>Generates a random 64-bit integer in the range [0, max).</summary>
-/// <param name="max">Exclusive upper bound.</param>
-/// <returns>Effect returning a random int64 in [0, max).</returns>
-let nextInt64Bounded<'E> (max: int64) : FIO<int64, 'E> =
-    FIO.attemptExn (fun () -> Random.Shared.NextInt64 max)
-    |> fun eff -> eff.CatchAll(fun _ -> FIO.succeed 0L)
+/// Generates a random non-negative 64-bit integer in [0, Int64.MaxValue).
+let inline nextInt64<'E> () : FIO<int64, 'E> =
+    FIO.attempt ((fun () -> Random.Shared.NextInt64()), rethrow)
 
-/// <summary>Generates a random 64-bit integer in the range [min, max).</summary>
-/// <param name="min">Inclusive lower bound.</param>
-/// <param name="max">Exclusive upper bound.</param>
-/// <returns>Effect returning a random int64 in [min, max).</returns>
-let nextInt64Range<'E> (min: int64, max: int64) : FIO<int64, 'E> =
-    FIO.attemptExn (fun () -> Random.Shared.NextInt64(min, max))
-    |> fun eff -> eff.CatchAll(fun _ -> FIO.succeed min)
+/// Generates a random 64-bit integer in [0, max).
+let inline nextInt64Bounded<'E> (max: int64) : FIO<int64, 'E> =
+    FIO.attempt ((fun () -> Random.Shared.NextInt64 max), rethrow)
 
-/// <summary>Generates a random floating-point number in the range [0.0, 1.0).</summary>
-/// <returns>Effect returning a random float in [0.0, 1.0).</returns>
-let nextDouble<'E> () : FIO<float, 'E> =
-    FIO.attemptExn (fun () -> Random.Shared.NextDouble())
-    |> fun eff -> eff.CatchAll(fun _ -> FIO.succeed 0.0)
+/// Generates a random 64-bit integer in [min, max).
+let inline nextInt64Range<'E> (min: int64, max: int64) : FIO<int64, 'E> =
+    FIO.attempt ((fun () -> Random.Shared.NextInt64(min, max)), rethrow)
 
-/// <summary>Generates a random floating-point number in the range [0.0, max).</summary>
-/// <param name="max">Exclusive upper bound.</param>
-/// <returns>Effect returning a random float in [0.0, max).</returns>
-let nextDoubleBounded<'E> (max: float) : FIO<float, 'E> =
-    FIO.attemptExn (fun () -> Random.Shared.NextDouble() * max)
-    |> fun eff -> eff.CatchAll(fun _ -> FIO.succeed 0.0)
+/// Generates a random double in [0.0, 1.0).
+let inline nextDouble<'E> () : FIO<float, 'E> =
+    FIO.attempt ((fun () -> Random.Shared.NextDouble()), rethrow)
 
-/// <summary>Generates a random floating-point number in the range [min, max).</summary>
-/// <param name="min">Inclusive lower bound.</param>
-/// <param name="max">Exclusive upper bound.</param>
-/// <returns>Effect returning a random float in [min, max).</returns>
-let nextDoubleRange<'E> (min: float, max: float) : FIO<float, 'E> =
-    FIO.attemptExn (fun () -> min + Random.Shared.NextDouble() * (max - min))
-    |> fun eff -> eff.CatchAll(fun _ -> FIO.succeed min)
+/// Generates a random double in [0.0, max).
+let inline nextDoubleBounded<'E> (max: float) : FIO<float, 'E> =
+    FIO.attempt ((fun () -> Random.Shared.NextDouble() * max), rethrow)
 
-/// <summary>Generates an array of random bytes.</summary>
-/// <param name="count">Number of bytes to generate.</param>
-/// <returns>Effect returning a byte array filled with random bytes.</returns>
-let nextBytes<'E> (count: int) : FIO<byte[], 'E> =
-    FIO.attemptExn (fun () ->
-        let bytes = Array.zeroCreate<byte> count
-        Random.Shared.NextBytes bytes
-        bytes)
-    |> fun eff -> eff.CatchAll(fun _ -> FIO.succeed [||])
+/// Generates a random double in [min, max).
+let inline nextDoubleRange<'E> (min: float, max: float) : FIO<float, 'E> =
+    FIO.attempt ((fun () -> min + Random.Shared.NextDouble() * (max - min)), rethrow)
 
-/// <summary>Generates a random GUID.</summary>
-/// <returns>Effect returning a random GUID.</returns>
-let nextGuid<'E> () : FIO<Guid, 'E> =
-    FIO.attemptExn (fun () -> Guid.NewGuid())
-    |> fun eff -> eff.CatchAll(fun _ -> FIO.succeed Guid.Empty)
+/// Generates an array of random bytes.
+let inline nextBytes<'E> (count: int) : FIO<byte[], 'E> =
+    FIO.attempt (
+        (fun () ->
+            let bytes = Array.zeroCreate<byte> count
+            Random.Shared.NextBytes bytes
+            bytes),
+        rethrow
+    )
 
-/// <summary>Generates a random boolean value (coin flip).</summary>
-/// <returns>Effect returning true or false with equal probability.</returns>
-let nextBool<'E> () : FIO<bool, 'E> =
-    FIO.attemptExn (fun () -> Random.Shared.Next 2 = 1)
-    |> fun eff -> eff.CatchAll(fun _ -> FIO.succeed false)
+/// Generates a random GUID.
+let inline nextGuid<'E> () : FIO<Guid, 'E> =
+    FIO.attempt ((fun () -> Guid.NewGuid()), rethrow)
 
-/// <summary>Shuffles a list randomly using Fisher-Yates algorithm.</summary>
-/// <param name="items">List to shuffle.</param>
-/// <returns>Effect returning a new list with elements in random order.</returns>
-let shuffle<'T, 'E> (items: 'T list) : FIO<'T list, 'E> =
-    FIO.attemptExn (fun () ->
-        let arr = Array.ofList items
-        let n = arr.Length
+/// Generates a random boolean (coin flip).
+let inline nextBool<'E> () : FIO<bool, 'E> =
+    FIO.attempt ((fun () -> Random.Shared.Next 2 = 1), rethrow)
 
-        for i = n - 1 downto 1 do
-            let j = Random.Shared.Next(i + 1)
-            let temp = arr.[i]
-            arr.[i] <- arr.[j]
-            arr.[j] <- temp
+/// Shuffles a list randomly using the Fisher-Yates algorithm.
+let inline shuffle<'T, 'E> (items: 'T list) : FIO<'T list, 'E> =
+    FIO.attempt (
+        (fun () ->
+            let arr = Array.ofList items
+            let n = arr.Length
 
-        List.ofArray arr)
-    |> fun eff -> eff.CatchAll(fun _ -> FIO.succeed items)
+            for i = n - 1 downto 1 do
+                let j = Random.Shared.Next(i + 1)
+                let temp = arr.[i]
+                arr.[i] <- arr.[j]
+                arr.[j] <- temp
 
-/// <summary>Picks a random element from a list.</summary>
-/// <param name="items">List to pick from.</param>
-/// <returns>Effect returning Some(element) if list is non-empty, None otherwise.</returns>
-let choice<'T, 'E> (items: 'T list) : FIO<'T option, 'E> =
-    FIO.attemptExn (fun () ->
-        match items with
-        | [] -> None
-        | _ -> Some items.[Random.Shared.Next(items.Length)])
-    |> fun eff -> eff.CatchAll(fun _ -> FIO.succeed None)
+            List.ofArray arr),
+        rethrow
+    )
 
-/// <summary>Picks a random element from a list, failing if the list is empty.</summary>
-/// <param name="items">List to pick from.</param>
-/// <param name="onEmpty">Function to create error when list is empty.</param>
-/// <returns>Effect returning a random element or failing with custom error.</returns>
-let choiceOrFail<'T, 'E> (items: 'T list, onEmpty: unit -> 'E) : FIO<'T, 'E> =
+/// Picks a random element from a list, returning None if the list is empty.
+let inline choice<'T, 'E> (items: 'T list) : FIO<'T option, 'E> =
+    FIO.attempt (
+        (fun () ->
+            match items with
+            | [] -> None
+            | _ -> Some items.[Random.Shared.Next(items.Length)]),
+        rethrow
+    )
+
+/// Picks a random element from a list, failing with a typed error if the list is empty.
+/// <param name="onEmpty">Error factory invoked when the list is empty.</param>
+let inline choiceOrFail<'T, 'E> (items: 'T list, onEmpty: unit -> 'E) : FIO<'T, 'E> =
     choice(items)
         .FlatMap(
             function

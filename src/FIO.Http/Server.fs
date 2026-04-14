@@ -14,11 +14,17 @@ open Microsoft.AspNetCore.Hosting
 /// </summary>
 type ServerConfig =
     {
-        /// <summary>The host address to bind to.</summary>
+        /// <summary>
+        /// The host address to bind to.
+        /// </summary>
         Host: string
-        /// <summary>The port to listen on.</summary>
+        /// <summary>
+        /// The port to listen on.
+        /// </summary>
         Port: int
-        /// <summary>Maximum request body size in bytes. Default is 30MB (30 * 1024 * 1024).</summary>
+        /// <summary>
+        /// Maximum request body size in bytes. Default is 30MB (30 * 1024 * 1024).
+        /// </summary>
         MaxRequestBodySize: int64
     }
 
@@ -30,6 +36,7 @@ module ServerConfig =
     /// <summary>
     /// Default server configuration (127.0.0.1:8080, 30MB max body size).
     /// </summary>
+    /// <returns>The default server configuration.</returns>
     let defaultConfig =
         {
             Host = "127.0.0.1"
@@ -42,6 +49,7 @@ module ServerConfig =
     /// </summary>
     /// <param name="host">The host address.</param>
     /// <param name="port">The port number.</param>
+    /// <returns>The server configuration.</returns>
     let create host port =
         {
             Host = host
@@ -54,6 +62,7 @@ module ServerConfig =
     /// </summary>
     /// <param name="maxSize">Maximum body size in bytes.</param>
     /// <param name="config">The configuration to modify.</param>
+    /// <returns>The modified configuration.</returns>
     let withMaxBodySize maxSize config =
         { config with MaxRequestBodySize = maxSize }
 
@@ -80,6 +89,7 @@ module Server =
     /// <param name="config">The server configuration.</param>
     /// <param name="routes">The routes to serve.</param>
     /// <param name="runtime">The FIO runtime to use for executing effects.</param>
+    /// <returns>Effect returning the server instance.</returns>
     let createWithRuntime (config: ServerConfig) (routes: Routes<exn>) (runtime: DefaultRuntime) : FIO<FIOServer, exn> =
         FIO.attempt (
             (fun () ->
@@ -97,6 +107,7 @@ module Server =
     /// </summary>
     /// <param name="config">The server configuration.</param>
     /// <param name="routes">The routes to serve.</param>
+    /// <returns>Effect returning the server instance.</returns>
     let create (config: ServerConfig) (routes: Routes<exn>) : FIO<FIOServer, exn> =
         createWithRuntime config routes (new DefaultRuntime())
 
@@ -104,6 +115,7 @@ module Server =
     /// Starts the HTTP server.
     /// </summary>
     /// <param name="server">The server to start.</param>
+    /// <returns>Effect returning the started server.</returns>
     let start (server: FIOServer) : FIO<FIOServer, exn> =
         fio {
             let builder = WebApplication.CreateBuilder()
@@ -136,6 +148,7 @@ module Server =
     /// Stops the HTTP server and disposes resources.
     /// </summary>
     /// <param name="server">The server to stop.</param>
+    /// <returns>Effect returning the stopped server.</returns>
     let stop (server: FIOServer) : FIO<FIOServer, exn> =
         fio {
             match server.Host with
@@ -154,6 +167,7 @@ module Server =
     /// Waits for the server to shut down.
     /// </summary>
     /// <param name="server">The server to wait on.</param>
+    /// <returns>Effect that blocks until shutdown.</returns>
     let run (server: FIOServer) : FIO<unit, exn> =
         fio {
             match server.Host with
@@ -167,6 +181,7 @@ module Server =
     /// <param name="config">The server configuration.</param>
     /// <param name="routes">The routes to serve.</param>
     /// <param name="runtime">The FIO runtime to use for executing effects.</param>
+    /// <returns>Effect returning the started server.</returns>
     let startServerWithRuntime
         (config: ServerConfig)
         (routes: Routes<exn>)
@@ -183,6 +198,7 @@ module Server =
     /// </summary>
     /// <param name="config">The server configuration.</param>
     /// <param name="routes">The routes to serve.</param>
+    /// <returns>Effect returning the started server.</returns>
     let startServer (config: ServerConfig) (routes: Routes<exn>) : FIO<FIOServer, exn> =
         startServerWithRuntime config routes (new DefaultRuntime())
 
@@ -192,6 +208,7 @@ module Server =
     /// <param name="config">The server configuration.</param>
     /// <param name="routes">The routes to serve.</param>
     /// <param name="runtime">The FIO runtime to use for executing effects.</param>
+    /// <returns>Effect that blocks until shutdown.</returns>
     let runServerWithRuntime (config: ServerConfig) (routes: Routes<exn>) (runtime: DefaultRuntime) : FIO<unit, exn> =
         fio {
             let! server = startServerWithRuntime config routes runtime
@@ -203,6 +220,7 @@ module Server =
     /// </summary>
     /// <param name="config">The server configuration.</param>
     /// <param name="routes">The routes to serve.</param>
+    /// <returns>Effect that blocks until shutdown.</returns>
     let runServer (config: ServerConfig) (routes: Routes<exn>) : FIO<unit, exn> =
         runServerWithRuntime config routes (new DefaultRuntime())
 
@@ -212,16 +230,11 @@ module Server =
 module ServerBuilder =
 
     /// <summary>
-    /// Starts building a server with routes.
-    /// </summary>
-    /// <param name="routes">The routes to serve.</param>
-    let server (routes: Routes<exn>) = ServerConfig.defaultConfig, routes
-
-    /// <summary>
     /// Sets the host address for the server.
     /// </summary>
     /// <param name="host">The host address.</param>
     /// <param name="config">The current configuration tuple.</param>
+    /// <returns>The updated configuration and routes tuple.</returns>
     let host (host: string) ((config, routes): ServerConfig * Routes<exn>) = { config with Host = host }, routes
 
     /// <summary>
@@ -229,16 +242,19 @@ module ServerBuilder =
     /// </summary>
     /// <param name="port">The port number.</param>
     /// <param name="config">The current configuration tuple.</param>
+    /// <returns>The updated configuration and routes tuple.</returns>
     let port (port: int) (config, routes) = { config with Port = port }, routes
 
     /// <summary>
     /// Starts the server immediately.
     /// </summary>
     /// <param name="config">The configuration tuple.</param>
+    /// <returns>Effect returning the started server.</returns>
     let startNow (config, routes) = Server.startServer config routes
 
     /// <summary>
     /// Starts and runs the server until shutdown.
     /// </summary>
     /// <param name="config">The configuration tuple.</param>
+    /// <returns>Effect that blocks until shutdown.</returns>
     let runNow (config, routes) = Server.runServer config routes

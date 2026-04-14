@@ -41,17 +41,37 @@ type private Arguments =
 /// Parse outcome for plotting CLI parsing.
 /// </summary>
 type internal ParseOutcome =
+    /// <summary>Successfully parsed plot arguments.</summary>
     | Parsed of PlotArgs
+    /// <summary>Help was requested, contains usage text to display.</summary>
     | HelpRequested of usageText: string
+    /// <summary>Invalid arguments were provided, contains error and usage text.</summary>
     | InvalidArgs of errorText: string * usageText: string
 
+/// <summary>
+/// Argu parser instance for plot command-line arguments.
+/// </summary>
 let private parser =
     ArgumentParser.Create<Arguments>(programName = "FIO.Benchmarks.Plots")
 
+/// <summary>
+/// Returns the usage text for the plot CLI.
+/// </summary>
+/// <returns>Formatted usage text string.</returns>
 let internal usageText () = parser.PrintUsage()
 
+/// <summary>
+/// Creates an InvalidArgs parse outcome with the current usage text.
+/// </summary>
+/// <param name="errorText">Error message describing the validation failure.</param>
+/// <returns>InvalidArgs parse outcome.</returns>
 let private invalid errorText = InvalidArgs(errorText, usageText ())
 
+/// <summary>
+/// Extracts a concise error summary from an Argu parse exception message.
+/// </summary>
+/// <param name="message">Raw exception message from Argu.</param>
+/// <returns>First line of the error summary, or a default message.</returns>
 let private parseErrorSummary (message: string) =
     if String.IsNullOrWhiteSpace message then
         "Invalid command line arguments."
@@ -70,6 +90,11 @@ let private parseErrorSummary (message: string) =
             rawSummary.Split([| '\r'; '\n' |], StringSplitOptions.RemoveEmptyEntries)
             |> Array.head
 
+/// <summary>
+/// Builds and validates PlotArgs from parsed command-line results.
+/// </summary>
+/// <param name="results">Parsed command-line arguments.</param>
+/// <returns>Ok with validated PlotArgs, or Error with validation message.</returns>
 let private buildPlotArgs (results: ParseResults<Arguments>) : Result<PlotArgs, string> =
     let boxPlotSelected = results.Contains BoxPlot
     let linePlotSelected = results.Contains LinePlot

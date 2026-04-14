@@ -16,16 +16,16 @@ open System.IO
 open System.Globalization
 
 /// <summary>
-/// Simple welcome app demonstrating console I/O with SimpleFIOApp.
+/// Simple welcome app demonstrating console I/O with FIOApp.
 /// </summary>
 type WelcomeApp() =
-    inherit SimpleFIOApp()
+    inherit FIOApp<unit, exn>()
 
     override _.effect: FIO<unit, exn> =
         fio {
-            do! Console.printLineExn "Hello! What is your name?"
-            let! name = Console.readLineExn
-            do! Console.printLineExn $"Hello, %s{name}! Welcome to FIO! 🪻💜"
+            do! Console.printLine ("Hello! What is your name?", id)
+            let! name = Console.readLine id
+            do! Console.printLine ($"Hello, %s{name}! Welcome to FIO! 🪻💜", id)
         }
 
 /// <summary>
@@ -36,10 +36,10 @@ type EnterNumberApp() =
 
     override _.effect =
         fio {
-            do! Console.printExn "Enter a number: "
-            let! input = Console.readLineExn
+            do! Console.print ("Enter a number: ", id)
+            let! input = Console.readLine id
 
-            match! FIO.attemptExn (fun () -> Int32.TryParse input) with
+            match! FIO.attempt ((fun () -> Int32.TryParse input), id) with
             | true, number -> return $"You entered the number: %i{number}."
             | false, _ -> return! FIO.fail (IOException "You entered an invalid number!")
         }
@@ -96,14 +96,14 @@ type TryWithFinallyApp() =
 /// Demonstrates for loops in computation expressions.
 /// </summary>
 type ForApp() =
-    inherit SimpleFIOApp()
+    inherit FIOApp<unit, exn>()
 
     override _.effect =
         fio {
             for number in 1..10 do
                 match number % 2 = 0 with
-                | true -> do! Console.printLineExn $"%i{number} is even!"
-                | false -> do! Console.printLineExn $"%i{number} is odd!"
+                | true -> do! Console.printLine ($"%i{number} is even!", id)
+                | false -> do! Console.printLine ($"%i{number} is odd!", id)
         }
 
 /// <summary>
@@ -118,20 +118,20 @@ type GuessNumberApp() =
             let mutable guess = -1
 
             while guess <> numberToGuess do
-                do! Console.printExn "Guess a number: "
-                let! input = Console.readLineExn
+                do! Console.print ("Guess a number: ", id)
+                let! input = Console.readLine id
 
                 match Int32.TryParse input with
                 | true, parsedInput ->
                     guess <- parsedInput
 
                     if guess < numberToGuess then
-                        do! Console.printLineExn "Too low! Try again."
+                        do! Console.printLine ("Too low! Try again.", id)
                     elif guess > numberToGuess then
-                        do! Console.printLineExn "Too high! Try again."
+                        do! Console.printLine ("Too high! Try again.", id)
                     else
-                        do! Console.printLineExn "Congratulations! You guessed the number!"
-                | _ -> do! Console.printLineExn "Invalid input. Please enter a number."
+                        do! Console.printLine ("Congratulations! You guessed the number!", id)
+                | _ -> do! Console.printLine ("Invalid input. Please enter a number.", id)
 
             return guess
         }
@@ -140,23 +140,29 @@ type GuessNumberApp() =
 /// Ping-pong message passing using operators and channels.
 /// </summary>
 type PingPongApp() =
-    inherit SimpleFIOApp()
+    inherit FIOApp<unit, exn>()
 
+    /// <summary>
+    /// Pinger sends a message and waits for a reply using operators.
+    /// </summary>
     let pinger (chan1: Channel<string>) (chan2: Channel<string>) =
         chan1.Send "ping"
         >>= fun ping ->
-            Console.printLineExn $"pinger sent: %s{ping}"
+            Console.printLine ($"pinger sent: %s{ping}", id)
             >>= fun _ ->
                 chan2.Receive()
-                >>= fun pong -> Console.printLineExn $"pinger received: %s{pong}" >>= fun _ -> FIO.unit ()
+                >>= fun pong -> Console.printLine ($"pinger received: %s{pong}", id) >>= fun _ -> FIO.unit ()
 
+    /// <summary>
+    /// Ponger receives a message and sends a reply using operators.
+    /// </summary>
     let ponger (chan1: Channel<string>) (chan2: Channel<string>) =
         chan1.Receive()
         >>= fun ping ->
-            Console.printLineExn $"ponger received: %s{ping}"
+            Console.printLine ($"ponger received: %s{ping}", id)
             >>= fun _ ->
                 chan2.Send "pong"
-                >>= fun pong -> Console.printLineExn $"ponger sent: %s{pong}" >>= fun _ -> FIO.unit ()
+                >>= fun pong -> Console.printLine ($"ponger sent: %s{pong}", id) >>= fun _ -> FIO.unit ()
 
     override _.effect =
         let chan1 = Channel<string>()
@@ -167,22 +173,28 @@ type PingPongApp() =
 /// Ping-pong using computation expression syntax.
 /// </summary>
 type PingPongCEApp() =
-    inherit SimpleFIOApp()
+    inherit FIOApp<unit, exn>()
 
+    /// <summary>
+    /// Pinger sends a message and waits for a reply using computation expression.
+    /// </summary>
     let pinger (chan1: Channel<string>) (chan2: Channel<string>) =
         fio {
             let! ping = chan1.Send "ping"
-            do! Console.printLineExn $"pinger sent: %s{ping}"
+            do! Console.printLine ($"pinger sent: %s{ping}", id)
             let! pong = chan2.Receive()
-            do! Console.printLineExn $"pinger received: %s{pong}"
+            do! Console.printLine ($"pinger received: %s{pong}", id)
         }
 
+    /// <summary>
+    /// Ponger receives a message and sends a reply using computation expression.
+    /// </summary>
     let ponger (chan1: Channel<string>) (chan2: Channel<string>) =
         fio {
             let! ping = chan1.Receive()
-            do! Console.printLineExn $"ponger received: %s{ping}"
+            do! Console.printLine ($"ponger received: %s{ping}", id)
             let! pong = chan2.Send "pong"
-            do! Console.printLineExn $"ponger sent: %s{pong}"
+            do! Console.printLine ($"ponger sent: %s{pong}", id)
         }
 
     override _.effect =
@@ -196,7 +208,9 @@ type PingPongCEApp() =
 /// Message type for typed ping-pong communication.
 /// </summary>
 type Message =
+    /// <summary>Ping message sent by the pinger.</summary>
     | PingMsg
+    /// <summary>Pong message sent by the ponger.</summary>
     | PongMsg
 
 /// <summary>
@@ -205,6 +219,9 @@ type Message =
 type PingPongMatchApp() =
     inherit FIOApp<unit, string>()
 
+    /// <summary>
+    /// Pinger sends a PingMsg and validates the reply with pattern matching.
+    /// </summary>
     let pinger (chan1: Channel<Message>) (chan2: Channel<Message>) =
         fio {
             let! ping = chan1.Send PingMsg
@@ -215,6 +232,9 @@ type PingPongMatchApp() =
             | PingMsg -> return! FIO.fail $"pinger received %A{PingMsg} when %A{PongMsg} was expected!"
         }
 
+    /// <summary>
+    /// Ponger receives a PingMsg and replies with a random message type.
+    /// </summary>
     let ponger (chan1: Channel<Message>) (chan2: Channel<Message>) =
         fio {
             match! chan1.Receive() with
@@ -242,8 +262,11 @@ type PingPongMatchApp() =
 /// Custom error types for demonstrating typed error handling.
 /// </summary>
 type Error =
+    /// <summary>Database operation error.</summary>
     | DbError of bool
+    /// <summary>Web service operation error.</summary>
     | WsError of int
+    /// <summary>General error with message.</summary>
     | GeneralError of string
 
 /// <summary>
@@ -252,21 +275,33 @@ type Error =
 type ErrorHandlingApp() =
     inherit FIOApp<string * char, Error>()
 
+    /// <summary>
+    /// Simulates a database read that randomly succeeds or fails.
+    /// </summary>
     let readFromDatabase: FIO<string, bool> =
         fio {
             let! rand = FIO.attempt ((fun () -> Random().Next(0, 2)), fun _ -> true)
             if rand = 0 then return "data" else return! FIO.fail false
         }
 
+    /// <summary>
+    /// Simulates a web service call that randomly succeeds or fails.
+    /// </summary>
     let awaitWebservice: FIO<char, int> =
         fio {
             let! rand = FIO.attempt ((fun () -> Random().Next(0, 2)), fun _ -> -1)
             if rand = 1 then return 'S' else return! FIO.fail 404
         }
 
+    /// <summary>
+    /// Database result with error type unified to Error.
+    /// </summary>
     let databaseResult: FIO<string, Error> =
         fio { return! readFromDatabase.CatchAll(fun error -> FIO.fail (DbError error)) }
 
+    /// <summary>
+    /// Web service result with error type unified to Error.
+    /// </summary>
     let webserviceResult: FIO<char, Error> =
         fio { return! awaitWebservice.CatchAll(fun error -> FIO.fail (WsError error)) }
 
@@ -279,36 +314,50 @@ type ErrorHandlingApp() =
 type ErrorHandlingWithRetryApp() =
     inherit FIOApp<string * char, Error>()
 
+    /// <summary>
+    /// Simulates a database read that randomly succeeds or fails.
+    /// </summary>
     let readFromDatabase: FIO<string, bool> =
         fio {
             let! rand = FIO.attempt ((fun () -> Random().Next(0, 2)), fun _ -> true)
             if rand = 0 then return "data" else return! FIO.fail false
         }
 
+    /// <summary>
+    /// Simulates a web service call that randomly succeeds or fails.
+    /// </summary>
     let awaitWebservice: FIO<char, int> =
         fio {
             let! rand = FIO.attempt ((fun () -> Random().Next(0, 2)), fun _ -> -1)
             if rand = 1 then return 'S' else return! FIO.fail 404
         }
 
+    /// <summary>
+    /// Database result with retry logic and error type unification.
+    /// </summary>
     let databaseResult: FIO<string, Error> =
         fio {
             let onEachRetry (err, retry, maxRetries) =
                 Console
-                    .printLineExn(
-                        $"Database read failed with error: %A{err}. Retry attempt %d{retry} of %d{maxRetries}..."
+                    .printLine(
+                        $"Database read failed with error: %A{err}. Retry attempt %d{retry} of %d{maxRetries}...",
+                        id
                     )
                     .CatchAll(fun _ -> FIO.fail false)
 
             return! readFromDatabase.Retry(4, onEachRetry).CatchAll(fun error -> FIO.fail (DbError error))
         }
 
+    /// <summary>
+    /// Web service result with retry logic and error type unification.
+    /// </summary>
     let webserviceResult: FIO<char, Error> =
         fio {
             let onEachRetry (err, retry, maxRetries) =
                 Console
-                    .printLineExn(
-                        $"Webservice read failed with error: %A{err}. Retry attempt %d{retry} of %d{maxRetries}..."
+                    .printLine(
+                        $"Webservice read failed with error: %A{err}. Retry attempt %d{retry} of %d{maxRetries}...",
+                        id
                     )
                     .CatchAll(fun _ -> FIO.fail 400)
 
@@ -319,11 +368,14 @@ type ErrorHandlingWithRetryApp() =
         fio { return! (databaseResult <*> webserviceResult).CatchAll(fun _ -> FIO.succeed ("default", 'D')) }
 
 /// <summary>
-/// Demonstrates async/task interop with FIO.awaitAsyncExn.
+/// Demonstrates async/task interop with FIO.awaitAsync.
 /// </summary>
 type AsyncErrorHandlingApp() =
     inherit FIOApp<string * int, Error>()
 
+    /// <summary>
+    /// Async task simulating a database read.
+    /// </summary>
     let databaseReadTask: Async<string> =
         async {
             do printfn $"Reading from database..."
@@ -335,6 +387,9 @@ type AsyncErrorHandlingApp() =
                 return "error data"
         }
 
+    /// <summary>
+    /// Async task simulating a web service call.
+    /// </summary>
     let webserviceAwaitTask: Async<int> =
         async {
             do printfn $"Awaiting webservice..."
@@ -346,11 +401,17 @@ type AsyncErrorHandlingApp() =
                 return 400
         }
 
+    /// <summary>
+    /// Database result with error type unified to Error via CatchAll.
+    /// </summary>
     let databaseResult: FIO<string, Error> =
-        FIO.awaitAsyncExn(databaseReadTask).CatchAll(fun ex -> FIO.fail (GeneralError ex.Message))
+        FIO.awaitAsync(databaseReadTask, id).CatchAll(fun ex -> FIO.fail (GeneralError ex.Message))
 
+    /// <summary>
+    /// Web service result with error type unified to Error via CatchAll.
+    /// </summary>
     let webserviceResult: FIO<int, Error> =
-        FIO.awaitAsyncExn(webserviceAwaitTask).CatchAll(fun ex -> FIO.fail (GeneralError ex.Message))
+        FIO.awaitAsync(webserviceAwaitTask, id).CatchAll(fun ex -> FIO.fail (GeneralError ex.Message))
 
     override _.effect = fio { return! databaseResult <&> webserviceResult }
 
@@ -358,26 +419,35 @@ type AsyncErrorHandlingApp() =
 /// Stress test with 1 million concurrent fibers using channels.
 /// </summary>
 type HighlyConcurrentApp() =
-    inherit SimpleFIOApp()
+    inherit FIOApp<unit, exn>()
 
+    /// <summary>
+    /// Sender fiber that sends a random message to the channel.
+    /// </summary>
     let sender (chan: Channel<int>) id =
         fio {
             let! msg = Random.nextIntRange (100, 501)
             do! chan.Send(msg).Unit()
-            do! Console.printLineExn $"Sender[%i{id}] sent: %i{msg}"
+            do! Console.printLine ($"Sender[%i{id}] sent: %i{msg}", Operators.id)
         }
 
+    /// <summary>
+    /// Receiver fiber that consumes messages from the channel.
+    /// </summary>
     let rec receiver (chan: Channel<int>) count (max: int) =
         fio {
             if count = 0 then
                 let! maxFibers = FIO.succeed (max.ToString("N0", CultureInfo "en-US"))
-                do! Console.printLineExn $"Successfully received a message from all %s{maxFibers} fibers!"
+                do! Console.printLine ($"Successfully received a message from all %s{maxFibers} fibers!", id)
             else
                 let! msg = chan.Receive()
-                do! Console.printLineExn $"Receiver received: %i{msg}"
+                do! Console.printLine ($"Receiver received: %i{msg}", id)
                 return! receiver chan (count - 1) max
         }
 
+    /// <summary>
+    /// Recursively creates sender fibers running in parallel.
+    /// </summary>
     let rec create chan count acc =
         fio {
             if count = 0 then
@@ -396,32 +466,38 @@ type HighlyConcurrentApp() =
         }
 
 /// <summary>
-/// Demonstrates FIO.fromGenericTaskExn for wrapping .NET Tasks as fibers.
+/// Demonstrates FIO.fromGenericTask for wrapping .NET Tasks as fibers.
 /// </summary>
 type FiberFromTaskApp() =
-    inherit SimpleFIOApp()
+    inherit FIOApp<unit, exn>()
 
+    /// <summary>
+    /// Computes a Fibonacci number inside a .NET Task forked as a fiber.
+    /// </summary>
     let fibonacci n =
-        FIO.fromGenericTaskExn (fun () ->
-            task {
-                let fib (n: int64) =
-                    let mutable a = 0L
-                    let mutable b = 1L
-                    let mutable i = 0L
+        FIO.fromGenericTask (
+            (fun () ->
+                task {
+                    let fib (n: int64) =
+                        let mutable a = 0L
+                        let mutable b = 1L
+                        let mutable i = 0L
 
-                    while i < n do
-                        let temp = a + b
-                        a <- b
-                        b <- temp
-                        i <- i + 1L
+                        while i < n do
+                            let temp = a + b
+                            a <- b
+                            b <- temp
+                            i <- i + 1L
 
-                    a
+                        a
 
-                printfn $"Task computing Fibonacci of %i{n}..."
-                let res = fib n
-                printfn $"Fibonacci of %i{n} is %i{res}"
-                return ()
-            })
+                    printfn $"Task computing Fibonacci of %i{n}..."
+                    let res = fib n
+                    printfn $"Fibonacci of %i{n} is %i{res}"
+                    return ()
+                }),
+            id
+        )
 
     override _.effect: FIO<unit, exn> =
         let await (fiber: Fiber<unit, exn>) =
@@ -439,37 +515,43 @@ type FiberFromTaskApp() =
         }
 
 /// <summary>
-/// Demonstrates FIO.fromGenericTaskExn with result values from Tasks.
+/// Demonstrates FIO.fromGenericTask with result values from Tasks.
 /// </summary>
 type FiberFromGenericTaskApp() =
-    inherit SimpleFIOApp()
+    inherit FIOApp<unit, exn>()
 
+    /// <summary>
+    /// Computes a Fibonacci number inside a .NET Task returning a result string.
+    /// </summary>
     let fibonacci n =
-        FIO.fromGenericTaskExn (fun () ->
-            task {
-                let fib (n: int64) =
-                    let mutable a = 0L
-                    let mutable b = 1L
-                    let mutable i = 0L
+        FIO.fromGenericTask (
+            (fun () ->
+                task {
+                    let fib (n: int64) =
+                        let mutable a = 0L
+                        let mutable b = 1L
+                        let mutable i = 0L
 
-                    while i < n do
-                        let temp = a + b
-                        a <- b
-                        b <- temp
-                        i <- i + 1L
+                        while i < n do
+                            let temp = a + b
+                            a <- b
+                            b <- temp
+                            i <- i + 1L
 
-                    a
+                        a
 
-                printfn $"Task computing Fibonacci of %i{n}..."
-                let res = fib n
-                return $"Fibonacci of %i{n} is %i{res}"
-            })
+                    printfn $"Task computing Fibonacci of %i{n}..."
+                    let res = fib n
+                    return $"Fibonacci of %i{n} is %i{res}"
+                }),
+            id
+        )
 
     override _.effect: FIO<unit, exn> =
         let awaitAndPrint (fiber: Fiber<string, exn>) =
             fio {
                 let! res = fiber.Join()
-                do! Console.printLineExn $"%s{res}"
+                do! Console.printLine ($"%s{res}", id)
             }
 
         fio {
@@ -483,75 +565,80 @@ type FiberFromGenericTaskApp() =
 /// <summary>
 /// Demonstrates passing command-line arguments to FIOApp.
 /// </summary>
-/// <param name="args">Command-line arguments passed to the application.</param>
 type CommandLineArgsApp(args: string array) =
-    inherit SimpleFIOApp()
+    inherit FIOApp<unit, exn>()
 
     override _.effect =
         fio {
             if args.Length = 0 then
-                do! Console.printLineExn "No command-line arguments provided"
-                do! Console.printLineExn "Try running with: dotnet run -- arg1 arg2 arg3"
+                do! Console.printLine ("No command-line arguments provided", id)
+                do! Console.printLine ("Try running with: dotnet run -- arg1 arg2 arg3", id)
             else
-                do! Console.printLineExn $"Received %d{args.Length} argument(s):"
+                do! Console.printLine ($"Received %d{args.Length} argument(s):", id)
 
                 for i = 0 to args.Length - 1 do
-                    do! Console.printLineExn $"  Arg[%d{i}]: %s{args[i]}"
+                    do! Console.printLine ($"  Arg[%d{i}]: %s{args[i]}", id)
         }
 
 /// <summary>
 /// Demonstrates custom ConcurrentRuntime configuration.
 /// </summary>
 type CustomRuntimeApp() =
-    inherit SimpleFIOApp()
+    inherit FIOApp<unit, exn>()
 
     override _.runtime =
         new ConcurrentRuntime { EWC = Environment.ProcessorCount * 2; EWS = 500; BWC = 2 }
 
     override _.effect =
         fio {
-            do! Console.printLineExn "Running with custom ConcurrentRuntime configuration:"
-            do! Console.printLineExn $"- Evaluation Workers: %d{Environment.ProcessorCount * 2}"
-            do! Console.printLineExn "- Evaluation Steps: 500"
-            do! Console.printLineExn "- Blocking Workers: 2"
+            do! Console.printLine ("Running with custom ConcurrentRuntime configuration:", id)
+            do! Console.printLine ($"- Evaluation Workers: %d{Environment.ProcessorCount * 2}", id)
+            do! Console.printLine ("- Evaluation Steps: 500", id)
+            do! Console.printLine ("- Blocking Workers: 2", id)
         }
 
 /// <summary>
 /// Demonstrates shutdown hooks for cleanup on Ctrl+C.
 /// </summary>
 type ShutdownHookApp() =
-    inherit SimpleFIOApp()
+    inherit FIOApp<unit, exn>(
+        settings = { FIOAppSettings.Default with ShutdownHookTimeout = TimeSpan.FromSeconds 5.0 })
 
     let mutable resourceAcquired = false
 
     override _.effect =
         fio {
-            do! Console.printLineExn "Acquiring resource..."
+            do! Console.printLine ("Acquiring resource...", id)
             resourceAcquired <- true
-            do! Console.printLineExn "Resource acquired for 10 seconds! Press Ctrl+C to test shutdown hook."
+            do! Console.printLine ("Resource acquired for 10 seconds! Press Ctrl+C to test shutdown hook.", id)
 
             for i in 1..10 do
-                do! Console.printLineExn $" - %d{i}..."
-                do! FIO.sleepExn (TimeSpan.FromSeconds 1.0)
+                do! Console.printLine ($" - %d{i}...", id)
+                do! FIO.sleep (TimeSpan.FromSeconds 1.0, id)
 
-            do! Console.printLineExn "Completed normally (no Ctrl+C)"
+            do! Console.printLine ("Completed normally (no Ctrl+C)", id)
         }
 
     override _.shutdownHook() =
         fio {
             if resourceAcquired then
-                do! Console.printLineExn "Shutdown hook: Releasing resource..."
-                do! FIO.sleepExn (TimeSpan.FromSeconds 1.0)
-                do! Console.printLineExn "Shutdown hook: Resource released!"
+                do! Console.printLine ("Shutdown hook: Releasing resource...", id)
+                do! FIO.sleep (TimeSpan.FromSeconds 1.0, id)
+                do! Console.printLine ("Shutdown hook: Resource released!", id)
         }
-
-    override _.shutdownHookTimeout = TimeSpan.FromSeconds 5.0
 
 /// <summary>
 /// Demonstrates custom exit codes based on effect results.
 /// </summary>
 type CustomExitCodeApp() =
-    inherit FIOApp<int, int>()
+    inherit FIOApp<int, int>(
+        handlers = { FIOAppHandlers<int, int>.Default(FIOAppSettings.Default) with
+                        ExitCodeSuccess = fun res ->
+                            printfn $"Success with value: {res}"
+                            0
+                        ExitCodeError = fun err ->
+                            printfn $"Failed with error code: {err}"
+                            err })
 
     override _.effect =
         fio {
@@ -564,57 +651,47 @@ type CustomExitCodeApp() =
             | _ -> return! FIO.fail 99
         }
 
-    override _.exitCodeSuccess res =
-        printfn $"Success with value: {res}"
-        0
-
-    override _.exitCodeError err =
-        printfn $"Failed with error code: {err}"
-        err
-
 /// <summary>
 /// Demonstrates disabling automatic ThreadPool configuration.
 /// </summary>
 type DisableThreadPoolConfigApp() =
-    inherit SimpleFIOApp()
-
-    override _.configureThreadPool() =
-        printfn "ThreadPool configuration disabled for this app"
-        ()
+    inherit FIOApp<unit, exn>(
+        handlers = { FIOAppHandlers<unit, exn>.Default(FIOAppSettings.Default) with
+                        ConfigureThreadPool = fun () -> printfn "ThreadPool configuration disabled for this app" })
 
     override _.effect =
-        fio { do! Console.printLineExn "Running without automatic ThreadPool configuration" }
+        fio { do! Console.printLine ("Running without automatic ThreadPool configuration", id) }
 
 /// <summary>
 /// Demonstrates Environment module for system information and env vars.
 /// </summary>
 type EnvironmentApp() =
-    inherit SimpleFIOApp()
+    inherit FIOApp<unit, exn>()
 
     override _.effect =
         fio {
-            do! Console.printLineExn "Environment Module Examples:"
-            do! Console.printLineExn ""
+            do! Console.printLine ("Environment Module Examples:", id)
+            do! Console.printLine ("", id)
 
             // Pure values (no effects)
-            do! Console.printLineExn $"  ProcessorCount: {Environment.ProcessorCount}"
-            do! Console.printLineExn $"  Is64BitProcess: {Environment.Is64BitProcess}"
-            do! Console.printLineExn $"  Is64BitOperatingSystem: {Environment.Is64BitOperatingSystem}"
-            do! Console.printLineExn ""
+            do! Console.printLine ($"  ProcessorCount: {Environment.ProcessorCount}", id)
+            do! Console.printLine ($"  Is64BitProcess: {Environment.Is64BitProcess}", id)
+            do! Console.printLine ($"  Is64BitOperatingSystem: {Environment.Is64BitOperatingSystem}", id)
+            do! Console.printLine ("", id)
 
             // System info effects
             let! cwd = Environment.currentDirectory ()
-            do! Console.printLineExn $"  CurrentDirectory: {cwd}"
+            do! Console.printLine ($"  CurrentDirectory: {cwd}", id)
 
             let! machine = Environment.machineName ()
-            do! Console.printLineExn $"  MachineName: {machine}"
+            do! Console.printLine ($"  MachineName: {machine}", id)
 
             let! user = Environment.userName ()
-            do! Console.printLineExn $"  UserName: {user}"
+            do! Console.printLine ($"  UserName: {user}", id)
 
             let! tempPath = Environment.getTempPath ()
-            do! Console.printLineExn $"  TempPath: {tempPath}"
-            do! Console.printLineExn ""
+            do! Console.printLine ($"  TempPath: {tempPath}", id)
+            do! Console.printLine ("", id)
 
             // Environment variables
             let! pathOpt = Environment.getOption "PATH"
@@ -627,65 +704,63 @@ type EnvironmentApp() =
                     else
                         path
 
-                do! Console.printLineExn $"  PATH: {truncated}"
-            | None -> do! Console.printLineExn "  PATH: (not set)"
+                do! Console.printLine ($"  PATH: {truncated}", id)
+            | None -> do! Console.printLine ("  PATH: (not set)", id)
 
             let! port = Environment.getOrDefault ("PORT", "8080")
-            do! Console.printLineExn $"  PORT (or default): {port}"
+            do! Console.printLine ($"  PORT (or default): {port}", id)
 
             let! homeSet = Environment.isSet "HOME"
             let! userProfileSet = Environment.isSet "USERPROFILE"
-            do! Console.printLineExn $"  HOME is set: {homeSet}"
-            do! Console.printLineExn $"  USERPROFILE is set: {userProfileSet}"
+            do! Console.printLine ($"  HOME is set: {homeSet}", id)
+            do! Console.printLine ($"  USERPROFILE is set: {userProfileSet}", id)
 
             let! timeout = Environment.getIntOrDefault ("TIMEOUT_SECONDS", 30)
-            do! Console.printLineExn $"  TIMEOUT_SECONDS (or default): {timeout}"
+            do! Console.printLine ($"  TIMEOUT_SECONDS (or default): {timeout}", id)
 
             let! debug = Environment.getBoolOrDefault ("DEBUG", false)
-            do! Console.printLineExn $"  DEBUG (or default): {debug}"
+            do! Console.printLine ($"  DEBUG (or default): {debug}", id)
         }
 
 /// <summary>
 /// Demonstrates automatic startup banner display.
 /// </summary>
 type BannerApp() as this =
-    inherit SimpleFIOApp()
-
-    override _.name = "FIO Banner Demo"
-    override _.version = "1.0.0"
-    override _.description = "Demonstrates the startup banner feature"
-    override _.showBanner = true
+    inherit FIOApp<unit, exn>(
+        settings = { FIOAppSettings.Default with
+                        Name = Some "FIO Banner Demo"
+                        Version = Some "1.0.0"
+                        Description = "Demonstrates the startup banner feature"
+                        ShowBanner = true })
 
     override _.effect =
         fio {
-            do! Console.printLineExn ""
-            do! Console.printLineExn "The banner above was automatically displayed!"
-            do! Console.printLineExn $"App name: {this.name}"
-            do! Console.printLineExn $"App version: {this.version}"
-            do! Console.printLineExn $"App description: {this.description}"
+            do! Console.printLine ("", id)
+            do! Console.printLine ("The banner above was automatically displayed!", id)
+            do! Console.printLine ($"App name: {this.Name}", id)
+            do! Console.printLine ($"App version: {this.Version}", id)
+            do! Console.printLine ($"App description: {this.Settings.Description}", id)
         }
 
 /// <summary>
 /// Demonstrates custom banner override.
 /// </summary>
 type CustomBannerApp() =
-    inherit SimpleFIOApp()
-
-    override _.name = "Custom Banner App"
-    override _.version = "2.0.0"
-    override _.showBanner = true
-
-    override _.banner =
-        """
+    inherit FIOApp<unit, exn>(
+        settings = { FIOAppSettings.Default with
+                        Name = Some "Custom Banner App"
+                        Version = Some "2.0.0"
+                        ShowBanner = true
+                        Banner = Some """
   ╔═══════════════════════════════════╗
   ║     🚀 Custom Banner App 🚀       ║
   ║         Version 2.0.0             ║
   ║   Powered by FIO Effect System    ║
   ╚═══════════════════════════════════╝
-        """
+        """ })
 
     override _.effect =
-        fio { do! Console.printLineExn "This app uses a custom banner defined by overriding the 'banner' property." }
+        fio { do! Console.printLine ("This app uses a custom banner defined by overriding the 'banner' property.", id) }
 
 /// <summary>
 /// List of all app examples for sequential execution.

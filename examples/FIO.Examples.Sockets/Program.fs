@@ -11,11 +11,12 @@ open FIO.Sockets
 /// <summary>
 /// TCP socket demo app with echo server and interactive client.
 /// </summary>
-/// <param name="host">Server hostname or IP address.</param>
-/// <param name="port">Server port number.</param>
 type private SocketApp(host, port) =
     inherit FIOApp<unit, SocketError>()
 
+    /// <summary>
+    /// Echo server that accepts connections and echoes received messages.
+    /// </summary>
     let server () =
 
         let handleClient (socket: Socket) =
@@ -47,6 +48,9 @@ type private SocketApp(host, port) =
             do! ServerSocket.serve (config, handleClient)
         }
 
+    /// <summary>
+    /// Interactive client that reads user input and sends it to the server.
+    /// </summary>
     let client () =
         fio {
             let! config = SocketConfig.create (host, port)

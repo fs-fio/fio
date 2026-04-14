@@ -27,18 +27,21 @@ module RoutePath =
     /// Creates an exact path match.
     /// </summary>
     /// <param name="segments">The path segments to match exactly.</param>
+    /// <returns>The exact route path.</returns>
     let exact (segments: string list) : RoutePath = Exact segments
 
     /// <summary>
     /// Creates a prefix path match.
     /// </summary>
     /// <param name="segments">The path segments to match as prefix.</param>
+    /// <returns>The prefix route path.</returns>
     let prefix (segments: string list) : RoutePath = Prefix segments
 
     /// <summary>
     /// Parses a path string into a route path.
     /// </summary>
     /// <param name="path">The path string to parse.</param>
+    /// <returns>The parsed route path.</returns>
     let ofString (path: string) : RoutePath =
         let segments =
             path.Split([| '/' |], StringSplitOptions.RemoveEmptyEntries) |> Array.toList
@@ -50,6 +53,7 @@ module RoutePath =
     /// </summary>
     /// <param name="routePath">The route path pattern.</param>
     /// <param name="segments">The URL segments to match.</param>
+    /// <returns>Matched parameters and remaining segments, or None.</returns>
     let tryMatch (routePath: RoutePath) (segments: string list) : (obj list * string list) option =
         match routePath with
         | Exact expected -> if segments = expected then Some([], []) else None
@@ -68,6 +72,7 @@ module RoutePath =
     /// </summary>
     /// <param name="before">The path segments before the parameter.</param>
     /// <param name="after">The path segments after the parameter.</param>
+    /// <returns>The parameterized route path.</returns>
     let withInt (before: string list) (after: string list) : RoutePath =
         Pattern(fun segments ->
             let rec matchBefore b s =
@@ -94,6 +99,7 @@ module RoutePath =
     /// </summary>
     /// <param name="before">The path segments before the parameter.</param>
     /// <param name="after">The path segments after the parameter.</param>
+    /// <returns>The parameterized route path.</returns>
     let withString (before: string list) (after: string list) : RoutePath =
         Pattern(fun segments ->
             let rec matchBefore b s =
@@ -117,11 +123,17 @@ module RoutePath =
 /// </summary>
 type RoutePattern =
     {
-        /// <summary>The HTTP method to match.</summary>
+        /// <summary>
+        /// The HTTP method to match.
+        /// </summary>
         Method: HttpMethod
-        /// <summary>The path pattern to match.</summary>
+        /// <summary>
+        /// The path pattern to match.
+        /// </summary>
         Path: RoutePath
-        /// <summary>Function to extract parameters from matched path segments.</summary>
+        /// <summary>
+        /// Function to extract parameters from matched path segments.
+        /// </summary>
         ParamExtractor: string list -> obj list option
     }
 
@@ -135,6 +147,7 @@ module RoutePattern =
     /// </summary>
     /// <param name="method">The HTTP method.</param>
     /// <param name="path">The route path pattern.</param>
+    /// <returns>The route pattern.</returns>
     let create (method: HttpMethod) (path: RoutePath) : RoutePattern =
         {
             Method = method
@@ -150,42 +163,49 @@ module RoutePattern =
     /// Creates a GET route pattern.
     /// </summary>
     /// <param name="path">The route path pattern.</param>
+    /// <returns>The route pattern.</returns>
     let get (path: RoutePath) : RoutePattern = create HttpMethod.GET path
 
     /// <summary>
     /// Creates a POST route pattern.
     /// </summary>
     /// <param name="path">The route path pattern.</param>
+    /// <returns>The route pattern.</returns>
     let post (path: RoutePath) : RoutePattern = create HttpMethod.POST path
 
     /// <summary>
     /// Creates a PUT route pattern.
     /// </summary>
     /// <param name="path">The route path pattern.</param>
+    /// <returns>The route pattern.</returns>
     let put (path: RoutePath) : RoutePattern = create HttpMethod.PUT path
 
     /// <summary>
     /// Creates a DELETE route pattern.
     /// </summary>
     /// <param name="path">The route path pattern.</param>
+    /// <returns>The route pattern.</returns>
     let delete (path: RoutePath) : RoutePattern = create HttpMethod.DELETE path
 
     /// <summary>
     /// Creates a PATCH route pattern.
     /// </summary>
     /// <param name="path">The route path pattern.</param>
+    /// <returns>The route pattern.</returns>
     let patch (path: RoutePath) : RoutePattern = create HttpMethod.PATCH path
 
     /// <summary>
     /// Creates a HEAD route pattern.
     /// </summary>
     /// <param name="path">The route path pattern.</param>
+    /// <returns>The route pattern.</returns>
     let head (path: RoutePath) : RoutePattern = create HttpMethod.HEAD path
 
     /// <summary>
     /// Creates an OPTIONS route pattern.
     /// </summary>
     /// <param name="path">The route path pattern.</param>
+    /// <returns>The route pattern.</returns>
     let options (path: RoutePath) : RoutePattern = create HttpMethod.OPTIONS path
 
     /// <summary>
@@ -193,6 +213,7 @@ module RoutePattern =
     /// </summary>
     /// <param name="pattern">The route pattern.</param>
     /// <param name="request">The HTTP request to match.</param>
+    /// <returns>The matched parameters, or None.</returns>
     let tryMatch (pattern: RoutePattern) (request: HttpRequest) : obj list option =
         if request.Method = pattern.Method then
             pattern.ParamExtractor request.PathSegments
@@ -208,6 +229,7 @@ module Route =
     /// Parses a route string into a route pattern.
     /// </summary>
     /// <param name="routeStr">The route string in format "METHOD /path" or "METHOD /path/:param".</param>
+    /// <returns>The parsed route pattern.</returns>
     let ofString (routeStr: string) : RoutePattern =
         let parts = routeStr.Split([| ' ' |], StringSplitOptions.RemoveEmptyEntries)
 
@@ -244,6 +266,7 @@ module Route =
     /// Creates a GET route pattern from a path string.
     /// </summary>
     /// <param name="path">The path string.</param>
+    /// <returns>The route pattern.</returns>
     let get (path: string) : RoutePattern =
         RoutePattern.get (RoutePath.ofString path)
 
@@ -251,6 +274,7 @@ module Route =
     /// Creates a POST route pattern from a path string.
     /// </summary>
     /// <param name="path">The path string.</param>
+    /// <returns>The route pattern.</returns>
     let post (path: string) : RoutePattern =
         RoutePattern.post (RoutePath.ofString path)
 
@@ -258,6 +282,7 @@ module Route =
     /// Creates a PUT route pattern from a path string.
     /// </summary>
     /// <param name="path">The path string.</param>
+    /// <returns>The route pattern.</returns>
     let put (path: string) : RoutePattern =
         RoutePattern.put (RoutePath.ofString path)
 
@@ -265,6 +290,7 @@ module Route =
     /// Creates a DELETE route pattern from a path string.
     /// </summary>
     /// <param name="path">The path string.</param>
+    /// <returns>The route pattern.</returns>
     let delete (path: string) : RoutePattern =
         RoutePattern.delete (RoutePath.ofString path)
 
@@ -272,6 +298,7 @@ module Route =
     /// Creates a PATCH route pattern from a path string.
     /// </summary>
     /// <param name="path">The path string.</param>
+    /// <returns>The route pattern.</returns>
     let patch (path: string) : RoutePattern =
         RoutePattern.patch (RoutePath.ofString path)
 
@@ -279,6 +306,7 @@ module Route =
     /// Creates a HEAD route pattern from a path string.
     /// </summary>
     /// <param name="path">The path string.</param>
+    /// <returns>The route pattern.</returns>
     let head (path: string) : RoutePattern =
         RoutePattern.head (RoutePath.ofString path)
 
@@ -286,6 +314,7 @@ module Route =
     /// Creates an OPTIONS route pattern from a path string.
     /// </summary>
     /// <param name="path">The path string.</param>
+    /// <returns>The route pattern.</returns>
     let options (path: string) : RoutePattern =
         RoutePattern.options (RoutePath.ofString path)
 
@@ -298,6 +327,7 @@ module RouteOperators =
     /// </summary>
     /// <param name="method">The HTTP method.</param>
     /// <param name="path">The path string.</param>
+    /// <returns>The route pattern.</returns>
     let (=>) (method: HttpMethod) (path: string) : RoutePattern =
         RoutePattern.create method (RoutePath.ofString path)
 
@@ -305,40 +335,47 @@ module RouteOperators =
     /// Creates a GET route pattern.
     /// </summary>
     /// <param name="path">The path string.</param>
+    /// <returns>The route pattern.</returns>
     let get path = Route.get path
 
     /// <summary>
     /// Creates a POST route pattern.
     /// </summary>
     /// <param name="path">The path string.</param>
+    /// <returns>The route pattern.</returns>
     let post path = Route.post path
 
     /// <summary>
     /// Creates a PUT route pattern.
     /// </summary>
     /// <param name="path">The path string.</param>
+    /// <returns>The route pattern.</returns>
     let put path = Route.put path
 
     /// <summary>
     /// Creates a DELETE route pattern.
     /// </summary>
     /// <param name="path">The path string.</param>
+    /// <returns>The route pattern.</returns>
     let delete path = Route.delete path
 
     /// <summary>
     /// Creates a PATCH route pattern.
     /// </summary>
     /// <param name="path">The path string.</param>
+    /// <returns>The route pattern.</returns>
     let patch path = Route.patch path
 
     /// <summary>
     /// Creates a HEAD route pattern.
     /// </summary>
     /// <param name="path">The path string.</param>
+    /// <returns>The route pattern.</returns>
     let head path = Route.head path
 
     /// <summary>
     /// Creates an OPTIONS route pattern.
     /// </summary>
     /// <param name="path">The path string.</param>
+    /// <returns>The route pattern.</returns>
     let options path = Route.options path

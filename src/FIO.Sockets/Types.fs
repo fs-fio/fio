@@ -289,6 +289,7 @@ module ServerSocketConfig =
     /// <summary>
     /// Default configuration for localhost:8080.
     /// </summary>
+    /// <returns>The default server socket configuration.</returns>
     let defaultConfig =
         {
             BindAddress = "127.0.0.1"

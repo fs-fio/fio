@@ -17,6 +17,7 @@ module SocketExtensions =
         /// </summary>
         /// <param name="value">The value to send.</param>
         /// <param name="options">Optional JSON serializer options.</param>
+        /// <returns>Effect that sends the JSON value.</returns>
         member this.SendJson<'T>(value: 'T, ?options) =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
@@ -42,6 +43,7 @@ module SocketExtensions =
         /// </summary>
         /// <param name="value">The value to send.</param>
         /// <param name="options">Optional JSON serializer options.</param>
+        /// <returns>Effect that sends the JSON line value.</returns>
         member this.SendJsonLine<'T>(value: 'T, ?options) =
             fio {
                 let codec = Codec.jsonLine<'T> options

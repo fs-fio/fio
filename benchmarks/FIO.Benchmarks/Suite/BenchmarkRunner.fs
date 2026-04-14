@@ -9,11 +9,22 @@ open FIO.Runtime
 open System
 open System.Diagnostics
 
+/// <summary>
+/// Controls the verbosity level of benchmark output during execution.
+/// </summary>
 type private OutputMode =
+    /// <summary>Ultra-minimal output, suppressing progress updates.</summary>
     | Quiet
+    /// <summary>Milestone-based progress output with summary statistics.</summary>
     | Concise
+    /// <summary>Per-run output with full timing details.</summary>
     | Detailed
 
+/// <summary>
+/// Computes progress milestone checkpoints as a map from run number to completion percentage.
+/// </summary>
+/// <param name="totalRuns">Total number of benchmark runs.</param>
+/// <returns>Map from run number to percentage milestone.</returns>
 let private progressMilestones (totalRuns: int) =
     [ 10; 25; 50; 75; 100 ]
     |> List.map (fun pct ->
@@ -78,6 +89,8 @@ let private runBenchmark
     /// <summary>
     /// Calculates the median of a list of values.
     /// </summary>
+    /// <param name="values">List of values to compute the median of.</param>
+    /// <returns>Median value.</returns>
     let median (values: int64 list) =
         if values.IsEmpty then
             0.0
@@ -93,6 +106,9 @@ let private runBenchmark
     /// <summary>
     /// Calculates percentile using nearest-rank method.
     /// </summary>
+    /// <param name="p">Percentile to compute (0-100).</param>
+    /// <param name="values">List of values to compute the percentile of.</param>
+    /// <returns>Percentile value.</returns>
     let percentile (p: float) (values: int64 list) =
         if values.IsEmpty then
             0.0
@@ -106,7 +122,8 @@ let private runBenchmark
     /// Executes the benchmark effect repeatedly and collects metrics.
     /// </summary>
     /// <param name="eff">Benchmark effect to execute.</param>
-    /// <returns>Tuple of runs, execution times, process deltas, and managed deltas.</returns>
+    /// <param name="proc">Process handle for memory metric collection.</param>
+    /// <returns>Tuple of runs and execution times.</returns>
     let rec executeBenchmark (eff: FIO<int64, exn>, proc: Process) =
         task {
             let runs = ResizeArray<int64> totalRuns
@@ -204,6 +221,15 @@ let private runBenchmark
             }
     }
 
+/// <summary>
+/// Runs a single benchmark configuration for a specific runtime selection.
+/// </summary>
+/// <param name="runtimeSelection">Runtime to create and use.</param>
+/// <param name="totalRuns">Number of measured runs to execute.</param>
+/// <param name="warmupRuns">Number of warmup runs before measured runs.</param>
+/// <param name="outputMode">Verbosity mode for benchmark output.</param>
+/// <param name="config">Benchmark configuration to run.</param>
+/// <returns>Benchmark result with timing and memory statistics.</returns>
 let private runBenchmarkForSelection
     (
         runtimeSelection: RuntimeSelection,

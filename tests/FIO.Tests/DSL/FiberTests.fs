@@ -76,7 +76,7 @@ let fiberTests =
                             fio {
                                 let! fiber = FIO.never().Fork()
                                 do! fiber.Interrupt()
-                                do! FIO.sleepExn(TimeSpan.FromMilliseconds 50.0).MapError(fun _ -> "err")
+                                do! FIO.sleep(TimeSpan.FromMilliseconds 50.0, id).MapError(fun _ -> "err")
                                 return fiber.CancellationToken.IsCancellationRequested
                             }
 
@@ -137,7 +137,7 @@ let fiberTests =
                             fio {
                                 let! fiber = FIO.never().Fork()
                                 do! fiber.Interrupt()
-                                do! FIO.sleepExn(TimeSpan.FromMilliseconds 50.0).MapError(fun _ -> "err")
+                                do! FIO.sleep(TimeSpan.FromMilliseconds 50.0, id).MapError(fun _ -> "err")
                                 return fiber.IsInterrupted()
                             }
 
@@ -305,7 +305,7 @@ let fiberTests =
                             fio {
                                 let! fiber = FIO.never().Fork()
                                 do! fiber.Interrupt()
-                                do! FIO.sleepExn(TimeSpan.FromMilliseconds 50.0).MapError(fun _ -> "err")
+                                do! FIO.sleep(TimeSpan.FromMilliseconds 50.0, id).MapError(fun _ -> "err")
                                 return fiber.IsInterrupted()
                             }
 
@@ -318,7 +318,7 @@ let fiberTests =
                             fio {
                                 let! fiber = FIO.never().Fork()
                                 do! fiber.Interrupt(cause = ResourceExhaustion "out of memory")
-                                do! FIO.sleepExn(TimeSpan.FromMilliseconds 50.0).MapError(fun _ -> "err")
+                                do! FIO.sleep(TimeSpan.FromMilliseconds 50.0, id).MapError(fun _ -> "err")
                                 return fiber
                             }
 
@@ -409,7 +409,7 @@ let fiberTests =
                             fio {
                                 let! fiber = FIO.never<int, string>().Fork()
                                 do! fiber.Interrupt()
-                                do! FIO.sleepExn(TimeSpan.FromMilliseconds 50.0).MapError(fun _ -> "err")
+                                do! FIO.sleep(TimeSpan.FromMilliseconds 50.0, id).MapError(fun _ -> "err")
                                 return! fiber.Await()
                             }
 
@@ -567,7 +567,7 @@ let fiberTests =
                             fio {
                                 let! fiber = FIO.never<int, string>().Fork()
                                 do! fiber.Interrupt()
-                                do! FIO.sleepExn(TimeSpan.FromMilliseconds 50.0).MapError(fun _ -> "err")
+                                do! FIO.sleep(TimeSpan.FromMilliseconds 50.0, id).MapError(fun _ -> "err")
 
                                 return!
                                     fiber.JoinWith(

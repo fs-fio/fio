@@ -11,13 +11,22 @@ open System.Buffers
 /// </summary>
 type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
 
+    /// <summary>
+    /// Network stream for reading/writing over the socket.
+    /// </summary>
     let stream = new Sockets.NetworkStream(netSocket, ownsSocket = false)
+    /// <summary>
+    /// Tracks disposal state to prevent double-disposal.
+    /// </summary>
     let mutable disposed = false
 
     /// <summary>
     /// Internal: Logs an error and suppresses it.
     /// Used for cleanup operations where errors should not propagate.
     /// </summary>
+    /// <param name="context">The context description for the error.</param>
+    /// <param name="err">The error to log.</param>
+    /// <returns>Effect that logs the error and succeeds with unit.</returns>
     let logAndSuppress (context: string) (err: SocketError) =
         fio {
             let str = err.ToString()
@@ -25,13 +34,27 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
             return ()
         }
 
-    // Partially applied functions for consistent error handling
+    /// <summary>
+    /// Wraps a function as an FIO effect with socket error handling.
+    /// </summary>
+    /// <param name="func">The function to wrap.</param>
+    /// <returns>Effect returning the function's result.</returns>
     let fromFunc (func: unit -> 'T) =
         FIO.attempt (func, SocketError.fromException)
 
+    /// <summary>
+    /// Awaits a Task as an FIO effect with socket error handling.
+    /// </summary>
+    /// <param name="task">The Task to await.</param>
+    /// <returns>Effect that completes when the Task finishes.</returns>
     let awaitTask (task: Threading.Tasks.Task) =
         FIO.awaitTask (task, SocketError.fromException)
 
+    /// <summary>
+    /// Awaits a generic Task as an FIO effect with socket error handling.
+    /// </summary>
+    /// <param name="task">The Task to await.</param>
+    /// <returns>Effect returning the Task's result.</returns>
     let awaitTaskT (task: Threading.Tasks.Task<'T>) =
         FIO.awaitGenericTask (task, SocketError.fromException)
 
@@ -39,6 +62,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     /// Sends raw bytes over the socket.
     /// </summary>
     /// <param name="buffer">The byte array to send.</param>
+    /// <returns>Effect that sends the bytes.</returns>
     member _.SendBytes(buffer: byte[]) =
         fio {
             if not netSocket.Connected then
@@ -116,6 +140,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     /// </summary>
     /// <param name="codec">The codec to use for encoding.</param>
     /// <param name="value">The value to send.</param>
+    /// <returns>Effect that sends the encoded value.</returns>
     member this.Send<'T>(codec: SocketCodec<'T>, value: 'T) =
         fio {
             let! bytes = codec.Encode value
@@ -139,6 +164,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     /// Sends a string (UTF-8).
     /// </summary>
     /// <param name="str">The string to send.</param>
+    /// <returns>Effect that sends the string.</returns>
     member this.SendString(str: string) = this.Send(Codec.string, str)
 
     /// <summary>
@@ -152,6 +178,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     /// Sends a line-delimited string.
     /// </summary>
     /// <param name="line">The line to send.</param>
+    /// <returns>Effect that sends the line.</returns>
     member this.SendLine(line: string) = this.Send(Codec.line, line)
 
     /// <summary>
@@ -165,6 +192,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     /// Sends JSON.
     /// </summary>
     /// <param name="value">The value to send as JSON.</param>
+    /// <returns>Effect that sends the JSON value.</returns>
     member this.SendJson<'T>(value: 'T) = this.Send(Codec.json, value)
 
     /// <summary>
@@ -178,6 +206,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     /// Sends line-delimited JSON.
     /// </summary>
     /// <param name="value">The value to send as JSON.</param>
+    /// <returns>Effect that sends the JSON line.</returns>
     member this.SendJsonLine<'T>(value: 'T) = this.Send(Codec.jsonLine None, value)
 
     /// <summary>
@@ -192,6 +221,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     /// Closes and disposes socket resources according to configured linger options.
     /// This is the preferred method for closing sockets in FIO code.
     /// </summary>
+    /// <returns>Effect that closes the socket.</returns>
     member _.Close() =
         fio {
             do!
@@ -244,6 +274,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     /// This is a synchronous FIO effect wrapper for cleanup.
     /// Note: Prefer using Close() in FIO code for async cleanup with proper error handling.
     /// </summary>
+    /// <returns>Effect that disposes the socket.</returns>
     member _.Dispose() =
         fio {
             do!
@@ -255,6 +286,10 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
                         eprintfn $"[Socket] Error during synchronous dispose: {exn.Message}")
         }
 
+    /// <summary>
+    /// Releases resources based on disposal pattern.
+    /// </summary>
+    /// <param name="disposing">True if called from Dispose, false if from finalizer.</param>
     member private _.Dispose(disposing: bool) =
         if not disposed then
             disposed <- true

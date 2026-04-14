@@ -1,6 +1,4 @@
-﻿/// <summary>
-/// Internal utilities for type casting and conversion used across the FIO DSL.
-/// </summary>
+﻿/// Internal type casting and conversion utilities.
 [<AutoOpen>]
 module private FIO.DSL.Utilities
 
@@ -8,47 +6,36 @@ open System
 open System.Threading
 open System.Threading.Tasks
 
-/// <summary>
-/// Internal utilities for type upcasting to obj.
-/// </summary>
+/// Internal type upcasting utilities.
 [<AutoOpen>]
 module internal Casting =
 
-    /// <summary>
     /// Upcasts an error mapping function to work with obj types.
-    /// </summary>
-    /// <param name="onError">The error mapping function.</param>
     let inline upcastOnError (onError: exn -> 'E) : (exn -> obj) = fun (ex: exn) -> onError ex :> obj
 
-    /// <summary>
     /// Upcasts a function's return type to obj.
-    /// </summary>
-    /// <param name="func">The function to upcast.</param>
     let inline upcastFunc (func: unit -> 'R) : unit -> obj = fun () -> func () :> obj
 
-    /// <summary>
-    /// Upcasts a generic Task's result type to obj.
-    /// </summary>
-    /// <param name="genericTask">The task to upcast.</param>
-    let inline upcastTask (genericTask: Task<'R>) : Task<obj> =
-        if genericTask.IsCompletedSuccessfully then
-            Task.FromResult(box genericTask.Result)
-        elif genericTask.IsFaulted then
-            Task.FromException<obj>(genericTask.Exception.GetBaseException())
-        elif genericTask.IsCanceled then
+    /// Wraps a Task as a Task<obj>, boxing the result via boxResult on completion.
+    let inline private wrapTaskCore (boxResult: unit -> obj) (task: Task) : Task<obj> =
+        if task.IsCompletedSuccessfully then
+            Task.FromResult(boxResult ())
+        elif task.IsFaulted then
+            Task.FromException<obj>(task.Exception.GetBaseException())
+        elif task.IsCanceled then
             Task.FromCanceled<obj>(CancellationToken true)
         else
             let tcs =
                 TaskCompletionSource<obj> TaskCreationOptions.RunContinuationsAsynchronously
 
-            genericTask.ContinueWith(
-                Action<Task<'R>>(fun completedTask ->
+            task.ContinueWith(
+                Action<Task>(fun completedTask ->
                     if completedTask.IsCanceled then
                         tcs.TrySetCanceled() |> ignore
                     elif completedTask.IsFaulted then
                         tcs.TrySetException completedTask.Exception.InnerExceptions |> ignore
                     else
-                        tcs.TrySetResult(box completedTask.Result) |> ignore),
+                        tcs.TrySetResult(boxResult ()) |> ignore),
                 CancellationToken.None,
                 TaskContinuationOptions.ExecuteSynchronously,
                 TaskScheduler.Default
@@ -56,3 +43,11 @@ module internal Casting =
             |> ignore
 
             tcs.Task
+
+    /// Upcasts a generic Task's result type to obj.
+    let inline upcastTask (genericTask: Task<'R>) : Task<obj> =
+        wrapTaskCore (fun () -> box genericTask.Result) (genericTask :> Task)
+
+    /// Wraps a void Task as a Task&lt;obj&gt; returning boxed unit.
+    let inline wrapVoidTask (task: Task) : Task<obj> =
+        wrapTaskCore (fun () -> box ()) task

@@ -159,7 +159,7 @@ let handlerTests =
 
                 let handler =
                     HttpHandler.text "hello"
-                    |> HttpHandler.tap (fun _ -> FIO.attemptExn (fun () -> tapped <- true))
+                    |> HttpHandler.tap (fun _ -> FIO.attempt ((fun () -> tapped <- true), id))
 
                 let resp = runtime.Run(handler (makeGetRequest "/")).UnsafeSuccess()
 

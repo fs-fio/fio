@@ -18,7 +18,8 @@ module WebSocketExtensions =
         /// </summary>
         /// <param name="value">The value to send.</param>
         /// <param name="options">Optional JSON serializer options.</param>
-        /// <param name="cancellationToken">Optional cancellation token.</param>
+        /// <param name="ct">Optional cancellation token.</param>
+        /// <returns>Effect that sends the JSON value.</returns>
         member this.SendJson<'T>(value: 'T, ?options: JsonSerializerOptions, ?ct: CancellationToken) =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
@@ -32,7 +33,7 @@ module WebSocketExtensions =
         /// </summary>
         /// <typeparam name="T">The type to deserialize to.</typeparam>
         /// <param name="options">Optional JSON serializer options.</param>
-        /// <param name="cancellationToken">Optional cancellation token.</param>
+        /// <param name="ct">Optional cancellation token.</param>
         /// <returns>The deserialized value.</returns>
         member this.ReceiveJson<'T>(?options: JsonSerializerOptions, ?ct: CancellationToken) =
             fio {
@@ -64,6 +65,7 @@ module WebSocketExtensions =
         /// Sends a string as a text frame (convenience method).
         /// </summary>
         /// <param name="text">The string to send.</param>
+        /// <returns>Effect that sends the text frame.</returns>
         member this.SendString(text: string) = this.SendText text
 
         /// <summary>
@@ -91,6 +93,7 @@ module WebSocketExtensions =
         /// Sends binary data (convenience method).
         /// </summary>
         /// <param name="data">The binary data to send.</param>
+        /// <returns>Effect that sends the binary frame.</returns>
         member this.SendBytes(data: byte[]) = this.SendBinary data
 
         /// <summary>

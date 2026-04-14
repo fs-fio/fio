@@ -120,9 +120,9 @@ let computationExpression2 () =
 let computationExpression3 () =
     let welcome =
         fio {
-            do! Console.printLineExn "Hello! What is your name?"
-            let! name = Console.readLineExn
-            do! Console.printLineExn $"Hello, %s{name}! Welcome to FIO! 🪻💜"
+            do! Console.printLine ("Hello! What is your name?", id)
+            let! name = Console.readLine id
+            do! Console.printLine ($"Hello, %s{name}! Welcome to FIO! 🪻💜", id)
         }
 
     let fiber = (new DefaultRuntime()).Run welcome
@@ -134,18 +134,18 @@ let computationExpression3 () =
 let interruptFiber () =
     let longRunning =
         fio {
-            do! Console.printLineExn "Started long-running task for 10 seconds."
-            do! FIO.sleepExn (TimeSpan.FromSeconds 10.0)
-            do! Console.printLineExn "Long-running task completed!"
+            do! Console.printLine ("Started long-running task for 10 seconds.", id)
+            do! FIO.sleep (TimeSpan.FromSeconds 10.0, id)
+            do! Console.printLine ("Long-running task completed!", id)
         }
 
     let interrupter =
         fio {
             let! longRunningFiber = longRunning.Fork()
-            do! Console.printLineExn "Press Enter to interrupt the long-running task..."
-            do! Console.readLineExn.Unit()
+            do! Console.printLine ("Press Enter to interrupt the long-running task...", id)
+            do! (Console.readLine id).Unit()
             do! longRunningFiber.Interrupt()
-            do! Console.printLineExn "Interrupted long-running task."
+            do! Console.printLine ("Interrupted long-running task.", id)
         }
 
     let fiber = (new DefaultRuntime()).Run interrupter
@@ -158,10 +158,10 @@ let refCounter () =
     let effect =
         fio {
             let! counter = Ref.makeValue 0
-            let increment = counter.UpdateAndGetExn(fun n -> n + 1)
+            let increment = counter.UpdateAndGet((fun n -> n + 1), id)
             let! _ = FIO.collectAllPar (List.replicate 10 increment)
             let! final = counter.Get()
-            do! Console.printLineExn $"Final counter value: {final} (expected: 10)"
+            do! Console.printLine ($"Final counter value: {final} (expected: 10)", id)
         }
 
     let fiber = (new DefaultRuntime()).Run effect
@@ -177,16 +177,16 @@ let promiseHandoff () =
 
             let waiter =
                 fio {
-                    do! Console.printLineExn "Waiter: waiting for value..."
-                    let! value = promise.AwaitExn()
-                    do! Console.printLineExn $"Waiter: received '{value}'"
+                    do! Console.printLine ("Waiter: waiting for value...", id)
+                    let! value = promise.Await(id)
+                    do! Console.printLine ($"Waiter: received '{value}'", id)
                 }
 
             let producer =
                 fio {
-                    do! FIO.sleepExn (TimeSpan.FromMilliseconds 100.0)
-                    do! Console.printLineExn "Producer: sending value..."
-                    let! _ = promise.SucceedExn "Hello from producer!"
+                    do! FIO.sleep (TimeSpan.FromMilliseconds 100.0, id)
+                    do! Console.printLine ("Producer: sending value...", id)
+                    let! _ = promise.Succeed("Hello from producer!", id)
                     return ()
                 }
 
@@ -206,16 +206,17 @@ let semaphorePool () =
             let! sem = Semaphore.make 2
 
             let worker id =
-                sem.WithPermitExn(
+                sem.WithPermit(
                     fio {
-                        do! Console.printLineExn $"Worker {id}: acquired permit"
-                        do! FIO.sleepExn (TimeSpan.FromMilliseconds 50.0)
-                        do! Console.printLineExn $"Worker {id}: releasing permit"
-                    }
+                        do! Console.printLine ($"Worker {id}: acquired permit", Operators.id)
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, Operators.id)
+                        do! Console.printLine ($"Worker {id}: releasing permit", Operators.id)
+                    },
+                    Operators.id
                 )
 
             do! FIO.collectAllPar(List.init 5 worker).Unit()
-            do! Console.printLineExn "All workers completed."
+            do! Console.printLine ("All workers completed.", id)
         }
 
     let fiber = (new DefaultRuntime()).Run effect

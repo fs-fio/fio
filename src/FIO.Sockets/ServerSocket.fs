@@ -15,6 +15,9 @@ module ServerSocket =
     /// Internal: Logs an error and suppresses it.
     /// Used for cleanup operations where errors should not propagate.
     /// </summary>
+    /// <param name="context">Description of the operation that failed.</param>
+    /// <param name="err">The error to log.</param>
+    /// <returns>Effect that logs the error and succeeds.</returns>
     let private logAndSuppress (context: string) (err: SocketError) =
         fio {
             let str = err.ToString()
@@ -62,6 +65,7 @@ module ServerSocket =
     /// Closes the server socket.
     /// </summary>
     /// <param name="serverSocket">The server socket to close.</param>
+    /// <returns>Effect that closes the server socket.</returns>
     let close (serverSocket: ServerSocket) =
         FIO
             .attempt(
@@ -84,6 +88,7 @@ module ServerSocket =
     /// Suppresses errors during cleanup to avoid masking original failures.
     /// </summary>
     /// <param name="serverSocket">The server socket to release.</param>
+    /// <returns>Effect that releases the server socket.</returns>
     let release (serverSocket: ServerSocket) = close serverSocket
 
     /// <summary>
@@ -133,6 +138,7 @@ module ServerSocket =
     /// </summary>
     /// <param name="handler">Handler to process each accepted connection.</param>
     /// <param name="serverSocket">The server socket to accept from.</param>
+    /// <returns>Effect that accepts connections until interrupted.</returns>
     let acceptLoop (handler: Socket -> FIO<unit, SocketError>, serverSocket: ServerSocket) : FIO<unit, SocketError> =
         let rec loop () =
             fio {
@@ -172,6 +178,7 @@ module ServerSocket =
     /// </summary>
     /// <param name="config">Server socket configuration.</param>
     /// <param name="handler">Handler to process each accepted connection.</param>
+    /// <returns>Effect that runs the server until interrupted.</returns>
     let serve (config: ServerSocketConfig, handler: Socket -> FIO<unit, SocketError>) =
         withServerSocket (config, fun serverSocket -> acceptLoop (handler, serverSocket))
 
@@ -184,6 +191,7 @@ module ServerSocket =
     /// <param name="handler">Handler that processes requests and returns responses.</param>
     /// <param name="config">Server socket configuration.</param>
     /// <param name="bufferSize">Buffer size for receiving requests.</param>
+    /// <returns>Effect that runs the server until interrupted.</returns>
     let serveWithBufferSize<'Req, 'Resp>
         (
             requestCodec: SocketCodec<'Req>,
@@ -210,6 +218,7 @@ module ServerSocket =
     /// <param name="responseCodec">Codec for encoding responses.</param>
     /// <param name="handler">Handler that processes requests and returns responses.</param>
     /// <param name="config">Server socket configuration.</param>
+    /// <returns>Effect that runs the server until interrupted.</returns>
     let serveWith<'Req, 'Resp>
         (
             requestCodec: SocketCodec<'Req>,

@@ -148,9 +148,12 @@ let extensionTests =
                 let mutable executed = false
 
                 let eff =
-                    FIO.attemptExn (fun () ->
-                        executed <- true
-                        res)
+                    FIO.attempt (
+                        (fun () ->
+                            executed <- true
+                            res),
+                        id
+                    )
 
                 let _ = runtime.Run(eff.When true).UnsafeSuccess()
 
@@ -161,9 +164,12 @@ let extensionTests =
                 let mutable executed = false
 
                 let eff =
-                    FIO.attemptExn (fun () ->
-                        executed <- true
-                        res)
+                    FIO.attempt (
+                        (fun () ->
+                            executed <- true
+                            res),
+                        id
+                    )
 
                 let result = runtime.Run(eff.When false).UnsafeSuccess()
 
@@ -175,9 +181,12 @@ let extensionTests =
                 let mutable executed = false
 
                 let eff =
-                    FIO.attemptExn (fun () ->
-                        executed <- true
-                        res)
+                    FIO.attempt (
+                        (fun () ->
+                            executed <- true
+                            res),
+                        id
+                    )
 
                 let _ = runtime.Run(eff.Unless false).UnsafeSuccess()
 
@@ -188,9 +197,12 @@ let extensionTests =
                 let mutable executed = false
 
                 let eff =
-                    FIO.attemptExn (fun () ->
-                        executed <- true
-                        res)
+                    FIO.attempt (
+                        (fun () ->
+                            executed <- true
+                            res),
+                        id
+                    )
 
                 let result = runtime.Run(eff.Unless true).UnsafeSuccess()
 
@@ -574,9 +586,12 @@ let extensionTests =
                 let mutable attempts = 0
 
                 let eff =
-                    FIO.attemptExn (fun () ->
-                        attempts <- attempts + 1
-                        res)
+                    FIO.attempt (
+                        (fun () ->
+                            attempts <- attempts + 1
+                            res),
+                        id
+                    )
 
                 let retried = eff.Retry 3
 
@@ -683,7 +698,7 @@ let extensionTests =
 
             testAllRuntimes "Timeout - returns None on slow effect" (fun runtime ->
                 let slowEff =
-                    FIO.sleepExn(TimeSpan.FromSeconds 10.0).FlatMap(fun () -> FIO.succeed 42)
+                    FIO.sleep(TimeSpan.FromSeconds 10.0, id).FlatMap(fun () -> FIO.succeed 42)
 
                 let eff = slowEff.Timeout(TimeSpan.FromMilliseconds 50.0, id)
 
@@ -693,7 +708,7 @@ let extensionTests =
 
             testAllRuntimes "Race - returns first completing effect" (fun runtime ->
                 let fast = FIO.succeed 1
-                let slow = FIO.sleepExn(TimeSpan.FromSeconds 10.0).FlatMap(fun () -> FIO.succeed 2)
+                let slow = FIO.sleep(TimeSpan.FromSeconds 10.0, id).FlatMap(fun () -> FIO.succeed 2)
                 let eff = fast.Race slow
 
                 let result = runtime.Run(eff).UnsafeSuccess()
@@ -703,7 +718,7 @@ let extensionTests =
             testAllRuntimes "Race - propagates error from first completing" (fun runtime ->
                 let err = exn "fast error"
                 let fast = FIO.fail err
-                let slow = FIO.sleepExn(TimeSpan.FromSeconds 10.0).FlatMap(fun () -> FIO.succeed 2)
+                let slow = FIO.sleep(TimeSpan.FromSeconds 10.0, id).FlatMap(fun () -> FIO.succeed 2)
                 let eff = fast.Race slow
 
                 let result = runtime.Run(eff).UnsafeError()
@@ -724,9 +739,12 @@ let extensionTests =
                 let mutable count = 0
 
                 let eff =
-                    FIO.attemptExn (fun () ->
-                        count <- count + 1
-                        count)
+                    FIO.attempt (
+                        (fun () ->
+                            count <- count + 1
+                            count),
+                        id
+                    )
 
                 let result = runtime.Run(eff.RepeatN 5).UnsafeSuccess()
 
@@ -738,9 +756,12 @@ let extensionTests =
                 let mutable count = 0
 
                 let eff =
-                    FIO.attemptExn (fun () ->
-                        count <- count + 1
-                        res)
+                    FIO.attempt (
+                        (fun () ->
+                            count <- count + 1
+                            res),
+                        id
+                    )
 
                 let result = runtime.Run(eff.RepeatN 1).UnsafeSuccess()
 

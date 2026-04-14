@@ -46,15 +46,17 @@ let private startLoop (startCount, timerChan: Channel<TimerMessage<int>>, stopwa
             | Start ->
 #if DEBUG
                 do!
-                    Console.printLineExn
-                        $"[DEBUG]: Timer received Start message (%i{startCount - currentCount + 1}/%i{startCount})"
+                    Console.printLine (
+                        $"[DEBUG]: Timer received Start message (%i{startCount - currentCount + 1}/%i{startCount})",
+                        id
+                    )
 #endif
                 currentCount <- currentCount - 1
             | _ -> ()
 
-        do! FIO.attemptExn (fun () -> stopwatch.Start())
+        do! FIO.attempt ((fun () -> stopwatch.Start()), id)
 #if DEBUG
-        do! Console.printLineExn "[DEBUG]: Timer started"
+        do! Console.printLine ("[DEBUG]: Timer started", id)
 #endif
     }
 
@@ -82,8 +84,10 @@ let private msgLoop (msgCount, msg, msgChan: Channel<int>) : FIO<unit, exn> =
             do! msgChan.Send(msg).Unit()
 #if DEBUG
             do!
-                Console.printLineExn
-                    $"[DEBUG]: Timer sent %i{msg} to MsgChannel (%i{msgCount - currentCount + 1}/%i{msgCount})"
+                Console.printLine (
+                    $"[DEBUG]: Timer sent %i{msg} to MsgChannel (%i{msgCount - currentCount + 1}/%i{msgCount})",
+                    id
+                )
 #endif
             currentCount <- currentCount - 1
             currentMsg <- currentMsg + 1
@@ -113,15 +117,17 @@ let private stopLoop (stopCount, timerChan: Channel<TimerMessage<int>>, stopwatc
             | Stop ->
 #if DEBUG
                 do!
-                    Console.printLineExn
-                        $"[DEBUG]: Timer received Stop message (%i{stopCount - currentCount + 1}/%i{stopCount})"
+                    Console.printLine (
+                        $"[DEBUG]: Timer received Stop message (%i{stopCount - currentCount + 1}/%i{stopCount})",
+                        id
+                    )
 #endif
                 currentCount <- currentCount - 1
             | _ -> ()
 
-        do! FIO.attemptExn (fun () -> stopwatch.Stop())
+        do! FIO.attempt ((fun () -> stopwatch.Stop()), id)
 #if DEBUG
-        do! Console.printLineExn "[DEBUG]: Timer stopped"
+        do! Console.printLine ("[DEBUG]: Timer stopped", id)
 #endif
     }
 
@@ -136,7 +142,7 @@ let private stopLoop (stopCount, timerChan: Channel<TimerMessage<int>>, stopwatc
 let timerEff (startCount, msgCount, stopCount, timerChan: Channel<TimerMessage<int>>) : FIO<int64, exn> =
     fio {
         let mutable msgChan = Channel<int>()
-        let! stopwatch = FIO.attemptExn (fun () -> Stopwatch())
+        let! stopwatch = FIO.attempt ((fun () -> Stopwatch()), id)
 
         if msgCount > 0 then
             match! timerChan.Receive() with

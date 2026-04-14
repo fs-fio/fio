@@ -21,6 +21,7 @@ module KestrelBridge =
     /// Uses camelCase naming policy for JavaScript/frontend compatibility.
     /// This is a pre-configured, immutable instance for optimal performance.
     /// </summary>
+    /// <returns>The default JSON serializer options.</returns>
     let DefaultJsonOptions =
         let options =
             JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
@@ -32,6 +33,8 @@ module KestrelBridge =
     /// <summary>
     /// Validates a path segment for security issues.
     /// </summary>
+    /// <param name="segment">The path segment to validate.</param>
+    /// <returns>True if the segment is safe.</returns>
     let private isValidPathSegment (segment: string) : bool =
         not (
             segment.Contains ".."
@@ -43,6 +46,8 @@ module KestrelBridge =
     /// <summary>
     /// Validates a header name according to RFC 7230.
     /// </summary>
+    /// <param name="name">The header name to validate.</param>
+    /// <returns>True if the header name is valid.</returns>
     let private isValidHeaderName (name: string) : bool =
         not (String.IsNullOrWhiteSpace name)
         && name
@@ -56,6 +61,8 @@ module KestrelBridge =
     /// <summary>
     /// URL-decodes query parameter values.
     /// </summary>
+    /// <param name="value">The URL-encoded value to decode.</param>
+    /// <returns>The decoded query value.</returns>
     let private decodeQueryValue (value: string) : string =
         try
             HttpUtility.UrlDecode value
@@ -67,6 +74,7 @@ module KestrelBridge =
     /// </summary>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
     /// <param name="maxBodySize">Maximum allowed request body size in bytes.</param>
+    /// <returns>A task returning Ok with the request or Error with a message.</returns>
     let convertRequestAsync (ctx: HttpContext) (maxBodySize: int64) : Task<Result<FIO.Http.HttpRequest, string>> =
         task {
             // Validate size BEFORE buffering
@@ -205,6 +213,7 @@ module KestrelBridge =
     /// <param name="jsonOptions">JSON serializer options for response serialization.</param>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
     /// <param name="response">The FIO HTTP response to write.</param>
+    /// <returns>A task that completes when the response is written.</returns>
     let writeResponseWithOptions
         (jsonOptions: JsonSerializerOptions)
         (ctx: HttpContext)
@@ -276,6 +285,7 @@ module KestrelBridge =
     /// <param name="jsonOptions">Optional JSON serializer options. Uses DefaultJsonOptions if None.</param>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
     /// <param name="response">The FIO HTTP response to write.</param>
+    /// <returns>A task that completes when the response is written.</returns>
     let writeResponseWith
         (jsonOptions: JsonSerializerOptions option)
         (ctx: HttpContext)
@@ -291,11 +301,16 @@ module KestrelBridge =
     /// </summary>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
     /// <param name="response">The FIO HTTP response to write.</param>
+    /// <returns>A task that completes when the response is written.</returns>
     let writeResponse (ctx: HttpContext) (response: FIO.Http.HttpResponse) : Task = writeResponseWith None ctx response
 
     /// <summary>
     /// Logs an error with request context for diagnostics.
     /// </summary>
+    /// <param name="ctx">The ASP.NET Core HTTP context.</param>
+    /// <param name="errorType">The error category.</param>
+    /// <param name="error">The optional exception.</param>
+    /// <returns>Unit.</returns>
     let private logError (ctx: HttpContext) (errorType: string) (error: exn option) : unit =
         let timestamp = System.DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff")
         let method = ctx.Request.Method
@@ -320,6 +335,7 @@ module KestrelBridge =
     /// <param name="maxBodySize">Maximum allowed request body size in bytes.</param>
     /// <param name="jsonOptions">JSON serializer options for response serialization.</param>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
+    /// <returns>A task that completes when the request is handled.</returns>
     let handleRequestWithOptions
         (runtime: FIO.Runtime.Default.DefaultRuntime)
         (routes: Routes<exn>)
@@ -372,6 +388,7 @@ module KestrelBridge =
     /// <param name="maxBodySize">Maximum allowed request body size in bytes.</param>
     /// <param name="jsonOptions">Optional JSON serializer options. Uses DefaultJsonOptions if None.</param>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
+    /// <returns>A task that completes when the request is handled.</returns>
     let handleRequestWith
         (runtime: FIO.Runtime.Default.DefaultRuntime)
         (routes: Routes<exn>)
@@ -391,6 +408,7 @@ module KestrelBridge =
     /// <param name="routes">The routes to dispatch to.</param>
     /// <param name="maxBodySize">Maximum allowed request body size in bytes.</param>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
+    /// <returns>A task that completes when the request is handled.</returns>
     let handleRequest
         (runtime: FIO.Runtime.Default.DefaultRuntime)
         (routes: Routes<exn>)

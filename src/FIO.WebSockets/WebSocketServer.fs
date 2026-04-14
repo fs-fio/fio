@@ -35,6 +35,7 @@ module WebSocketServer =
     /// Closes the server.
     /// </summary>
     /// <param name="listener">The HTTP listener to close.</param>
+    /// <returns>Effect that stops the server.</returns>
     let close (listener: HttpListener) =
         FIO.attempt ((fun () -> listener.Stop()), WsError.fromException)
 
@@ -42,6 +43,7 @@ module WebSocketServer =
     /// Aborts the server immediately.
     /// </summary>
     /// <param name="listener">The HTTP listener to abort.</param>
+    /// <returns>Effect that aborts the server.</returns>
     let abort (listener: HttpListener) =
         FIO.attempt ((fun () -> listener.Abort()), WsError.fromException)
 
@@ -89,6 +91,7 @@ module WebSocketServer =
     /// <param name="listener">The HTTP listener.</param>
     /// <param name="config">WebSocket configuration options.</param>
     /// <param name="handler">Handler function for each connection.</param>
+    /// <returns>Effect that accepts connections until interrupted.</returns>
     let acceptLoop (listener: HttpListener) (config: WebSocketConfig) (handler: WebSocket -> FIO<unit, WsError>) =
         let rec loop () =
             fio {
@@ -106,6 +109,7 @@ module WebSocketServer =
     /// <param name="url">The URL prefix to listen on.</param>
     /// <param name="config">WebSocket configuration options.</param>
     /// <param name="handler">Handler function for each connection.</param>
+    /// <returns>Effect that runs the server until interrupted.</returns>
     let serve (url: string) (config: WebSocketConfig) (handler: WebSocket -> FIO<unit, WsError>) =
         FIO.acquireRelease (
             start url,
@@ -123,6 +127,7 @@ module WebSocketServer =
     /// <param name="requestCodec">Codec for decoding requests.</param>
     /// <param name="responseCodec">Codec for encoding responses.</param>
     /// <param name="handler">Handler function that processes requests and returns responses.</param>
+    /// <returns>Effect that runs the codec-based server until interrupted.</returns>
     let serveWith<'Req, 'Resp>
         (url: string)
         (config: WebSocketConfig)

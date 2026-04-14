@@ -59,7 +59,7 @@ let rec private sendPingsEff (actor, roundCount, ping, chans: Channel<Message> l
         for chan in chans do
             do! chan.Send(Ping(ping, actor.PongReceiveChan)).Unit()
 #if DEBUG
-            do! Console.printLineExn $"DEBUG: %s{actor.Name} sent ping: %i{ping}"
+            do! Console.printLine ($"DEBUG: %s{actor.Name} sent ping: %i{ping}", id)
 #endif
 
         return! receivePingsEff (actor, roundCount, actor.SendingChans.Length, ping, timerChan)
@@ -79,12 +79,12 @@ and private receivePingsEff (actor, rounds, receiveCount, msg, timerChan) : FIO<
             match! actor.PingReceiveChan.Receive() with
             | Ping(ping, replyChan) ->
 #if DEBUG
-                do! Console.printLineExn $"DEBUG: %s{actor.Name} received ping: %i{ping}"
+                do! Console.printLine ($"DEBUG: %s{actor.Name} received ping: %i{ping}", id)
 #endif
                 match! replyChan.Send(Pong(ping + 1)) with
                 | Pong _pong ->
 #if DEBUG
-                    do! Console.printLineExn $"DEBUG: %s{actor.Name} sent pong: %i{_pong}"
+                    do! Console.printLine ($"DEBUG: %s{actor.Name} sent pong: %i{_pong}", id)
 #endif
                     ()
                 | Ping _ ->
@@ -111,7 +111,7 @@ and private receivePongsEff
             match! actor.PongReceiveChan.Receive() with
             | Pong _pong ->
 #if DEBUG
-                do! Console.printLineExn $"DEBUG: %s{actor.Name} received pong: %i{_pong}"
+                do! Console.printLine ($"DEBUG: %s{actor.Name} received pong: %i{_pong}", id)
 #endif
                 ()
             | _ -> return! FIO.fail (InvalidOperationException "receivePongsEff: Received ping when pong was expected!")

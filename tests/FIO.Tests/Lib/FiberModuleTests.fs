@@ -152,7 +152,7 @@ let fiberModuleTests =
                                 let! f2 = FIO.never<int, string>().Fork()
                                 let! f3 = FIO.never<int, string>().Fork()
                                 do! Fiber.interruptAll [ f1; f2; f3 ]
-                                do! FIO.sleepExn(TimeSpan.FromMilliseconds 50.0).MapError(fun _ -> "err")
+                                do! FIO.sleep(TimeSpan.FromMilliseconds 50.0, id).MapError(fun _ -> "err")
                                 return f1.IsInterrupted(), f2.IsInterrupted(), f3.IsInterrupted()
                             }
 

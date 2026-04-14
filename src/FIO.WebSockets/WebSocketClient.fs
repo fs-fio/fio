@@ -15,6 +15,9 @@ module WebSocketClient =
     /// Internal: Logs an error and suppresses it.
     /// Used for cleanup operations where errors should not propagate.
     /// </summary>
+    /// <param name="context">The context description for the error.</param>
+    /// <param name="err">The error to log.</param>
+    /// <returns>Effect that logs the error and succeeds.</returns>
     let private logAndSuppress (context: string) (err: WsError) =
         fio {
             let str = err.ToString()
@@ -33,7 +36,7 @@ module WebSocketClient =
     /// </summary>
     /// <param name="uri">The WebSocket server URI.</param>
     /// <param name="config">WebSocket configuration options.</param>
-    /// <param name="cancellationToken">Optional cancellation token.</param>
+    /// <param name="ct">Optional cancellation token.</param>
     /// <returns>The connected WebSocket.</returns>
     let connect (uri: Uri) (config: WebSocketConfig) (ct: CancellationToken) =
         fio {
@@ -56,7 +59,7 @@ module WebSocketClient =
     /// </summary>
     /// <param name="url">The WebSocket server URL.</param>
     /// <param name="config">WebSocket configuration options.</param>
-    /// <param name="cancellationToken">Optional cancellation token.</param>
+    /// <param name="ct">Optional cancellation token.</param>
     /// <returns>The connected WebSocket.</returns>
     let connectString (url: string) (config: WebSocketConfig) (ct: CancellationToken) =
         fio {

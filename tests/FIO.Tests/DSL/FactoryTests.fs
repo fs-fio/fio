@@ -204,7 +204,7 @@ let factoryTests =
 
             testPropertyWithConfig fsCheckConfig "attemptExn - succeeds when function succeeds"
             <| fun (runtime: FIORuntime, value: int) ->
-                let eff = FIO.attemptExn (fun () -> value)
+                let eff = FIO.attempt ((fun () -> value), id)
 
                 let result = runtime.Run(eff).UnsafeSuccess()
 
@@ -214,7 +214,7 @@ let factoryTests =
             <| fun (runtime: FIORuntime, errorMsg: NonEmptyString) ->
                 let msg = errorMsg.Get
                 let ex = Exception msg
-                let eff = FIO.attemptExn (fun () -> raise ex)
+                let eff = FIO.attempt ((fun () -> raise ex), id)
 
                 let result = runtime.Run(eff).UnsafeError()
 
@@ -252,24 +252,6 @@ let factoryTests =
 
                 Expect.equal result error "FIO.fromOption should convert None to error using onNone"
 
-            testPropertyWithConfig fsCheckConfig "fromOptionExn - returns success for Some"
-            <| fun (runtime: FIORuntime, value: int) ->
-                let eff = FIO.fromOptionExn (Some value)
-
-                let result = runtime.Run(eff).UnsafeSuccess()
-
-                Expect.equal result value "FIO.fromOptionExn should return value for Some"
-
-            testPropertyWithConfig fsCheckConfig "fromOptionExn - fails with ArgumentException for None"
-            <| fun (runtime: FIORuntime) ->
-                let eff = FIO.fromOptionExn<int> None
-
-                let result = runtime.Run(eff).UnsafeError()
-
-                Expect.isTrue
-                    (result :? ArgumentException)
-                    "FIO.fromOptionExn should fail with ArgumentException for None"
-
             testPropertyWithConfig fsCheckConfig "fromChoice - converts Choice1Of2 to success"
             <| fun (runtime: FIORuntime, value: int) ->
                 let eff = FIO.fromChoice (Choice1Of2 value)
@@ -304,7 +286,7 @@ let factoryTests =
 
             testPropertyWithConfig fsCheckConfig "awaitTaskExn - completes successfully"
             <| fun (runtime: FIORuntime) ->
-                let eff = FIO.awaitTaskExn Task.CompletedTask
+                let eff = FIO.awaitTask (Task.CompletedTask, id)
 
                 let result = runtime.Run(eff).UnsafeSuccess()
 
@@ -314,7 +296,7 @@ let factoryTests =
             <| fun (runtime: FIORuntime) ->
                 let ex = Exception "test error"
                 let faultedTask = Task.FromException ex
-                let eff = FIO.awaitTaskExn faultedTask
+                let eff = FIO.awaitTask (faultedTask, id)
 
                 let result = runtime.Run(eff).UnsafeError()
 
@@ -341,7 +323,7 @@ let factoryTests =
 
             testPropertyWithConfig fsCheckConfig "awaitGenericTaskExn - returns task result"
             <| fun (runtime: FIORuntime, value: int) ->
-                let eff = FIO.awaitGenericTaskExn (Task.FromResult value)
+                let eff = FIO.awaitGenericTask (Task.FromResult value, id)
 
                 let result = runtime.Run(eff).UnsafeSuccess()
 
@@ -351,7 +333,7 @@ let factoryTests =
             <| fun (runtime: FIORuntime) ->
                 let ex = Exception "generic task error"
                 let faultedTask = Task.FromException<int> ex
-                let eff = FIO.awaitGenericTaskExn faultedTask
+                let eff = FIO.awaitGenericTask (faultedTask, id)
 
                 let result = runtime.Run(eff).UnsafeError()
 
@@ -380,7 +362,7 @@ let factoryTests =
             testPropertyWithConfig fsCheckConfig "awaitAsyncExn - returns async result"
             <| fun (runtime: FIORuntime, value: int) ->
                 let asyncComp = async { return value }
-                let eff = FIO.awaitAsyncExn asyncComp
+                let eff = FIO.awaitAsync (asyncComp, id)
 
                 let result = runtime.Run(eff).UnsafeSuccess()
 
@@ -388,7 +370,7 @@ let factoryTests =
 
             testAllRuntimes "awaitAsyncExn - propagates exception on failed async" (fun runtime ->
                 let asyncComp = async { return failwith "async exn failed" }
-                let eff = FIO.awaitAsyncExn asyncComp
+                let eff = FIO.awaitAsync (asyncComp, id)
 
                 let result = runtime.Run(eff).UnsafeError()
 
@@ -435,9 +417,12 @@ let factoryTests =
                 let eff =
                     fio {
                         let! fiber =
-                            FIO.fromTaskExn (fun () ->
-                                executed <- true
-                                Task.CompletedTask)
+                            FIO.fromTask (
+                                (fun () ->
+                                    executed <- true
+                                    Task.CompletedTask),
+                                id
+                            )
 
                         let! _ = fiber.Join()
                         return executed
@@ -450,7 +435,7 @@ let factoryTests =
             testAllRuntimes "fromTaskExn - propagates faulted task as exception" (fun runtime ->
                 let eff =
                     fio {
-                        let! fiber = FIO.fromTaskExn (fun () -> Task.FromException(Exception "task exn err"))
+                        let! fiber = FIO.fromTask ((fun () -> Task.FromException(Exception "task exn err")), id)
                         let! result = fiber.Join()
                         return result
                     }
@@ -495,7 +480,7 @@ let factoryTests =
 
                 let eff =
                     fio {
-                        let! fiber = FIO.fromGenericTaskExn (fun () -> Task.FromResult value)
+                        let! fiber = FIO.fromGenericTask ((fun () -> Task.FromResult value), id)
                         let! result = fiber.Join()
                         return result
                     }
@@ -508,7 +493,7 @@ let factoryTests =
                 let eff =
                     fio {
                         let! fiber =
-                            FIO.fromGenericTaskExn (fun () -> Task.FromException<int>(Exception "generic exn err"))
+                            FIO.fromGenericTask ((fun () -> Task.FromException<int>(Exception "generic exn err")), id)
 
                         let! result = fiber.Join()
                         return result
@@ -571,7 +556,7 @@ let factoryTests =
                 let eff =
                     fio {
                         let sw = Stopwatch.StartNew()
-                        do! FIO.sleepExn duration
+                        do! FIO.sleep (duration, id)
                         sw.Stop()
                         return sw.Elapsed
                     }
@@ -651,12 +636,12 @@ let factoryTests =
                 let acquire1 = FIO.succeed "r1"
 
                 let release1 =
-                    fun _ -> FIO.attemptExn(fun () -> releaseOrder <- releaseOrder @ [ 1 ]).Unit()
+                    fun _ -> FIO.attempt((fun () -> releaseOrder <- releaseOrder @ [ 1 ]), id).Unit()
 
                 let acquire2 = FIO.succeed "r2"
 
                 let release2 =
-                    fun _ -> FIO.attemptExn(fun () -> releaseOrder <- releaseOrder @ [ 2 ]).Unit()
+                    fun _ -> FIO.attempt((fun () -> releaseOrder <- releaseOrder @ [ 2 ]), id).Unit()
 
                 let eff =
                     FIO.acquireRelease (
@@ -764,9 +749,9 @@ let factoryTests =
             testAllRuntimes "collectAllPar - preserves result order" (fun runtime ->
                 let effs =
                     [
-                        FIO.sleepExn(TimeSpan.FromMilliseconds 30.0).FlatMap(fun () -> FIO.succeed 3)
-                        FIO.sleepExn(TimeSpan.FromMilliseconds 10.0).FlatMap(fun () -> FIO.succeed 1)
-                        FIO.sleepExn(TimeSpan.FromMilliseconds 20.0).FlatMap(fun () -> FIO.succeed 2)
+                        FIO.sleep(TimeSpan.FromMilliseconds 30.0, id).FlatMap(fun () -> FIO.succeed 3)
+                        FIO.sleep(TimeSpan.FromMilliseconds 10.0, id).FlatMap(fun () -> FIO.succeed 1)
+                        FIO.sleep(TimeSpan.FromMilliseconds 20.0, id).FlatMap(fun () -> FIO.succeed 2)
                     ]
 
                 let result = runtime.Run(FIO.collectAllPar effs).UnsafeSuccess()
@@ -791,7 +776,7 @@ let factoryTests =
                 let effs =
                     items
                     |> List.map (fun i ->
-                        FIO.sleepExn(TimeSpan.FromMilliseconds(float (i % 5 + 1))).FlatMap(fun () -> FIO.succeed i))
+                        FIO.sleep(TimeSpan.FromMilliseconds(float (i % 5 + 1)), id).FlatMap(fun () -> FIO.succeed i))
 
                 let result = runtime.Run(FIO.collectAllPar effs).UnsafeSuccess()
 
@@ -871,7 +856,7 @@ let factoryTests =
                 let f =
                     fun x ->
                         FIO
-                            .sleepExn(TimeSpan.FromMilliseconds(float (10 * (6 - x))))
+                            .sleep(TimeSpan.FromMilliseconds(float (10 * (6 - x))), id)
                             .FlatMap(fun () -> FIO.succeed (x * 2))
 
                 let result = runtime.Run(FIO.forEachPar (items, f)).UnsafeSuccess()

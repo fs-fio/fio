@@ -72,15 +72,29 @@ type private Arguments =
 /// Parse outcome for benchmark CLI parsing.
 /// </summary>
 type internal ParseOutcome =
+    /// <summary>Successfully parsed benchmark arguments.</summary>
     | Parsed of BenchmarkArgs
+    /// <summary>Help was requested, contains usage text to display.</summary>
     | HelpRequested of usageText: string
+    /// <summary>Invalid arguments were provided, contains error and usage text.</summary>
     | InvalidArgs of errorText: string * usageText: string
 
+/// <summary>
+/// Argu parser instance for benchmark command-line arguments.
+/// </summary>
 let private parser =
     ArgumentParser.Create<Arguments>(programName = "FIO.Benchmarks")
 
+/// <summary>
+/// Returns the usage text for the benchmark CLI.
+/// </summary>
+/// <returns>Formatted usage text string.</returns>
 let internal usageText () = parser.PrintUsage()
 
+/// <summary>
+/// Returns the default save path for benchmark CSV results.
+/// </summary>
+/// <returns>Absolute path to the default results directory.</returns>
 let private defaultSavePath () =
     let projectDirPath =
         Directory.GetCurrentDirectory()
@@ -93,15 +107,31 @@ let private defaultSavePath () =
 
     Path.Combine(projectDirPath, "results")
 
+/// <summary>
+/// Creates an InvalidArgs parse outcome with the current usage text.
+/// </summary>
+/// <param name="errorText">Error message describing the validation failure.</param>
+/// <returns>InvalidArgs parse outcome.</returns>
 let private invalid errorText = InvalidArgs(errorText, usageText ())
 
+/// <summary>
+/// Computation expression builder for chaining Result values.
+/// </summary>
 type private ResultBuilder() =
     member _.Bind(result, binder) = Result.bind binder result
     member _.Return value = Ok value
     member _.ReturnFrom result = result
 
+/// <summary>
+/// Result computation expression instance for validation pipelines.
+/// </summary>
 let private result = ResultBuilder()
 
+/// <summary>
+/// Validates that all checks pass, returning the first error if any fail.
+/// </summary>
+/// <param name="checks">List of validation results to check.</param>
+/// <returns>Ok if all pass, or the first Error encountered.</returns>
 let private validateAll (checks: Result<unit, string> list) : Result<unit, string> =
     checks
     |> List.tryPick (function
@@ -111,14 +141,32 @@ let private validateAll (checks: Result<unit, string> list) : Result<unit, strin
         | Some err -> Error err
         | None -> Ok()
 
+/// <summary>
+/// Validates that a value is at least a specified minimum.
+/// </summary>
+/// <param name="name">Parameter name for error messages.</param>
+/// <param name="minimum">Minimum allowed value.</param>
+/// <param name="value">Value to validate.</param>
+/// <returns>Ok if valid, or Error with a descriptive message.</returns>
 let private validateAtLeast (name: string) minimum value =
     if value < minimum then
         Error $"{name} must be >= {minimum}. {name} = {value}"
     else
         Ok()
 
+/// <summary>
+/// Validates that a value is non-negative (>= 0).
+/// </summary>
+/// <param name="name">Parameter name for error messages.</param>
+/// <param name="value">Value to validate.</param>
+/// <returns>Ok if valid, or Error with a descriptive message.</returns>
 let private validateNonNegative (name: string) value = validateAtLeast name 0 value
 
+/// <summary>
+/// Validates that at least one runtime is selected in the parsed arguments.
+/// </summary>
+/// <param name="results">Parsed command-line arguments.</param>
+/// <returns>Ok if at least one runtime is selected, or Error with guidance.</returns>
 let private validateRuntimeSelection (results: ParseResults<Arguments>) =
     let selectionCount =
         [
@@ -134,6 +182,13 @@ let private validateRuntimeSelection (results: ParseResults<Arguments>) =
     else
         Error "Specify at least one runtime: --direct-runtime, --cooperative-runtime, or --concurrent-runtime."
 
+/// <summary>
+/// Validates and builds a WorkerConfig from EWC, EWS, and BWC values.
+/// </summary>
+/// <param name="ewc">Evaluation worker count (must be >= 1).</param>
+/// <param name="ews">Evaluation worker steps (must be >= 1).</param>
+/// <param name="bwc">Blocking worker count (must be >= 1).</param>
+/// <returns>Ok with WorkerConfig, or Error with validation message.</returns>
 let private buildWorkerConfig (ewc, ews, bwc) =
     validateAll
         [
@@ -143,6 +198,11 @@ let private buildWorkerConfig (ewc, ews, bwc) =
         ]
     |> Result.map (fun () -> { EWC = ewc; EWS = ews; BWC = bwc })
 
+/// <summary>
+/// Builds the list of runtime selections from parsed arguments.
+/// </summary>
+/// <param name="results">Parsed command-line arguments.</param>
+/// <returns>Ok with list of runtime selections, or Error with validation message.</returns>
 let private buildRuntimeSelections (results: ParseResults<Arguments>) : Result<RuntimeSelection list, string> =
     let directSelection =
         if results.Contains Direct_Runtime then
@@ -167,6 +227,11 @@ let private buildRuntimeSelections (results: ParseResults<Arguments>) : Result<R
         return [ directSelection; cooperativeSelection; concurrentSelection ] |> List.choose id
     }
 
+/// <summary>
+/// Validates a benchmark configuration's parameters against minimum requirements.
+/// </summary>
+/// <param name="config">Benchmark configuration to validate.</param>
+/// <returns>Ok if valid, or Error with validation message.</returns>
 let private validateBenchmarkConfig config =
     match config with
     | PingpongConfig roundCount -> validateAtLeast "pingpong roundCount" 1 roundCount
@@ -190,6 +255,11 @@ let private validateBenchmarkConfig config =
             ]
     | ForkConfig actorCount -> validateAtLeast "fork actorCount" 1 actorCount
 
+/// <summary>
+/// Collects and validates all benchmark configurations from parsed arguments.
+/// </summary>
+/// <param name="results">Parsed command-line arguments.</param>
+/// <returns>Ok with list of benchmark configs, or Error if none specified or invalid.</returns>
 let private collectBenchmarkConfigs (results: ParseResults<Arguments>) : Result<BenchmarkConfig list, string> =
     let configs =
         [
@@ -209,12 +279,23 @@ let private collectBenchmarkConfigs (results: ParseResults<Arguments>) : Result<
         |> validateAll
         |> Result.map (fun () -> configs)
 
+/// <summary>
+/// Resolves the save path for CSV output, using a default if not specified.
+/// </summary>
+/// <param name="saveToCsv">Whether CSV saving is enabled.</param>
+/// <param name="savePathOpt">Optional explicit save path.</param>
+/// <returns>Ok with resolved absolute path, or Error if path is invalid.</returns>
 let private resolveSavePath (saveToCsv: bool) (savePathOpt: string option) : Result<string, string> =
     match savePathOpt with
     | Some _ when not saveToCsv -> Error "--save-path requires --save."
     | Some path when not (Path.IsPathFullyQualified path) -> Error "--save-path must be an absolute path."
     | _ -> Ok(savePathOpt |> Option.defaultValue (defaultSavePath ()))
 
+/// <summary>
+/// Extracts a concise error summary from an Argu parse exception message.
+/// </summary>
+/// <param name="message">Raw exception message from Argu.</param>
+/// <returns>First line of the error summary, or a default message.</returns>
 let private parseErrorSummary (message: string) =
     if String.IsNullOrWhiteSpace message then
         "Invalid command line arguments."
@@ -233,6 +314,11 @@ let private parseErrorSummary (message: string) =
             rawSummary.Split([| '\r'; '\n' |], StringSplitOptions.RemoveEmptyEntries)
             |> Array.head
 
+/// <summary>
+/// Builds and validates the complete BenchmarkArgs from parsed command-line results.
+/// </summary>
+/// <param name="results">Parsed command-line arguments.</param>
+/// <returns>Ok with validated BenchmarkArgs, or Error with validation message.</returns>
 let private buildBenchmarkArgs (results: ParseResults<Arguments>) : Result<BenchmarkArgs, string> =
     result {
         do! validateRuntimeSelection results

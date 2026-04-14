@@ -55,7 +55,7 @@ let semaphoreAcquireTests =
                     fio {
                         let! sem = Semaphore.make 3
                         let! before = sem.Available()
-                        do! sem.AcquireExn()
+                        do! sem.Acquire id
                         let! after = sem.Available()
                         return before, after
                     }
@@ -70,9 +70,9 @@ let semaphoreAcquireTests =
                 let eff =
                     fio {
                         let! sem = Semaphore.make 5
-                        do! sem.AcquireExn()
-                        do! sem.AcquireExn()
-                        do! sem.AcquireExn()
+                        do! sem.Acquire id
+                        do! sem.Acquire id
+                        do! sem.Acquire id
                         let! available = sem.Available()
                         return available
                     }
@@ -120,7 +120,7 @@ let semaphoreTryAcquireTests =
                 let eff =
                     fio {
                         let! sem = Semaphore.make 1
-                        let! acquired = sem.TryAcquireExn(TimeSpan.FromMilliseconds 100.0)
+                        let! acquired = sem.TryAcquire(TimeSpan.FromMilliseconds 100.0, id)
                         return acquired
                     }
 
@@ -133,8 +133,8 @@ let semaphoreTryAcquireTests =
                 let eff =
                     fio {
                         let! sem = Semaphore.make 1
-                        do! sem.AcquireExn()
-                        let! acquired = sem.TryAcquireExn(TimeSpan.FromMilliseconds 10.0)
+                        do! sem.Acquire id
+                        let! acquired = sem.TryAcquire(TimeSpan.FromMilliseconds 10.0, id)
                         return acquired
                     }
 
@@ -171,9 +171,9 @@ let semaphoreReleaseTests =
                 let eff =
                     fio {
                         let! sem = Semaphore.make 3
-                        do! sem.AcquireExn()
+                        do! sem.Acquire id
                         let! before = sem.Available()
-                        do! sem.ReleaseExn()
+                        do! sem.Release id
                         let! after = sem.Available()
                         return before, after
                     }
@@ -214,11 +214,11 @@ let semaphoreReleaseManyTests =
                 let eff =
                     fio {
                         let! sem = Semaphore.make 5
-                        do! sem.AcquireExn()
-                        do! sem.AcquireExn()
-                        do! sem.AcquireExn()
+                        do! sem.Acquire id
+                        do! sem.Acquire id
+                        do! sem.Acquire id
                         let! before = sem.Available()
-                        do! sem.ReleaseManyExn 3
+                        do! sem.ReleaseMany(3, id)
                         let! after = sem.Available()
                         return before, after
                     }
@@ -253,12 +253,12 @@ let semaphoreAvailableTests =
                 let eff =
                     fio {
                         let! sem = Semaphore.make 5
-                        do! sem.AcquireExn()
-                        do! sem.AcquireExn()
-                        do! sem.AcquireExn()
+                        do! sem.Acquire id
+                        do! sem.Acquire id
+                        do! sem.Acquire id
                         let! afterAcquire = sem.Available()
-                        do! sem.ReleaseExn()
-                        do! sem.ReleaseExn()
+                        do! sem.Release id
+                        do! sem.Release id
                         let! afterRelease = sem.Available()
                         return afterAcquire, afterRelease
                     }
@@ -310,11 +310,12 @@ let semaphoreWithPermitTests =
                         let! before = sem.Available()
 
                         let! result =
-                            sem.WithPermitExn(
+                            sem.WithPermit(
                                 fio {
                                     let! during = sem.Available()
                                     return res, during
-                                }
+                                },
+                                id
                             )
 
                         let! after = sem.Available()
@@ -333,7 +334,7 @@ let semaphoreWithPermitTests =
                 let eff =
                     fio {
                         let! sem = Semaphore.make 1
-                        let! _ = sem.WithPermitExn(FIO.fail (exn "error")).CatchAll(fun _ -> FIO.unit ())
+                        let! _ = sem.WithPermit(FIO.fail (exn "error"), id).CatchAll(fun _ -> FIO.unit ())
                         let! after = sem.Available()
                         return after
                     }
@@ -347,12 +348,12 @@ let semaphoreWithPermitTests =
                 let eff =
                     fio {
                         let! sem = Semaphore.make 1
-                        let! fiber = sem.WithPermitExn(FIO.sleepExn (TimeSpan.FromSeconds 60.0)).Fork()
-                        do! FIO.sleepExn (TimeSpan.FromMilliseconds 50.0)
+                        let! fiber = sem.WithPermit(FIO.sleep (TimeSpan.FromSeconds 60.0, id), id).Fork()
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
                         let! during = sem.Available()
                         do! fiber.Interrupt()
                         do! fiber.Join().CatchAll(fun _ -> FIO.unit ())
-                        do! FIO.sleepExn (TimeSpan.FromMilliseconds 50.0)
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
                         let! after = sem.Available()
                         return during, after
                     }
@@ -405,12 +406,13 @@ let semaphoreWithPermitsTests =
                         let! before = sem.Available()
 
                         let! result =
-                            sem.WithPermitsExn(
+                            sem.WithPermits(
                                 3,
                                 fio {
                                     let! during = sem.Available()
                                     return res, during
-                                }
+                                },
+                                id
                             )
 
                         let! after = sem.Available()
@@ -429,7 +431,7 @@ let semaphoreWithPermitsTests =
                 let eff =
                     fio {
                         let! sem = Semaphore.make 5
-                        let! _ = sem.WithPermitsExn(3, FIO.fail (exn "error")).CatchAll(fun _ -> FIO.unit ())
+                        let! _ = sem.WithPermits(3, FIO.fail (exn "error"), id).CatchAll(fun _ -> FIO.unit ())
                         let! after = sem.Available()
                         return after
                     }
@@ -497,18 +499,21 @@ let semaphoreConcurrencyTests =
 
                         let task =
                             fio {
-                                do! currentConcurrent.UpdateExn(fun x -> x + 1)
+                                do! currentConcurrent.Update((fun x -> x + 1), id)
                                 let! current = currentConcurrent.Get()
                                 let! max = maxConcurrent.Get()
 
                                 if current > max then
-                                    do! maxConcurrent.SetExn current
+                                    do! maxConcurrent.Set(current, id)
 
-                                do! FIO.sleepExn (TimeSpan.FromMilliseconds 10.0)
-                                do! currentConcurrent.UpdateExn(fun x -> x - 1)
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 10.0, id)
+                                do! currentConcurrent.Update((fun x -> x - 1), id)
                             }
 
-                        let! fibers = [ 1..5 ] |> List.map (fun _ -> sem.WithPermitExn(task).Fork()) |> FIO.collectAll
+                        let! fibers =
+                            [ 1..5 ]
+                            |> List.map (fun _ -> sem.WithPermit(task, id).Fork())
+                            |> FIO.collectAll
 
                         for fiber in fibers do
                             do! fiber.Join()
@@ -532,20 +537,20 @@ let semaphoreConcurrencyTests =
 
                         let task =
                             fio {
-                                do! currentConcurrent.UpdateExn(fun x -> x + 1)
+                                do! currentConcurrent.Update((fun x -> x + 1), id)
                                 let! current = currentConcurrent.Get()
                                 let! max = maxConcurrent.Get()
 
                                 if current > max then
-                                    do! maxConcurrent.SetExn current
+                                    do! maxConcurrent.Set(current, id)
 
-                                do! FIO.sleepExn (TimeSpan.FromMilliseconds 10.0)
-                                do! currentConcurrent.UpdateExn(fun x -> x - 1)
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 10.0, id)
+                                do! currentConcurrent.Update((fun x -> x - 1), id)
                             }
 
                         let! fibers =
                             [ 1..10 ]
-                            |> List.map (fun _ -> sem.WithPermitExn(task).Fork())
+                            |> List.map (fun _ -> sem.WithPermit(task, id).Fork())
                             |> FIO.collectAll
 
                         for fiber in fibers do
@@ -571,8 +576,8 @@ let semaphoreDisposalTests =
                 let eff =
                     fio {
                         let! sem = Semaphore.make 1
-                        do! sem.AcquireExn()
-                        do! sem.ReleaseExn()
+                        do! sem.Acquire id
+                        do! sem.Release id
                         (sem :> IDisposable).Dispose()
                         return true
                     }

@@ -227,9 +227,12 @@ let fioTests =
                 let eff =
                     fio {
                         let! ref = Ref.makeValue false
-                        let! fiber = FIO.interrupt(ExplicitInterrupt, "self-interrupt").Ensuring(ref.SetExn true).Fork()
+
+                        let! fiber =
+                            FIO.interrupt(ExplicitInterrupt, "self-interrupt").Ensuring(ref.Set(true, id)).Fork()
+
                         do! fiber.Join().CatchAll(fun _ -> FIO.unit ())
-                        do! FIO.sleepExn (TimeSpan.FromMilliseconds 50.0)
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
                         return! ref.Get()
                     }
 
@@ -242,11 +245,11 @@ let fioTests =
                 let eff =
                     fio {
                         let! ref = Ref.makeValue false
-                        let! fiber = FIO.sleepExn(TimeSpan.FromSeconds 60.0).Ensuring(ref.SetExn true).Fork()
-                        do! FIO.sleepExn (TimeSpan.FromMilliseconds 50.0)
+                        let! fiber = FIO.sleep(TimeSpan.FromSeconds 60.0, id).Ensuring(ref.Set(true, id)).Fork()
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
                         do! fiber.Interrupt()
                         do! fiber.Join().CatchAll(fun _ -> FIO.unit ())
-                        do! FIO.sleepExn (TimeSpan.FromMilliseconds 50.0)
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
                         return! ref.Get()
                     }
 
@@ -263,15 +266,15 @@ let fioTests =
 
                         let! fiber =
                             FIO
-                                .sleepExn(TimeSpan.FromSeconds 60.0)
-                                .Ensuring(ref1.SetExn true)
-                                .Ensuring(ref2.SetExn true)
+                                .sleep(TimeSpan.FromSeconds 60.0, id)
+                                .Ensuring(ref1.Set(true, id))
+                                .Ensuring(ref2.Set(true, id))
                                 .Fork()
 
-                        do! FIO.sleepExn (TimeSpan.FromMilliseconds 50.0)
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
                         do! fiber.Interrupt()
                         do! fiber.Join().CatchAll(fun _ -> FIO.unit ())
-                        do! FIO.sleepExn (TimeSpan.FromMilliseconds 50.0)
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
                         let! v1 = ref1.Get()
                         let! v2 = ref2.Get()
                         return v1, v2
@@ -287,9 +290,9 @@ let fioTests =
                 let eff =
                     fio {
                         let! fiber =
-                            FIO.sleepExn(TimeSpan.FromSeconds 60.0).Ensuring(FIO.fail (exn "finalizer error")).Fork()
+                            FIO.sleep(TimeSpan.FromSeconds 60.0, id).Ensuring(FIO.fail (exn "finalizer error")).Fork()
 
-                        do! FIO.sleepExn (TimeSpan.FromMilliseconds 50.0)
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
                         do! fiber.Interrupt()
                         return! fiber.Join()
                     }

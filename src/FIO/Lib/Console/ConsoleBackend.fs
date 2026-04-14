@@ -3,80 +3,75 @@ namespace FIO.Console
 open System
 open System.IO
 
-/// <summary>
 /// Abstraction over System.Console operations for testability.
-/// </summary>
 type internal IConsoleBackend =
-    /// <summary>Reads a line of text from stdin.</summary>
+    /// Reads a line of text from stdin.
     abstract ReadLine: unit -> string
-    /// <summary>Reads a key press from the console.</summary>
-    /// <param name="intercept">If true, the key is not displayed.</param>
+    /// Reads a key press from the console.
     abstract ReadKey: intercept: bool -> ConsoleKeyInfo
-    /// <summary>Reads a single character from stdin as an int.</summary>
+    /// Reads a single character from stdin (-1 if no more characters available).
     abstract Read: unit -> int
-    /// <summary>Gets whether a key press is available in the input buffer.</summary>
+    /// Gets whether a key press is available in the input buffer.
     abstract KeyAvailable: bool
 
-    /// <summary>Writes text to stdout without a newline.</summary>
+    /// Writes text to stdout without a newline.
     abstract Write: message: string -> unit
-    /// <summary>Writes text to stdout with a newline.</summary>
+    /// Writes text to stdout with a newline.
     abstract WriteLine: message: string -> unit
-    /// <summary>Writes a blank line to stdout.</summary>
+    /// Writes a blank line to stdout.
     abstract WriteBlankLine: unit -> unit
-    /// <summary>Gets the stdout TextWriter for fprintf operations.</summary>
+    /// Gets the stdout TextWriter for fprintf operations.
     abstract Out: TextWriter
 
-    /// <summary>Writes text to stderr without a newline.</summary>
+    /// Writes text to stderr without a newline.
     abstract ErrorWrite: message: string -> unit
-    /// <summary>Writes text to stderr with a newline.</summary>
+    /// Writes text to stderr with a newline.
     abstract ErrorWriteLine: message: string -> unit
-    /// <summary>Gets the stderr TextWriter for fprintf operations.</summary>
+    /// Gets the stderr TextWriter for fprintf operations.
     abstract Error: TextWriter
 
-    /// <summary>Gets or sets the cursor column position.</summary>
+    /// Gets or sets the cursor column position.
     abstract CursorLeft: int with get, set
-    /// <summary>Gets or sets the cursor row position.</summary>
+    /// Gets or sets the cursor row position.
     abstract CursorTop: int with get, set
-    /// <summary>Sets the cursor position atomically.</summary>
+    /// Sets the cursor position atomically.
     abstract SetCursorPosition: left: int * top: int -> unit
-    /// <summary>Gets the cursor position atomically.</summary>
+    /// Gets the cursor position as (column, row).
     abstract GetCursorPosition: unit -> int * int
-    /// <summary>Gets or sets whether the cursor is visible.</summary>
+    /// Gets or sets whether the cursor is visible.
     abstract CursorVisible: bool with get, set
 
-    /// <summary>Gets or sets the foreground color.</summary>
+    /// Gets or sets the foreground color.
     abstract ForegroundColor: ConsoleColor with get, set
-    /// <summary>Gets or sets the background color.</summary>
+    /// Gets or sets the background color.
     abstract BackgroundColor: ConsoleColor with get, set
-    /// <summary>Resets foreground and background colors to defaults.</summary>
+    /// Resets foreground and background colors to defaults.
     abstract ResetColor: unit -> unit
 
-    /// <summary>Gets the console window width in columns.</summary>
+    /// Gets the console window width in columns.
     abstract WindowWidth: int
-    /// <summary>Gets the console window height in rows.</summary>
+    /// Gets the console window height in rows.
     abstract WindowHeight: int
-    /// <summary>Gets the console buffer width in columns.</summary>
+    /// Gets the console buffer width in columns.
     abstract BufferWidth: int
-    /// <summary>Gets the console buffer height in rows.</summary>
+    /// Gets the console buffer height in rows.
     abstract BufferHeight: int
-    /// <summary>Gets or sets the console window title.</summary>
+    /// Gets or sets the console window title.
     abstract Title: string with get, set
 
-    /// <summary>Gets whether stdin is redirected.</summary>
+    /// Gets whether stdin is redirected.
     abstract IsInputRedirected: bool
-    /// <summary>Gets whether stdout is redirected.</summary>
+    /// Gets whether stdout is redirected.
     abstract IsOutputRedirected: bool
-    /// <summary>Gets whether stderr is redirected.</summary>
+    /// Gets whether stderr is redirected.
     abstract IsErrorRedirected: bool
 
-    /// <summary>Clears the console screen.</summary>
+    /// Clears the console screen.
     abstract Clear: unit -> unit
-    /// <summary>Plays a beep sound.</summary>
+    /// Plays a beep sound.
     abstract Beep: unit -> unit
 
-/// <summary>
 /// Real console backend that delegates to System.Console.
-/// </summary>
 type internal SystemConsoleBackend() =
     interface IConsoleBackend with
         member _.ReadLine() = Console.ReadLine()
@@ -151,30 +146,20 @@ type internal SystemConsoleBackend() =
 
         member _.Beep() = Console.Beep()
 
-/// <summary>
 /// Global console backend configuration for testing.
-///
-/// <para><b>Thread safety / test isolation:</b> the backend reference is
-/// process-global and unsynchronised. Tests that call <c>set</c> / <c>reset</c>
-/// to install a mock backend MUST run under <c>testSequenced</c> — running
-/// them in parallel will cause one test's mock to leak into another's assertion
-/// window, producing non-deterministic failures.</para>
-/// </summary>
+/// Thread safety: the backend is process-global. Tests using set/reset
+/// MUST run under testSequenced to avoid non-deterministic failures.
 [<RequireQualifiedAccess>]
 module internal ConsoleBackend =
 
+    /// The current console backend instance.
     let mutable private current: IConsoleBackend = SystemConsoleBackend()
 
-    /// <summary>Gets the current console backend.</summary>
+    /// Gets the current console backend.
     let get () = current
 
-    /// <summary>
     /// Sets the console backend (for testing).
-    /// Mutates process-global state — callers must ensure no other thread
-    /// is concurrently reading/writing <c>current</c>; see module docs.
-    /// </summary>
-    /// <param name="backend">The IConsoleBackend implementation to use.</param>
     let set (backend: IConsoleBackend) = current <- backend
 
-    /// <summary>Resets to the real System.Console backend.</summary>
+    /// Resets to the real System.Console backend.
     let reset () = current <- SystemConsoleBackend()

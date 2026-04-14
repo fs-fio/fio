@@ -81,6 +81,7 @@ module SocketClient =
     /// <param name="codec">The codec to use for encoding.</param>
     /// <param name="value">The value to send.</param>
     /// <param name="config">Socket configuration.</param>
+    /// <returns>Effect that sends the value.</returns>
     let sendWith<'T> (codec: SocketCodec<'T>) (value: 'T) (config: SocketConfig) =
         withConnection config (fun socket -> socket.Send(codec, value))
 

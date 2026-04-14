@@ -42,7 +42,7 @@ let middlewareTests =
 
             testAllRuntimes "before runs effect before handler" (fun runtime ->
                 let mutable ran = false
-                let mw = Middleware.before (fun _ -> FIO.attemptExn (fun () -> ran <- true))
+                let mw = Middleware.before (fun _ -> FIO.attempt ((fun () -> ran <- true), id))
 
                 let resp = applyMiddleware mw HttpHandler.ok (makeGetRequest "/test") runtime
 
@@ -53,7 +53,7 @@ let middlewareTests =
                 let mutable capturedStatus = HttpStatusCode.Continue
 
                 let mw =
-                    Middleware.after (fun _ resp -> FIO.attemptExn (fun () -> capturedStatus <- resp.Status))
+                    Middleware.after (fun _ resp -> FIO.attempt ((fun () -> capturedStatus <- resp.Status), id))
 
                 let resp = applyMiddleware mw HttpHandler.ok (makeGetRequest "/test") runtime
 
@@ -81,7 +81,7 @@ let middlewareTests =
                 let mutable loggedPath = ""
 
                 let mw =
-                    Middleware.logging (fun req -> FIO.attemptExn (fun () -> loggedPath <- req.Path))
+                    Middleware.logging (fun req -> FIO.attempt ((fun () -> loggedPath <- req.Path), id))
 
                 let resp = applyMiddleware mw HttpHandler.ok (makeGetRequest "/test") runtime
 
@@ -116,7 +116,7 @@ let middlewareTests =
                         Expect.equal resp.Status HttpStatusCode.RequestTimeout "408 Timeout")
 
                     testAllRuntimes "timeoutExn convenience works" (fun runtime ->
-                        let mw = Middleware.timeoutExn (TimeSpan.FromSeconds 5.0)
+                        let mw = Middleware.timeout (TimeSpan.FromSeconds 5.0) id
 
                         let resp =
                             applyMiddleware mw (HttpHandler.text "ok") (makeGetRequest "/test") runtime

@@ -1,6 +1,4 @@
-﻿/// <summary>
-/// Provides the cooperative (work-stealing) runtime for interpreting FIO effects, enabling concurrent and asynchronous execution across multiple workers.
-/// </summary>
+﻿/// Provides the cooperative (work-stealing) runtime for interpreting FIO effects.
 module FIO.Runtime.Cooperative
 
 open FIO.DSL
@@ -10,15 +8,13 @@ open System.Collections.Generic
 open System.Threading
 open System.Threading.Tasks
 
+/// Backoff tuning constants for cooperative blocking workers.
 module private CooperativePolling =
-    // Blocking worker polling/backoff tuning knobs.
     let BatchSize = 256
     let PendingQueueCapacityMultiplier = 2
-
     let ChannelSpinWaitIterations = 256
     let ChannelSpinMissThreshold = 4_096
     let ChannelYieldMissThreshold = 65_536
-
     let FiberSpinWaitIterations = 128
     let FiberSpinMissThreshold = 512
     let FiberYieldMissThreshold = 8_192
@@ -28,59 +24,33 @@ module private CooperativePolling =
     let FiberDelayStep2Ms = 2
     let FiberDelayStep3Ms = 4
 
-/// <summary>
-/// Configuration for an evaluation worker.
-/// </summary>
+/// Evaluation worker configuration.
 type private EvaluationWorkerConfig =
     {
-        /// <summary>
-        /// The runtime instance.
-        /// </summary>
         Runtime: CooperativeRuntime
-        /// <summary>
-        /// Channel for active work items.
-        /// </summary>
         ActiveWorkItemChan: UnboundedChannel<WorkItem>
-        /// <summary>
-        /// The blocking worker for handling blocked effects.
-        /// </summary>
         BlockingWorker: BlockingWorker
-        /// <summary>
-        /// Number of evaluation steps per work item.
-        /// </summary>
         EWSteps: int
     }
 
-/// <summary>
-/// Configuration for a blocking worker.
-/// </summary>
+/// Blocking worker configuration.
 and internal BlockingWorkerConfig =
     {
-        /// <summary>
-        /// Channel for active work items.
-        /// </summary>
         ActiveWorkItemChan: UnboundedChannel<WorkItem>
-        /// <summary>
-        /// Channel for blocking items awaiting resources.
-        /// </summary>
         ActiveBlockingItemChan: UnboundedChannel<BlockingEntry>
     }
 
-/// <summary>
-/// Blocking item metadata used by cooperative polling workers.
-/// </summary>
+/// Blocking item with miss count for backoff.
 and [<Struct>] internal BlockingEntry = { Item: BlockingItem; MissCount: int }
 
-/// <summary>
 /// Worker that evaluates FIO effects.
-/// </summary>
-/// <param name="config">The evaluation worker configuration.</param>
 and private EvaluationWorker(config: EvaluationWorkerConfig) =
 
     let processWorkItem (workItem: WorkItem) =
         config.Runtime.InterpretAsync(workItem, config.EWSteps, config.ActiveWorkItemChan, config.BlockingWorker)
 
     let cts = new CancellationTokenSource()
+
     let mutable workerTask: Task = Unchecked.defaultof<_>
 
     let startWorker () =
@@ -119,18 +89,18 @@ and private EvaluationWorker(config: EvaluationWorkerConfig) =
             cts.Cancel()
             cts.Dispose()
 
-/// <summary>
-/// Worker that handles blocked effects waiting for resources.
-/// </summary>
-/// <param name="config">The blocking worker configuration.</param>
+/// Handles blocked effects via linear-time polling with progressive backoff.
 and internal BlockingWorker(config: BlockingWorkerConfig) =
+
     let batchSize = CooperativePolling.BatchSize
 
     let pendingQueueCapacity =
         batchSize * CooperativePolling.PendingQueueCapacityMultiplier
 
     let mutable preferChannelFirst = true
+
     let channelPending = Queue<BlockingEntry>(pendingQueueCapacity)
+
     let fiberPending = Queue<BlockingEntry>(pendingQueueCapacity)
 
     let hasPending () =
@@ -262,6 +232,7 @@ and internal BlockingWorker(config: BlockingWorkerConfig) =
         }
 
     let cancellationTokenSource = new CancellationTokenSource()
+
     let mutable workerTask: Task = Unchecked.defaultof<_>
 
     let startWorker () =
@@ -300,23 +271,19 @@ and internal BlockingWorker(config: BlockingWorkerConfig) =
             cancellationTokenSource.Cancel()
             cancellationTokenSource.Dispose()
 
-    /// <summary>
-    /// Reschedules a work item that is blocked on a resource.
-    /// </summary>
-    /// <param name="blockingItem">The blocking item for the work item.</param>
     member internal _.RescheduleForBlocking blockingItem =
         config.ActiveBlockingItemChan.AddAsync { Item = blockingItem; MissCount = 0 }
 
-/// <summary>
-/// The cooperative runtime for FIO, interpreting effects concurrently using work-stealing.
-/// </summary>
-/// <param name="config">The worker configuration.</param>
+/// Runtime using custom fibers with linear-time polling for blocked fiber handling.
 and CooperativeRuntime(config: WorkerConfig) as this =
     inherit FIOWorkerRuntime(config)
 
     let activeWorkItemChan = UnboundedChannel<WorkItem>()
+
     let activeBlockingItemChan = UnboundedChannel<BlockingEntry>()
+
     let mutable currentFiber: FiberContext option = None
+
     let runLock = obj ()
 
     let blockingWorkers =
@@ -350,18 +317,9 @@ and CooperativeRuntime(config: WorkerConfig) as this =
             blockingWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
             evaluationWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
 
-    /// <summary>
-    /// Creates a new CooperativeRuntime with default configuration.
-    /// </summary>
     new() = new CooperativeRuntime(WorkerConfig.Default)
 
-    /// <summary>
-    /// Interprets an FIO effect asynchronously with step-limited evaluation.
-    /// </summary>
-    /// <param name="workItem">The work item containing the effect to interpret.</param>
-    /// <param name="evalSteps">The maximum number of evaluation steps before rescheduling.</param>
-    /// <param name="activeQueue">The active work item queue for rescheduling.</param>
-    /// <param name="blockingWorker">The blocking worker for handling blocked effects.</param>
+    /// Interprets an FIO effect with step-limited evaluation.
     [<TailCall>]
     member internal _.InterpretAsync
         (
@@ -522,46 +480,7 @@ and CooperativeRuntime(config: WorkerConfig) as this =
                             let workItem = WorkItemPool.Rent(eff, fiberContext, ContStackPool.Rent())
                             do! activeWorkItemChan.AddAsync workItem
                             processSuccess fiber
-                        | ForkTPLTask(taskFactory, onError, fiber, fiberContext) ->
-                            let registration =
-                                currentFiberContext.CancellationToken.Register(fun () ->
-                                    fiberContext.Interrupt(
-                                        ParentInterrupted currentFiberContext.Id,
-                                        "Parent fiber was interrupted."
-                                    ))
-
-                            fiberContext.AddRegistration registration
-
-                            do!
-                                Task.Run(fun () ->
-                                    task {
-                                        let t = taskFactory ()
-
-                                        try
-                                            try
-                                                do! t.WaitAsync fiberContext.CancellationToken
-                                                fiberContext.Complete(Ok())
-                                            with
-                                            | :? OperationCanceledException ->
-                                                fiberContext.Complete(
-                                                    Error(
-                                                        onError (
-                                                            FiberInterruptedException(
-                                                                fiberContext.Id,
-                                                                ExplicitInterrupt,
-                                                                "Task has been cancelled."
-                                                            )
-                                                        )
-                                                    )
-                                                )
-                                            | exn -> fiberContext.Complete(Error(onError exn))
-                                        finally
-                                            registration.Dispose()
-                                    }
-                                    :> Task)
-
-                            processSuccess fiber
-                        | ForkGenericTPLTask(taskFactory, onError, fiber, fiberContext) ->
+                        | ForkTask(taskFactory, onError, fiber, fiberContext) ->
                             let registration =
                                 currentFiberContext.CancellationToken.Register(fun () ->
                                     fiberContext.Interrupt(
@@ -612,27 +531,7 @@ and CooperativeRuntime(config: WorkerConfig) as this =
                                 do! blockingWorker.RescheduleForBlocking <| BlockingFiber(fiberContext, newWorkItem)
                                 workItemOwnership <- false
                                 completed <- true
-                        | AwaitTPLTask(task, onError) ->
-                            try
-                                if interruptionSuppressed > 0 then
-                                    do! task
-                                else
-                                    do! task.WaitAsync currentFiberContext.CancellationToken
-
-                                processSuccess ()
-                            with
-                            | :? OperationCanceledException when
-                                currentFiberContext.CancellationToken.IsCancellationRequested
-                                ->
-                                processInterruptError (
-                                    FiberInterruptedException(
-                                        currentFiberContext.Id,
-                                        ExplicitInterrupt,
-                                        "Task has been cancelled."
-                                    )
-                                )
-                            | exn -> processError (onError exn)
-                        | AwaitGenericTPLTask(task, onError) ->
+                        | AwaitTask(task, onError) ->
                             try
                                 let! res =
                                     if interruptionSuppressed > 0 then
@@ -680,18 +579,10 @@ and CooperativeRuntime(config: WorkerConfig) as this =
                 WorkItemPool.Return workItem
         }
 
-    /// <summary>
-    /// Resets the runtime state by clearing work item channels.
-    /// </summary>
     member private _.Reset() =
         activeWorkItemChan.Clear()
         activeBlockingItemChan.Clear()
 
-    /// <summary>
-    /// Runs an FIO effect and returns a fiber representing its execution.
-    /// </summary>
-    /// <param name="eff">The FIO effect to run.</param>
-    /// <returns>A fiber representing the running effect.</returns>
     override _.Run<'R, 'E>(eff: FIO<'R, 'E>) : Fiber<'R, 'E> =
         lock runLock (fun () ->
             match currentFiber with

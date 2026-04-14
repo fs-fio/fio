@@ -14,10 +14,12 @@ type WebSocketCodec<'T> =
         /// <summary>
         /// Encodes a value to a WebSocket frame.
         /// </summary>
+        /// <returns>An FIO effect producing the encoded WebSocket frame.</returns>
         Encode: 'T -> FIO<WebSocketFrame, WsError>
         /// <summary>
         /// Decodes a WebSocket frame to a value.
         /// </summary>
+        /// <returns>An FIO effect producing the decoded value.</returns>
         Decode: WebSocketFrame -> FIO<'T, WsError>
     }
 
@@ -29,6 +31,7 @@ module Codec =
     /// <summary>
     /// Identity codec for WebSocketFrame (no encoding/decoding).
     /// </summary>
+    /// <returns>The identity frame codec.</returns>
     let frame: WebSocketCodec<WebSocketFrame> =
         {
             Encode = fun frame -> FIO.succeed frame
@@ -38,6 +41,7 @@ module Codec =
     /// <summary>
     /// Codec for byte arrays (binary frames).
     /// </summary>
+    /// <returns>The binary frame codec.</returns>
     let binary: WebSocketCodec<byte[]> =
         {
             Encode = fun bytes -> FIO.succeed (Binary bytes)
@@ -52,6 +56,7 @@ module Codec =
     /// <summary>
     /// UTF-8 string codec (text frames).
     /// </summary>
+    /// <returns>The text frame codec.</returns>
     let text: WebSocketCodec<string> =
         {
             Encode = fun str -> FIO.succeed (Text str)
@@ -97,6 +102,7 @@ module Codec =
     /// <summary>
     /// JSON codec with default options.
     /// </summary>
+    /// <returns>The JSON codec with default options.</returns>
     let json<'T> = jsonWithOptions<'T> (JsonSerializerOptions())
 
     /// <summary>

@@ -14,10 +14,12 @@ type SocketCodec<'T> =
         /// <summary>
         /// Encodes a value to bytes.
         /// </summary>
+        /// <returns>An FIO effect producing the encoded byte array.</returns>
         Encode: 'T -> FIO<byte[], SocketError>
         /// <summary>
         /// Decodes bytes to a value.
         /// </summary>
+        /// <returns>An FIO effect producing the decoded value.</returns>
         Decode: byte[] -> FIO<'T, SocketError>
     }
 
@@ -29,6 +31,7 @@ module Codec =
     /// <summary>
     /// Identity codec for byte arrays (no encoding/decoding).
     /// </summary>
+    /// <returns>The identity byte array codec.</returns>
     let bytes: SocketCodec<byte[]> =
         {
             Encode = fun bytes -> FIO.succeed bytes
@@ -38,6 +41,7 @@ module Codec =
     /// <summary>
     /// UTF-8 string codec.
     /// </summary>
+    /// <returns>The UTF-8 string codec.</returns>
     let string: SocketCodec<string> =
         {
             Encode =
@@ -57,6 +61,7 @@ module Codec =
     /// <summary>
     /// Line-delimited string codec (adds/removes newline).
     /// </summary>
+    /// <returns>The line-delimited string codec.</returns>
     let line: SocketCodec<string> =
         {
             Encode =
@@ -101,6 +106,7 @@ module Codec =
     /// <summary>
     /// JSON codec with default options.
     /// </summary>
+    /// <returns>The JSON codec with default options.</returns>
     let json<'T> = jsonWithOptions<'T> (JsonSerializerOptions())
 
     /// <summary>

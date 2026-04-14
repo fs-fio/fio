@@ -48,7 +48,7 @@ let private sendingActorEff (actor, roundCount, msg, timerChan: Channel<TimerMes
         for _ in 1..roundCount do
             do! actor.Chan.Send(msg).Unit()
 #if DEBUG
-            do! Console.printLineExn $"[DEBUG]: %s{actor.Name} sent: %i{msg}"
+            do! Console.printLine ($"[DEBUG]: %s{actor.Name} sent: %i{msg}", id)
 #endif
     }
 
@@ -67,7 +67,7 @@ let private receivingActorEff (actor, roundCount, timerChan: Channel<TimerMessag
         for _ in 1..roundCount do
             let! _msg = actor.Chan.Receive()
 #if DEBUG
-            do! Console.printLineExn $"[DEBUG]: %s{actor.Name} received: %i{_msg}"
+            do! Console.printLine ($"[DEBUG]: %s{actor.Name} received: %i{_msg}", id)
 #endif
             ()
 

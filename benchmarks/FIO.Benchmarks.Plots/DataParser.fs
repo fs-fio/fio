@@ -62,6 +62,11 @@ module internal FileMetadata =
         let ci = CultureInfo "en-US"
         $"""%s{fm.BenchmarkName} (Actor Count: %s{fm.ActorCount.ToString("N0", ci)} Round Count: %s{fm.RoundCount.ToString("N0", ci)})"""
 
+    /// <summary>
+    /// Capitalizes the first character of a string.
+    /// </summary>
+    /// <param name="s">String to capitalize.</param>
+    /// <returns>String with the first character uppercased.</returns>
     let private capitalizeFirst s =
         match s with
         | "" -> s
@@ -160,6 +165,9 @@ type BenchmarkData =
 /// Helper functions for parsing BenchmarkData from CSV files.
 /// </summary>
 module internal BenchmarkData =
+    /// <summary>
+    /// Expected CSV column headers for benchmark data files.
+    /// </summary>
     let private expectedHeaders =
         [
             "Run"
@@ -172,9 +180,19 @@ module internal BenchmarkData =
             "Std. Execution Time (ms)"
         ]
 
+    /// <summary>
+    /// Parses a string as a 64-bit integer using invariant culture.
+    /// </summary>
+    /// <param name="raw">String to parse.</param>
+    /// <returns>Parsed 64-bit integer value.</returns>
     let private parseInt64 (raw: string) =
         Int64.Parse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture)
 
+    /// <summary>
+    /// Parses a string as a floating-point number using invariant culture.
+    /// </summary>
+    /// <param name="raw">String to parse.</param>
+    /// <returns>Parsed floating-point value.</returns>
     let private parseFloat (raw: string) =
         Double.Parse(raw, NumberStyles.Float ||| NumberStyles.AllowThousands, CultureInfo.InvariantCulture)
 

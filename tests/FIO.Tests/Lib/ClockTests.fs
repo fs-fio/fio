@@ -99,7 +99,7 @@ let clockTests =
                 let eff =
                     fio {
                         let! start = Clock.getTimestamp ()
-                        do! FIO.sleepExn (TimeSpan.FromMilliseconds 10.0)
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 10.0, id)
                         let! end_ = Clock.getTimestamp ()
                         let! elapsed = Clock.getElapsedTime (start, end_)
                         return elapsed
@@ -111,7 +111,7 @@ let clockTests =
 
             testPropertyWithConfig fsCheckConfig "timed - measures execution time of effect"
             <| fun (runtime: FIORuntime) ->
-                let eff = Clock.timed (FIO.sleepExn (TimeSpan.FromMilliseconds 20.0))
+                let eff = Clock.timed (FIO.sleep (TimeSpan.FromMilliseconds 20.0, id))
 
                 let _, duration = runtime.Run(eff).UnsafeSuccess()
 

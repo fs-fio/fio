@@ -28,8 +28,17 @@ type internal BenchmarkConfig =
 /// Runtime selections supported by benchmark CLI.
 /// </summary>
 type internal RuntimeSelection =
+    /// <summary>
+    /// Uses the direct runtime (single-threaded, .NET Tasks).
+    /// </summary>
     | Direct
+    /// <summary>
+    /// Uses the cooperative runtime with the given worker configuration.
+    /// </summary>
     | Cooperative of WorkerConfig
+    /// <summary>
+    /// Uses the concurrent runtime with the given worker configuration.
+    /// </summary>
     | Concurrent of WorkerConfig
 
 /// <summary>
@@ -37,6 +46,11 @@ type internal RuntimeSelection =
 /// </summary>
 module internal RuntimeSelection =
 
+    /// <summary>
+    /// Creates an FIORuntime instance from the given runtime selection.
+    /// </summary>
+    /// <param name="selection">The runtime selection to instantiate.</param>
+    /// <returns>The created FIORuntime.</returns>
     let createRuntime selection : FIORuntime =
         match selection with
         | Direct -> new DirectRuntime() :> FIORuntime
