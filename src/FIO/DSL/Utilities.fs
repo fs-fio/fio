@@ -18,15 +18,13 @@ module internal Casting =
     /// Upcasts an error mapping function to work with obj types.
     /// </summary>
     /// <param name="onError">The error mapping function.</param>
-    let inline upcastOnError (onError: exn -> 'E) : (exn -> obj) =
-        fun (ex: exn) -> onError ex :> obj
+    let inline upcastOnError (onError: exn -> 'E) : (exn -> obj) = fun (ex: exn) -> onError ex :> obj
 
     /// <summary>
     /// Upcasts a function's return type to obj.
     /// </summary>
     /// <param name="func">The function to upcast.</param>
-    let inline upcastFunc (func: unit -> 'R) : unit -> obj =
-        fun () -> func () :> obj
+    let inline upcastFunc (func: unit -> 'R) : unit -> obj = fun () -> func () :> obj
 
     /// <summary>
     /// Upcasts a generic Task's result type to obj.
@@ -40,7 +38,9 @@ module internal Casting =
         elif genericTask.IsCanceled then
             Task.FromCanceled<obj>(CancellationToken true)
         else
-            let tcs = TaskCompletionSource<obj> TaskCreationOptions.RunContinuationsAsynchronously
+            let tcs =
+                TaskCompletionSource<obj> TaskCreationOptions.RunContinuationsAsynchronously
+
             genericTask.ContinueWith(
                 Action<Task<'R>>(fun completedTask ->
                     if completedTask.IsCanceled then
@@ -51,6 +51,8 @@ module internal Casting =
                         tcs.TrySetResult(box completedTask.Result) |> ignore),
                 CancellationToken.None,
                 TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default)
+                TaskScheduler.Default
+            )
             |> ignore
+
             tcs.Task

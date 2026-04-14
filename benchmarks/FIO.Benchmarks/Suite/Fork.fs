@@ -18,10 +18,7 @@ open System
 /// Actor effect that signals completion to the timer.
 /// </summary>
 /// <param name="timerChan">Channel for timer control messages.</param>
-let private actorEff (timerChan: Channel<TimerMessage<int>>) =
-    fio {
-        do! timerChan.Send(Stop).Unit()
-    }
+let private actorEff (timerChan: Channel<TimerMessage<int>>) = fio { do! timerChan.Send(Stop).Unit() }
 
 /// <summary>
 /// Composes multiple actor effects to run concurrently via the parallel operator.
@@ -30,6 +27,7 @@ let private actorEff (timerChan: Channel<TimerMessage<int>>) =
 /// <param name="timerChan">Channel for timer control messages.</param>
 let private forkEff (actorCount, timerChan) =
     let baseEff = actorEff timerChan
+
     [ 1..actorCount ]
     |> List.fold (fun acc _ -> actorEff timerChan <&&> acc) baseEff
 
@@ -43,14 +41,23 @@ let benchmark config : FIO<int64, exn> =
         let! actorCount =
             match config with
             | ForkConfig ac -> FIO.succeed ac
-            | _ -> FIO.fail(ArgumentException("Fork benchmark initialization failed: Requires a ForkConfig", nameof config))
-            
+            | _ ->
+                FIO.fail (
+                    ArgumentException("Fork benchmark initialization failed: Requires a ForkConfig", nameof config)
+                )
+
         if actorCount < 1 then
-            return! FIO.fail(ArgumentException($"Fork benchmark initialization failed: At least 1 actor should be specified. actorCount = %i{actorCount}", nameof actorCount))
-            
+            return!
+                FIO.fail (
+                    ArgumentException(
+                        $"Fork benchmark initialization failed: At least 1 actor should be specified. actorCount = %i{actorCount}",
+                        nameof actorCount
+                    )
+                )
+
         let timerChan = Channel<TimerMessage<int>>()
         let! timerFiber = timerEff(1, 0, actorCount, timerChan).Fork()
         do! timerChan.Send(Start).Unit()
-        do! forkEff(actorCount, timerChan)
+        do! forkEff (actorCount, timerChan)
         return! timerFiber.Join()
     }

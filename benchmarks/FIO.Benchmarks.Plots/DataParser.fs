@@ -11,14 +11,16 @@ open System.Text.RegularExpressions
 /// Runtime worker configuration metadata (EWC, EWS, BWC parameters).
 /// </summary>
 type WorkerMetadata =
-    { /// <summary>Effect worker count.</summary>
-      EWC: int
-      /// <summary>Effect worker sleep duration.</summary>
-      EWS: int
-      /// <summary>Blocked worker count.</summary>
-      BWC: int }
+    {
+        /// <summary>Effect worker count.</summary>
+        EWC: int
+        /// <summary>Effect worker sleep duration.</summary>
+        EWS: int
+        /// <summary>Blocked worker count.</summary>
+        BWC: int
+    }
 
-    override this.ToString () =
+    override this.ToString() =
         let ci = CultureInfo "en-US"
         $"""EWC: %s{this.EWC.ToString("N0", ci)} EWS: %s{this.EWS.ToString("N0", ci)} BWC: %s{this.BWC.ToString("N0", ci)}"""
 
@@ -26,20 +28,22 @@ type WorkerMetadata =
 /// Metadata extracted from benchmark CSV filenames.
 /// </summary>
 type FileMetadata =
-    { /// <summary>Name of the benchmark.</summary>
-      BenchmarkName: string
-      /// <summary>Number of actors in the benchmark.</summary>
-      ActorCount: int
-      /// <summary>Number of rounds in the benchmark.</summary>
-      RoundCount: int
-      /// <summary>Number of benchmark runs.</summary>
-      Runs: int
-      /// <summary>Name of the runtime used.</summary>
-      RuntimeName: string
-      /// <summary>Optional worker configuration metadata.</summary>
-      WorkerMetadata: WorkerMetadata option }
+    {
+        /// <summary>Name of the benchmark.</summary>
+        BenchmarkName: string
+        /// <summary>Number of actors in the benchmark.</summary>
+        ActorCount: int
+        /// <summary>Number of rounds in the benchmark.</summary>
+        RoundCount: int
+        /// <summary>Number of benchmark runs.</summary>
+        Runs: int
+        /// <summary>Name of the runtime used.</summary>
+        RuntimeName: string
+        /// <summary>Optional worker configuration metadata.</summary>
+        WorkerMetadata: WorkerMetadata option
+    }
 
-    override this.ToString () =
+    override this.ToString() =
         match this.WorkerMetadata with
         | Some metadata -> $"%s{this.RuntimeName} (%s{metadata.ToString()})"
         | None -> this.RuntimeName
@@ -61,7 +65,7 @@ module internal FileMetadata =
     let private capitalizeFirst s =
         match s with
         | "" -> s
-        | _  -> s[0] |> Char.ToUpper |> string |> fun first -> first + s[1..]
+        | _ -> s[0] |> Char.ToUpper |> string |> (fun first -> first + s[1..])
 
     /// <summary>
     /// Parses file metadata from a CSV file path.
@@ -77,10 +81,12 @@ module internal FileMetadata =
             invalidOp $"Unable to parse benchmark metadata from path '%s{path}'."
 
         let benchmarkDirectoryName = benchmarkDirectory.Name.ToLowerInvariant()
+
         let benchmarkMatch =
             Regex.Match(
                 benchmarkDirectoryName,
-                @"^(?<bench>[a-z]+)actorcount(?<actors>\d+)roundcount(?<rounds>\d+)-runs-(?<runs>\d+)$")
+                @"^(?<bench>[a-z]+)actorcount(?<actors>\d+)roundcount(?<rounds>\d+)-runs-(?<runs>\d+)$"
+            )
 
         if not benchmarkMatch.Success then
             invalidOp $"Unsupported benchmark folder format in path '%s{path}'."
@@ -89,68 +95,82 @@ module internal FileMetadata =
 
         let runtimeName, workerMetadata =
             match runtimeToken with
-            | "directruntime" ->
-                "DirectRuntime", None
+            | "directruntime" -> "DirectRuntime", None
             | _ when runtimeToken.StartsWith "cooperativeruntime" ->
-                let workerMatch = Regex.Match(runtimeToken, @"^cooperativeruntime-ewc-(\d+)-ews-(\d+)-bwc-(\d+)$")
+                let workerMatch =
+                    Regex.Match(runtimeToken, @"^cooperativeruntime-ewc-(\d+)-ews-(\d+)-bwc-(\d+)$")
+
                 if not workerMatch.Success then
                     invalidOp $"Unsupported cooperative runtime folder format in path '%s{path}'."
 
                 "CooperativeRuntime",
-                Some { EWC = int workerMatch.Groups[1].Value
-                       EWS = int workerMatch.Groups[2].Value
-                       BWC = int workerMatch.Groups[3].Value }
+                Some
+                    {
+                        EWC = int workerMatch.Groups[1].Value
+                        EWS = int workerMatch.Groups[2].Value
+                        BWC = int workerMatch.Groups[3].Value
+                    }
             | _ when runtimeToken.StartsWith "concurrentruntime" ->
-                let workerMatch = Regex.Match(runtimeToken, @"^concurrentruntime-ewc-(\d+)-ews-(\d+)-bwc-(\d+)$")
+                let workerMatch =
+                    Regex.Match(runtimeToken, @"^concurrentruntime-ewc-(\d+)-ews-(\d+)-bwc-(\d+)$")
+
                 if not workerMatch.Success then
                     invalidOp $"Unsupported concurrent runtime folder format in path '%s{path}'."
 
                 "ConcurrentRuntime",
-                Some { EWC = int workerMatch.Groups[1].Value
-                       EWS = int workerMatch.Groups[2].Value
-                       BWC = int workerMatch.Groups[3].Value }
-            | _ ->
-                invalidOp $"Unsupported runtime folder format in path '%s{path}'."
+                Some
+                    {
+                        EWC = int workerMatch.Groups[1].Value
+                        EWS = int workerMatch.Groups[2].Value
+                        BWC = int workerMatch.Groups[3].Value
+                    }
+            | _ -> invalidOp $"Unsupported runtime folder format in path '%s{path}'."
 
-        { BenchmarkName = capitalizeFirst benchmarkMatch.Groups["bench"].Value
-          ActorCount = int benchmarkMatch.Groups["actors"].Value
-          RoundCount = int benchmarkMatch.Groups["rounds"].Value
-          Runs = int benchmarkMatch.Groups["runs"].Value
-          RuntimeName = runtimeName
-          WorkerMetadata = workerMetadata }
+        {
+            BenchmarkName = capitalizeFirst benchmarkMatch.Groups["bench"].Value
+            ActorCount = int benchmarkMatch.Groups["actors"].Value
+            RoundCount = int benchmarkMatch.Groups["rounds"].Value
+            Runs = int benchmarkMatch.Groups["runs"].Value
+            RuntimeName = runtimeName
+            WorkerMetadata = workerMetadata
+        }
 
 /// <summary>
 /// Parsed benchmark data from a CSV file including execution times and memory usage.
 /// </summary>
 type BenchmarkData =
-    { /// <summary>CSV column headers.</summary>
-      Headers: string list
-      /// <summary>List of run numbers.</summary>
-      Runs: int64 list
-      /// <summary>Execution times in milliseconds.</summary>
-      ExecutionTimes: int64 list
-      /// <summary>Average execution time in milliseconds.</summary>
-      AvgExecutionTime: float
-      /// <summary>Median execution time in milliseconds.</summary>
-      MedianExecutionTime: float
-      /// <summary>95th percentile execution time in milliseconds.</summary>
-      P95ExecutionTime: float
-      /// <summary>Standard deviation of execution times.</summary>
-      StdExecutionTime: float }
+    {
+        /// <summary>CSV column headers.</summary>
+        Headers: string list
+        /// <summary>List of run numbers.</summary>
+        Runs: int64 list
+        /// <summary>Execution times in milliseconds.</summary>
+        ExecutionTimes: int64 list
+        /// <summary>Average execution time in milliseconds.</summary>
+        AvgExecutionTime: float
+        /// <summary>Median execution time in milliseconds.</summary>
+        MedianExecutionTime: float
+        /// <summary>95th percentile execution time in milliseconds.</summary>
+        P95ExecutionTime: float
+        /// <summary>Standard deviation of execution times.</summary>
+        StdExecutionTime: float
+    }
 
 /// <summary>
 /// Helper functions for parsing BenchmarkData from CSV files.
 /// </summary>
 module internal BenchmarkData =
     let private expectedHeaders =
-        [ "Run"
-          "Execution Time (ms)"
-          "Process WS Delta (MB)"
-          "Managed Heap Delta (MB)"
-          "Avg. Execution Time (ms)"
-          "Median Execution Time (ms)"
-          "P95 Execution Time (ms)"
-          "Std. Execution Time (ms)" ]
+        [
+            "Run"
+            "Execution Time (ms)"
+            "Process WS Delta (MB)"
+            "Managed Heap Delta (MB)"
+            "Avg. Execution Time (ms)"
+            "Median Execution Time (ms)"
+            "P95 Execution Time (ms)"
+            "Std. Execution Time (ms)"
+        ]
 
     let private parseInt64 (raw: string) =
         Int64.Parse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture)
@@ -165,13 +185,15 @@ module internal BenchmarkData =
     /// <returns>Parsed benchmark data.</returns>
     let parse (path: string) =
         let csvFile = CsvFile.Load path
+
         let headers =
             match csvFile.Headers with
             | Some headers -> Array.toList headers
             | None -> failwith "No headers found in CSV file!"
 
         if headers <> expectedHeaders then
-            invalidOp $"Unsupported benchmark CSV schema in '%s{path}'. Regenerate benchmark CSV files with the current FIO.Benchmarks version."
+            invalidOp
+                $"Unsupported benchmark CSV schema in '%s{path}'. Regenerate benchmark CSV files with the current FIO.Benchmarks version."
 
         let runs = ResizeArray<int64>()
         let executionTimes = ResizeArray<int64>()
@@ -191,13 +213,15 @@ module internal BenchmarkData =
         if runs.Count = 0 then
             failwith $"CSV file contains no benchmark rows: '%s{path}'"
 
-        { Headers = headers
-          Runs = List.ofSeq runs
-          ExecutionTimes = List.ofSeq executionTimes
-          AvgExecutionTime = avgExecutionTimes[0]
-          MedianExecutionTime = medianExecutionTimes[0]
-          P95ExecutionTime = p95ExecutionTimes[0]
-          StdExecutionTime = stdExecutionTimes[0] }
+        {
+            Headers = headers
+            Runs = List.ofSeq runs
+            ExecutionTimes = List.ofSeq executionTimes
+            AvgExecutionTime = avgExecutionTimes[0]
+            MedianExecutionTime = medianExecutionTimes[0]
+            P95ExecutionTime = p95ExecutionTimes[0]
+            StdExecutionTime = stdExecutionTimes[0]
+        }
 
 /// <summary>
 /// Utilities for loading all CSV benchmark results from a directory.
@@ -212,10 +236,11 @@ module internal CsvResults =
     let getAll rootDir =
         if not <| Directory.Exists rootDir then
             invalidArg rootDir "Directory does not exist!"
+
         Directory.GetDirectories rootDir
         |> Array.toList
         |> List.map (fun benchDir ->
-            Directory.GetFiles (benchDir, "*.csv", SearchOption.AllDirectories)
+            Directory.GetFiles(benchDir, "*.csv", SearchOption.AllDirectories)
             |> Array.toList
             |> List.rev
             |> List.map (fun path -> FileMetadata.parse path, BenchmarkData.parse path))

@@ -8,503 +8,465 @@ open System
 
 open Expecto
 
-type private TestApp(eff: FIO<int, string>, log: ResizeArray<string>, ?hook: FIO<unit, string>, ?hookTimeout: TimeSpan) =
+type private TestApp(eff: FIO<int, string>, log: ResizeArray<string>, ?hook: FIO<unit, string>, ?hookTimeout: TimeSpan)
+    =
     inherit FIOApp<int, string>()
 
-    override _.effect =
-        eff
-    
-    override _.shutdownHook() =
-        defaultArg hook (FIO.unit())
-    
-    override _.shutdownHookTimeout =
-        defaultArg hookTimeout (TimeSpan.FromSeconds 10.0)
-    
-    override _.onStart() =
-        log.Add "onStart"
-    
-    override _.onRuntimeInitialized _ =
-        log.Add "onRuntimeInitialized"
+    override _.effect = eff
 
-    override _.onFiberRunning() =
-        log.Add "onFiberRunning"
+    override _.shutdownHook() = defaultArg hook (FIO.unit ())
 
-    override _.onSuccess _ =
-        log.Add "onSuccess"
+    override _.shutdownHookTimeout = defaultArg hookTimeout (TimeSpan.FromSeconds 10.0)
 
-    override _.onError _ =
-        log.Add "onError"
+    override _.onStart() = log.Add "onStart"
 
-    override _.onInterrupted _ =
-        log.Add "onInterrupted"
+    override _.onRuntimeInitialized _ = log.Add "onRuntimeInitialized"
 
-    override _.onFatalError _ =
-        log.Add "onFatalError"
+    override _.onFiberRunning() = log.Add "onFiberRunning"
 
-    override _.onShutdownRequested() =
-        log.Add "onShutdownRequested"
+    override _.onSuccess _ = log.Add "onSuccess"
 
-    override _.onShutdownHookSuccess() =
-        log.Add "onShutdownHookSuccess"
+    override _.onError _ = log.Add "onError"
 
-    override _.onShutdownHookError _ =
-        log.Add "onShutdownHookError"
+    override _.onInterrupted _ = log.Add "onInterrupted"
 
-    override _.onShutdownHookTimeout _ =
-        log.Add "onShutdownHookTimeout"
+    override _.onFatalError _ = log.Add "onFatalError"
 
-    override _.onShutdownHookException _ =
-        log.Add "onShutdownHookException"
+    override _.onShutdownRequested() = log.Add "onShutdownRequested"
 
-    override _.onShutdownHookInterrupted _ =
-        log.Add "onShutdownHookInterrupted"
+    override _.onShutdownHookSuccess() = log.Add "onShutdownHookSuccess"
+
+    override _.onShutdownHookError _ = log.Add "onShutdownHookError"
+
+    override _.onShutdownHookTimeout _ = log.Add "onShutdownHookTimeout"
+
+    override _.onShutdownHookException _ = log.Add "onShutdownHookException"
+
+    override _.onShutdownHookInterrupted _ = log.Add "onShutdownHookInterrupted"
 
 type private MinimalApp(eff: FIO<int, string>) =
     inherit FIOApp<int, string>()
 
-    override _.effect =
-        eff
+    override _.effect = eff
 
-    override _.onError _ =
-        ()
+    override _.onError _ = ()
 
-    override _.onFatalError _ =
-        ()
+    override _.onFatalError _ = ()
 
-    override _.onShutdownHookError _ =
-        ()
+    override _.onShutdownHookError _ = ()
 
-    override _.onShutdownHookTimeout _ =
-        ()
+    override _.onShutdownHookTimeout _ = ()
 
-    override _.onShutdownHookException _ =
-        ()
+    override _.onShutdownHookException _ = ()
 
 type private CustomNameApp() =
     inherit FIOApp<int, string>()
-    
-    override _.name =
-        "MyCustomApp"
-    
-    override _.effect =
-        FIO.succeed 42
 
-    override _.onError _ =
-        ()
+    override _.name = "MyCustomApp"
 
-    override _.onFatalError _ =
-        ()
+    override _.effect = FIO.succeed 42
 
-    override _.onShutdownHookError _ =
-        ()
+    override _.onError _ = ()
 
-    override _.onShutdownHookTimeout _ =
-        ()
+    override _.onFatalError _ = ()
 
-    override _.onShutdownHookException _ =
-        ()
+    override _.onShutdownHookError _ = ()
+
+    override _.onShutdownHookTimeout _ = ()
+
+    override _.onShutdownHookException _ = ()
 
 type private CustomExitCodeApp(eff: FIO<int, string>, log: ResizeArray<string>) =
     inherit FIOApp<int, string>()
-    
-    override _.effect =
-        eff
 
-    override _.exitCodeSuccess _ =
-        10
+    override _.effect = eff
 
-    override _.exitCodeError _ =
-        20
+    override _.exitCodeSuccess _ = 10
 
-    override _.exitCodeFatalError _ =
-        30
+    override _.exitCodeError _ = 20
 
-    override _.exitCodeInterrupted _ =
-        40
+    override _.exitCodeFatalError _ = 30
 
-    override _.onStart() =
-        log.Add "onStart"
+    override _.exitCodeInterrupted _ = 40
 
-    override _.onRuntimeInitialized _ =
-        log.Add "onRuntimeInitialized"
+    override _.onStart() = log.Add "onStart"
 
-    override _.onFiberRunning() =
-        log.Add "onFiberRunning"
+    override _.onRuntimeInitialized _ = log.Add "onRuntimeInitialized"
 
-    override _.onSuccess _ =
-        log.Add "onSuccess"
+    override _.onFiberRunning() = log.Add "onFiberRunning"
 
-    override _.onError _ =
-        log.Add "onError"
+    override _.onSuccess _ = log.Add "onSuccess"
 
-    override _.onInterrupted _ =
-        log.Add "onInterrupted"
+    override _.onError _ = log.Add "onError"
 
-    override _.onFatalError _ =
-        log.Add "onFatalError"
+    override _.onInterrupted _ = log.Add "onInterrupted"
 
-    override _.onShutdownHookSuccess() =
-        log.Add "onShutdownHookSuccess"
+    override _.onFatalError _ = log.Add "onFatalError"
 
-    override _.onShutdownHookError _ =
-        log.Add "onShutdownHookError"
+    override _.onShutdownHookSuccess() = log.Add "onShutdownHookSuccess"
 
-    override _.onShutdownHookTimeout _ =
-        log.Add "onShutdownHookTimeout"
+    override _.onShutdownHookError _ = log.Add "onShutdownHookError"
 
-    override _.onShutdownHookException _ =
-        log.Add "onShutdownHookException"
+    override _.onShutdownHookTimeout _ = log.Add "onShutdownHookTimeout"
 
-    override _.onShutdownHookInterrupted _ =
-        log.Add "onShutdownHookInterrupted"
+    override _.onShutdownHookException _ = log.Add "onShutdownHookException"
+
+    override _.onShutdownHookInterrupted _ = log.Add "onShutdownHookInterrupted"
 
 type private FatalErrorApp(log: ResizeArray<string>) =
     inherit FIOApp<int, string>()
-    
-    override _.effect =
-        FIO.succeed 42
-    
-    override _.configureThreadPool() =
-        failwith "fatal"
 
-    override _.onStart() =
-        log.Add "onStart"
-    
-    override _.onFatalError _ =
-        log.Add "onFatalError"
+    override _.effect = FIO.succeed 42
 
-    override _.onError _ =
-        ()
-    
-    override _.onShutdownHookError _ =
-        ()
+    override _.configureThreadPool() = failwith "fatal"
 
-    override _.onShutdownHookTimeout _ =
-        ()
+    override _.onStart() = log.Add "onStart"
 
-    override _.onShutdownHookException _ =
-        ()
+    override _.onFatalError _ = log.Add "onFatalError"
+
+    override _.onError _ = ()
+
+    override _.onShutdownHookError _ = ()
+
+    override _.onShutdownHookTimeout _ = ()
+
+    override _.onShutdownHookException _ = ()
 
 type private ConfigTrackingApp(eff: FIO<int, string>) =
     inherit FIOApp<int, string>()
 
     member val ThreadPoolConfigured = false with get, set
 
-    override this.configureThreadPool() =
-        this.ThreadPoolConfigured <- true
+    override this.configureThreadPool() = this.ThreadPoolConfigured <- true
 
-    override _.effect =
-        eff
+    override _.effect = eff
 
-    override _.onError _ =
-        ()
+    override _.onError _ = ()
 
-    override _.onShutdownHookError _ =
-        ()
+    override _.onShutdownHookError _ = ()
 
-    override _.onShutdownHookTimeout _ =
-        ()
+    override _.onShutdownHookTimeout _ = ()
 
-    override _.onShutdownHookException _ =
-        ()
+    override _.onShutdownHookException _ = ()
 
 type private TestDefaultApp(eff: FIO<int, exn>) =
     inherit DefaultFIOApp<int>()
 
-    override _.effect =
-        eff
+    override _.effect = eff
 
-    override _.onError _ =
-        ()
+    override _.onError _ = ()
 
-    override _.onFatalError _ =
-        ()
+    override _.onFatalError _ = ()
 
-    override _.onShutdownHookError _ =
-        ()
+    override _.onShutdownHookError _ = ()
 
-    override _.onShutdownHookTimeout _ =
-        ()
+    override _.onShutdownHookTimeout _ = ()
 
-    override _.onShutdownHookException _ =
-        ()
+    override _.onShutdownHookException _ = ()
 
 type private TestSimpleApp(eff: FIO<unit, exn>) =
     inherit SimpleFIOApp()
 
-    override _.effect =
-        eff
+    override _.effect = eff
 
-    override _.onError _ =
-        ()
+    override _.onError _ = ()
 
-    override _.onFatalError _ =
-        ()
+    override _.onFatalError _ = ()
 
-    override _.onShutdownHookError _ =
-        ()
+    override _.onShutdownHookError _ = ()
 
-    override _.onShutdownHookTimeout _ =
-        ()
+    override _.onShutdownHookTimeout _ = ()
 
-    override _.onShutdownHookException _ =
-        ()
+    override _.onShutdownHookException _ = ()
 
 [<Tests>]
 let appTests =
-    testList "FIOApp" [
+    testList
+        "FIOApp"
+        [
 
-        testCase "Id - each instance has unique id" <| fun () ->
-            let app1 = MinimalApp(FIO.succeed 1)
-            let app2 = MinimalApp(FIO.succeed 2)
+            testCase "Id - each instance has unique id"
+            <| fun () ->
+                let app1 = MinimalApp(FIO.succeed 1)
+                let app2 = MinimalApp(FIO.succeed 2)
 
-            Expect.notEqual app1.Id app2.Id "Each app instance should have a unique Id"
+                Expect.notEqual app1.Id app2.Id "Each app instance should have a unique Id"
 
-        testCase "name - defaults to type name" <| fun () ->
-            let app = MinimalApp(FIO.succeed 1)
+            testCase "name - defaults to type name"
+            <| fun () ->
+                let app = MinimalApp(FIO.succeed 1)
 
-            Expect.equal app.name "MinimalApp" "Default name should be the type name"
+                Expect.equal app.name "MinimalApp" "Default name should be the type name"
 
-        testCase "name - can be overridden" <| fun () ->
-            let app = CustomNameApp()
+            testCase "name - can be overridden"
+            <| fun () ->
+                let app = CustomNameApp()
 
-            Expect.equal app.name "MyCustomApp" "Overridden name should be used"
+                Expect.equal app.name "MyCustomApp" "Overridden name should be used"
 
-        testCase "version - returns non-empty string" <| fun () ->
-            let app = MinimalApp(FIO.succeed 1)
+            testCase "version - returns non-empty string"
+            <| fun () ->
+                let app = MinimalApp(FIO.succeed 1)
 
-            Expect.isNotEmpty app.version "Version should not be empty"
+                Expect.isNotEmpty app.version "Version should not be empty"
 
-        testCase "description - defaults to empty string" <| fun () ->
-            let app = MinimalApp(FIO.succeed 1)
+            testCase "description - defaults to empty string"
+            <| fun () ->
+                let app = MinimalApp(FIO.succeed 1)
 
-            Expect.equal app.description "" "Default description should be empty"
+                Expect.equal app.description "" "Default description should be empty"
 
-        testCase "showBanner - defaults to false" <| fun () ->
-            let app = MinimalApp(FIO.succeed 1)
+            testCase "showBanner - defaults to false"
+            <| fun () ->
+                let app = MinimalApp(FIO.succeed 1)
 
-            Expect.isFalse app.showBanner "Default showBanner should be false"
+                Expect.isFalse app.showBanner "Default showBanner should be false"
 
-        testCase "banner - contains name and version" <| fun () ->
-            let app = MinimalApp(FIO.succeed 1)
-            let banner = app.banner
+            testCase "banner - contains name and version"
+            <| fun () ->
+                let app = MinimalApp(FIO.succeed 1)
+                let banner = app.banner
 
-            Expect.stringContains banner app.name "Banner should contain app name"
-            Expect.stringContains banner app.version "Banner should contain app version"
+                Expect.stringContains banner app.name "Banner should contain app name"
+                Expect.stringContains banner app.version "Banner should contain app version"
 
-        testCase "ToString - contains name and id" <| fun () ->
-            let app = MinimalApp(FIO.succeed 1)
-            let str = app.ToString()
+            testCase "ToString - contains name and id"
+            <| fun () ->
+                let app = MinimalApp(FIO.succeed 1)
+                let str = app.ToString()
 
-            Expect.stringContains str app.name "ToString should contain name"
-            Expect.stringContains str (string app.Id) "ToString should contain id"
+                Expect.stringContains str app.name "ToString should contain name"
+                Expect.stringContains str (string app.Id) "ToString should contain id"
 
-        testCase "runtime - defaults to ConcurrentRuntime" <| fun () ->
-            let app = MinimalApp(FIO.succeed 1)
+            testCase "runtime - defaults to ConcurrentRuntime"
+            <| fun () ->
+                let app = MinimalApp(FIO.succeed 1)
 
-            Expect.isTrue (app.runtime :? ConcurrentRuntime)
-                "Default runtime should be ConcurrentRuntime"
+                Expect.isTrue (app.runtime :? ConcurrentRuntime) "Default runtime should be ConcurrentRuntime"
 
-        testCase "verbose - defaults to false" <| fun () ->
-            let app = MinimalApp(FIO.succeed 1)
+            testCase "verbose - defaults to false"
+            <| fun () ->
+                let app = MinimalApp(FIO.succeed 1)
 
-            Expect.isFalse app.verbose "Default verbose should be false"
+                Expect.isFalse app.verbose "Default verbose should be false"
 
-        testCase "configureThreadPool - called during Run" <| fun () ->
-            let app = ConfigTrackingApp(FIO.succeed 42)
+            testCase "configureThreadPool - called during Run"
+            <| fun () ->
+                let app = ConfigTrackingApp(FIO.succeed 42)
 
-            Expect.isFalse app.ThreadPoolConfigured "Should not be configured before Run"
-            app.Run() |> ignore
-            Expect.isTrue app.ThreadPoolConfigured "Should be configured after Run"
+                Expect.isFalse app.ThreadPoolConfigured "Should not be configured before Run"
+                app.Run() |> ignore
+                Expect.isTrue app.ThreadPoolConfigured "Should be configured after Run"
 
-        testCase "Run - success effect returns exit code 0" <| fun () ->
-            let log = ResizeArray()
-            let app = TestApp(FIO.succeed 42, log)
+            testCase "Run - success effect returns exit code 0"
+            <| fun () ->
+                let log = ResizeArray()
+                let app = TestApp(FIO.succeed 42, log)
 
-            let exitCode = app.Run()
+                let exitCode = app.Run()
 
-            Expect.equal exitCode 0 "Success should return exit code 0"
+                Expect.equal exitCode 0 "Success should return exit code 0"
 
-        testCase "Run - success calls lifecycle handlers in order" <| fun () ->
-            let log = ResizeArray()
-            let app = TestApp(FIO.succeed 42, log)
+            testCase "Run - success calls lifecycle handlers in order"
+            <| fun () ->
+                let log = ResizeArray()
+                let app = TestApp(FIO.succeed 42, log)
 
-            app.Run() |> ignore
+                app.Run() |> ignore
 
-            let expected = [
-                "onStart"
-                "onRuntimeInitialized"
-                "onFiberRunning"
-                "onSuccess"
-                "onShutdownHookSuccess"
-            ]
-            Expect.equal (Seq.toList log) expected
-                "Lifecycle handlers should be called in order"
+                let expected =
+                    [
+                        "onStart"
+                        "onRuntimeInitialized"
+                        "onFiberRunning"
+                        "onSuccess"
+                        "onShutdownHookSuccess"
+                    ]
 
-        testCase "RunAsync - returns same result as Run" <| fun () ->
-            let log = ResizeArray()
-            let app = TestApp(FIO.succeed 42, log)
+                Expect.equal (Seq.toList log) expected "Lifecycle handlers should be called in order"
 
-            let exitCode = app.RunAsync().Result
+            testCase "RunAsync - returns same result as Run"
+            <| fun () ->
+                let log = ResizeArray()
+                let app = TestApp(FIO.succeed 42, log)
 
-            Expect.equal exitCode 0 "RunAsync should return exit code 0 for success"
+                let exitCode = app.RunAsync().Result
 
-        testCase "Run - error effect returns exit code 1" <| fun () ->
-            let log = ResizeArray()
-            let app = TestApp(FIO.fail "err", log)
+                Expect.equal exitCode 0 "RunAsync should return exit code 0 for success"
 
-            let exitCode = app.Run()
+            testCase "Run - error effect returns exit code 1"
+            <| fun () ->
+                let log = ResizeArray()
+                let app = TestApp(FIO.fail "err", log)
 
-            Expect.equal exitCode 1 "Error should return exit code 1"
+                let exitCode = app.Run()
 
-        testCase "Run - error calls onError handler" <| fun () ->
-            let log = ResizeArray()
-            let app = TestApp(FIO.fail "err", log)
+                Expect.equal exitCode 1 "Error should return exit code 1"
 
-            app.Run() |> ignore
+            testCase "Run - error calls onError handler"
+            <| fun () ->
+                let log = ResizeArray()
+                let app = TestApp(FIO.fail "err", log)
 
-            Expect.contains (Seq.toList log) "onError" "onError should be called"
+                app.Run() |> ignore
 
-        testCase "Run - interrupted effect returns exit code 130" <| fun () ->
-            let log = ResizeArray()
-            let app = TestApp(FIO.interrupt(ExplicitInterrupt, "test"), log)
+                Expect.contains (Seq.toList log) "onError" "onError should be called"
 
-            let exitCode = app.Run()
+            testCase "Run - interrupted effect returns exit code 130"
+            <| fun () ->
+                let log = ResizeArray()
+                let app = TestApp(FIO.interrupt (ExplicitInterrupt, "test"), log)
 
-            Expect.equal exitCode 130 "Interrupted should return exit code 130"
+                let exitCode = app.Run()
 
-        testCase "Run - interrupted calls onInterrupted handler" <| fun () ->
-            let log = ResizeArray()
-            let app = TestApp(FIO.interrupt(ExplicitInterrupt, "test"), log)
+                Expect.equal exitCode 130 "Interrupted should return exit code 130"
 
-            app.Run() |> ignore
+            testCase "Run - interrupted calls onInterrupted handler"
+            <| fun () ->
+                let log = ResizeArray()
+                let app = TestApp(FIO.interrupt (ExplicitInterrupt, "test"), log)
 
-            Expect.contains (Seq.toList log) "onInterrupted"
-                "onInterrupted should be called"
+                app.Run() |> ignore
 
-        testCase "Run - fatal error returns exit code 2" <| fun () ->
-            let log = ResizeArray()
-            let app = FatalErrorApp log
+                Expect.contains (Seq.toList log) "onInterrupted" "onInterrupted should be called"
 
-            let exitCode = app.Run()
+            testCase "Run - fatal error returns exit code 2"
+            <| fun () ->
+                let log = ResizeArray()
+                let app = FatalErrorApp log
 
-            Expect.equal exitCode 2 "Fatal error should return exit code 2"
+                let exitCode = app.Run()
 
-        testCase "Run - fatal error calls onFatalError after onStart" <| fun () ->
-            let log = ResizeArray()
-            let app = FatalErrorApp log
+                Expect.equal exitCode 2 "Fatal error should return exit code 2"
 
-            app.Run() |> ignore
+            testCase "Run - fatal error calls onFatalError after onStart"
+            <| fun () ->
+                let log = ResizeArray()
+                let app = FatalErrorApp log
 
-            Expect.equal (Seq.toList log) ["onStart"; "onFatalError"]
-                "onStart should run before fatal, then onFatalError"
+                app.Run() |> ignore
 
-        testCase "exitCodeSuccess - defaults to 0" <| fun () ->
-            let app = MinimalApp(FIO.succeed 1)
+                Expect.equal
+                    (Seq.toList log)
+                    [ "onStart"; "onFatalError" ]
+                    "onStart should run before fatal, then onFatalError"
 
-            Expect.equal (app.exitCodeSuccess 42) 0
-                "Default exitCodeSuccess should be 0"
+            testCase "exitCodeSuccess - defaults to 0"
+            <| fun () ->
+                let app = MinimalApp(FIO.succeed 1)
 
-        testCase "exitCodeError - defaults to 1" <| fun () ->
-            let app = MinimalApp(FIO.succeed 1)
+                Expect.equal (app.exitCodeSuccess 42) 0 "Default exitCodeSuccess should be 0"
 
-            Expect.equal (app.exitCodeError "err") 1
-                "Default exitCodeError should be 1"
+            testCase "exitCodeError - defaults to 1"
+            <| fun () ->
+                let app = MinimalApp(FIO.succeed 1)
 
-        testCase "exitCodeFatalError - defaults to 2" <| fun () ->
-            let app = MinimalApp(FIO.succeed 1)
+                Expect.equal (app.exitCodeError "err") 1 "Default exitCodeError should be 1"
 
-            Expect.equal (app.exitCodeFatalError (exn "x")) 2
-                "Default exitCodeFatalError should be 2"
+            testCase "exitCodeFatalError - defaults to 2"
+            <| fun () ->
+                let app = MinimalApp(FIO.succeed 1)
 
-        testCase "exitCodeInterrupted - defaults to 130" <| fun () ->
-            let app = MinimalApp(FIO.succeed 1)
-            let ex =
-                FiberInterruptedException(Guid.NewGuid(), ExplicitInterrupt, "test")
-                :?> FiberInterruptedException
+                Expect.equal (app.exitCodeFatalError (exn "x")) 2 "Default exitCodeFatalError should be 2"
 
-            Expect.equal (app.exitCodeInterrupted ex) 130
-                "Default exitCodeInterrupted should be 130"
+            testCase "exitCodeInterrupted - defaults to 130"
+            <| fun () ->
+                let app = MinimalApp(FIO.succeed 1)
 
-        testCase "Custom exit codes - success uses custom code" <| fun () ->
-            let log = ResizeArray()
-            let exitCode = CustomExitCodeApp(FIO.succeed 42, log).Run()
+                let ex =
+                    FiberInterruptedException(Guid.NewGuid(), ExplicitInterrupt, "test") :?> FiberInterruptedException
 
-            Expect.equal exitCode 10 "Custom success exit code should be 10"
+                Expect.equal (app.exitCodeInterrupted ex) 130 "Default exitCodeInterrupted should be 130"
 
-        testCase "Custom exit codes - error uses custom code" <| fun () ->
-            let log = ResizeArray()
-            let exitCode = CustomExitCodeApp(FIO.fail "err", log).Run()
+            testCase "Custom exit codes - success uses custom code"
+            <| fun () ->
+                let log = ResizeArray()
+                let exitCode = CustomExitCodeApp(FIO.succeed 42, log).Run()
 
-            Expect.equal exitCode 20 "Custom error exit code should be 20"
+                Expect.equal exitCode 10 "Custom success exit code should be 10"
 
-        testCase "shutdownHook - default calls onShutdownHookSuccess" <| fun () ->
-            let log = ResizeArray()
-            let app = TestApp(FIO.succeed 42, log)
+            testCase "Custom exit codes - error uses custom code"
+            <| fun () ->
+                let log = ResizeArray()
+                let exitCode = CustomExitCodeApp(FIO.fail "err", log).Run()
 
-            app.Run() |> ignore
+                Expect.equal exitCode 20 "Custom error exit code should be 20"
 
-            Expect.contains (Seq.toList log) "onShutdownHookSuccess"
-                "Default shutdown hook should succeed"
+            testCase "shutdownHook - default calls onShutdownHookSuccess"
+            <| fun () ->
+                let log = ResizeArray()
+                let app = TestApp(FIO.succeed 42, log)
 
-        testCase "shutdownHook - custom success hook runs and calls onShutdownHookSuccess"
-        <| fun () ->
-            let mutable hookRan = false
-            let hook = FIO.attempt((fun () -> hookRan <- true), fun (ex: exn) -> ex.Message)
-            let log = ResizeArray()
-            let app = TestApp(FIO.succeed 42, log, hook = hook)
+                app.Run() |> ignore
 
-            app.Run() |> ignore
+                Expect.contains (Seq.toList log) "onShutdownHookSuccess" "Default shutdown hook should succeed"
 
-            Expect.isTrue hookRan "Custom shutdown hook should have run"
-            Expect.contains (Seq.toList log) "onShutdownHookSuccess"
-                "Successful hook should call onShutdownHookSuccess"
+            testCase "shutdownHook - custom success hook runs and calls onShutdownHookSuccess"
+            <| fun () ->
+                let mutable hookRan = false
+                let hook = FIO.attempt ((fun () -> hookRan <- true), fun (ex: exn) -> ex.Message)
+                let log = ResizeArray()
+                let app = TestApp(FIO.succeed 42, log, hook = hook)
 
-        testCase "shutdownHook - error calls onShutdownHookError" <| fun () ->
-            let log = ResizeArray()
-            let app = TestApp(FIO.succeed 42, log, hook = FIO.fail "hook error")
+                app.Run() |> ignore
 
-            app.Run() |> ignore
+                Expect.isTrue hookRan "Custom shutdown hook should have run"
 
-            Expect.contains (Seq.toList log) "onShutdownHookError"
-                "Failed hook should call onShutdownHookError"
+                Expect.contains
+                    (Seq.toList log)
+                    "onShutdownHookSuccess"
+                    "Successful hook should call onShutdownHookSuccess"
 
-        testCase "shutdownHookTimeout - defaults to 10 seconds" <| fun () ->
-            let app = MinimalApp(FIO.succeed 1)
+            testCase "shutdownHook - error calls onShutdownHookError"
+            <| fun () ->
+                let log = ResizeArray()
+                let app = TestApp(FIO.succeed 42, log, hook = FIO.fail "hook error")
 
-            Expect.equal app.shutdownHookTimeout (TimeSpan.FromSeconds 10.0)
-                "Default timeout should be 10 seconds"
+                app.Run() |> ignore
 
-        testCase "shutdownHook - timeout calls onShutdownHookTimeout" <| fun () ->
-            let log = ResizeArray()
-            let app = TestApp(
-                FIO.succeed 42,
-                log,
-                hook = FIO.never(),
-                hookTimeout = TimeSpan.FromMilliseconds 100.0)
+                Expect.contains (Seq.toList log) "onShutdownHookError" "Failed hook should call onShutdownHookError"
 
-            app.Run() |> ignore
+            testCase "shutdownHookTimeout - defaults to 10 seconds"
+            <| fun () ->
+                let app = MinimalApp(FIO.succeed 1)
 
-            Expect.contains (Seq.toList log) "onShutdownHookTimeout"
-                "Timed out hook should call onShutdownHookTimeout"
+                Expect.equal app.shutdownHookTimeout (TimeSpan.FromSeconds 10.0) "Default timeout should be 10 seconds"
 
-        testCase "DefaultFIOApp - success returns 0" <| fun () ->
-            let app = TestDefaultApp(FIO.succeed 42)
+            testCase "shutdownHook - timeout calls onShutdownHookTimeout"
+            <| fun () ->
+                let log = ResizeArray()
 
-            Expect.equal (app.Run()) 0 "DefaultFIOApp success should return 0"
+                let app =
+                    TestApp(FIO.succeed 42, log, hook = FIO.never (), hookTimeout = TimeSpan.FromMilliseconds 100.0)
 
-        testCase "DefaultFIOApp - error returns 1" <| fun () ->
-            let app = TestDefaultApp(FIO.fail (exn "err"))
+                app.Run() |> ignore
 
-            Expect.equal (app.Run()) 1 "DefaultFIOApp error should return 1"
+                Expect.contains
+                    (Seq.toList log)
+                    "onShutdownHookTimeout"
+                    "Timed out hook should call onShutdownHookTimeout"
 
-        testCase "SimpleFIOApp - success returns 0" <| fun () ->
-            let app = TestSimpleApp(FIO.unit())
+            testCase "DefaultFIOApp - success returns 0"
+            <| fun () ->
+                let app = TestDefaultApp(FIO.succeed 42)
 
-            Expect.equal (app.Run()) 0 "SimpleFIOApp success should return 0"
+                Expect.equal (app.Run()) 0 "DefaultFIOApp success should return 0"
 
-        testCase "SimpleFIOApp - error returns 1" <| fun () ->
-            let app = TestSimpleApp(FIO.fail (exn "err"))
+            testCase "DefaultFIOApp - error returns 1"
+            <| fun () ->
+                let app = TestDefaultApp(FIO.fail (exn "err"))
 
-            Expect.equal (app.Run()) 1 "SimpleFIOApp error should return 1"
-    ]
+                Expect.equal (app.Run()) 1 "DefaultFIOApp error should return 1"
+
+            testCase "SimpleFIOApp - success returns 0"
+            <| fun () ->
+                let app = TestSimpleApp(FIO.unit ())
+
+                Expect.equal (app.Run()) 0 "SimpleFIOApp success should return 0"
+
+            testCase "SimpleFIOApp - error returns 1"
+            <| fun () ->
+                let app = TestSimpleApp(FIO.fail (exn "err"))
+
+                Expect.equal (app.Run()) 1 "SimpleFIOApp error should return 1"
+        ]

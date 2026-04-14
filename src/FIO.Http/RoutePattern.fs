@@ -27,15 +27,13 @@ module RoutePath =
     /// Creates an exact path match.
     /// </summary>
     /// <param name="segments">The path segments to match exactly.</param>
-    let exact (segments: string list) : RoutePath =
-        Exact segments
+    let exact (segments: string list) : RoutePath = Exact segments
 
     /// <summary>
     /// Creates a prefix path match.
     /// </summary>
     /// <param name="segments">The path segments to match as prefix.</param>
-    let prefix (segments: string list) : RoutePath =
-        Prefix segments
+    let prefix (segments: string list) : RoutePath = Prefix segments
 
     /// <summary>
     /// Parses a path string into a route path.
@@ -43,8 +41,8 @@ module RoutePath =
     /// <param name="path">The path string to parse.</param>
     let ofString (path: string) : RoutePath =
         let segments =
-            path.Split([| '/' |], StringSplitOptions.RemoveEmptyEntries)
-            |> Array.toList
+            path.Split([| '/' |], StringSplitOptions.RemoveEmptyEntries) |> Array.toList
+
         Exact segments
 
     /// <summary>
@@ -54,17 +52,14 @@ module RoutePath =
     /// <param name="segments">The URL segments to match.</param>
     let tryMatch (routePath: RoutePath) (segments: string list) : (obj list * string list) option =
         match routePath with
-        | Exact expected ->
-            if segments = expected then
-                Some([], [])
-            else
-                None
+        | Exact expected -> if segments = expected then Some([], []) else None
         | Prefix expected ->
             let rec matchPrefix exp seg =
                 match exp, seg with
                 | [], remaining -> Some([], remaining)
                 | e :: et, s :: st when e = s -> matchPrefix et st
                 | _ -> None
+
             matchPrefix expected segments
         | Pattern matcher -> matcher segments
 
@@ -88,9 +83,9 @@ module RoutePath =
                 | _ -> None
 
             match matchBefore before segments with
-            | Some (param :: remaining) ->
+            | Some(param :: remaining) ->
                 match Int32.TryParse param with
-                | true, value -> matchAfter after remaining [box value]
+                | true, value -> matchAfter after remaining [ box value ]
                 | false, _ -> None
             | _ -> None)
 
@@ -114,7 +109,7 @@ module RoutePath =
                 | _ -> None
 
             match matchBefore before segments with
-            | Some (param :: remaining) -> matchAfter after remaining [box param]
+            | Some(param :: remaining) -> matchAfter after remaining [ box param ]
             | _ -> None)
 
 /// <summary>
@@ -144,60 +139,54 @@ module RoutePattern =
         {
             Method = method
             Path = path
-            ParamExtractor = fun segments ->
-                match RoutePath.tryMatch path segments with
-                | Some (parameters, []) -> Some parameters
-                | _ -> None
+            ParamExtractor =
+                fun segments ->
+                    match RoutePath.tryMatch path segments with
+                    | Some(parameters, []) -> Some parameters
+                    | _ -> None
         }
 
     /// <summary>
     /// Creates a GET route pattern.
     /// </summary>
     /// <param name="path">The route path pattern.</param>
-    let get (path: RoutePath) : RoutePattern =
-        create HttpMethod.GET path
+    let get (path: RoutePath) : RoutePattern = create HttpMethod.GET path
 
     /// <summary>
     /// Creates a POST route pattern.
     /// </summary>
     /// <param name="path">The route path pattern.</param>
-    let post (path: RoutePath) : RoutePattern =
-        create HttpMethod.POST path
+    let post (path: RoutePath) : RoutePattern = create HttpMethod.POST path
 
     /// <summary>
     /// Creates a PUT route pattern.
     /// </summary>
     /// <param name="path">The route path pattern.</param>
-    let put (path: RoutePath) : RoutePattern =
-        create HttpMethod.PUT path
+    let put (path: RoutePath) : RoutePattern = create HttpMethod.PUT path
 
     /// <summary>
     /// Creates a DELETE route pattern.
     /// </summary>
     /// <param name="path">The route path pattern.</param>
-    let delete (path: RoutePath) : RoutePattern =
-        create HttpMethod.DELETE path
+    let delete (path: RoutePath) : RoutePattern = create HttpMethod.DELETE path
 
     /// <summary>
     /// Creates a PATCH route pattern.
     /// </summary>
     /// <param name="path">The route path pattern.</param>
-    let patch (path: RoutePath) : RoutePattern =
-        create HttpMethod.PATCH path
+    let patch (path: RoutePath) : RoutePattern = create HttpMethod.PATCH path
 
     /// <summary>
     /// Creates a HEAD route pattern.
     /// </summary>
     /// <param name="path">The route path pattern.</param>
-    let head (path: RoutePath) : RoutePattern =
-        create HttpMethod.HEAD path
+    let head (path: RoutePath) : RoutePattern = create HttpMethod.HEAD path
 
     /// <summary>
     /// Creates an OPTIONS route pattern.
     /// </summary>
     /// <param name="path">The route path pattern.</param>
-    let options (path: RoutePath) : RoutePattern =
-        create HttpMethod.OPTIONS path
+    let options (path: RoutePath) : RoutePattern = create HttpMethod.OPTIONS path
 
     /// <summary>
     /// Attempts to match a route pattern against an HTTP request.
@@ -221,12 +210,13 @@ module Route =
     /// <param name="routeStr">The route string in format "METHOD /path" or "METHOD /path/:param".</param>
     let ofString (routeStr: string) : RoutePattern =
         let parts = routeStr.Split([| ' ' |], StringSplitOptions.RemoveEmptyEntries)
+
         match parts with
         | [| methodStr; pathStr |] ->
             let method = HttpMethod.fromString methodStr
+
             let segments =
-                pathStr.Split([| '/' |], StringSplitOptions.RemoveEmptyEntries)
-                |> Array.toList
+                pathStr.Split([| '/' |], StringSplitOptions.RemoveEmptyEntries) |> Array.toList
 
             // Build path using accumulator to correctly handle parameters
             let rec buildPath (acc: string list) (segs: string list) =
@@ -243,7 +233,11 @@ module Route =
 
             RoutePattern.create method (buildPath [] segments)
         | _ ->
-            let errorMsg = sprintf "Invalid route string format: '%s'. Expected format: 'METHOD /path' (e.g., 'GET /users' or 'POST /users/:id')" routeStr
+            let errorMsg =
+                sprintf
+                    "Invalid route string format: '%s'. Expected format: 'METHOD /path' (e.g., 'GET /users' or 'POST /users/:id')"
+                    routeStr
+
             invalidArg "routeStr" errorMsg
 
     /// <summary>

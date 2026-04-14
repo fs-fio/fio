@@ -15,717 +15,880 @@ open System
 open System.Threading.Tasks
 open System.Diagnostics
 
-let private runtimes () = [
-    new DirectRuntime() :> FIORuntime
-    new CooperativeRuntime() :> FIORuntime
-    new ConcurrentRuntime() :> FIORuntime
-]
+let private runtimes () =
+    [
+        new DirectRuntime() :> FIORuntime
+        new CooperativeRuntime() :> FIORuntime
+        new ConcurrentRuntime() :> FIORuntime
+    ]
 
 let private testAllRuntimes name (f: FIORuntime -> unit) =
-    testList name [
-        for rt in runtimes () ->
-            testCase (rt.GetType().Name) (fun () -> f rt)
-    ]
+    testList name [ for rt in runtimes () -> testCase (rt.GetType().Name) (fun () -> f rt) ]
 
 [<Tests>]
 let factoryTests =
-    testList "Factory Functions" [
+    testList
+        "Factory Functions"
+        [
+
+            testPropertyWithConfig fsCheckConfig "unit - returns unit"
+            <| fun (runtime: FIORuntime) ->
+                let eff = FIO.unit ()
+
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                Expect.equal result () "FIO.unit should return unit"
+
+            testPropertyWithConfig fsCheckConfig "succeed - returns the provided value"
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
+
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                Expect.equal result value "FIO.succeed should return the provided value"
+
+            testPropertyWithConfig fsCheckConfig "fail - fails with the provided error"
+            <| fun (runtime: FIORuntime, error: string) ->
+                let eff = FIO.fail error
+
+                let result = runtime.Run(eff).UnsafeError()
+
+                Expect.equal result error "FIO.fail should fail with the provided error"
+
+            testPropertyWithConfig fsCheckConfig "interrupt - results in Interrupted fiber"
+            <| fun (runtime: FIORuntime) ->
+                let eff = FIO.interrupt (ExplicitInterrupt, "test interrupt")
+
+                let fiber = runtime.Run eff
+                let fiberResult = fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
+
+                match fiberResult with
+                | Interrupted ex ->
+                    Expect.equal
+                        ex.fiberId
+                        fiber.Id
+                        "FIO.interrupt should set the fiberId in the exception to the current fiber's ID"
+
+                    Expect.equal
+                        ex.cause
+                        ExplicitInterrupt
+                        "FIO.interrupt should set the provided cause in the exception"
+
+                    Expect.equal
+                        ex.message
+                        "test interrupt"
+                        "FIO.interrupt should set the provided message in the exception"
+                | _ -> failtest "FIO.interrupt should result in Interrupted"
+
+            testPropertyWithConfig fsCheckConfig "interrupt - with Timeout cause"
+            <| fun (runtime: FIORuntime) ->
+                let eff = FIO.interrupt<int, exn> (Timeout 1000.0, "timeout test")
+
+                let fiber = runtime.Run eff
+                let fiberResult = fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
+
+                match fiberResult with
+                | Interrupted ex ->
+                    Expect.equal
+                        ex.fiberId
+                        fiber.Id
+                        "FIO.interrupt should set the fiberId in the exception to the current fiber's ID"
+
+                    Expect.equal
+                        ex.cause
+                        (Timeout 1000.0)
+                        "FIO.interrupt should set the provided Timeout cause in the exception"
+
+                    Expect.equal
+                        ex.message
+                        "timeout test"
+                        "FIO.interrupt should set the provided message in the exception"
+                | _ -> failtest "FIO.interrupt with Timeout should result in Interrupted"
+
+            testPropertyWithConfig fsCheckConfig "interrupt - with ParentInterrupted cause"
+            <| fun (runtime: FIORuntime) ->
+                let parentGuid = Guid.NewGuid()
+
+                let eff =
+                    FIO.interrupt<int, exn> (ParentInterrupted parentGuid, "parent interrupt test")
+
+                let fiber = runtime.Run eff
+                let fiberResult = fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
+
+                match fiberResult with
+                | Interrupted ex ->
+                    Expect.equal
+                        ex.fiberId
+                        fiber.Id
+                        "FIO.interrupt should set the fiberId in the exception to the current fiber's ID"
+
+                    Expect.equal
+                        ex.cause
+                        (ParentInterrupted parentGuid)
+                        "FIO.interrupt should set the provided ParentInterrupted cause in the exception"
 
-        testPropertyWithConfig fsCheckConfig "unit - returns unit"
-        <| fun (runtime: FIORuntime) ->
-            let eff = FIO.unit ()
+                    Expect.equal
+                        ex.message
+                        "parent interrupt test"
+                        "FIO.interrupt should set the provided message in the exception"
+                | _ -> failtest "FIO.interrupt with ParentInterrupted should result in Interrupted"
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+            testPropertyWithConfig fsCheckConfig "interrupt - with ResourceExhaustion cause"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    FIO.interrupt<int, exn> (ResourceExhaustion "out of memory", "resource test")
 
-            Expect.equal result () "FIO.unit should return unit"
+                let fiber = runtime.Run eff
+                let fiberResult = fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
 
-        testPropertyWithConfig fsCheckConfig "succeed - returns the provided value"
-        <| fun (runtime: FIORuntime, value: int) ->
-            let eff = FIO.succeed value
+                match fiberResult with
+                | Interrupted ex ->
+                    Expect.equal
+                        ex.fiberId
+                        fiber.Id
+                        "FIO.interrupt should set the fiberId in the exception to the current fiber's ID"
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                    Expect.equal
+                        ex.cause
+                        (ResourceExhaustion "out of memory")
+                        "FIO.interrupt should set the provided ResourceExhaustion cause in the exception"
 
-            Expect.equal result value "FIO.succeed should return the provided value"
+                    Expect.equal
+                        ex.message
+                        "resource test"
+                        "FIO.interrupt should set the provided message in the exception"
+                | _ -> failtest "FIO.interrupt with ResourceExhaustion should result in Interrupted"
 
-        testPropertyWithConfig fsCheckConfig "fail - fails with the provided error"
-        <| fun (runtime: FIORuntime, error: string) ->
-            let eff = FIO.fail error
+            testPropertyWithConfig fsCheckConfig "interrupt - with InvalidArgument cause"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    FIO.interrupt<int, exn> (InvalidArgument("param", "bad value"), "invalid arg test")
 
-            let result = runtime.Run(eff).UnsafeError()
+                let fiber = runtime.Run eff
+                let fiberResult = fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
 
-            Expect.equal result error "FIO.fail should fail with the provided error"
+                match fiberResult with
+                | Interrupted ex ->
+                    Expect.equal
+                        ex.fiberId
+                        fiber.Id
+                        "FIO.interrupt should set the fiberId in the exception to the current fiber's ID"
 
-        testPropertyWithConfig fsCheckConfig "interrupt - results in Interrupted fiber"
-        <| fun (runtime: FIORuntime) ->
-            let eff = FIO.interrupt (ExplicitInterrupt, "test interrupt")
+                    Expect.equal
+                        ex.cause
+                        (InvalidArgument("param", "bad value"))
+                        "FIO.interrupt should set the provided InvalidArgument cause in the exception"
 
-            let fiber = runtime.Run eff
-            let fiberResult = fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
+                    Expect.equal
+                        ex.message
+                        "invalid arg test"
+                        "FIO.interrupt should set the provided message in the exception"
+                | _ -> failtest "FIO.interrupt with InvalidArgument should result in Interrupted"
 
-            match fiberResult with
-            | Interrupted ex ->
-                Expect.equal ex.fiberId fiber.Id "FIO.interrupt should set the fiberId in the exception to the current fiber's ID"
-                Expect.equal ex.cause ExplicitInterrupt "FIO.interrupt should set the provided cause in the exception"
-                Expect.equal ex.message "test interrupt" "FIO.interrupt should set the provided message in the exception"
-            | _ -> failtest "FIO.interrupt should result in Interrupted"
+            testPropertyWithConfig fsCheckConfig "attempt - succeeds when function succeeds"
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.attempt ((fun () -> value), (fun ex -> ex.Message))
 
-        testPropertyWithConfig fsCheckConfig "interrupt - with Timeout cause"
-        <| fun (runtime: FIORuntime) ->
-            let eff = FIO.interrupt<int, exn> (Timeout 1000.0, "timeout test")
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            let fiber = runtime.Run eff
-            let fiberResult = fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
+                Expect.equal result value "FIO.attempt should return the function result"
 
-            match fiberResult with
-            | Interrupted ex ->
-                Expect.equal ex.fiberId fiber.Id "FIO.interrupt should set the fiberId in the exception to the current fiber's ID"
-                Expect.equal ex.cause (Timeout 1000.0) "FIO.interrupt should set the provided Timeout cause in the exception"
-                Expect.equal ex.message "timeout test" "FIO.interrupt should set the provided message in the exception"
-            | _ -> failtest "FIO.interrupt with Timeout should result in Interrupted"
+            testPropertyWithConfig fsCheckConfig "attempt - maps exception to error when function throws"
+            <| fun (runtime: FIORuntime, errorMsg: NonEmptyString) ->
+                let msg = errorMsg.Get
+                let eff = FIO.attempt ((fun () -> raise (Exception msg)), (fun ex -> ex.Message))
 
-        testPropertyWithConfig fsCheckConfig "interrupt - with ParentInterrupted cause"
-        <| fun (runtime: FIORuntime) ->
-            let parentGuid = Guid.NewGuid()
-            let eff = FIO.interrupt<int, exn> (ParentInterrupted parentGuid, "parent interrupt test")
+                let result = runtime.Run(eff).UnsafeError()
 
-            let fiber = runtime.Run eff
-            let fiberResult = fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
+                Expect.equal result msg "FIO.attempt should map exception to error"
 
-            match fiberResult with
-            | Interrupted ex ->
-                Expect.equal ex.fiberId fiber.Id "FIO.interrupt should set the fiberId in the exception to the current fiber's ID"
-                Expect.equal ex.cause (ParentInterrupted parentGuid) "FIO.interrupt should set the provided ParentInterrupted cause in the exception"
-                Expect.equal ex.message "parent interrupt test" "FIO.interrupt should set the provided message in the exception"
-            | _ -> failtest "FIO.interrupt with ParentInterrupted should result in Interrupted"
+            testPropertyWithConfig fsCheckConfig "attemptExn - succeeds when function succeeds"
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.attemptExn (fun () -> value)
 
-        testPropertyWithConfig fsCheckConfig "interrupt - with ResourceExhaustion cause"
-        <| fun (runtime: FIORuntime) ->
-            let eff = FIO.interrupt<int, exn> (ResourceExhaustion "out of memory", "resource test")
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            let fiber = runtime.Run eff
-            let fiberResult = fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
+                Expect.equal result value "FIO.attemptExn should return the function result"
 
-            match fiberResult with
-            | Interrupted ex ->
-                Expect.equal ex.fiberId fiber.Id "FIO.interrupt should set the fiberId in the exception to the current fiber's ID"
-                Expect.equal ex.cause (ResourceExhaustion "out of memory") "FIO.interrupt should set the provided ResourceExhaustion cause in the exception"
-                Expect.equal ex.message "resource test" "FIO.interrupt should set the provided message in the exception"
-            | _ -> failtest "FIO.interrupt with ResourceExhaustion should result in Interrupted"
+            testPropertyWithConfig fsCheckConfig "attemptExn - passes through exception"
+            <| fun (runtime: FIORuntime, errorMsg: NonEmptyString) ->
+                let msg = errorMsg.Get
+                let ex = Exception msg
+                let eff = FIO.attemptExn (fun () -> raise ex)
 
-        testPropertyWithConfig fsCheckConfig "interrupt - with InvalidArgument cause"
-        <| fun (runtime: FIORuntime) ->
-            let eff = FIO.interrupt<int, exn> (InvalidArgument ("param", "bad value"), "invalid arg test")
+                let result = runtime.Run(eff).UnsafeError()
 
-            let fiber = runtime.Run eff
-            let fiberResult = fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
+                Expect.equal result.Message msg "FIO.attemptExn should pass through exception"
 
-            match fiberResult with
-            | Interrupted ex ->
-                Expect.equal ex.fiberId fiber.Id "FIO.interrupt should set the fiberId in the exception to the current fiber's ID"
-                Expect.equal ex.cause (InvalidArgument ("param", "bad value")) "FIO.interrupt should set the provided InvalidArgument cause in the exception"
-                Expect.equal ex.message "invalid arg test" "FIO.interrupt should set the provided message in the exception"
-            | _ -> failtest "FIO.interrupt with InvalidArgument should result in Interrupted"
+            testPropertyWithConfig fsCheckConfig "fromResult - converts Ok to success"
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.fromResult (Ok value)
 
-        testPropertyWithConfig fsCheckConfig "attempt - succeeds when function succeeds"
-        <| fun (runtime: FIORuntime, value: int) ->
-            let eff = FIO.attempt ((fun () -> value), (fun ex -> ex.Message))
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                Expect.equal result value "FIO.fromResult should convert Ok to success"
 
-            Expect.equal result value "FIO.attempt should return the function result"
+            testPropertyWithConfig fsCheckConfig "fromResult - converts Error to fail"
+            <| fun (runtime: FIORuntime, error: string) ->
+                let eff = FIO.fromResult (Error error)
 
-        testPropertyWithConfig fsCheckConfig "attempt - maps exception to error when function throws"
-        <| fun (runtime: FIORuntime, errorMsg: NonEmptyString) ->
-            let msg = errorMsg.Get
-            let eff = FIO.attempt ((fun () -> raise (Exception msg)), (fun ex -> ex.Message))
+                let result = runtime.Run(eff).UnsafeError()
 
-            let result = runtime.Run(eff).UnsafeError()
+                Expect.equal result error "FIO.fromResult should convert Error to fail"
 
-            Expect.equal result msg "FIO.attempt should map exception to error"
+            testPropertyWithConfig fsCheckConfig "fromOption - converts Some to success"
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.fromOption (Some value, fun () -> "none error")
 
-        testPropertyWithConfig fsCheckConfig "attemptExn - succeeds when function succeeds"
-        <| fun (runtime: FIORuntime, value: int) ->
-            let eff = FIO.attemptExn (fun () -> value)
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                Expect.equal result value "FIO.fromOption should convert Some to success"
 
-            Expect.equal result value "FIO.attemptExn should return the function result"
+            testPropertyWithConfig fsCheckConfig "fromOption - converts None to error using onNone"
+            <| fun (runtime: FIORuntime, error: string) ->
+                let eff = FIO.fromOption (None, fun () -> error)
 
-        testPropertyWithConfig fsCheckConfig "attemptExn - passes through exception"
-        <| fun (runtime: FIORuntime, errorMsg: NonEmptyString) ->
-            let msg = errorMsg.Get
-            let ex = Exception msg
-            let eff = FIO.attemptExn (fun () -> raise ex)
+                let result = runtime.Run(eff).UnsafeError()
 
-            let result = runtime.Run(eff).UnsafeError()
+                Expect.equal result error "FIO.fromOption should convert None to error using onNone"
 
-            Expect.equal result.Message msg "FIO.attemptExn should pass through exception"
+            testPropertyWithConfig fsCheckConfig "fromOptionExn - returns success for Some"
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.fromOptionExn (Some value)
 
-        testPropertyWithConfig fsCheckConfig "fromResult - converts Ok to success"
-        <| fun (runtime: FIORuntime, value: int) ->
-            let eff = FIO.fromResult (Ok value)
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                Expect.equal result value "FIO.fromOptionExn should return value for Some"
 
-            Expect.equal result value "FIO.fromResult should convert Ok to success"
+            testPropertyWithConfig fsCheckConfig "fromOptionExn - fails with ArgumentException for None"
+            <| fun (runtime: FIORuntime) ->
+                let eff = FIO.fromOptionExn<int> None
 
-        testPropertyWithConfig fsCheckConfig "fromResult - converts Error to fail"
-        <| fun (runtime: FIORuntime, error: string) ->
-            let eff = FIO.fromResult (Error error)
+                let result = runtime.Run(eff).UnsafeError()
 
-            let result = runtime.Run(eff).UnsafeError()
+                Expect.isTrue
+                    (result :? ArgumentException)
+                    "FIO.fromOptionExn should fail with ArgumentException for None"
 
-            Expect.equal result error "FIO.fromResult should convert Error to fail"
+            testPropertyWithConfig fsCheckConfig "fromChoice - converts Choice1Of2 to success"
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.fromChoice (Choice1Of2 value)
 
-        testPropertyWithConfig fsCheckConfig "fromOption - converts Some to success"
-        <| fun (runtime: FIORuntime, value: int) ->
-            let eff = FIO.fromOption (Some value, fun () -> "none error")
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                Expect.equal result value "FIO.fromChoice should convert Choice1Of2 to success"
 
-            Expect.equal result value "FIO.fromOption should convert Some to success"
+            testPropertyWithConfig fsCheckConfig "fromChoice - converts Choice2Of2 to fail"
+            <| fun (runtime: FIORuntime, error: string) ->
+                let eff = FIO.fromChoice (Choice2Of2 error)
 
-        testPropertyWithConfig fsCheckConfig "fromOption - converts None to error using onNone"
-        <| fun (runtime: FIORuntime, error: string) ->
-            let eff = FIO.fromOption (None, fun () -> error)
+                let result = runtime.Run(eff).UnsafeError()
 
-            let result = runtime.Run(eff).UnsafeError()
+                Expect.equal result error "FIO.fromChoice should convert Choice2Of2 to fail"
 
-            Expect.equal result error "FIO.fromOption should convert None to error using onNone"
+            testPropertyWithConfig fsCheckConfig "awaitTask - completes successfully"
+            <| fun (runtime: FIORuntime) ->
+                let eff = FIO.awaitTask (Task.CompletedTask, fun ex -> ex.Message)
 
-        testPropertyWithConfig fsCheckConfig "fromOptionExn - returns success for Some"
-        <| fun (runtime: FIORuntime, value: int) ->
-            let eff = FIO.fromOptionExn (Some value)
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                Expect.equal result () "FIO.awaitTask should complete successfully"
 
-            Expect.equal result value "FIO.fromOptionExn should return value for Some"
+            testAllRuntimes "awaitTask - maps exception on faulted task" (fun runtime ->
+                let eff =
+                    FIO.awaitTask (Task.FromException(Exception "task failed"), fun ex -> ex.Message)
 
-        testPropertyWithConfig fsCheckConfig "fromOptionExn - fails with ArgumentException for None"
-        <| fun (runtime: FIORuntime) ->
-            let eff = FIO.fromOptionExn<int> None
+                let result = runtime.Run(eff).UnsafeError()
 
-            let result = runtime.Run(eff).UnsafeError()
+                Expect.equal result "task failed" "FIO.awaitTask should map exception to error")
 
-            Expect.isTrue (result :? ArgumentException) "FIO.fromOptionExn should fail with ArgumentException for None"
+            testPropertyWithConfig fsCheckConfig "awaitTaskExn - completes successfully"
+            <| fun (runtime: FIORuntime) ->
+                let eff = FIO.awaitTaskExn Task.CompletedTask
 
-        testPropertyWithConfig fsCheckConfig "fromChoice - converts Choice1Of2 to success"
-        <| fun (runtime: FIORuntime, value: int) ->
-            let eff = FIO.fromChoice (Choice1Of2 value)
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                Expect.equal result () "FIO.awaitTaskExn should complete successfully"
 
-            Expect.equal result value "FIO.fromChoice should convert Choice1Of2 to success"
+            testPropertyWithConfig fsCheckConfig "awaitTaskExn - propagates exception"
+            <| fun (runtime: FIORuntime) ->
+                let ex = Exception "test error"
+                let faultedTask = Task.FromException ex
+                let eff = FIO.awaitTaskExn faultedTask
 
-        testPropertyWithConfig fsCheckConfig "fromChoice - converts Choice2Of2 to fail"
-        <| fun (runtime: FIORuntime, error: string) ->
-            let eff = FIO.fromChoice (Choice2Of2 error)
+                let result = runtime.Run(eff).UnsafeError()
 
-            let result = runtime.Run(eff).UnsafeError()
+                Expect.stringContains result.Message "test error" "FIO.awaitTaskExn should propagate exception"
 
-            Expect.equal result error "FIO.fromChoice should convert Choice2Of2 to fail"
+            testPropertyWithConfig fsCheckConfig "awaitGenericTask - returns task result"
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.awaitGenericTask (Task.FromResult value, fun ex -> ex.Message)
 
-        testPropertyWithConfig fsCheckConfig "awaitTask - completes successfully"
-        <| fun (runtime: FIORuntime) ->
-            let eff = FIO.awaitTask (Task.CompletedTask, fun ex -> ex.Message)
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                Expect.equal result value "FIO.awaitGenericTask should return task result"
 
-            Expect.equal result () "FIO.awaitTask should complete successfully"
+            testAllRuntimes "awaitGenericTask - maps exception on faulted task" (fun runtime ->
+                let eff =
+                    FIO.awaitGenericTask (
+                        Task.FromException<int>(Exception "generic task failed"),
+                        fun ex -> ex.Message
+                    )
 
-        testAllRuntimes "awaitTask - maps exception on faulted task" (fun runtime ->
-            let eff = FIO.awaitTask (Task.FromException(Exception "task failed"), fun ex -> ex.Message)
+                let result = runtime.Run(eff).UnsafeError()
 
-            let result = runtime.Run(eff).UnsafeError()
+                Expect.equal result "generic task failed" "FIO.awaitGenericTask should map exception to error")
 
-            Expect.equal result "task failed" "FIO.awaitTask should map exception to error")
+            testPropertyWithConfig fsCheckConfig "awaitGenericTaskExn - returns task result"
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.awaitGenericTaskExn (Task.FromResult value)
 
-        testPropertyWithConfig fsCheckConfig "awaitTaskExn - completes successfully"
-        <| fun (runtime: FIORuntime) ->
-            let eff = FIO.awaitTaskExn Task.CompletedTask
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                Expect.equal result value "FIO.awaitGenericTaskExn should return task result"
 
-            Expect.equal result () "FIO.awaitTaskExn should complete successfully"
+            testPropertyWithConfig fsCheckConfig "awaitGenericTaskExn - propagates exception"
+            <| fun (runtime: FIORuntime) ->
+                let ex = Exception "generic task error"
+                let faultedTask = Task.FromException<int> ex
+                let eff = FIO.awaitGenericTaskExn faultedTask
 
-        testPropertyWithConfig fsCheckConfig "awaitTaskExn - propagates exception"
-        <| fun (runtime: FIORuntime) ->
-            let ex = Exception "test error"
-            let faultedTask = Task.FromException ex
-            let eff = FIO.awaitTaskExn faultedTask
+                let result = runtime.Run(eff).UnsafeError()
 
-            let result = runtime.Run(eff).UnsafeError()
+                Expect.stringContains
+                    result.Message
+                    "generic task error"
+                    "FIO.awaitGenericTaskExn should propagate exception"
 
-            Expect.stringContains result.Message "test error" "FIO.awaitTaskExn should propagate exception"
+            testPropertyWithConfig fsCheckConfig "awaitAsync - returns async result"
+            <| fun (runtime: FIORuntime, value: int) ->
+                let asyncComp = async { return value }
+                let eff = FIO.awaitAsync (asyncComp, id)
 
-        testPropertyWithConfig fsCheckConfig "awaitGenericTask - returns task result"
-        <| fun (runtime: FIORuntime, value: int) ->
-            let eff = FIO.awaitGenericTask (Task.FromResult value, fun ex -> ex.Message)
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                Expect.equal result value "FIO.awaitAsync should return async result"
 
-            Expect.equal result value "FIO.awaitGenericTask should return task result"
+            testAllRuntimes "awaitAsync - maps exception on failed async" (fun runtime ->
+                let asyncComp = async { return failwith "async failed" }
+                let eff = FIO.awaitAsync (asyncComp, fun ex -> ex.Message)
 
-        testAllRuntimes "awaitGenericTask - maps exception on faulted task" (fun runtime ->
-            let eff = FIO.awaitGenericTask (Task.FromException<int>(Exception "generic task failed"), fun ex -> ex.Message)
+                let result = runtime.Run(eff).UnsafeError()
 
-            let result = runtime.Run(eff).UnsafeError()
+                Expect.stringContains result "async failed" "FIO.awaitAsync should map exception to error")
 
-            Expect.equal result "generic task failed" "FIO.awaitGenericTask should map exception to error")
+            testPropertyWithConfig fsCheckConfig "awaitAsyncExn - returns async result"
+            <| fun (runtime: FIORuntime, value: int) ->
+                let asyncComp = async { return value }
+                let eff = FIO.awaitAsyncExn asyncComp
 
-        testPropertyWithConfig fsCheckConfig "awaitGenericTaskExn - returns task result"
-        <| fun (runtime: FIORuntime, value: int) ->
-            let eff = FIO.awaitGenericTaskExn (Task.FromResult value)
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                Expect.equal result value "FIO.awaitAsyncExn should return async result"
 
-            Expect.equal result value "FIO.awaitGenericTaskExn should return task result"
+            testAllRuntimes "awaitAsyncExn - propagates exception on failed async" (fun runtime ->
+                let asyncComp = async { return failwith "async exn failed" }
+                let eff = FIO.awaitAsyncExn asyncComp
 
-        testPropertyWithConfig fsCheckConfig "awaitGenericTaskExn - propagates exception"
-        <| fun (runtime: FIORuntime) ->
-            let ex = Exception "generic task error"
-            let faultedTask = Task.FromException<int> ex
-            let eff = FIO.awaitGenericTaskExn faultedTask
+                let result = runtime.Run(eff).UnsafeError()
 
-            let result = runtime.Run(eff).UnsafeError()
+                Expect.stringContains result.Message "async exn failed" "FIO.awaitAsyncExn should propagate exception")
 
-            Expect.stringContains result.Message "generic task error" "FIO.awaitGenericTaskExn should propagate exception"
+            testAllRuntimes "fromTask - forks task into fiber" (fun runtime ->
+                let mutable executed = false
 
-        testPropertyWithConfig fsCheckConfig "awaitAsync - returns async result"
-        <| fun (runtime: FIORuntime, value: int) ->
-            let asyncComp = async { return value }
-            let eff = FIO.awaitAsync(asyncComp, id)
+                let eff =
+                    fio {
+                        let! fiber =
+                            FIO.fromTask (
+                                (fun () ->
+                                    executed <- true
+                                    Task.CompletedTask),
+                                id
+                            )
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                        let! result = fiber.Join()
+                        return executed, result
+                    }
 
-            Expect.equal result value "FIO.awaitAsync should return async result"
+                let wasExecuted, _ = runtime.Run(eff).UnsafeSuccess()
 
-        testAllRuntimes "awaitAsync - maps exception on failed async" (fun runtime ->
-            let asyncComp = async { return failwith "async failed" }
-            let eff = FIO.awaitAsync(asyncComp, fun ex -> ex.Message)
+                Expect.isTrue wasExecuted "FIO.fromTask should execute the task")
 
-            let result = runtime.Run(eff).UnsafeError()
+            testAllRuntimes "fromTask - propagates faulted task as error" (fun runtime ->
+                let eff =
+                    fio {
+                        let! fiber =
+                            FIO.fromTask ((fun () -> Task.FromException(Exception "task err")), fun ex -> ex.Message)
 
-            Expect.stringContains result "async failed" "FIO.awaitAsync should map exception to error")
+                        let! result = fiber.Join()
+                        return result
+                    }
 
-        testPropertyWithConfig fsCheckConfig "awaitAsyncExn - returns async result"
-        <| fun (runtime: FIORuntime, value: int) ->
-            let asyncComp = async { return value }
-            let eff = FIO.awaitAsyncExn asyncComp
+                let result = runtime.Run(eff).UnsafeError()
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                Expect.equal result "task err" "FIO.fromTask should propagate faulted task error")
 
-            Expect.equal result value "FIO.awaitAsyncExn should return async result"
+            testAllRuntimes "fromTaskExn - forks task into fiber" (fun runtime ->
+                let mutable executed = false
 
-        testAllRuntimes "awaitAsyncExn - propagates exception on failed async" (fun runtime ->
-            let asyncComp = async { return failwith "async exn failed" }
-            let eff = FIO.awaitAsyncExn asyncComp
+                let eff =
+                    fio {
+                        let! fiber =
+                            FIO.fromTaskExn (fun () ->
+                                executed <- true
+                                Task.CompletedTask)
 
-            let result = runtime.Run(eff).UnsafeError()
+                        let! _ = fiber.Join()
+                        return executed
+                    }
 
-            Expect.stringContains result.Message "async exn failed" "FIO.awaitAsyncExn should propagate exception")
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-        testAllRuntimes "fromTask - forks task into fiber" (fun runtime ->
-            let mutable executed = false
-            let eff = fio {
-                let! fiber = FIO.fromTask((fun () ->
-                    executed <- true
-                    Task.CompletedTask), id)
-                let! result = fiber.Join()
-                return executed, result
-            }
+                Expect.isTrue result "FIO.fromTaskExn should execute the task")
 
-            let wasExecuted, _ = runtime.Run(eff).UnsafeSuccess()
+            testAllRuntimes "fromTaskExn - propagates faulted task as exception" (fun runtime ->
+                let eff =
+                    fio {
+                        let! fiber = FIO.fromTaskExn (fun () -> Task.FromException(Exception "task exn err"))
+                        let! result = fiber.Join()
+                        return result
+                    }
 
-            Expect.isTrue wasExecuted "FIO.fromTask should execute the task")
+                let result = runtime.Run(eff).UnsafeError()
 
-        testAllRuntimes "fromTask - propagates faulted task as error" (fun runtime ->
-            let eff = fio {
-                let! fiber = FIO.fromTask((fun () ->
-                    Task.FromException(Exception "task err")),
-                    fun ex -> ex.Message)
-                let! result = fiber.Join()
-                return result
-            }
+                Expect.stringContains result.Message "task exn err" "FIO.fromTaskExn should propagate exception")
 
-            let result = runtime.Run(eff).UnsafeError()
+            testAllRuntimes "fromGenericTask - forks generic task into fiber" (fun runtime ->
+                let value = 42
 
-            Expect.equal result "task err" "FIO.fromTask should propagate faulted task error")
+                let eff =
+                    fio {
+                        let! fiber = FIO.fromGenericTask ((fun () -> Task.FromResult value), id)
+                        let! result = fiber.Join()
+                        return result
+                    }
 
-        testAllRuntimes "fromTaskExn - forks task into fiber" (fun runtime ->
-            let mutable executed = false
-            let eff = fio {
-                let! fiber = FIO.fromTaskExn(fun () ->
-                    executed <- true
-                    Task.CompletedTask)
-                let! _ = fiber.Join()
-                return executed
-            }
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                Expect.equal result value "FIO.fromGenericTask should return task result")
 
-            Expect.isTrue result "FIO.fromTaskExn should execute the task")
+            testAllRuntimes "fromGenericTask - propagates faulted task as error" (fun runtime ->
+                let eff =
+                    fio {
+                        let! fiber =
+                            FIO.fromGenericTask (
+                                (fun () -> Task.FromException<int>(Exception "generic err")),
+                                fun ex -> ex.Message
+                            )
 
-        testAllRuntimes "fromTaskExn - propagates faulted task as exception" (fun runtime ->
-            let eff = fio {
-                let! fiber = FIO.fromTaskExn(
-                    fun () -> Task.FromException(Exception "task exn err"))
-                let! result = fiber.Join()
-                return result
-            }
+                        let! result = fiber.Join()
+                        return result
+                    }
 
-            let result = runtime.Run(eff).UnsafeError()
+                let result = runtime.Run(eff).UnsafeError()
 
-            Expect.stringContains result.Message "task exn err" "FIO.fromTaskExn should propagate exception")
+                Expect.equal result "generic err" "FIO.fromGenericTask should propagate faulted task error")
 
-        testAllRuntimes "fromGenericTask - forks generic task into fiber" (fun runtime ->
-            let value = 42
-            let eff = fio {
-                let! fiber = FIO.fromGenericTask(
-                    (fun () -> Task.FromResult value),
-                    id)
-                let! result = fiber.Join()
-                return result
-            }
+            testAllRuntimes "fromGenericTaskExn - forks generic task into fiber" (fun runtime ->
+                let value = 42
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                let eff =
+                    fio {
+                        let! fiber = FIO.fromGenericTaskExn (fun () -> Task.FromResult value)
+                        let! result = fiber.Join()
+                        return result
+                    }
 
-            Expect.equal result value "FIO.fromGenericTask should return task result")
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-        testAllRuntimes "fromGenericTask - propagates faulted task as error" (fun runtime ->
-            let eff = fio {
-                let! fiber = FIO.fromGenericTask((fun () ->
-                    Task.FromException<int>(Exception "generic err")),
-                    fun ex -> ex.Message)
-                let! result = fiber.Join()
-                return result
-            }
+                Expect.equal result value "FIO.fromGenericTaskExn should return task result")
 
-            let result = runtime.Run(eff).UnsafeError()
+            testAllRuntimes "fromGenericTaskExn - propagates faulted task as exception" (fun runtime ->
+                let eff =
+                    fio {
+                        let! fiber =
+                            FIO.fromGenericTaskExn (fun () -> Task.FromException<int>(Exception "generic exn err"))
 
-            Expect.equal result "generic err" "FIO.fromGenericTask should propagate faulted task error")
+                        let! result = fiber.Join()
+                        return result
+                    }
 
-        testAllRuntimes "fromGenericTaskExn - forks generic task into fiber" (fun runtime ->
-            let value = 42
-            let eff = fio {
-                let! fiber = FIO.fromGenericTaskExn(
-                    fun () -> Task.FromResult value)
-                let! result = fiber.Join()
-                return result
-            }
+                let result = runtime.Run(eff).UnsafeError()
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                Expect.stringContains
+                    result.Message
+                    "generic exn err"
+                    "FIO.fromGenericTaskExn should propagate exception")
 
-            Expect.equal result value "FIO.fromGenericTaskExn should return task result")
+            testPropertyWithConfig fsCheckConfig "suspend - defers effect construction"
+            <| fun (runtime: FIORuntime, value: int) ->
+                let mutable constructed = false
 
-        testAllRuntimes "fromGenericTaskExn - propagates faulted task as exception" (fun runtime ->
-            let eff = fio {
-                let! fiber = FIO.fromGenericTaskExn(
-                    fun () -> Task.FromException<int>(Exception "generic exn err"))
-                let! result = fiber.Join()
-                return result
-            }
+                let eff =
+                    FIO.suspend (fun () ->
+                        constructed <- true
+                        FIO.succeed value)
 
-            let result = runtime.Run(eff).UnsafeError()
+                Expect.isFalse constructed "Effect should not be constructed before run"
 
-            Expect.stringContains result.Message "generic exn err" "FIO.fromGenericTaskExn should propagate exception")
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-        testPropertyWithConfig fsCheckConfig "suspend - defers effect construction"
-        <| fun (runtime: FIORuntime, value: int) ->
-            let mutable constructed = false
-            let eff = FIO.suspend (fun () ->
-                constructed <- true
-                FIO.succeed value)
+                Expect.isTrue constructed "Effect should be constructed after run"
+                Expect.equal result value "FIO.suspend should return the inner effect result"
 
-            Expect.isFalse constructed "Effect should not be constructed before run"
+            testPropertyWithConfig fsCheckConfig "suspend - allows recursive effs"
+            <| fun (runtime: FIORuntime) ->
+                let rec countdown n =
+                    if n <= 0 then
+                        FIO.succeed n
+                    else
+                        FIO.suspend (fun () -> countdown (n - 1))
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                let result = runtime.Run(countdown 100).UnsafeSuccess()
+                Expect.equal result 0 "Recursive suspend should work"
 
-            Expect.isTrue constructed "Effect should be constructed after run"
-            Expect.equal result value "FIO.suspend should return the inner effect result"
+            testPropertyWithConfig fsCheckConfig "sleep - delays execution"
+            <| fun (runtime: FIORuntime) ->
+                let duration = TimeSpan.FromMilliseconds 20.0
 
-        testPropertyWithConfig fsCheckConfig "suspend - allows recursive effs"
-        <| fun (runtime: FIORuntime) ->
-            let rec countdown n =
-                if n <= 0 then FIO.succeed n
-                else FIO.suspend(fun () -> countdown (n - 1))
-            let result = runtime.Run(countdown 100).UnsafeSuccess()
-            Expect.equal result 0 "Recursive suspend should work"
+                let eff =
+                    fio {
+                        let sw = Stopwatch.StartNew()
+                        do! FIO.sleep (duration, id)
+                        sw.Stop()
+                        return sw.Elapsed
+                    }
 
-        testPropertyWithConfig fsCheckConfig "sleep - delays execution"
-        <| fun (runtime: FIORuntime) ->
-            let duration = TimeSpan.FromMilliseconds 20.0
-            let eff = fio {
-                let sw = Stopwatch.StartNew()
-                do! FIO.sleep(duration, id)
-                sw.Stop()
-                return sw.Elapsed
-            }
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                Expect.isGreaterThanOrEqual result.TotalMilliseconds 15.0 "FIO.sleep should delay execution"
 
-            Expect.isGreaterThanOrEqual result.TotalMilliseconds 15.0 "FIO.sleep should delay execution"
+            testPropertyWithConfig fsCheckConfig "sleepExn - delays execution"
+            <| fun (runtime: FIORuntime) ->
+                let duration = TimeSpan.FromMilliseconds 15.0
 
-        testPropertyWithConfig fsCheckConfig "sleepExn - delays execution"
-        <| fun (runtime: FIORuntime) ->
-            let duration = TimeSpan.FromMilliseconds 15.0
-            let eff = fio {
-                let sw = Stopwatch.StartNew()
-                do! FIO.sleepExn duration
-                sw.Stop()
-                return sw.Elapsed
-            }
+                let eff =
+                    fio {
+                        let sw = Stopwatch.StartNew()
+                        do! FIO.sleepExn duration
+                        sw.Stop()
+                        return sw.Elapsed
+                    }
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            Expect.isGreaterThanOrEqual result.TotalMilliseconds 10.0 "FIO.sleepExn should delay execution"
+                Expect.isGreaterThanOrEqual result.TotalMilliseconds 10.0 "FIO.sleepExn should delay execution"
 
-        testAllRuntimes "never - can be raced against completing effect" (fun runtime ->
-            let value = 42
-            let eff = (FIO.never<int, exn>()).Race(FIO.succeed value)
+            testAllRuntimes "never - can be raced against completing effect" (fun runtime ->
+                let value = 42
+                let eff = (FIO.never<int, exn> ()).Race(FIO.succeed value)
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            Expect.equal result value "Race with FIO.never should return the completing effect's result")
+                Expect.equal result value "Race with FIO.never should return the completing effect's result")
 
-        testPropertyWithConfig fsCheckConfig "acquireRelease - runs release on success"
-        <| fun (runtime: FIORuntime, value: int) ->
-            let mutable released = false
-            let acquire = FIO.succeed "resource"
-            let release = fun _ -> released <- true; FIO.unit ()
-            let useResource = fun _ -> FIO.succeed value
+            testPropertyWithConfig fsCheckConfig "acquireRelease - runs release on success"
+            <| fun (runtime: FIORuntime, value: int) ->
+                let mutable released = false
+                let acquire = FIO.succeed "resource"
 
-            let eff = FIO.acquireRelease (acquire, release, useResource)
+                let release =
+                    fun _ ->
+                        released <- true
+                        FIO.unit ()
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                let useResource = fun _ -> FIO.succeed value
 
-            Expect.isTrue released "Release should be called on success"
-            Expect.equal result value "Should return use result"
+                let eff = FIO.acquireRelease (acquire, release, useResource)
 
-        testPropertyWithConfig fsCheckConfig "acquireRelease - runs release on use failure"
-        <| fun (runtime: FIORuntime, error: string) ->
-            let mutable released = false
-            let acquire = FIO.succeed "resource"
-            let release = fun _ -> released <- true; FIO.unit ()
-            let useResource = fun _ -> FIO.fail error
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            let eff = FIO.acquireRelease (acquire, release, useResource)
+                Expect.isTrue released "Release should be called on success"
+                Expect.equal result value "Should return use result"
 
-            let result = runtime.Run(eff).UnsafeError()
+            testPropertyWithConfig fsCheckConfig "acquireRelease - runs release on use failure"
+            <| fun (runtime: FIORuntime, error: string) ->
+                let mutable released = false
+                let acquire = FIO.succeed "resource"
 
-            Expect.isTrue released "Release should be called even on use failure"
-            Expect.equal result error "Should return use error"
+                let release =
+                    fun _ ->
+                        released <- true
+                        FIO.unit ()
 
-        testPropertyWithConfig fsCheckConfig "acquireRelease - does not run release when acquire fails"
-        <| fun (runtime: FIORuntime, error: string) ->
-            let mutable released = false
-            let acquire = FIO.fail error
-            let release = fun _ -> released <- true; FIO.unit ()
-            let useResource = fun _ -> FIO.succeed 42
+                let useResource = fun _ -> FIO.fail error
 
-            let eff = FIO.acquireRelease (acquire, release, useResource)
+                let eff = FIO.acquireRelease (acquire, release, useResource)
 
-            let result = runtime.Run(eff).UnsafeError()
+                let result = runtime.Run(eff).UnsafeError()
 
-            Expect.isFalse released "Release should not be called when acquire fails"
-            Expect.equal result error "Should return acquire error"
+                Expect.isTrue released "Release should be called even on use failure"
+                Expect.equal result error "Should return use error"
 
-        testPropertyWithConfig fsCheckConfig "acquireRelease - releases in reverse order when nested"
-        <| fun (runtime: FIORuntime) ->
-            let mutable releaseOrder = []
-            let acquire1 = FIO.succeed "r1"
-            let release1 = fun _ -> FIO.attemptExn(fun () -> releaseOrder <- releaseOrder @ [1]).Unit()
-            let acquire2 = FIO.succeed "r2"
-            let release2 = fun _ -> FIO.attemptExn(fun () -> releaseOrder <- releaseOrder @ [2]).Unit()
-            let eff = FIO.acquireRelease(acquire1, release1, fun _ ->
-                FIO.acquireRelease(acquire2, release2, fun _ ->
-                    FIO.succeed 42))
-            let _ = runtime.Run(eff).UnsafeSuccess()
-            Expect.equal releaseOrder [2; 1] "Nested resources should release in reverse order"
+            testPropertyWithConfig fsCheckConfig "acquireRelease - does not run release when acquire fails"
+            <| fun (runtime: FIORuntime, error: string) ->
+                let mutable released = false
+                let acquire = FIO.fail error
 
-        testPropertyWithConfig fsCheckConfig "collectAll - preserves order"
-        <| fun (runtime: FIORuntime) ->
-            let mutable order = []
-            let effs = [
-                FIO.attempt ((fun () -> order <- order @ [1]; 1), id)
-                FIO.attempt ((fun () -> order <- order @ [2]; 2), id)
-                FIO.attempt ((fun () -> order <- order @ [3]; 3), id)
-            ]
+                let release =
+                    fun _ ->
+                        released <- true
+                        FIO.unit ()
 
-            let eff = FIO.collectAll effs
+                let useResource = fun _ -> FIO.succeed 42
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                let eff = FIO.acquireRelease (acquire, release, useResource)
 
-            Expect.equal result [1; 2; 3] "collectAll should return results in order"
-            Expect.equal order [1; 2; 3] "collectAll should execute in order"
+                let result = runtime.Run(eff).UnsafeError()
 
-        testPropertyWithConfig fsCheckConfig "collectAll - with single element returns singleton list"
-        <| fun (runtime: FIORuntime, value: int) ->
-            let eff = FIO.collectAll [FIO.succeed value]
+                Expect.isFalse released "Release should not be called when acquire fails"
+                Expect.equal result error "Should return acquire error"
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+            testPropertyWithConfig fsCheckConfig "acquireRelease - releases in reverse order when nested"
+            <| fun (runtime: FIORuntime) ->
+                let mutable releaseOrder = []
+                let acquire1 = FIO.succeed "r1"
 
-            Expect.equal result [value] "collectAll with single element should return singleton list"
+                let release1 =
+                    fun _ -> FIO.attemptExn(fun () -> releaseOrder <- releaseOrder @ [ 1 ]).Unit()
 
-        testPropertyWithConfig fsCheckConfig "collectAll - with empty collection returns empty list"
-        <| fun (runtime: FIORuntime) ->
-            let eff = FIO.collectAll []
+                let acquire2 = FIO.succeed "r2"
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                let release2 =
+                    fun _ -> FIO.attemptExn(fun () -> releaseOrder <- releaseOrder @ [ 2 ]).Unit()
 
-            Expect.equal result [] "collectAll with empty collection should return empty list"
+                let eff =
+                    FIO.acquireRelease (
+                        acquire1,
+                        release1,
+                        fun _ -> FIO.acquireRelease (acquire2, release2, fun _ -> FIO.succeed 42)
+                    )
 
-        testPropertyWithConfig fsCheckConfig "collectAll - short-circuits on error"
-        <| fun (runtime: FIORuntime, error: string) ->
-            let mutable executed = []
-            let effs = [
-                FIO.attempt ((fun () -> executed <- executed @ [1]; 1), fun _ -> "err")
-                FIO.fail error
-                FIO.attempt ((fun () -> executed <- executed @ [3]; 3), fun _ -> "err")
-            ]
+                let _ = runtime.Run(eff).UnsafeSuccess()
+                Expect.equal releaseOrder [ 2; 1 ] "Nested resources should release in reverse order"
 
-            let eff = FIO.collectAll effs
+            testPropertyWithConfig fsCheckConfig "collectAll - preserves order"
+            <| fun (runtime: FIORuntime) ->
+                let mutable order = []
 
-            let result = runtime.Run(eff).UnsafeError()
+                let effs =
+                    [
+                        FIO.attempt (
+                            (fun () ->
+                                order <- order @ [ 1 ]
+                                1),
+                            id
+                        )
+                        FIO.attempt (
+                            (fun () ->
+                                order <- order @ [ 2 ]
+                                2),
+                            id
+                        )
+                        FIO.attempt (
+                            (fun () ->
+                                order <- order @ [ 3 ]
+                                3),
+                            id
+                        )
+                    ]
 
-            Expect.equal result error "collectAll should return the error"
-            Expect.equal executed [1] "collectAll should not execute effs after error"
+                let eff = FIO.collectAll effs
 
-        testPropertyWithConfig fsCheckConfig "collectAll - large input preserves order"
-        <| fun (runtime: FIORuntime) ->
-            let items = [1..2_000]
-            let effs = items |> List.map FIO.succeed
-            let result = runtime.Run(FIO.collectAll effs).UnsafeSuccess()
-            Expect.equal result items "collectAll should preserve order for large collections"
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-        testAllRuntimes "collectAllPar - returns all results" (fun runtime ->
-            let effs = [
-                FIO.succeed 1
-                FIO.succeed 2
-                FIO.succeed 3
-            ]
+                Expect.equal result [ 1; 2; 3 ] "collectAll should return results in order"
+                Expect.equal order [ 1; 2; 3 ] "collectAll should execute in order"
 
-            let eff = FIO.collectAllPar effs
+            testPropertyWithConfig fsCheckConfig "collectAll - with single element returns singleton list"
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.collectAll [ FIO.succeed value ]
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            Expect.equal result [1; 2; 3] "collectAllPar should return all results in order")
+                Expect.equal result [ value ] "collectAll with single element should return singleton list"
 
-        testAllRuntimes "collectAllPar - preserves result order" (fun runtime ->
-            let effs = [
-                FIO.sleepExn(TimeSpan.FromMilliseconds 30.0).FlatMap(fun () -> FIO.succeed 3)
-                FIO.sleepExn(TimeSpan.FromMilliseconds 10.0).FlatMap(fun () -> FIO.succeed 1)
-                FIO.sleepExn(TimeSpan.FromMilliseconds 20.0).FlatMap(fun () -> FIO.succeed 2)
-            ]
+            testPropertyWithConfig fsCheckConfig "collectAll - with empty collection returns empty list"
+            <| fun (runtime: FIORuntime) ->
+                let eff = FIO.collectAll []
 
-            let result = runtime.Run(FIO.collectAllPar effs).UnsafeSuccess()
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            Expect.equal result [3; 1; 2] "collectAllPar should preserve order regardless of completion time")
+                Expect.equal result [] "collectAll with empty collection should return empty list"
 
-        testAllRuntimes "collectAllPar - with empty list returns empty" (fun runtime ->
-            let result = runtime.Run(FIO.collectAllPar []).UnsafeSuccess()
+            testPropertyWithConfig fsCheckConfig "collectAll - short-circuits on error"
+            <| fun (runtime: FIORuntime, error: string) ->
+                let mutable executed = []
 
-            Expect.equal result [] "collectAllPar with empty list should return empty")
+                let effs =
+                    [
+                        FIO.attempt (
+                            (fun () ->
+                                executed <- executed @ [ 1 ]
+                                1),
+                            fun _ -> "err"
+                        )
+                        FIO.fail error
+                        FIO.attempt (
+                            (fun () ->
+                                executed <- executed @ [ 3 ]
+                                3),
+                            fun _ -> "err"
+                        )
+                    ]
 
-        testAllRuntimes "collectAllPar - propagates first error" (fun runtime ->
-            let effs = [
-                FIO.succeed 1
-                FIO.fail "error"
-                FIO.succeed 3
-            ]
+                let eff = FIO.collectAll effs
 
-            let result = runtime.Run(FIO.collectAllPar effs).UnsafeError()
+                let result = runtime.Run(eff).UnsafeError()
 
-            Expect.equal result "error" "collectAllPar should propagate error")
+                Expect.equal result error "collectAll should return the error"
+                Expect.equal executed [ 1 ] "collectAll should not execute effs after error"
 
-        testAllRuntimes "collectAllPar - large input preserves order" (fun runtime ->
-            let items = [1..500]
-            let effs =
-                items
-                |> List.map (fun i ->
-                    FIO.sleepExn(TimeSpan.FromMilliseconds(float (i % 5 + 1)))
-                        .FlatMap(fun () -> FIO.succeed i))
+            testPropertyWithConfig fsCheckConfig "collectAll - large input preserves order"
+            <| fun (runtime: FIORuntime) ->
+                let items = [ 1..2_000 ]
+                let effs = items |> List.map FIO.succeed
+                let result = runtime.Run(FIO.collectAll effs).UnsafeSuccess()
+                Expect.equal result items "collectAll should preserve order for large collections"
 
-            let result = runtime.Run(FIO.collectAllPar effs).UnsafeSuccess()
+            testAllRuntimes "collectAllPar - returns all results" (fun runtime ->
+                let effs = [ FIO.succeed 1; FIO.succeed 2; FIO.succeed 3 ]
 
-            Expect.equal result items "collectAllPar should preserve input order for large collections")
+                let eff = FIO.collectAllPar effs
 
-        testAllRuntimes "collectAllPar - large input propagates first failure" (fun runtime ->
-            let effs =
-                [ for i in 1..1_000 ->
-                    if i = 100 then FIO.fail "boom"
-                    else FIO.succeed i ]
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            let result = runtime.Run(FIO.collectAllPar effs).UnsafeError()
+                Expect.equal result [ 1; 2; 3 ] "collectAllPar should return all results in order")
 
-            Expect.equal result "boom" "collectAllPar should propagate first failure for large input")
+            testAllRuntimes "collectAllPar - preserves result order" (fun runtime ->
+                let effs =
+                    [
+                        FIO.sleepExn(TimeSpan.FromMilliseconds 30.0).FlatMap(fun () -> FIO.succeed 3)
+                        FIO.sleepExn(TimeSpan.FromMilliseconds 10.0).FlatMap(fun () -> FIO.succeed 1)
+                        FIO.sleepExn(TimeSpan.FromMilliseconds 20.0).FlatMap(fun () -> FIO.succeed 2)
+                    ]
 
-        testPropertyWithConfig fsCheckConfig "forEach - maps and collects sequentially"
-        <| fun (runtime: FIORuntime) ->
-            let mutable order = []
-            let items = [1; 2; 3]
-            let f = fun x ->
-                FIO.attempt ((fun () ->
-                    order <- order @ [x]
-                    x * 2), id)
+                let result = runtime.Run(FIO.collectAllPar effs).UnsafeSuccess()
 
-            let eff = FIO.forEach (items, f)
+                Expect.equal result [ 3; 1; 2 ] "collectAllPar should preserve order regardless of completion time")
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+            testAllRuntimes "collectAllPar - with empty list returns empty" (fun runtime ->
+                let result = runtime.Run(FIO.collectAllPar []).UnsafeSuccess()
 
-            Expect.equal result [2; 4; 6] "forEach should map and collect results"
-            Expect.equal order [1; 2; 3] "forEach should execute sequentially in order"
+                Expect.equal result [] "collectAllPar with empty list should return empty")
 
-        testPropertyWithConfig fsCheckConfig "forEach - with empty list returns empty"
-        <| fun (runtime: FIORuntime) ->
-            let result = runtime.Run(FIO.forEach([], fun x -> FIO.succeed(x * 2))).UnsafeSuccess()
-            Expect.equal result [] "forEach with empty list should return empty"
+            testAllRuntimes "collectAllPar - propagates first error" (fun runtime ->
+                let effs = [ FIO.succeed 1; FIO.fail "error"; FIO.succeed 3 ]
 
-        testPropertyWithConfig fsCheckConfig "forEach - short-circuits on error"
-        <| fun (runtime: FIORuntime) ->
-            let mutable executed = []
-            let items = [1; 2; 3]
-            let f = fun (x: int) ->
-                if x = 2 then FIO.fail "boom"
-                else FIO.attempt ((fun () -> executed <- executed @ [x]; x), fun _ -> "err")
+                let result = runtime.Run(FIO.collectAllPar effs).UnsafeError()
 
-            let result = runtime.Run(FIO.forEach(items, f)).UnsafeError()
+                Expect.equal result "error" "collectAllPar should propagate error")
 
-            Expect.equal result "boom" "forEach should propagate error"
-            Expect.equal executed [1] "forEach should not execute effs after error"
+            testAllRuntimes "collectAllPar - large input preserves order" (fun runtime ->
+                let items = [ 1..500 ]
 
-        testAllRuntimes "forEachPar - maps and collects in parallel" (fun runtime ->
-            let items = [1; 2; 3]
-            let f = fun x -> FIO.succeed (x * 2)
+                let effs =
+                    items
+                    |> List.map (fun i ->
+                        FIO.sleepExn(TimeSpan.FromMilliseconds(float (i % 5 + 1))).FlatMap(fun () -> FIO.succeed i))
 
-            let eff = FIO.forEachPar (items, f)
+                let result = runtime.Run(FIO.collectAllPar effs).UnsafeSuccess()
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                Expect.equal result items "collectAllPar should preserve input order for large collections")
 
-            Expect.equal result [2; 4; 6] "forEachPar should map and collect results in order")
+            testAllRuntimes "collectAllPar - large input propagates first failure" (fun runtime ->
+                let effs =
+                    [ for i in 1..1_000 -> if i = 100 then FIO.fail "boom" else FIO.succeed i ]
 
-        testAllRuntimes "forEachPar - preserves result order" (fun runtime ->
-            let items = [1; 2; 3; 4; 5]
-            let f = fun x ->
-                FIO.sleepExn(TimeSpan.FromMilliseconds(float (10 * (6 - x))))
-                    .FlatMap(fun () -> FIO.succeed(x * 2))
+                let result = runtime.Run(FIO.collectAllPar effs).UnsafeError()
 
-            let result = runtime.Run(FIO.forEachPar(items, f)).UnsafeSuccess()
+                Expect.equal result "boom" "collectAllPar should propagate first failure for large input")
 
-            Expect.equal result [2; 4; 6; 8; 10] "forEachPar should preserve order")
+            testPropertyWithConfig fsCheckConfig "forEach - maps and collects sequentially"
+            <| fun (runtime: FIORuntime) ->
+                let mutable order = []
+                let items = [ 1; 2; 3 ]
 
-        testAllRuntimes "forEachPar - with empty list returns empty" (fun runtime ->
-            let result = runtime.Run(FIO.forEachPar([], fun x -> FIO.succeed(x * 2))).UnsafeSuccess()
+                let f =
+                    fun x ->
+                        FIO.attempt (
+                            (fun () ->
+                                order <- order @ [ x ]
+                                x * 2),
+                            id
+                        )
 
-            Expect.equal result [] "forEachPar with empty list should return empty")
+                let eff = FIO.forEach (items, f)
 
-        testAllRuntimes "forEachPar - propagates error" (fun runtime ->
-            let items = [1; 2; 3]
-            let f = fun (x: int) ->
-                if x = 2 then FIO.fail "boom"
-                else FIO.succeed (x * 2)
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            let result = runtime.Run(FIO.forEachPar(items, f)).UnsafeError()
+                Expect.equal result [ 2; 4; 6 ] "forEach should map and collect results"
+                Expect.equal order [ 1; 2; 3 ] "forEach should execute sequentially in order"
 
-            Expect.equal result "boom" "forEachPar should propagate error")
-    ]
+            testPropertyWithConfig fsCheckConfig "forEach - with empty list returns empty"
+            <| fun (runtime: FIORuntime) ->
+                let result =
+                    runtime.Run(FIO.forEach ([], fun x -> FIO.succeed (x * 2))).UnsafeSuccess()
+
+                Expect.equal result [] "forEach with empty list should return empty"
+
+            testPropertyWithConfig fsCheckConfig "forEach - short-circuits on error"
+            <| fun (runtime: FIORuntime) ->
+                let mutable executed = []
+                let items = [ 1; 2; 3 ]
+
+                let f =
+                    fun (x: int) ->
+                        if x = 2 then
+                            FIO.fail "boom"
+                        else
+                            FIO.attempt (
+                                (fun () ->
+                                    executed <- executed @ [ x ]
+                                    x),
+                                fun _ -> "err"
+                            )
+
+                let result = runtime.Run(FIO.forEach (items, f)).UnsafeError()
+
+                Expect.equal result "boom" "forEach should propagate error"
+                Expect.equal executed [ 1 ] "forEach should not execute effs after error"
+
+            testAllRuntimes "forEachPar - maps and collects in parallel" (fun runtime ->
+                let items = [ 1; 2; 3 ]
+                let f = fun x -> FIO.succeed (x * 2)
+
+                let eff = FIO.forEachPar (items, f)
+
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                Expect.equal result [ 2; 4; 6 ] "forEachPar should map and collect results in order")
+
+            testAllRuntimes "forEachPar - preserves result order" (fun runtime ->
+                let items = [ 1; 2; 3; 4; 5 ]
+
+                let f =
+                    fun x ->
+                        FIO
+                            .sleepExn(TimeSpan.FromMilliseconds(float (10 * (6 - x))))
+                            .FlatMap(fun () -> FIO.succeed (x * 2))
+
+                let result = runtime.Run(FIO.forEachPar (items, f)).UnsafeSuccess()
+
+                Expect.equal result [ 2; 4; 6; 8; 10 ] "forEachPar should preserve order")
+
+            testAllRuntimes "forEachPar - with empty list returns empty" (fun runtime ->
+                let result =
+                    runtime.Run(FIO.forEachPar ([], fun x -> FIO.succeed (x * 2))).UnsafeSuccess()
+
+                Expect.equal result [] "forEachPar with empty list should return empty")
+
+            testAllRuntimes "forEachPar - propagates error" (fun runtime ->
+                let items = [ 1; 2; 3 ]
+                let f = fun (x: int) -> if x = 2 then FIO.fail "boom" else FIO.succeed (x * 2)
+
+                let result = runtime.Run(FIO.forEachPar (items, f)).UnsafeError()
+
+                Expect.equal result "boom" "forEachPar should propagate error")
+        ]

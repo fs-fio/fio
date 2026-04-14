@@ -11,28 +11,23 @@ open System.Diagnostics
 
 /// <summary>Gets the current local date and time.</summary>
 /// <returns>Effect returning the current local DateTime.</returns>
-let now<'E> () : FIO<DateTime, 'E> =
-    FIO.succeed DateTime.Now
+let now<'E> () : FIO<DateTime, 'E> = FIO.succeed DateTime.Now
 
 /// <summary>Gets the current UTC date and time.</summary>
 /// <returns>Effect returning the current UTC DateTime.</returns>
-let utcNow<'E> () : FIO<DateTime, 'E> =
-    FIO.succeed DateTime.UtcNow
+let utcNow<'E> () : FIO<DateTime, 'E> = FIO.succeed DateTime.UtcNow
 
 /// <summary>Gets the current local date (time component is midnight).</summary>
 /// <returns>Effect returning today's date.</returns>
-let today<'E> () : FIO<DateTime, 'E> =
-    FIO.succeed DateTime.Today
+let today<'E> () : FIO<DateTime, 'E> = FIO.succeed DateTime.Today
 
 /// <summary>Gets the current local date and time with timezone offset.</summary>
 /// <returns>Effect returning the current local DateTimeOffset.</returns>
-let nowOffset<'E> () : FIO<DateTimeOffset, 'E> =
-    FIO.succeed DateTimeOffset.Now
+let nowOffset<'E> () : FIO<DateTimeOffset, 'E> = FIO.succeed DateTimeOffset.Now
 
 /// <summary>Gets the current UTC date and time with timezone offset.</summary>
 /// <returns>Effect returning the current UTC DateTimeOffset.</returns>
-let utcNowOffset<'E> () : FIO<DateTimeOffset, 'E> =
-    FIO.succeed DateTimeOffset.UtcNow
+let utcNowOffset<'E> () : FIO<DateTimeOffset, 'E> = FIO.succeed DateTimeOffset.UtcNow
 
 /// <summary>Gets the current Unix timestamp in seconds since 1970-01-01 00:00:00 UTC.</summary>
 /// <returns>Effect returning Unix timestamp in seconds.</returns>
@@ -46,8 +41,7 @@ let timestampMillis<'E> () : FIO<int64, 'E> =
 
 /// <summary>Gets high-resolution timestamp for measuring elapsed time.</summary>
 /// <returns>Effect returning stopwatch timestamp ticks.</returns>
-let getTimestamp<'E> () : FIO<int64, 'E> =
-    FIO.succeed <| Stopwatch.GetTimestamp()
+let getTimestamp<'E> () : FIO<int64, 'E> = FIO.succeed <| Stopwatch.GetTimestamp()
 
 /// <summary>Calculates elapsed time between two timestamps.</summary>
 /// <param name="startTimestamp">Starting timestamp from getTimestamp.</param>
@@ -60,11 +54,12 @@ let getElapsedTime<'E> (startTimestamp: int64, endTimestamp: int64) : FIO<TimeSp
 /// <param name="eff">Effect to measure.</param>
 /// <returns>Effect returning a tuple of (result, elapsed time).</returns>
 let timed<'R, 'E> (eff: FIO<'R, 'E>) : FIO<'R * TimeSpan, 'E> =
-    FIO.succeed(Stopwatch.GetTimestamp())
+    FIO
+        .succeed(Stopwatch.GetTimestamp())
         .FlatMap(fun startTime ->
             eff.FlatMap(fun result ->
                 let elapsed = Stopwatch.GetElapsedTime startTime
-                FIO.succeed(result, elapsed)))
+                FIO.succeed (result, elapsed)))
 
 /// <summary>Converts a DateTime to Unix timestamp in seconds.</summary>
 /// <param name="dateTime">DateTime to convert (assumed UTC).</param>
@@ -82,4 +77,5 @@ let fromTimestamp<'E> (timestamp: int64) : FIO<DateTime, 'E> =
 /// <param name="timestampMillis">Unix timestamp in milliseconds.</param>
 /// <returns>Effect returning UTC DateTime.</returns>
 let fromTimestampMillis<'E> (timestampMillis: int64) : FIO<DateTime, 'E> =
-    FIO.succeed <| DateTimeOffset.FromUnixTimeMilliseconds(timestampMillis).UtcDateTime
+    FIO.succeed
+    <| DateTimeOffset.FromUnixTimeMilliseconds(timestampMillis).UtcDateTime

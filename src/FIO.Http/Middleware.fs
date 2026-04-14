@@ -18,8 +18,7 @@ module Middleware =
     /// </summary>
     /// <param name="middleware">The middleware to apply.</param>
     /// <param name="routes">The routes to transform.</param>
-    let apply (middleware: Middleware<'E>) (routes: Routes<'E>) : Routes<'E> =
-        middleware routes
+    let apply (middleware: Middleware<'E>) (routes: Routes<'E>) : Routes<'E> = middleware routes
 
     /// <summary>
     /// Composes two middleware functions.
@@ -27,8 +26,7 @@ module Middleware =
     /// </summary>
     /// <param name="outer">The outer middleware (applied second).</param>
     /// <param name="inner">The inner middleware (applied first).</param>
-    let compose (outer: Middleware<'E>) (inner: Middleware<'E>) : Middleware<'E> =
-        fun routes -> outer (inner routes)
+    let compose (outer: Middleware<'E>) (inner: Middleware<'E>) : Middleware<'E> = fun routes -> outer (inner routes)
 
     /// <summary>
     /// Creates middleware from a handler transformation function.
@@ -36,7 +34,7 @@ module Middleware =
     /// <param name="transform">The handler transformation function.</param>
     let create (transform: HttpHandler<'E> -> HttpHandler<'E>) : Middleware<'E> =
         fun routes -> Routes.transform transform routes
-    
+
     /// <summary>
     /// Creates middleware that runs an effect before each handler.
     /// </summary>
@@ -66,8 +64,7 @@ module Middleware =
     /// Creates middleware using a wrapper function.
     /// </summary>
     /// <param name="wrapper">The wrapper function for handlers.</param>
-    let wrap (wrapper: HttpHandler<'E> -> HttpHandler<'E>) : Middleware<'E> =
-        create wrapper
+    let wrap (wrapper: HttpHandler<'E> -> HttpHandler<'E>) : Middleware<'E> = create wrapper
 
     /// <summary>
     /// Creates middleware that adds a header to all responses.
@@ -91,10 +88,11 @@ module Middleware =
             fun request ->
                 fio {
                     let! response = handler request
+
                     let withHeaders =
                         headers
-                        |> List.fold (fun resp (name, value) ->
-                            HttpResponse.withHeader name value resp) response
+                        |> List.fold (fun resp (name, value) -> HttpResponse.withHeader name value resp) response
+
                     return withHeaders
                 })
 
@@ -102,15 +100,13 @@ module Middleware =
     /// Creates logging middleware that logs requests.
     /// </summary>
     /// <param name="logger">The logging effect.</param>
-    let logging (logger: HttpRequest -> FIO<unit, 'E>) : Middleware<'E> =
-        before logger
+    let logging (logger: HttpRequest -> FIO<unit, 'E>) : Middleware<'E> = before logger
 
     /// <summary>
     /// Creates logging middleware that logs requests and responses.
     /// </summary>
     /// <param name="logger">The logging effect receiving request and response.</param>
-    let loggingFull (logger: HttpRequest -> HttpResponse -> FIO<unit, 'E>) : Middleware<'E> =
-        after logger
+    let loggingFull (logger: HttpRequest -> HttpResponse -> FIO<unit, 'E>) : Middleware<'E> = after logger
 
     /// <summary>
     /// Creates middleware that generates and attaches request IDs.
@@ -119,8 +115,9 @@ module Middleware =
     let requestId (generator: unit -> string) : Middleware<'E> =
         create (fun handler ->
             fun request ->
-                let reqId = generator()
+                let reqId = generator ()
                 let requestWithId = HttpRequest.withMetadata "RequestId" (box reqId) request
+
                 fio {
                     let! response = handler requestWithId
                     return HttpResponse.withHeader "X-Request-ID" reqId response
@@ -136,9 +133,10 @@ module Middleware =
         create (fun handler ->
             fun request ->
                 let handlerEffect = handler request
+
                 let timeoutEffect =
-                    FIO.sleep(duration, onError)
-                        .FlatMap(fun () -> FIO.succeed Response.requestTimeout)
+                    FIO.sleep(duration, onError).FlatMap(fun () -> FIO.succeed Response.requestTimeout)
+
                 handlerEffect.Race(timeoutEffect))
 
     /// <summary>
@@ -146,8 +144,7 @@ module Middleware =
     /// Convenience wrapper using exn as the error type.
     /// </summary>
     /// <param name="duration">The timeout duration.</param>
-    let timeoutExn (duration: TimeSpan) : Middleware<exn> =
-        timeout duration id
+    let timeoutExn (duration: TimeSpan) : Middleware<exn> = timeout duration id
 
     /// <summary>
     /// Creates CORS middleware with support for preflight OPTIONS requests.
@@ -155,10 +152,15 @@ module Middleware =
     /// <param name="allowedOrigins">The list of allowed origins (use "*" for all).</param>
     /// <param name="allowedMethods">The list of allowed HTTP methods.</param>
     /// <param name="allowedHeaders">The list of allowed headers.</param>
-    let cors (allowedOrigins: string list) (allowedMethods: string list) (allowedHeaders: string list) : Middleware<'E> =
+    let cors
+        (allowedOrigins: string list)
+        (allowedMethods: string list)
+        (allowedHeaders: string list)
+        : Middleware<'E> =
         create (fun handler ->
             fun request ->
                 let origin = HttpRequest.header "Origin" request
+
                 let isAllowed =
                     match origin with
                     | Some o -> allowedOrigins |> List.contains o || allowedOrigins |> List.contains "*"
@@ -174,15 +176,24 @@ module Middleware =
                         |> HttpResponse.withHeader "Access-Control-Allow-Methods" (String.concat ", " allowedMethods)
                         |> HttpResponse.withHeader "Access-Control-Allow-Headers" (String.concat ", " allowedHeaders)
                         |> HttpResponse.withHeader "Access-Control-Max-Age" "86400"
+
                     FIO.succeed preflightResponse
                 else
                     fio {
                         let! response = handler request
+
                         let withCors =
                             response
-                            |> HttpResponse.withHeader "Access-Control-Allow-Origin" (origin |> Option.defaultValue "*")
-                            |> HttpResponse.withHeader "Access-Control-Allow-Methods" (String.concat ", " allowedMethods)
-                            |> HttpResponse.withHeader "Access-Control-Allow-Headers" (String.concat ", " allowedHeaders)
+                            |> HttpResponse.withHeader
+                                "Access-Control-Allow-Origin"
+                                (origin |> Option.defaultValue "*")
+                            |> HttpResponse.withHeader
+                                "Access-Control-Allow-Methods"
+                                (String.concat ", " allowedMethods)
+                            |> HttpResponse.withHeader
+                                "Access-Control-Allow-Headers"
+                                (String.concat ", " allowedHeaders)
+
                         return withCors
                     })
 
@@ -197,25 +208,27 @@ module Middleware =
                     match HttpRequest.header "Authorization" request with
                     | Some authHeader when authHeader.StartsWith "Basic " ->
                         let encoded = authHeader.Substring 6
+
                         let decoded =
-                            try Some (Text.Encoding.UTF8.GetString(Convert.FromBase64String encoded))
-                            with _ -> None
+                            try
+                                Some(Text.Encoding.UTF8.GetString(Convert.FromBase64String encoded))
+                            with _ ->
+                                None
+
                         match decoded with
                         | Some credentials ->
                             // Split only on the first colon to allow colons in passwords
-                            match credentials.Split([|':'|], 2) with
+                            match credentials.Split([| ':' |], 2) with
                             | [| username; password |] ->
                                 let! isValid = authenticate username password
+
                                 if isValid then
                                     return! handler request
                                 else
                                     return Response.unauthorizedWith "Basic realm=\"Protected\""
-                            | _ ->
-                                return Response.unauthorizedWith "Basic realm=\"Protected\""
-                        | None ->
-                            return Response.unauthorizedWith "Basic realm=\"Protected\""
-                    | _ ->
-                        return Response.unauthorizedWith "Basic realm=\"Protected\""
+                            | _ -> return Response.unauthorizedWith "Basic realm=\"Protected\""
+                        | None -> return Response.unauthorizedWith "Basic realm=\"Protected\""
+                    | _ -> return Response.unauthorizedWith "Basic realm=\"Protected\""
                 })
 
     /// <summary>
@@ -230,14 +243,13 @@ module Middleware =
                     | Some authHeader when authHeader.StartsWith "Bearer " && authHeader.Length > 7 ->
                         let token = authHeader.Substring 7
                         let! userOpt = authenticate token
+
                         match userOpt with
                         | Some user ->
                             let requestWithUser = HttpRequest.withMetadata "User" (box user) request
                             return! handler requestWithUser
-                        | None ->
-                            return Response.unauthorized
-                    | _ ->
-                        return Response.unauthorized
+                        | None -> return Response.unauthorized
+                    | _ -> return Response.unauthorized
                 })
 
     /// <summary>
@@ -245,9 +257,7 @@ module Middleware =
     /// </summary>
     /// <param name="handleError">The error to response mapping function.</param>
     let errorHandler (handleError: 'E -> HttpResponse) : Middleware<'E> =
-        create (fun handler ->
-            fun request ->
-                (handler request).CatchAll(fun error -> FIO.succeed (handleError error)))
+        create (fun handler -> fun request -> (handler request).CatchAll(fun error -> FIO.succeed (handleError error)))
 
 /// <summary>
 /// Operators for middleware composition.
@@ -259,8 +269,7 @@ module MiddlewareOperators =
     /// </summary>
     /// <param name="routes">The routes to transform.</param>
     /// <param name="middleware">The middleware to apply.</param>
-    let (@@) (routes: Routes<'E>) (middleware: Middleware<'E>) : Routes<'E> =
-        Middleware.apply middleware routes
+    let (@@) (routes: Routes<'E>) (middleware: Middleware<'E>) : Routes<'E> = Middleware.apply middleware routes
 
     /// <summary>
     /// Composes two middleware functions.

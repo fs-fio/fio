@@ -17,488 +17,567 @@ open System
 
 let private onError (e: exn) = e.Message
 
-let private runtimes () = [
-    new DirectRuntime() :> FIORuntime
-    new CooperativeRuntime() :> FIORuntime
-    new ConcurrentRuntime() :> FIORuntime
-]
+let private runtimes () =
+    [
+        new DirectRuntime() :> FIORuntime
+        new CooperativeRuntime() :> FIORuntime
+        new ConcurrentRuntime() :> FIORuntime
+    ]
 
 let private testAllRuntimes name (f: FIORuntime -> unit) =
-    testList name [
-        for rt in runtimes () ->
-            testCase (rt.GetType().Name) (fun () -> f rt)
-    ]
+    testList name [ for rt in runtimes () -> testCase (rt.GetType().Name) (fun () -> f rt) ]
 
 [<Tests>]
 let semaphoreAcquireTests =
-    testList "Semaphore Acquire" [
+    testList
+        "Semaphore Acquire"
+        [
 
-        testPropertyWithConfig fsCheckConfig "Acquire decreases available permits"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! sem = Semaphore.make 3
-                let! before = sem.Available()
-                do! sem.Acquire onError
-                let! after = sem.Available()
-                return before, after
-            }
+            testPropertyWithConfig fsCheckConfig "Acquire decreases available permits"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 3
+                        let! before = sem.Available()
+                        do! sem.Acquire onError
+                        let! after = sem.Available()
+                        return before, after
+                    }
 
-            let before, after = runtime.Run(eff).UnsafeSuccess()
+                let before, after = runtime.Run(eff).UnsafeSuccess()
 
-            Expect.equal before 3 "Should have 3 permits before"
-            Expect.equal after 2 "Should have 2 permits after acquire"
+                Expect.equal before 3 "Should have 3 permits before"
+                Expect.equal after 2 "Should have 2 permits after acquire"
 
-        testPropertyWithConfig fsCheckConfig "AcquireExn decreases available permits"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! sem = Semaphore.make 3
-                let! before = sem.Available()
-                do! sem.AcquireExn()
-                let! after = sem.Available()
-                return before, after
-            }
+            testPropertyWithConfig fsCheckConfig "AcquireExn decreases available permits"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 3
+                        let! before = sem.Available()
+                        do! sem.AcquireExn()
+                        let! after = sem.Available()
+                        return before, after
+                    }
 
-            let before, after = runtime.Run(eff).UnsafeSuccess()
+                let before, after = runtime.Run(eff).UnsafeSuccess()
 
-            Expect.equal before 3 "Should have 3 permits before"
-            Expect.equal after 2 "Should have 2 permits after acquire"
+                Expect.equal before 3 "Should have 3 permits before"
+                Expect.equal after 2 "Should have 2 permits after acquire"
 
-        testPropertyWithConfig fsCheckConfig "Multiple acquires decrease permits"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! sem = Semaphore.make 5
-                do! sem.AcquireExn()
-                do! sem.AcquireExn()
-                do! sem.AcquireExn()
-                let! available = sem.Available()
-                return available
-            }
+            testPropertyWithConfig fsCheckConfig "Multiple acquires decrease permits"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 5
+                        do! sem.AcquireExn()
+                        do! sem.AcquireExn()
+                        do! sem.AcquireExn()
+                        let! available = sem.Available()
+                        return available
+                    }
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            Expect.equal result 2 "Should have 2 permits after 3 acquires"
-    ]
+                Expect.equal result 2 "Should have 2 permits after 3 acquires"
+        ]
 
 [<Tests>]
 let semaphoreTryAcquireTests =
-    testList "Semaphore TryAcquire" [
+    testList
+        "Semaphore TryAcquire"
+        [
 
-        testPropertyWithConfig fsCheckConfig "TryAcquire returns true when permit available"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! sem = Semaphore.make 1
-                let! acquired = sem.TryAcquire(TimeSpan.FromMilliseconds 100.0, onError)
-                return acquired
-            }
+            testPropertyWithConfig fsCheckConfig "TryAcquire returns true when permit available"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 1
+                        let! acquired = sem.TryAcquire(TimeSpan.FromMilliseconds 100.0, onError)
+                        return acquired
+                    }
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            Expect.isTrue result "TryAcquire should return true when permit available"
+                Expect.isTrue result "TryAcquire should return true when permit available"
 
-        testPropertyWithConfig fsCheckConfig "TryAcquire returns false when no permit and timeout"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! sem = Semaphore.make 1
-                do! sem.Acquire onError
-                let! acquired = sem.TryAcquire(TimeSpan.FromMilliseconds 10.0, onError)
-                return acquired
-            }
+            testPropertyWithConfig fsCheckConfig "TryAcquire returns false when no permit and timeout"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 1
+                        do! sem.Acquire onError
+                        let! acquired = sem.TryAcquire(TimeSpan.FromMilliseconds 10.0, onError)
+                        return acquired
+                    }
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            Expect.isFalse result "TryAcquire should return false when no permit"
+                Expect.isFalse result "TryAcquire should return false when no permit"
 
-        testPropertyWithConfig fsCheckConfig "TryAcquireExn returns true when permit available"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! sem = Semaphore.make 1
-                let! acquired = sem.TryAcquireExn(TimeSpan.FromMilliseconds 100.0)
-                return acquired
-            }
+            testPropertyWithConfig fsCheckConfig "TryAcquireExn returns true when permit available"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 1
+                        let! acquired = sem.TryAcquireExn(TimeSpan.FromMilliseconds 100.0)
+                        return acquired
+                    }
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            Expect.isTrue result "TryAcquireExn should return true when permit available"
+                Expect.isTrue result "TryAcquireExn should return true when permit available"
 
-        testPropertyWithConfig fsCheckConfig "TryAcquireExn returns false when no permit and timeout"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! sem = Semaphore.make 1
-                do! sem.AcquireExn()
-                let! acquired = sem.TryAcquireExn(TimeSpan.FromMilliseconds 10.0)
-                return acquired
-            }
+            testPropertyWithConfig fsCheckConfig "TryAcquireExn returns false when no permit and timeout"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 1
+                        do! sem.AcquireExn()
+                        let! acquired = sem.TryAcquireExn(TimeSpan.FromMilliseconds 10.0)
+                        return acquired
+                    }
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            Expect.isFalse result "TryAcquireExn should return false when no permit"
-    ]
+                Expect.isFalse result "TryAcquireExn should return false when no permit"
+        ]
 
 [<Tests>]
 let semaphoreReleaseTests =
-    testList "Semaphore Release" [
+    testList
+        "Semaphore Release"
+        [
 
-        testPropertyWithConfig fsCheckConfig "Release increases available permits"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! sem = Semaphore.make 3
-                do! sem.Acquire onError
-                let! before = sem.Available()
-                do! sem.Release onError
-                let! after = sem.Available()
-                return before, after
-            }
+            testPropertyWithConfig fsCheckConfig "Release increases available permits"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 3
+                        do! sem.Acquire onError
+                        let! before = sem.Available()
+                        do! sem.Release onError
+                        let! after = sem.Available()
+                        return before, after
+                    }
 
-            let before, after = runtime.Run(eff).UnsafeSuccess()
+                let before, after = runtime.Run(eff).UnsafeSuccess()
 
-            Expect.equal before 2 "Should have 2 permits before release"
-            Expect.equal after 3 "Should have 3 permits after release"
+                Expect.equal before 2 "Should have 2 permits before release"
+                Expect.equal after 3 "Should have 3 permits after release"
 
-        testPropertyWithConfig fsCheckConfig "ReleaseExn increases available permits"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! sem = Semaphore.make 3
-                do! sem.AcquireExn()
-                let! before = sem.Available()
-                do! sem.ReleaseExn()
-                let! after = sem.Available()
-                return before, after
-            }
+            testPropertyWithConfig fsCheckConfig "ReleaseExn increases available permits"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 3
+                        do! sem.AcquireExn()
+                        let! before = sem.Available()
+                        do! sem.ReleaseExn()
+                        let! after = sem.Available()
+                        return before, after
+                    }
 
-            let before, after = runtime.Run(eff).UnsafeSuccess()
+                let before, after = runtime.Run(eff).UnsafeSuccess()
 
-            Expect.equal before 2 "Should have 2 permits before release"
-            Expect.equal after 3 "Should have 3 permits after release"
-    ]
+                Expect.equal before 2 "Should have 2 permits before release"
+                Expect.equal after 3 "Should have 3 permits after release"
+        ]
 
 [<Tests>]
 let semaphoreReleaseManyTests =
-    testList "Semaphore ReleaseMany" [
+    testList
+        "Semaphore ReleaseMany"
+        [
 
-        testPropertyWithConfig fsCheckConfig "ReleaseMany increases permits by count"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! sem = Semaphore.make 5
-                do! sem.Acquire onError
-                do! sem.Acquire onError
-                do! sem.Acquire onError
-                let! before = sem.Available()
-                do! sem.ReleaseMany(3, onError)
-                let! after = sem.Available()
-                return before, after
-            }
+            testPropertyWithConfig fsCheckConfig "ReleaseMany increases permits by count"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 5
+                        do! sem.Acquire onError
+                        do! sem.Acquire onError
+                        do! sem.Acquire onError
+                        let! before = sem.Available()
+                        do! sem.ReleaseMany(3, onError)
+                        let! after = sem.Available()
+                        return before, after
+                    }
 
-            let before, after = runtime.Run(eff).UnsafeSuccess()
+                let before, after = runtime.Run(eff).UnsafeSuccess()
 
-            Expect.equal before 2 "Should have 2 permits before"
-            Expect.equal after 5 "Should have 5 permits after releasing 3"
+                Expect.equal before 2 "Should have 2 permits before"
+                Expect.equal after 5 "Should have 5 permits after releasing 3"
 
-        testPropertyWithConfig fsCheckConfig "ReleaseManyExn increases permits by count"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! sem = Semaphore.make 5
-                do! sem.AcquireExn()
-                do! sem.AcquireExn()
-                do! sem.AcquireExn()
-                let! before = sem.Available()
-                do! sem.ReleaseManyExn 3
-                let! after = sem.Available()
-                return before, after
-            }
+            testPropertyWithConfig fsCheckConfig "ReleaseManyExn increases permits by count"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 5
+                        do! sem.AcquireExn()
+                        do! sem.AcquireExn()
+                        do! sem.AcquireExn()
+                        let! before = sem.Available()
+                        do! sem.ReleaseManyExn 3
+                        let! after = sem.Available()
+                        return before, after
+                    }
 
-            let before, after = runtime.Run(eff).UnsafeSuccess()
+                let before, after = runtime.Run(eff).UnsafeSuccess()
 
-            Expect.equal before 2 "Should have 2 permits before"
-            Expect.equal after 5 "Should have 5 permits after releasing 3"
-    ]
+                Expect.equal before 2 "Should have 2 permits before"
+                Expect.equal after 5 "Should have 5 permits after releasing 3"
+        ]
 
 [<Tests>]
 let semaphoreAvailableTests =
-    testList "Semaphore Available" [
+    testList
+        "Semaphore Available"
+        [
 
-        testPropertyWithConfig fsCheckConfig "Available returns initial count"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! sem = Semaphore.make 5
-                let! available = sem.Available()
-                return available
-            }
+            testPropertyWithConfig fsCheckConfig "Available returns initial count"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 5
+                        let! available = sem.Available()
+                        return available
+                    }
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            Expect.equal result 5 "Should return initial permit count"
+                Expect.equal result 5 "Should return initial permit count"
 
-        testPropertyWithConfig fsCheckConfig "Available reflects acquire and release"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! sem = Semaphore.make 5
-                do! sem.AcquireExn()
-                do! sem.AcquireExn()
-                do! sem.AcquireExn()
-                let! afterAcquire = sem.Available()
-                do! sem.ReleaseExn()
-                do! sem.ReleaseExn()
-                let! afterRelease = sem.Available()
-                return afterAcquire, afterRelease
-            }
+            testPropertyWithConfig fsCheckConfig "Available reflects acquire and release"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 5
+                        do! sem.AcquireExn()
+                        do! sem.AcquireExn()
+                        do! sem.AcquireExn()
+                        let! afterAcquire = sem.Available()
+                        do! sem.ReleaseExn()
+                        do! sem.ReleaseExn()
+                        let! afterRelease = sem.Available()
+                        return afterAcquire, afterRelease
+                    }
 
-            let afterAcquire, afterRelease = runtime.Run(eff).UnsafeSuccess()
+                let afterAcquire, afterRelease = runtime.Run(eff).UnsafeSuccess()
 
-            Expect.equal afterAcquire 2 "Should have 2 permits after 3 acquires"
-            Expect.equal afterRelease 4 "Should have 4 permits after 2 releases"
-    ]
+                Expect.equal afterAcquire 2 "Should have 2 permits after 3 acquires"
+                Expect.equal afterRelease 4 "Should have 4 permits after 2 releases"
+        ]
 
 [<Tests>]
 let semaphoreWithPermitTests =
-    testList "Semaphore WithPermit" [
+    testList
+        "Semaphore WithPermit"
+        [
 
-        testPropertyWithConfig fsCheckConfig "WithPermit acquires, runs, and releases"
-        <| fun (runtime: FIORuntime, res: int) ->
-            let eff = fio {
-                let! sem = Semaphore.make 1
-                let! before = sem.Available()
-                let! result = sem.WithPermit(fio {
-                    let! during = sem.Available()
-                    return res, during
-                }, onError)
-                let! after = sem.Available()
-                return before, result, after
-            }
+            testPropertyWithConfig fsCheckConfig "WithPermit acquires, runs, and releases"
+            <| fun (runtime: FIORuntime, res: int) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 1
+                        let! before = sem.Available()
 
-            let before, (value, during), after = runtime.Run(eff).UnsafeSuccess()
+                        let! result =
+                            sem.WithPermit(
+                                fio {
+                                    let! during = sem.Available()
+                                    return res, during
+                                },
+                                onError
+                            )
 
-            Expect.equal before 1 "Should have 1 permit before"
-            Expect.equal during 0 "Should have 0 permits during"
-            Expect.equal after 1 "Should have 1 permit after"
-            Expect.equal value res "Should return inner result"
+                        let! after = sem.Available()
+                        return before, result, after
+                    }
 
-        testPropertyWithConfig fsCheckConfig "WithPermitExn acquires, runs, and releases"
-        <| fun (runtime: FIORuntime, res: int) ->
-            let eff = fio {
-                let! sem = Semaphore.make 1
-                let! before = sem.Available()
-                let! result = sem.WithPermitExn(fio {
-                    let! during = sem.Available()
-                    return res, during
-                })
-                let! after = sem.Available()
-                return before, result, after
-            }
+                let before, (value, during), after = runtime.Run(eff).UnsafeSuccess()
 
-            let before, (value, during), after = runtime.Run(eff).UnsafeSuccess()
+                Expect.equal before 1 "Should have 1 permit before"
+                Expect.equal during 0 "Should have 0 permits during"
+                Expect.equal after 1 "Should have 1 permit after"
+                Expect.equal value res "Should return inner result"
 
-            Expect.equal before 1 "Should have 1 permit before"
-            Expect.equal during 0 "Should have 0 permits during"
-            Expect.equal after 1 "Should have 1 permit after"
-            Expect.equal value res "Should return inner result"
+            testPropertyWithConfig fsCheckConfig "WithPermitExn acquires, runs, and releases"
+            <| fun (runtime: FIORuntime, res: int) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 1
+                        let! before = sem.Available()
 
-        testPropertyWithConfig fsCheckConfig "WithPermit releases on error"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! sem = Semaphore.make 1
-                let! _ = sem.WithPermitExn(FIO.fail(exn "error")).CatchAll(fun _ -> FIO.unit())
-                let! after = sem.Available()
-                return after
-            }
+                        let! result =
+                            sem.WithPermitExn(
+                                fio {
+                                    let! during = sem.Available()
+                                    return res, during
+                                }
+                            )
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                        let! after = sem.Available()
+                        return before, result, after
+                    }
 
-            Expect.equal result 1 "WithPermit should release on error"
+                let before, (value, during), after = runtime.Run(eff).UnsafeSuccess()
 
-        testAllRuntimes "WithPermit releases on interrupt"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! sem = Semaphore.make 1
-                let! fiber = sem.WithPermitExn(FIO.sleepExn(TimeSpan.FromSeconds 60.0)).Fork()
-                do! FIO.sleepExn(TimeSpan.FromMilliseconds 50.0)
-                let! during = sem.Available()
-                do! fiber.Interrupt()
-                do! fiber.Join().CatchAll(fun _ -> FIO.unit())
-                do! FIO.sleepExn(TimeSpan.FromMilliseconds 50.0)
-                let! after = sem.Available()
-                return during, after
-            }
+                Expect.equal before 1 "Should have 1 permit before"
+                Expect.equal during 0 "Should have 0 permits during"
+                Expect.equal after 1 "Should have 1 permit after"
+                Expect.equal value res "Should return inner result"
 
-            let during, after = runtime.Run(eff).UnsafeSuccess()
+            testPropertyWithConfig fsCheckConfig "WithPermit releases on error"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 1
+                        let! _ = sem.WithPermitExn(FIO.fail (exn "error")).CatchAll(fun _ -> FIO.unit ())
+                        let! after = sem.Available()
+                        return after
+                    }
 
-            Expect.equal during 0 "Should have 0 permits during"
-            Expect.equal after 1 "WithPermit should release on interrupt"
-    ]
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                Expect.equal result 1 "WithPermit should release on error"
+
+            testAllRuntimes "WithPermit releases on interrupt"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 1
+                        let! fiber = sem.WithPermitExn(FIO.sleepExn (TimeSpan.FromSeconds 60.0)).Fork()
+                        do! FIO.sleepExn (TimeSpan.FromMilliseconds 50.0)
+                        let! during = sem.Available()
+                        do! fiber.Interrupt()
+                        do! fiber.Join().CatchAll(fun _ -> FIO.unit ())
+                        do! FIO.sleepExn (TimeSpan.FromMilliseconds 50.0)
+                        let! after = sem.Available()
+                        return during, after
+                    }
+
+                let during, after = runtime.Run(eff).UnsafeSuccess()
+
+                Expect.equal during 0 "Should have 0 permits during"
+                Expect.equal after 1 "WithPermit should release on interrupt"
+        ]
 
 [<Tests>]
 let semaphoreWithPermitsTests =
-    testList "Semaphore WithPermits" [
+    testList
+        "Semaphore WithPermits"
+        [
 
-        testPropertyWithConfig fsCheckConfig "WithPermits acquires multiple, runs, and releases"
-        <| fun (runtime: FIORuntime, res: int) ->
-            let eff = fio {
-                let! sem = Semaphore.make 5
-                let! before = sem.Available()
-                let! result = sem.WithPermits(3, fio {
-                    let! during = sem.Available()
-                    return res, during
-                }, onError)
-                let! after = sem.Available()
-                return before, result, after
-            }
+            testPropertyWithConfig fsCheckConfig "WithPermits acquires multiple, runs, and releases"
+            <| fun (runtime: FIORuntime, res: int) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 5
+                        let! before = sem.Available()
 
-            let before, (value, during), after = runtime.Run(eff).UnsafeSuccess()
+                        let! result =
+                            sem.WithPermits(
+                                3,
+                                fio {
+                                    let! during = sem.Available()
+                                    return res, during
+                                },
+                                onError
+                            )
 
-            Expect.equal before 5 "Should have 5 permits before"
-            Expect.equal during 2 "Should have 2 permits during (5-3)"
-            Expect.equal after 5 "Should have 5 permits after"
-            Expect.equal value res "Should return inner result"
+                        let! after = sem.Available()
+                        return before, result, after
+                    }
 
-        testPropertyWithConfig fsCheckConfig "WithPermitsExn acquires multiple, runs, and releases"
-        <| fun (runtime: FIORuntime, res: int) ->
-            let eff = fio {
-                let! sem = Semaphore.make 5
-                let! before = sem.Available()
-                let! result = sem.WithPermitsExn(3, fio {
-                    let! during = sem.Available()
-                    return res, during
-                })
-                let! after = sem.Available()
-                return before, result, after
-            }
+                let before, (value, during), after = runtime.Run(eff).UnsafeSuccess()
 
-            let before, (value, during), after = runtime.Run(eff).UnsafeSuccess()
+                Expect.equal before 5 "Should have 5 permits before"
+                Expect.equal during 2 "Should have 2 permits during (5-3)"
+                Expect.equal after 5 "Should have 5 permits after"
+                Expect.equal value res "Should return inner result"
 
-            Expect.equal before 5 "Should have 5 permits before"
-            Expect.equal during 2 "Should have 2 permits during (5-3)"
-            Expect.equal after 5 "Should have 5 permits after"
-            Expect.equal value res "Should return inner result"
+            testPropertyWithConfig fsCheckConfig "WithPermitsExn acquires multiple, runs, and releases"
+            <| fun (runtime: FIORuntime, res: int) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 5
+                        let! before = sem.Available()
 
-        testPropertyWithConfig fsCheckConfig "WithPermits releases all on error"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! sem = Semaphore.make 5
-                let! _ = sem.WithPermitsExn(3, FIO.fail(exn "error")).CatchAll(fun _ -> FIO.unit())
-                let! after = sem.Available()
-                return after
-            }
+                        let! result =
+                            sem.WithPermitsExn(
+                                3,
+                                fio {
+                                    let! during = sem.Available()
+                                    return res, during
+                                }
+                            )
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                        let! after = sem.Available()
+                        return before, result, after
+                    }
 
-            Expect.equal result 5 "WithPermits should release all on error"
-    ]
+                let before, (value, during), after = runtime.Run(eff).UnsafeSuccess()
+
+                Expect.equal before 5 "Should have 5 permits before"
+                Expect.equal during 2 "Should have 2 permits during (5-3)"
+                Expect.equal after 5 "Should have 5 permits after"
+                Expect.equal value res "Should return inner result"
+
+            testPropertyWithConfig fsCheckConfig "WithPermits releases all on error"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 5
+                        let! _ = sem.WithPermitsExn(3, FIO.fail (exn "error")).CatchAll(fun _ -> FIO.unit ())
+                        let! after = sem.Available()
+                        return after
+                    }
+
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                Expect.equal result 5 "WithPermits should release all on error"
+        ]
 
 [<Tests>]
 let semaphoreMakeTests =
-    testList "Semaphore.make / Semaphore.binary" [
+    testList
+        "Semaphore.make / Semaphore.binary"
+        [
 
-        testPropertyWithConfig fsCheckConfig "Semaphore.make creates semaphore with permits"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! sem = Semaphore.make 5
-                let! available = sem.Available()
-                return available
-            }
+            testPropertyWithConfig fsCheckConfig "Semaphore.make creates semaphore with permits"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 5
+                        let! available = sem.Available()
+                        return available
+                    }
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            Expect.equal result 5 "Semaphore should have 5 permits"
+                Expect.equal result 5 "Semaphore should have 5 permits"
 
-        testPropertyWithConfig fsCheckConfig "Semaphore.binary creates semaphore with 1 permit"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! sem = Semaphore.binary()
-                let! available = sem.Available()
-                return available
-            }
+            testPropertyWithConfig fsCheckConfig "Semaphore.binary creates semaphore with 1 permit"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.binary ()
+                        let! available = sem.Available()
+                        return available
+                    }
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            Expect.equal result 1 "Binary semaphore should have 1 permit"
+                Expect.equal result 1 "Binary semaphore should have 1 permit"
 
-        testPropertyWithConfig fsCheckConfig "Semaphore.make with invalid permits interrupts"
-        <| fun (runtime: FIORuntime) ->
-            let eff = Semaphore.make 0
+            testPropertyWithConfig fsCheckConfig "Semaphore.make with invalid permits interrupts"
+            <| fun (runtime: FIORuntime) ->
+                let eff = Semaphore.make 0
 
-            let result = runtime.Run(eff).UnsafeResult()
+                let result = runtime.Run(eff).UnsafeResult()
 
-            match result with
-            | Interrupted _ -> ()
-            | other -> failtest $"Expected Interrupted but got: {other}"
-    ]
+                match result with
+                | Interrupted _ -> ()
+                | other -> failtest $"Expected Interrupted but got: {other}"
+        ]
 
 [<Tests>]
 let semaphoreConcurrencyTests =
-    testList "Semaphore Concurrency" [
+    testList
+        "Semaphore Concurrency"
+        [
 
-        testAllRuntimes "Binary semaphore limits to 1 concurrent" (fun runtime ->
-            let eff = fio {
-                let! sem = Semaphore.binary()
-                let! maxConcurrent = Ref.makeValue 0
-                let! currentConcurrent = Ref.makeValue 0
-                let task = fio {
-                    do! currentConcurrent.UpdateExn(fun x -> x + 1)
-                    let! current = currentConcurrent.Get()
-                    let! max = maxConcurrent.Get()
-                    if current > max then
-                        do! maxConcurrent.SetExn current
-                    do! FIO.sleepExn(TimeSpan.FromMilliseconds 10.0)
-                    do! currentConcurrent.UpdateExn(fun x -> x - 1)
-                }
-                let! fibers =
-                    [1..5]
-                    |> List.map (fun _ -> sem.WithPermitExn(task).Fork())
-                    |> FIO.collectAll
-                for fiber in fibers do
-                    do! fiber.Join()
-                let! max = maxConcurrent.Get()
-                return max
-            }
+            testAllRuntimes "Binary semaphore limits to 1 concurrent" (fun runtime ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.binary ()
+                        let! maxConcurrent = Ref.makeValue 0
+                        let! currentConcurrent = Ref.makeValue 0
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                        let task =
+                            fio {
+                                do! currentConcurrent.UpdateExn(fun x -> x + 1)
+                                let! current = currentConcurrent.Get()
+                                let! max = maxConcurrent.Get()
 
-            Expect.equal result 1 "Binary semaphore should limit to 1 concurrent")
+                                if current > max then
+                                    do! maxConcurrent.SetExn current
 
-        testAllRuntimes "Semaphore limits to N concurrent" (fun runtime ->
-            let permitCount = 3
-            let eff = fio {
-                let! sem = Semaphore.make permitCount
-                let! maxConcurrent = Ref.makeValue 0
-                let! currentConcurrent = Ref.makeValue 0
-                let task = fio {
-                    do! currentConcurrent.UpdateExn(fun x -> x + 1)
-                    let! current = currentConcurrent.Get()
-                    let! max = maxConcurrent.Get()
-                    if current > max then
-                        do! maxConcurrent.SetExn current
-                    do! FIO.sleepExn(TimeSpan.FromMilliseconds 10.0)
-                    do! currentConcurrent.UpdateExn(fun x -> x - 1)
-                }
-                let! fibers =
-                    [1..10]
-                    |> List.map (fun _ -> sem.WithPermitExn(task).Fork())
-                    |> FIO.collectAll
-                for fiber in fibers do
-                    do! fiber.Join()
-                let! max = maxConcurrent.Get()
-                return max
-            }
+                                do! FIO.sleepExn (TimeSpan.FromMilliseconds 10.0)
+                                do! currentConcurrent.UpdateExn(fun x -> x - 1)
+                            }
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                        let! fibers = [ 1..5 ] |> List.map (fun _ -> sem.WithPermitExn(task).Fork()) |> FIO.collectAll
 
-            Expect.isLessThanOrEqual result permitCount $"Max concurrent should be <= {permitCount}")
-    ]
+                        for fiber in fibers do
+                            do! fiber.Join()
+
+                        let! max = maxConcurrent.Get()
+                        return max
+                    }
+
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                Expect.equal result 1 "Binary semaphore should limit to 1 concurrent")
+
+            testAllRuntimes "Semaphore limits to N concurrent" (fun runtime ->
+                let permitCount = 3
+
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make permitCount
+                        let! maxConcurrent = Ref.makeValue 0
+                        let! currentConcurrent = Ref.makeValue 0
+
+                        let task =
+                            fio {
+                                do! currentConcurrent.UpdateExn(fun x -> x + 1)
+                                let! current = currentConcurrent.Get()
+                                let! max = maxConcurrent.Get()
+
+                                if current > max then
+                                    do! maxConcurrent.SetExn current
+
+                                do! FIO.sleepExn (TimeSpan.FromMilliseconds 10.0)
+                                do! currentConcurrent.UpdateExn(fun x -> x - 1)
+                            }
+
+                        let! fibers =
+                            [ 1..10 ]
+                            |> List.map (fun _ -> sem.WithPermitExn(task).Fork())
+                            |> FIO.collectAll
+
+                        for fiber in fibers do
+                            do! fiber.Join()
+
+                        let! max = maxConcurrent.Get()
+                        return max
+                    }
+
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                Expect.isLessThanOrEqual result permitCount $"Max concurrent should be <= {permitCount}")
+        ]
 
 [<Tests>]
 let semaphoreDisposalTests =
-    testList "Semaphore Disposal" [
+    testList
+        "Semaphore Disposal"
+        [
 
-        testPropertyWithConfig fsCheckConfig "Semaphore implements IDisposable"
-        <| fun (runtime: FIORuntime) ->
-            let eff = fio {
-                let! sem = Semaphore.make 1
-                do! sem.AcquireExn()
-                do! sem.ReleaseExn()
-                (sem :> IDisposable).Dispose()
-                return true
-            }
+            testPropertyWithConfig fsCheckConfig "Semaphore implements IDisposable"
+            <| fun (runtime: FIORuntime) ->
+                let eff =
+                    fio {
+                        let! sem = Semaphore.make 1
+                        do! sem.AcquireExn()
+                        do! sem.ReleaseExn()
+                        (sem :> IDisposable).Dispose()
+                        return true
+                    }
 
-            let result = runtime.Run(eff).UnsafeSuccess()
+                let result = runtime.Run(eff).UnsafeSuccess()
 
-            Expect.isTrue result "Semaphore should be disposable"
-    ]
+                Expect.isTrue result "Semaphore should be disposable"
+        ]

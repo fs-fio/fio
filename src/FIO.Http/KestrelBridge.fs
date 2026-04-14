@@ -22,7 +22,9 @@ module KestrelBridge =
     /// This is a pre-configured, immutable instance for optimal performance.
     /// </summary>
     let DefaultJsonOptions =
-        let options = JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
+        let options =
+            JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
+
         options.TypeInfoResolver <- Serialization.Metadata.DefaultJsonTypeInfoResolver()
         options.MakeReadOnly()
         options
@@ -31,21 +33,25 @@ module KestrelBridge =
     /// Validates a path segment for security issues.
     /// </summary>
     let private isValidPathSegment (segment: string) : bool =
-        not (segment.Contains ".." ||
-             segment.Contains '\x00' ||
-             segment.Contains '\\' ||
-             segment.StartsWith '.')
+        not (
+            segment.Contains ".."
+            || segment.Contains '\x00'
+            || segment.Contains '\\'
+            || segment.StartsWith '.'
+        )
 
     /// <summary>
     /// Validates a header name according to RFC 7230.
     /// </summary>
     let private isValidHeaderName (name: string) : bool =
-        not (String.IsNullOrWhiteSpace name) &&
-        name |> Seq.forall (fun c ->
-            c >= 'a' && c <= 'z' ||
-            c >= 'A' && c <= 'Z' ||
-            c >= '0' && c <= '9' ||
-            c = '-' || c = '_')
+        not (String.IsNullOrWhiteSpace name)
+        && name
+           |> Seq.forall (fun c ->
+               c >= 'a' && c <= 'z'
+               || c >= 'A' && c <= 'Z'
+               || c >= '0' && c <= '9'
+               || c = '-'
+               || c = '_')
 
     /// <summary>
     /// URL-decodes query parameter values.
@@ -53,8 +59,8 @@ module KestrelBridge =
     let private decodeQueryValue (value: string) : string =
         try
             HttpUtility.UrlDecode value
-        with
-        | _ -> value // If decode fails, return original
+        with _ ->
+            value // If decode fails, return original
 
     /// <summary>
     /// Converts an ASP.NET Core HttpContext to an FIO HttpRequest asynchronously.
@@ -64,15 +70,19 @@ module KestrelBridge =
     let convertRequestAsync (ctx: HttpContext) (maxBodySize: int64) : Task<Result<FIO.Http.HttpRequest, string>> =
         task {
             // Validate size BEFORE buffering
-            if ctx.Request.ContentLength.HasValue && ctx.Request.ContentLength.Value > maxBodySize then
-                return Error $"Request body size ({ctx.Request.ContentLength.Value} bytes) exceeds maximum allowed size ({maxBodySize} bytes)"
+            if
+                ctx.Request.ContentLength.HasValue
+                && ctx.Request.ContentLength.Value > maxBodySize
+            then
+                return
+                    Error
+                        $"Request body size ({ctx.Request.ContentLength.Value} bytes) exceeds maximum allowed size ({maxBodySize} bytes)"
             else
                 let method = HttpMethod.fromString ctx.Request.Method
                 let path = ctx.Request.Path.Value
 
                 let segments =
-                    path.Split([| '/' |], StringSplitOptions.RemoveEmptyEntries)
-                    |> Array.toList
+                    path.Split([| '/' |], StringSplitOptions.RemoveEmptyEntries) |> Array.toList
 
                 match segments |> List.tryFind (fun seg -> not (isValidPathSegment seg)) with
                 | Some _ ->
@@ -80,9 +90,7 @@ module KestrelBridge =
                 | None ->
                     let queryParams =
                         ctx.Request.Query
-                        |> Seq.map (fun kvp ->
-                            kvp.Key,
-                            kvp.Value |> Seq.map decodeQueryValue |> Seq.toList)
+                        |> Seq.map (fun kvp -> kvp.Key, kvp.Value |> Seq.map decodeQueryValue |> Seq.toList)
                         |> Map.ofSeq
 
                     let headers =
@@ -95,27 +103,38 @@ module KestrelBridge =
                         task {
                             if ctx.Request.ContentLength.HasValue then
                                 let contentLength = ctx.Request.ContentLength.Value
+
                                 if contentLength <= 0L then
                                     return Ok RequestBody.Empty
                                 elif contentLength > int64 Int32.MaxValue then
-                                    return Error $"Request body size ({contentLength} bytes) exceeds supported buffer size ({Int32.MaxValue} bytes)"
+                                    return
+                                        Error
+                                            $"Request body size ({contentLength} bytes) exceeds supported buffer size ({Int32.MaxValue} bytes)"
                                 else
                                     let length = int contentLength
                                     let buffer = ArrayPool<byte>.Shared.Rent(length)
+
                                     try
                                         let mutable totalRead = 0
                                         let mutable eof = false
+
                                         while totalRead < length && not eof do
-                                            let! bytesRead = ctx.Request.Body.ReadAsync(buffer, totalRead, length - totalRead)
+                                            let! bytesRead =
+                                                ctx.Request.Body.ReadAsync(buffer, totalRead, length - totalRead)
+
                                             if bytesRead = 0 then
                                                 eof <- true
                                             else
                                                 totalRead <- totalRead + bytesRead
+
                                         if eof && totalRead < length then
-                                            return Error $"Request body truncated: received {totalRead} of {length} declared bytes"
+                                            return
+                                                Error
+                                                    $"Request body truncated: received {totalRead} of {length} declared bytes"
                                         else
                                             let result = Array.zeroCreate<byte> totalRead
                                             Buffer.BlockCopy(buffer, 0, result, 0, totalRead)
+
                                             if totalRead = 0 then
                                                 return Ok RequestBody.Empty
                                             else
@@ -126,6 +145,7 @@ module KestrelBridge =
                                 let bufferSize = 8192
                                 let buffer = ArrayPool<byte>.Shared.Rent(bufferSize)
                                 use stream = new MemoryStream()
+
                                 try
                                     let mutable totalRead = 0L
                                     let mutable loop = true
@@ -133,44 +153,49 @@ module KestrelBridge =
 
                                     while loop do
                                         let! bytesRead = ctx.Request.Body.ReadAsync(buffer, 0, bufferSize)
+
                                         if bytesRead = 0 then
                                             loop <- false
                                         else
                                             totalRead <- totalRead + int64 bytesRead
+
                                             if totalRead > maxBodySize then
-                                                sizeError <- Some $"Request body size ({totalRead} bytes) exceeds maximum allowed size ({maxBodySize} bytes)"
+                                                sizeError <-
+                                                    Some
+                                                        $"Request body size ({totalRead} bytes) exceeds maximum allowed size ({maxBodySize} bytes)"
+
                                                 loop <- false
                                             else
                                                 do! stream.WriteAsync(buffer, 0, bytesRead)
 
                                     match sizeError with
-                                    | Some err ->
-                                        return Error err
+                                    | Some err -> return Error err
                                     | None ->
                                         if totalRead = 0L then
                                             return Ok RequestBody.Empty
                                         else
-                                            return Ok <| RequestBody.Bytes (stream.ToArray())
+                                            return Ok <| RequestBody.Bytes(stream.ToArray())
                                 finally
                                     ArrayPool<byte>.Shared.Return(buffer)
                         }
 
                     match bodyResult with
-                    | Error err ->
-                        return Error err
+                    | Error err -> return Error err
                     | Ok body ->
                         // Generate a unique request ID for tracking
                         let requestId = Guid.NewGuid().ToString()
 
-                        return Ok {
-                            Method = method
-                            Path = path
-                            PathSegments = segments
-                            QueryParams = queryParams
-                            Headers = headers
-                            Body = body
-                            Metadata = Map.empty |> Map.add "RequestId" (box requestId)
-                        }
+                        return
+                            Ok
+                                {
+                                    Method = method
+                                    Path = path
+                                    PathSegments = segments
+                                    QueryParams = queryParams
+                                    Headers = headers
+                                    Body = body
+                                    Metadata = Map.empty |> Map.add "RequestId" (box requestId)
+                                }
         }
 
     /// <summary>
@@ -180,24 +205,25 @@ module KestrelBridge =
     /// <param name="jsonOptions">JSON serializer options for response serialization.</param>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
     /// <param name="response">The FIO HTTP response to write.</param>
-    let writeResponseWithOptions (jsonOptions: JsonSerializerOptions) (ctx: HttpContext) (response: FIO.Http.HttpResponse) : Task =
+    let writeResponseWithOptions
+        (jsonOptions: JsonSerializerOptions)
+        (ctx: HttpContext)
+        (response: FIO.Http.HttpResponse)
+        : Task =
         task {
             let! bodyBytes =
                 task {
                     match response.Body with
-                    | Empty ->
-                        return None
+                    | Empty -> return None
                     | Text text ->
                         let bytes = Encoding.UTF8.GetBytes text
                         return Some bytes
-                    | Bytes bytes ->
-                        return Some bytes
+                    | Bytes bytes -> return Some bytes
                     | Json obj ->
                         use ms = new MemoryStream(256)
                         do! JsonSerializer.SerializeAsync(ms, obj, jsonOptions)
-                        return Some (ms.ToArray())
-                    | Stream _ ->
-                        return None
+                        return Some(ms.ToArray())
+                    | Stream _ -> return None
                 }
 
             ctx.Response.StatusCode <- int response.Status
@@ -208,8 +234,7 @@ module KestrelBridge =
 
             // Write the body
             match response.Body with
-            | Empty ->
-                ()
+            | Empty -> ()
             | Text _ ->
                 match bodyBytes with
                 | Some bytes ->
@@ -229,7 +254,7 @@ module KestrelBridge =
                     ctx.Response.ContentLength <- int64 bytes.Length
                     do! ctx.Response.Body.WriteAsync(bytes, 0, bytes.Length)
                 | None -> ()
-            | Stream (stream, lengthOpt) ->
+            | Stream(stream, lengthOpt) ->
                 if isNull stream then
                     invalidArg "stream" "Response stream cannot be null"
 
@@ -251,7 +276,11 @@ module KestrelBridge =
     /// <param name="jsonOptions">Optional JSON serializer options. Uses DefaultJsonOptions if None.</param>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
     /// <param name="response">The FIO HTTP response to write.</param>
-    let writeResponseWith (jsonOptions: JsonSerializerOptions option) (ctx: HttpContext) (response: FIO.Http.HttpResponse) : Task =
+    let writeResponseWith
+        (jsonOptions: JsonSerializerOptions option)
+        (ctx: HttpContext)
+        (response: FIO.Http.HttpResponse)
+        : Task =
         match jsonOptions with
         | Some options -> writeResponseWithOptions options ctx response
         | None -> writeResponseWithOptions DefaultJsonOptions ctx response
@@ -262,8 +291,7 @@ module KestrelBridge =
     /// </summary>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
     /// <param name="response">The FIO HTTP response to write.</param>
-    let writeResponse (ctx: HttpContext) (response: FIO.Http.HttpResponse) : Task =
-        writeResponseWith None ctx response
+    let writeResponse (ctx: HttpContext) (response: FIO.Http.HttpResponse) : Task = writeResponseWith None ctx response
 
     /// <summary>
     /// Logs an error with request context for diagnostics.
@@ -273,14 +301,15 @@ module KestrelBridge =
         let method = ctx.Request.Method
         let path = ctx.Request.Path.Value
         let query = ctx.Request.QueryString.Value
-        let errorMsg = error |> Option.map (fun e -> e.Message) |> Option.defaultValue "Unknown error"
+
+        let errorMsg =
+            error |> Option.map (fun e -> e.Message) |> Option.defaultValue "Unknown error"
 
         eprintfn $"[{timestamp}] ERROR [{errorType}] {method} {path}{query} - {errorMsg}"
 
         // Log full exception details to stderr for debugging (not sent to client)
         match error with
-        | Some ex when not (isNull ex.StackTrace) ->
-            eprintfn $"  Stack trace: {ex.StackTrace}"
+        | Some ex when not (isNull ex.StackTrace) -> eprintfn $"  Stack trace: {ex.StackTrace}"
         | _ -> ()
 
     /// <summary>
@@ -301,21 +330,24 @@ module KestrelBridge =
         task {
             try
                 let! requestResult = convertRequestAsync ctx maxBodySize
+
                 match requestResult with
                 | Error errorMsg ->
                     logError ctx "RequestValidation" None
+
                     ctx.Response.StatusCode <-
                         if errorMsg.Contains "body size" then 413 // Payload Too Large
                         elif errorMsg.Contains "path segment" then 400 // Bad Request
                         else 400 // Bad Request
+
                     let errorBytes = Encoding.UTF8.GetBytes errorMsg
                     do! ctx.Response.Body.WriteAsync(errorBytes, 0, errorBytes.Length)
                 | Ok request ->
                     let effect = Routes.dispatch request routes
                     let fiber = runtime.Run effect
+
                     match! fiber.Task() with
-                    | Succeeded response ->
-                        do! writeResponseWithOptions jsonOptions ctx response
+                    | Succeeded response -> do! writeResponseWithOptions jsonOptions ctx response
                     | Failed exn ->
                         logError ctx "HandlerError" (Some exn)
                         ctx.Response.StatusCode <- 500

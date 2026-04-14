@@ -17,19 +17,26 @@ module SocketClient =
     /// <returns>The connected socket.</returns>
     let connect (config: SocketConfig) =
         fio {
-            let! netSocket = FIO.attempt((fun () ->
-                let s = new Sockets.Socket(config.AddressFamily, config.SocketType, config.ProtocolType)
-                s.SendBufferSize <- config.SendBufferSize
-                s.ReceiveBufferSize <- config.ReceiveBufferSize
-                s.SendTimeout <- config.SendTimeout
-                s.ReceiveTimeout <- config.ReceiveTimeout
-                s.NoDelay <- config.NoDelay
-                s),
-                SocketError.fromException)
+            let! netSocket =
+                FIO.attempt (
+                    (fun () ->
+                        let s =
+                            new Sockets.Socket(config.AddressFamily, config.SocketType, config.ProtocolType)
 
-            do! FIO.awaitTask(
-                netSocket.ConnectAsync(config.Host, config.Port),
-                fun ex -> ConnectionFailed(config.Host, config.Port, ex))
+                        s.SendBufferSize <- config.SendBufferSize
+                        s.ReceiveBufferSize <- config.ReceiveBufferSize
+                        s.SendTimeout <- config.SendTimeout
+                        s.ReceiveTimeout <- config.ReceiveTimeout
+                        s.NoDelay <- config.NoDelay
+                        s),
+                    SocketError.fromException
+                )
+
+            do!
+                FIO.awaitTask (
+                    netSocket.ConnectAsync(config.Host, config.Port),
+                    fun ex -> ConnectionFailed(config.Host, config.Port, ex)
+                )
 
             return new Socket(netSocket, config)
         }
@@ -53,11 +60,7 @@ module SocketClient =
     /// <param name="action">Action to execute with the socket.</param>
     /// <returns>The result of the action.</returns>
     let withConnection (config: SocketConfig) (action: Socket -> FIO<'R, SocketError>) =
-        FIO.acquireRelease(
-            connect config,
-            (fun socket -> socket.Close().CatchAll(fun _ -> FIO.unit())),
-            action
-        )
+        FIO.acquireRelease (connect config, (fun socket -> socket.Close().CatchAll(fun _ -> FIO.unit ())), action)
 
     /// <summary>
     /// Executes an action with a socket connection using host and port.

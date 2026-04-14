@@ -24,7 +24,7 @@ module private ThreadPoolConfig =
         ThreadPool.SetMinThreads(minWorkerThreads, minIOThreads) |> ignore
         ThreadPool.SetMaxThreads(maxWorkerThreads, maxIOThreads) |> ignore
 
-do ThreadPoolConfig.configure()
+do ThreadPoolConfig.configure ()
 
 [<Literal>]
 let private SuccessExitCode = 0
@@ -64,5 +64,4 @@ let internal runWithArgs args =
 /// <param name="args">Command-line arguments.</param>
 /// <returns>Exit code (0 for success).</returns>
 [<EntryPoint>]
-let main args =
-    runWithArgs args
+let main args = runWithArgs args

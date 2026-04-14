@@ -34,7 +34,8 @@ type private Arguments =
             match this with
             | BoxPlot -> "generate box plot"
             | LinePlot -> "generate line plot"
-            | LoadPath _ -> "specify absolute path to load benchmark data files from (default uses benchmark subfolder in current directory)"
+            | LoadPath _ ->
+                "specify absolute path to load benchmark data files from (default uses benchmark subfolder in current directory)"
 
 /// <summary>
 /// Parse outcome for plotting CLI parsing.
@@ -47,17 +48,16 @@ type internal ParseOutcome =
 let private parser =
     ArgumentParser.Create<Arguments>(programName = "FIO.Benchmarks.Plots")
 
-let internal usageText () =
-    parser.PrintUsage()
+let internal usageText () = parser.PrintUsage()
 
-let private invalid errorText =
-    InvalidArgs(errorText, usageText())
+let private invalid errorText = InvalidArgs(errorText, usageText ())
 
 let private parseErrorSummary (message: string) =
     if String.IsNullOrWhiteSpace message then
         "Invalid command line arguments."
     else
         let usageIndex = message.IndexOf("USAGE:", StringComparison.OrdinalIgnoreCase)
+
         let rawSummary =
             if usageIndex > 0 then
                 message.Substring(0, usageIndex).Trim()
@@ -67,9 +67,8 @@ let private parseErrorSummary (message: string) =
         if String.IsNullOrWhiteSpace rawSummary then
             "Invalid command line arguments."
         else
-            rawSummary
-                .Split([| '\r'; '\n' |], StringSplitOptions.RemoveEmptyEntries)
-                |> Array.head
+            rawSummary.Split([| '\r'; '\n' |], StringSplitOptions.RemoveEmptyEntries)
+            |> Array.head
 
 let private buildPlotArgs (results: ParseResults<Arguments>) : Result<PlotArgs, string> =
     let boxPlotSelected = results.Contains BoxPlot
@@ -87,21 +86,19 @@ let private buildPlotArgs (results: ParseResults<Arguments>) : Result<PlotArgs, 
     | Ok plotType ->
         let loadPath =
             match results.TryGetResult LoadPath with
-            | Some path when not (Path.IsPathFullyQualified path) ->
-                Error "--loadpath must be an absolute path."
-            | Some path ->
-                Ok path
+            | Some path when not (Path.IsPathFullyQualified path) -> Error "--loadpath must be an absolute path."
+            | Some path -> Ok path
             | None ->
                 let subfolder =
                     match plotType with
                     | PlotType.BoxPlot -> defaultBoxPlotFolder
                     | PlotType.LinePlot -> defaultLinePlotFolder
-                Ok (Path.Combine(Directory.GetCurrentDirectory(), subfolder))
+
+                Ok(Path.Combine(Directory.GetCurrentDirectory(), subfolder))
 
         match loadPath with
         | Error err -> Error err
-        | Ok absolutePath ->
-            Ok { PlotType = plotType; LoadPath = absolutePath }
+        | Ok absolutePath -> Ok { PlotType = plotType; LoadPath = absolutePath }
 
 /// <summary>
 /// Parses command-line arguments into a PlotArgs configuration.
@@ -111,12 +108,12 @@ let private buildPlotArgs (results: ParseResults<Arguments>) : Result<PlotArgs, 
 let parse args =
     try
         let results = parser.Parse(args, raiseOnUsage = false)
+
         if results.IsUsageRequested then
-            HelpRequested(usageText())
+            HelpRequested(usageText ())
         else
             match buildPlotArgs results with
             | Ok plotArgs -> Parsed plotArgs
             | Error errorText -> invalid errorText
-    with
-    | :? ArguParseException as ex ->
+    with :? ArguParseException as ex ->
         invalid (parseErrorSummary ex.Message)

@@ -51,38 +51,22 @@ type private Arguments =
     interface IArgParserTemplate with
         member this.Usage =
             match this with
-            | Direct_Runtime ->
-                "specify Direct runtime"
-            | Cooperative_Runtime _ ->
-                "specify Cooperative runtime with ewc, ews and bwc"
-            | Concurrent_Runtime _ ->
-                "specify Concurrent runtime with ewc, ews and bwc"
-            | Runs _ ->
-                "specify number of runs for each benchmark (must be >= 1)"
-            | Warmup_Runs _ ->
-                "specify number of warmup runs before measured runs (must be >= 0)"
-            | Quiet ->
-                "enable ultra-minimal benchmark output"
-            | Detailed ->
-                "enable detailed per-run benchmark output (cannot be combined with --quiet)"
-            | Actor_Increment _ ->
-                "specify actor increment and increment count (both must be >= 0)"
-            | Round_Increment _ ->
-                "specify round increment and increment count (both must be >= 0)"
-            | Pingpong _ ->
-                "specify number of rounds for Pingpong benchmark (must be >= 1)"
-            | Threadring _ ->
-                "specify number of actors and rounds for Threadring benchmark (actors >= 2, rounds >= 1)"
-            | Big _ ->
-                "specify number of actors and rounds for Big benchmark (actors >= 2, rounds >= 1)"
-            | Bang _ ->
-                "specify number of actors and rounds for Bang benchmark (actors >= 1, rounds >= 1)"
-            | Fork _ ->
-                "specify number of actors for Fork benchmark (actors >= 1)"
-            | Save ->
-                "save benchmark results to CSV files"
-            | Save_Path _ ->
-                "specify absolute output directory for CSV results (requires --save)"
+            | Direct_Runtime -> "specify Direct runtime"
+            | Cooperative_Runtime _ -> "specify Cooperative runtime with ewc, ews and bwc"
+            | Concurrent_Runtime _ -> "specify Concurrent runtime with ewc, ews and bwc"
+            | Runs _ -> "specify number of runs for each benchmark (must be >= 1)"
+            | Warmup_Runs _ -> "specify number of warmup runs before measured runs (must be >= 0)"
+            | Quiet -> "enable ultra-minimal benchmark output"
+            | Detailed -> "enable detailed per-run benchmark output (cannot be combined with --quiet)"
+            | Actor_Increment _ -> "specify actor increment and increment count (both must be >= 0)"
+            | Round_Increment _ -> "specify round increment and increment count (both must be >= 0)"
+            | Pingpong _ -> "specify number of rounds for Pingpong benchmark (must be >= 1)"
+            | Threadring _ -> "specify number of actors and rounds for Threadring benchmark (actors >= 2, rounds >= 1)"
+            | Big _ -> "specify number of actors and rounds for Big benchmark (actors >= 2, rounds >= 1)"
+            | Bang _ -> "specify number of actors and rounds for Bang benchmark (actors >= 1, rounds >= 1)"
+            | Fork _ -> "specify number of actors for Fork benchmark (actors >= 1)"
+            | Save -> "save benchmark results to CSV files"
+            | Save_Path _ -> "specify absolute output directory for CSV results (requires --save)"
 
 /// <summary>
 /// Parse outcome for benchmark CLI parsing.
@@ -95,24 +79,23 @@ type internal ParseOutcome =
 let private parser =
     ArgumentParser.Create<Arguments>(programName = "FIO.Benchmarks")
 
-let internal usageText () =
-    parser.PrintUsage()
+let internal usageText () = parser.PrintUsage()
 
 let private defaultSavePath () =
     let projectDirPath =
         Directory.GetCurrentDirectory()
         |> Directory.GetParent
-        |> _.Parent
-        |> _.Parent
+        |> (fun di -> di.Parent)
+        |> (fun di -> di.Parent)
         |> function
             | null -> failwith "Unexpected directory structure!"
             | di -> di.FullName
+
     Path.Combine(projectDirPath, "results")
 
-let private invalid errorText =
-    InvalidArgs(errorText, usageText())
+let private invalid errorText = InvalidArgs(errorText, usageText ())
 
-type private ResultBuilder () =
+type private ResultBuilder() =
     member _.Bind(result, binder) = Result.bind binder result
     member _.Return value = Ok value
     member _.ReturnFrom result = result
@@ -123,38 +106,41 @@ let private validateAll (checks: Result<unit, string> list) : Result<unit, strin
     checks
     |> List.tryPick (function
         | Error err -> Some err
-        | Ok () -> None)
+        | Ok() -> None)
     |> function
         | Some err -> Error err
-        | None -> Ok ()
+        | None -> Ok()
 
 let private validateAtLeast (name: string) minimum value =
     if value < minimum then
         Error $"{name} must be >= {minimum}. {name} = {value}"
     else
-        Ok ()
+        Ok()
 
-let private validateNonNegative (name: string) value =
-    validateAtLeast name 0 value
+let private validateNonNegative (name: string) value = validateAtLeast name 0 value
 
 let private validateRuntimeSelection (results: ParseResults<Arguments>) =
     let selectionCount =
-        [ results.Contains Direct_Runtime
-          results.Contains Cooperative_Runtime
-          results.Contains Concurrent_Runtime ]
+        [
+            results.Contains Direct_Runtime
+            results.Contains Cooperative_Runtime
+            results.Contains Concurrent_Runtime
+        ]
         |> List.filter id
         |> List.length
 
     if selectionCount >= 1 then
-        Ok ()
+        Ok()
     else
         Error "Specify at least one runtime: --direct-runtime, --cooperative-runtime, or --concurrent-runtime."
 
 let private buildWorkerConfig (ewc, ews, bwc) =
     validateAll
-        [ validateAtLeast "ewc" 1 ewc
-          validateAtLeast "ews" 1 ews
-          validateAtLeast "bwc" 1 bwc ]
+        [
+            validateAtLeast "ewc" 1 ewc
+            validateAtLeast "ews" 1 ews
+            validateAtLeast "bwc" 1 bwc
+        ]
     |> Result.map (fun () -> { EWC = ewc; EWS = ews; BWC = bwc })
 
 let private buildRuntimeSelections (results: ParseResults<Arguments>) : Result<RuntimeSelection list, string> =
@@ -166,57 +152,53 @@ let private buildRuntimeSelections (results: ParseResults<Arguments>) : Result<R
 
     let cooperativeSelection =
         match results.TryGetResult Cooperative_Runtime with
-        | None ->
-            Ok None
-        | Some workerConfig ->
-            buildWorkerConfig workerConfig
-            |> Result.map (Cooperative >> Some)
+        | None -> Ok None
+        | Some workerConfig -> buildWorkerConfig workerConfig |> Result.map (Cooperative >> Some)
 
     let concurrentSelection =
         match results.TryGetResult Concurrent_Runtime with
-        | None ->
-            Ok None
-        | Some workerConfig ->
-            buildWorkerConfig workerConfig
-            |> Result.map (Concurrent >> Some)
+        | None -> Ok None
+        | Some workerConfig -> buildWorkerConfig workerConfig |> Result.map (Concurrent >> Some)
 
     result {
         let! cooperativeSelection = cooperativeSelection
         let! concurrentSelection = concurrentSelection
 
-        return
-            [ directSelection
-              cooperativeSelection
-              concurrentSelection ]
-            |> List.choose id
+        return [ directSelection; cooperativeSelection; concurrentSelection ] |> List.choose id
     }
 
 let private validateBenchmarkConfig config =
     match config with
-    | PingpongConfig roundCount ->
-        validateAtLeast "pingpong roundCount" 1 roundCount
+    | PingpongConfig roundCount -> validateAtLeast "pingpong roundCount" 1 roundCount
     | ThreadringConfig(actorCount, roundCount) ->
         validateAll
-            [ validateAtLeast "threadring actorCount" 2 actorCount
-              validateAtLeast "threadring roundCount" 1 roundCount ]
+            [
+                validateAtLeast "threadring actorCount" 2 actorCount
+                validateAtLeast "threadring roundCount" 1 roundCount
+            ]
     | BigConfig(actorCount, roundCount) ->
         validateAll
-            [ validateAtLeast "big actorCount" 2 actorCount
-              validateAtLeast "big roundCount" 1 roundCount ]
+            [
+                validateAtLeast "big actorCount" 2 actorCount
+                validateAtLeast "big roundCount" 1 roundCount
+            ]
     | BangConfig(actorCount, roundCount) ->
         validateAll
-            [ validateAtLeast "bang actorCount" 1 actorCount
-              validateAtLeast "bang roundCount" 1 roundCount ]
-    | ForkConfig actorCount ->
-        validateAtLeast "fork actorCount" 1 actorCount
+            [
+                validateAtLeast "bang actorCount" 1 actorCount
+                validateAtLeast "bang roundCount" 1 roundCount
+            ]
+    | ForkConfig actorCount -> validateAtLeast "fork actorCount" 1 actorCount
 
 let private collectBenchmarkConfigs (results: ParseResults<Arguments>) : Result<BenchmarkConfig list, string> =
     let configs =
-        [ results.TryGetResult Pingpong |> Option.map PingpongConfig
-          results.TryGetResult Threadring |> Option.map ThreadringConfig
-          results.TryGetResult Big |> Option.map BigConfig
-          results.TryGetResult Bang |> Option.map BangConfig
-          results.TryGetResult Fork |> Option.map ForkConfig ]
+        [
+            results.TryGetResult Pingpong |> Option.map PingpongConfig
+            results.TryGetResult Threadring |> Option.map ThreadringConfig
+            results.TryGetResult Big |> Option.map BigConfig
+            results.TryGetResult Bang |> Option.map BangConfig
+            results.TryGetResult Fork |> Option.map ForkConfig
+        ]
         |> List.choose id
 
     if configs.IsEmpty then
@@ -229,18 +211,16 @@ let private collectBenchmarkConfigs (results: ParseResults<Arguments>) : Result<
 
 let private resolveSavePath (saveToCsv: bool) (savePathOpt: string option) : Result<string, string> =
     match savePathOpt with
-    | Some _ when not saveToCsv ->
-        Error "--save-path requires --save."
-    | Some path when not (Path.IsPathFullyQualified path) ->
-        Error "--save-path must be an absolute path."
-    | _ ->
-        Ok (savePathOpt |> Option.defaultValue (defaultSavePath()))
+    | Some _ when not saveToCsv -> Error "--save-path requires --save."
+    | Some path when not (Path.IsPathFullyQualified path) -> Error "--save-path must be an absolute path."
+    | _ -> Ok(savePathOpt |> Option.defaultValue (defaultSavePath ()))
 
 let private parseErrorSummary (message: string) =
     if String.IsNullOrWhiteSpace message then
         "Invalid command line arguments."
     else
         let usageIndex = message.IndexOf("USAGE:", StringComparison.OrdinalIgnoreCase)
+
         let rawSummary =
             if usageIndex > 0 then
                 message.Substring(0, usageIndex).Trim()
@@ -250,9 +230,8 @@ let private parseErrorSummary (message: string) =
         if String.IsNullOrWhiteSpace rawSummary then
             "Invalid command line arguments."
         else
-            rawSummary
-                .Split([| '\r'; '\n' |], StringSplitOptions.RemoveEmptyEntries)
-                |> Array.head
+            rawSummary.Split([| '\r'; '\n' |], StringSplitOptions.RemoveEmptyEntries)
+            |> Array.head
 
 let private buildBenchmarkArgs (results: ParseResults<Arguments>) : Result<BenchmarkArgs, string> =
     result {
@@ -274,31 +253,35 @@ let private buildBenchmarkArgs (results: ParseResults<Arguments>) : Result<Bench
             if quiet && detailed then
                 Error "--quiet and --detailed cannot be used together."
             else
-                Ok ()
+                Ok()
 
         do!
             validateAll
-                [ validateAtLeast "runs" 1 runs
-                  validateNonNegative "warmup-runs" warmupRuns
-                  validateNonNegative "actor-increment value" actorIncValue
-                  validateNonNegative "actor-increment times" actorIncTimes
-                  validateNonNegative "round-increment value" roundIncValue
-                  validateNonNegative "round-increment times" roundIncTimes ]
+                [
+                    validateAtLeast "runs" 1 runs
+                    validateNonNegative "warmup-runs" warmupRuns
+                    validateNonNegative "actor-increment value" actorIncValue
+                    validateNonNegative "actor-increment times" actorIncTimes
+                    validateNonNegative "round-increment value" roundIncValue
+                    validateNonNegative "round-increment times" roundIncTimes
+                ]
 
         let! savePath = resolveSavePath saveToCsv savePathOpt
         let! benchmarkConfigs = collectBenchmarkConfigs results
 
         return
-            { Runtimes = runtimes
-              Runs = runs
-              WarmupRuns = warmupRuns
-              Quiet = quiet
-              Detailed = detailed
-              ActorIncrement = actorInc
-              RoundIncrement = roundInc
-              BenchmarkConfigs = benchmarkConfigs
-              SaveToCsv = saveToCsv
-              SavePath = savePath }
+            {
+                Runtimes = runtimes
+                Runs = runs
+                WarmupRuns = warmupRuns
+                Quiet = quiet
+                Detailed = detailed
+                ActorIncrement = actorInc
+                RoundIncrement = roundInc
+                BenchmarkConfigs = benchmarkConfigs
+                SaveToCsv = saveToCsv
+                SavePath = savePath
+            }
     }
 
 /// <summary>
@@ -309,12 +292,12 @@ let private buildBenchmarkArgs (results: ParseResults<Arguments>) : Result<Bench
 let parse args =
     try
         let results = parser.Parse(args, raiseOnUsage = false)
+
         if results.IsUsageRequested then
-            HelpRequested(usageText())
+            HelpRequested(usageText ())
         else
             match buildBenchmarkArgs results with
             | Ok benchmarkArgs -> Parsed benchmarkArgs
             | Error errorText -> invalid errorText
-    with
-    | :? ArguParseException as ex ->
+    with :? ArguParseException as ex ->
         invalid (parseErrorSummary ex.Message)

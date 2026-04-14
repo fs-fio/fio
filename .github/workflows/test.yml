@@ -32,6 +32,12 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nuget-
 
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Check formatting
+        run: dotnet fantomas --check .
+
       - name: Restore dependencies
         run: dotnet restore ./FIO.slnx
 

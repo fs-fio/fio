@@ -14,356 +14,384 @@ open FIO.Runtime.Concurrent
 
 open System
 
-let private runtimes () = [
-    new DirectRuntime() :> FIORuntime
-    new CooperativeRuntime() :> FIORuntime
-    new ConcurrentRuntime() :> FIORuntime
-]
+let private runtimes () =
+    [
+        new DirectRuntime() :> FIORuntime
+        new CooperativeRuntime() :> FIORuntime
+        new ConcurrentRuntime() :> FIORuntime
+    ]
 
 let private withMockBackend (test: MockConsoleBackend -> FIORuntime -> unit) (runtime: FIORuntime) =
     let mock = MockConsoleBackend()
     ConsoleBackend.set mock
+
     try
         test mock runtime
     finally
-        ConsoleBackend.reset()
+        ConsoleBackend.reset ()
 
 let private testAllRuntimes name (f: MockConsoleBackend -> FIORuntime -> unit) =
-    testList name [
-        for rt in runtimes () ->
-            testCase (rt.GetType().Name) (fun () -> withMockBackend f rt)
-    ]
+    testList
+        name
+        [
+            for rt in runtimes () -> testCase (rt.GetType().Name) (fun () -> withMockBackend f rt)
+        ]
 
 // All console tests must run sequentially because ConsoleBackend has process-global state
 [<Tests>]
 let consoleTests =
-    testSequenced (testList "Console" [
+    testSequenced (
+        testList
+            "Console"
+            [
 
-        testAllRuntimes "printExn - writes formatted text to stdout" (fun mock runtime ->
-            runtime.Run(Console.printExn "hello").UnsafeSuccess()
+                testAllRuntimes "printExn - writes formatted text to stdout" (fun mock runtime ->
+                    runtime.Run(Console.printExn "hello").UnsafeSuccess()
 
-            Expect.stringContains mock.StdOut "hello" "Should write to stdout")
+                    Expect.stringContains mock.StdOut "hello" "Should write to stdout")
 
-        testAllRuntimes "printErrorExn - writes formatted text to stderr" (fun mock runtime ->
-            runtime.Run(Console.printErrorExn "err").UnsafeSuccess()
+                testAllRuntimes "printErrorExn - writes formatted text to stderr" (fun mock runtime ->
+                    runtime.Run(Console.printErrorExn "err").UnsafeSuccess()
 
-            Expect.stringContains mock.StdErr "err" "Should write to stderr")
+                    Expect.stringContains mock.StdErr "err" "Should write to stderr")
 
-        testAllRuntimes "printLineExn - writes formatted text with newline to stdout" (fun mock runtime ->
-            runtime.Run(Console.printLineExn "line").UnsafeSuccess()
+                testAllRuntimes "printLineExn - writes formatted text with newline to stdout" (fun mock runtime ->
+                    runtime.Run(Console.printLineExn "line").UnsafeSuccess()
 
-            Expect.stringContains mock.StdOut "line" "Should write line to stdout")
+                    Expect.stringContains mock.StdOut "line" "Should write line to stdout")
 
-        testAllRuntimes "printErrorLineExn - writes formatted text with newline to stderr" (fun mock runtime ->
-            runtime.Run(Console.printErrorLineExn "errline").UnsafeSuccess()
+                testAllRuntimes "printErrorLineExn - writes formatted text with newline to stderr" (fun mock runtime ->
+                    runtime.Run(Console.printErrorLineExn "errline").UnsafeSuccess()
 
-            Expect.stringContains mock.StdErr "errline" "Should write line to stderr")
+                    Expect.stringContains mock.StdErr "errline" "Should write line to stderr")
 
-        testAllRuntimes "readLineExn - reads queued input line" (fun mock runtime ->
-            mock.QueueInputLine "hello world"
+                testAllRuntimes "readLineExn - reads queued input line" (fun mock runtime ->
+                    mock.QueueInputLine "hello world"
 
-            let result = runtime.Run(Console.readLineExn).UnsafeSuccess()
+                    let result = runtime.Run(Console.readLineExn).UnsafeSuccess()
 
-            Expect.equal result "hello world" "Should read queued input")
+                    Expect.equal result "hello world" "Should read queued input")
 
-        testAllRuntimes "readLine - maps exception with custom error handler" (fun mock runtime ->
-            mock.ShouldThrow <- Some (InvalidOperationException "read fail" :> exn)
-            let eff = Console.readLine<string>(fun ex -> ex.Message)
+                testAllRuntimes "readLine - maps exception with custom error handler" (fun mock runtime ->
+                    mock.ShouldThrow <- Some(InvalidOperationException "read fail" :> exn)
+                    let eff = Console.readLine<string> (fun ex -> ex.Message)
 
-            let result = runtime.Run(eff).UnsafeResult()
+                    let result = runtime.Run(eff).UnsafeResult()
 
-            match result with
-            | Failed msg -> Expect.equal msg "read fail" "Should map exception on read path"
-            | other -> failtest $"Expected Failed but got: {other}")
+                    match result with
+                    | Failed msg -> Expect.equal msg "read fail" "Should map exception on read path"
+                    | other -> failtest $"Expected Failed but got: {other}")
 
-        testAllRuntimes "readKeyExn - reads queued key" (fun mock runtime ->
-            mock.QueueCharKey 'Z'
+                testAllRuntimes "readKeyExn - reads queued key" (fun mock runtime ->
+                    mock.QueueCharKey 'Z'
 
-            let result = runtime.Run(Console.readKeyExn false).UnsafeSuccess()
+                    let result = runtime.Run(Console.readKeyExn false).UnsafeSuccess()
 
-            Expect.equal result.KeyChar 'Z' "Should read queued key")
+                    Expect.equal result.KeyChar 'Z' "Should read queued key")
 
-        testAllRuntimes "keyAvailableExn - reflects key queue state" (fun mock runtime ->
-            let empty = runtime.Run(Console.keyAvailableExn).UnsafeSuccess()
+                testAllRuntimes "keyAvailableExn - reflects key queue state" (fun mock runtime ->
+                    let empty = runtime.Run(Console.keyAvailableExn).UnsafeSuccess()
 
-            Expect.isFalse empty "Should be false when no key queued"
+                    Expect.isFalse empty "Should be false when no key queued"
 
-            mock.QueueCharKey 'A'
-            let full = runtime.Run(Console.keyAvailableExn).UnsafeSuccess()
+                    mock.QueueCharKey 'A'
+                    let full = runtime.Run(Console.keyAvailableExn).UnsafeSuccess()
 
-            Expect.isTrue full "Should be true when key is queued")
+                    Expect.isTrue full "Should be true when key is queued")
 
-        testAllRuntimes "readExn - reads first character as int" (fun mock runtime ->
-            mock.QueueInputLine "ABC"
+                testAllRuntimes "readExn - reads first character as int" (fun mock runtime ->
+                    mock.QueueInputLine "ABC"
 
-            let result = runtime.Run(Console.readExn).UnsafeSuccess()
+                    let result = runtime.Run(Console.readExn).UnsafeSuccess()
 
-            Expect.equal result (int 'A') "Should read first char as int")
+                    Expect.equal result (int 'A') "Should read first char as int")
 
-        testAllRuntimes "writeExn - writes text to stdout" (fun mock runtime ->
-            runtime.Run(Console.writeExn "hello").UnsafeSuccess()
+                testAllRuntimes "writeExn - writes text to stdout" (fun mock runtime ->
+                    runtime.Run(Console.writeExn "hello").UnsafeSuccess()
 
-            Expect.equal mock.StdOut "hello" "Should write text to stdout")
+                    Expect.equal mock.StdOut "hello" "Should write text to stdout")
 
-        testAllRuntimes "write - maps exception with custom error handler" (fun mock runtime ->
-            mock.ShouldThrow <- Some (InvalidOperationException "boom" :> exn)
-            let eff = Console.write("x", fun ex -> $"mapped: {ex.Message}")
+                testAllRuntimes "write - maps exception with custom error handler" (fun mock runtime ->
+                    mock.ShouldThrow <- Some(InvalidOperationException "boom" :> exn)
+                    let eff = Console.write ("x", fun ex -> $"mapped: {ex.Message}")
 
-            let result = runtime.Run(eff).UnsafeResult()
+                    let result = runtime.Run(eff).UnsafeResult()
 
-            match result with
-            | Failed msg -> Expect.equal msg "mapped: boom" "Should map exception"
-            | other -> failtest $"Expected Failed but got: {other}")
+                    match result with
+                    | Failed msg -> Expect.equal msg "mapped: boom" "Should map exception"
+                    | other -> failtest $"Expected Failed but got: {other}")
 
-        testAllRuntimes "writeExn - surfaces original exception on error" (fun mock runtime ->
-            mock.ShouldThrow <- Some (InvalidOperationException "crash" :> exn)
-            let eff = Console.writeExn "x"
+                testAllRuntimes "writeExn - surfaces original exception on error" (fun mock runtime ->
+                    mock.ShouldThrow <- Some(InvalidOperationException "crash" :> exn)
+                    let eff = Console.writeExn "x"
 
-            let result = runtime.Run(eff).UnsafeResult()
+                    let result = runtime.Run(eff).UnsafeResult()
 
-            match result with
-            | Failed ex -> Expect.equal ex.Message "crash" "Should preserve original exception"
-            | other -> failtest $"Expected Failed but got: {other}")
+                    match result with
+                    | Failed ex -> Expect.equal ex.Message "crash" "Should preserve original exception"
+                    | other -> failtest $"Expected Failed but got: {other}")
 
-        testAllRuntimes "writeLineExn - writes text with newline to stdout" (fun mock runtime ->
-            runtime.Run(Console.writeLineExn "world").UnsafeSuccess()
+                testAllRuntimes "writeLineExn - writes text with newline to stdout" (fun mock runtime ->
+                    runtime.Run(Console.writeLineExn "world").UnsafeSuccess()
 
-            Expect.stringContains mock.StdOut "world" "Should write text with newline to stdout")
+                    Expect.stringContains mock.StdOut "world" "Should write text with newline to stdout")
 
-        testAllRuntimes "newLineExn - writes blank line to stdout" (fun mock runtime ->
-            runtime.Run(Console.newLineExn).UnsafeSuccess()
+                testAllRuntimes "newLineExn - writes blank line to stdout" (fun mock runtime ->
+                    runtime.Run(Console.newLineExn).UnsafeSuccess()
 
-            Expect.isTrue
-                (mock.StdOut.Contains "\n" || mock.StdOut.Contains Environment.NewLine)
-                "Should write newline")
+                    Expect.isTrue
+                        (mock.StdOut.Contains "\n" || mock.StdOut.Contains Environment.NewLine)
+                        "Should write newline")
 
-        testAllRuntimes "writeErrorExn - writes text to stderr" (fun mock runtime ->
-            runtime.Run(Console.writeErrorExn "err1").UnsafeSuccess()
+                testAllRuntimes "writeErrorExn - writes text to stderr" (fun mock runtime ->
+                    runtime.Run(Console.writeErrorExn "err1").UnsafeSuccess()
 
-            Expect.equal mock.StdErr "err1" "Should write text to stderr")
+                    Expect.equal mock.StdErr "err1" "Should write text to stderr")
 
-        testAllRuntimes "writeErrorLineExn - writes text with newline to stderr" (fun mock runtime ->
-            runtime.Run(Console.writeErrorLineExn "err2").UnsafeSuccess()
+                testAllRuntimes "writeErrorLineExn - writes text with newline to stderr" (fun mock runtime ->
+                    runtime.Run(Console.writeErrorLineExn "err2").UnsafeSuccess()
 
-            Expect.stringContains mock.StdErr "err2" "Should write text with newline to stderr")
+                    Expect.stringContains mock.StdErr "err2" "Should write text with newline to stderr")
 
-        testAllRuntimes "clearExn - clears the console" (fun mock runtime ->
-            runtime.Run(Console.clearExn).UnsafeSuccess()
+                testAllRuntimes "clearExn - clears the console" (fun mock runtime ->
+                    runtime.Run(Console.clearExn).UnsafeSuccess()
 
-            Expect.equal mock.ClearCount 1 "Should track clear call")
+                    Expect.equal mock.ClearCount 1 "Should track clear call")
 
-        testAllRuntimes "beepExn - triggers system bell" (fun mock runtime ->
-            runtime.Run(Console.beepExn).UnsafeSuccess()
+                testAllRuntimes "beepExn - triggers system bell" (fun mock runtime ->
+                    runtime.Run(Console.beepExn).UnsafeSuccess()
 
-            Expect.equal mock.BeepCount 1 "Should track beep call")
+                    Expect.equal mock.BeepCount 1 "Should track beep call")
 
-        testAllRuntimes "setCursorLeftExn - sets cursor column position" (fun _mock runtime ->
-            runtime.Run(Console.setCursorLeftExn 10).UnsafeSuccess()
+                testAllRuntimes "setCursorLeftExn - sets cursor column position" (fun _mock runtime ->
+                    runtime.Run(Console.setCursorLeftExn 10).UnsafeSuccess()
 
-            let left = runtime.Run(Console.getCursorLeftExn).UnsafeSuccess()
+                    let left = runtime.Run(Console.getCursorLeftExn).UnsafeSuccess()
 
-            Expect.equal left 10 "Should set cursor column")
+                    Expect.equal left 10 "Should set cursor column")
 
-        testAllRuntimes "setCursorTopExn - sets cursor row position" (fun _mock runtime ->
-            runtime.Run(Console.setCursorTopExn 20).UnsafeSuccess()
+                testAllRuntimes "setCursorTopExn - sets cursor row position" (fun _mock runtime ->
+                    runtime.Run(Console.setCursorTopExn 20).UnsafeSuccess()
 
-            let top = runtime.Run(Console.getCursorTopExn).UnsafeSuccess()
+                    let top = runtime.Run(Console.getCursorTopExn).UnsafeSuccess()
 
-            Expect.equal top 20 "Should set cursor row")
+                    Expect.equal top 20 "Should set cursor row")
 
-        testAllRuntimes "setCursorPositionExn - sets both cursor coordinates" (fun _mock runtime ->
-            runtime.Run(Console.setCursorPositionExn(30, 40)).UnsafeSuccess()
+                testAllRuntimes "setCursorPositionExn - sets both cursor coordinates" (fun _mock runtime ->
+                    runtime.Run(Console.setCursorPositionExn (30, 40)).UnsafeSuccess()
 
-            let pos = runtime.Run(Console.getCursorPositionExn).UnsafeSuccess()
+                    let pos = runtime.Run(Console.getCursorPositionExn).UnsafeSuccess()
 
-            Expect.equal pos (30, 40) "Should set both coordinates")
+                    Expect.equal pos (30, 40) "Should set both coordinates")
 
-        testAllRuntimes "getCursorPositionExn - returns cursor position tuple" (fun _mock runtime ->
-            runtime.Run(Console.setCursorLeftExn 5).UnsafeSuccess()
-            runtime.Run(Console.setCursorTopExn 15).UnsafeSuccess()
+                testAllRuntimes "getCursorPositionExn - returns cursor position tuple" (fun _mock runtime ->
+                    runtime.Run(Console.setCursorLeftExn 5).UnsafeSuccess()
+                    runtime.Run(Console.setCursorTopExn 15).UnsafeSuccess()
 
-            let pos = runtime.Run(Console.getCursorPositionExn).UnsafeSuccess()
+                    let pos = runtime.Run(Console.getCursorPositionExn).UnsafeSuccess()
 
-            Expect.equal pos (5, 15) "Should return position as tuple")
+                    Expect.equal pos (5, 15) "Should return position as tuple")
 
-        testAllRuntimes "setCursorVisibleExn - sets cursor visibility" (fun _mock runtime ->
-            runtime.Run(Console.setCursorVisibleExn false).UnsafeSuccess()
+                testAllRuntimes "setCursorVisibleExn - sets cursor visibility" (fun _mock runtime ->
+                    runtime.Run(Console.setCursorVisibleExn false).UnsafeSuccess()
 
-            let v = runtime.Run(Console.getCursorVisibleExn).UnsafeSuccess()
+                    let v = runtime.Run(Console.getCursorVisibleExn).UnsafeSuccess()
 
-            Expect.isFalse v "Should hide cursor")
+                    Expect.isFalse v "Should hide cursor")
 
-        testAllRuntimes "setForegroundColorExn - sets foreground color" (fun _mock runtime ->
-            runtime.Run(Console.setForegroundColorExn ConsoleColor.Red).UnsafeSuccess()
+                testAllRuntimes "setForegroundColorExn - sets foreground color" (fun _mock runtime ->
+                    runtime.Run(Console.setForegroundColorExn ConsoleColor.Red).UnsafeSuccess()
 
-            let fg = runtime.Run(Console.getForegroundColorExn).UnsafeSuccess()
+                    let fg = runtime.Run(Console.getForegroundColorExn).UnsafeSuccess()
 
-            Expect.equal fg ConsoleColor.Red "Should set foreground color")
+                    Expect.equal fg ConsoleColor.Red "Should set foreground color")
 
-        testAllRuntimes "setBackgroundColorExn - sets background color" (fun _mock runtime ->
-            runtime.Run(Console.setBackgroundColorExn ConsoleColor.Blue).UnsafeSuccess()
+                testAllRuntimes "setBackgroundColorExn - sets background color" (fun _mock runtime ->
+                    runtime.Run(Console.setBackgroundColorExn ConsoleColor.Blue).UnsafeSuccess()
 
-            let bg = runtime.Run(Console.getBackgroundColorExn).UnsafeSuccess()
+                    let bg = runtime.Run(Console.getBackgroundColorExn).UnsafeSuccess()
 
-            Expect.equal bg ConsoleColor.Blue "Should set background color")
+                    Expect.equal bg ConsoleColor.Blue "Should set background color")
 
-        testAllRuntimes "resetColorExn - resets colors to defaults" (fun _mock runtime ->
-            runtime.Run(Console.setForegroundColorExn ConsoleColor.Red).UnsafeSuccess()
-            runtime.Run(Console.setBackgroundColorExn ConsoleColor.Blue).UnsafeSuccess()
+                testAllRuntimes "resetColorExn - resets colors to defaults" (fun _mock runtime ->
+                    runtime.Run(Console.setForegroundColorExn ConsoleColor.Red).UnsafeSuccess()
+                    runtime.Run(Console.setBackgroundColorExn ConsoleColor.Blue).UnsafeSuccess()
 
-            runtime.Run(Console.resetColorExn).UnsafeSuccess()
-            let fg = runtime.Run(Console.getForegroundColorExn).UnsafeSuccess()
-            let bg = runtime.Run(Console.getBackgroundColorExn).UnsafeSuccess()
+                    runtime.Run(Console.resetColorExn).UnsafeSuccess()
+                    let fg = runtime.Run(Console.getForegroundColorExn).UnsafeSuccess()
+                    let bg = runtime.Run(Console.getBackgroundColorExn).UnsafeSuccess()
 
-            Expect.equal fg ConsoleColor.Gray "Should reset foreground"
-            Expect.equal bg ConsoleColor.Black "Should reset background")
+                    Expect.equal fg ConsoleColor.Gray "Should reset foreground"
+                    Expect.equal bg ConsoleColor.Black "Should reset background")
 
-        testAllRuntimes "setTitleExn - sets console title" (fun _mock runtime ->
-            runtime.Run(Console.setTitleExn "FIO App").UnsafeSuccess()
+                testAllRuntimes "setTitleExn - sets console title" (fun _mock runtime ->
+                    runtime.Run(Console.setTitleExn "FIO App").UnsafeSuccess()
 
-            let t = runtime.Run(Console.getTitleExn).UnsafeSuccess()
+                    let t = runtime.Run(Console.getTitleExn).UnsafeSuccess()
 
-            Expect.equal t "FIO App" "Should set title")
+                    Expect.equal t "FIO App" "Should set title")
 
-        testAllRuntimes "isInputRedirectedExn - reflects input redirection state" (fun mock runtime ->
-            let before = runtime.Run(Console.isInputRedirectedExn).UnsafeSuccess()
+                testAllRuntimes "isInputRedirectedExn - reflects input redirection state" (fun mock runtime ->
+                    let before = runtime.Run(Console.isInputRedirectedExn).UnsafeSuccess()
 
-            Expect.isFalse before "Should be false by default"
+                    Expect.isFalse before "Should be false by default"
 
-            mock.IsInputRedirected <- true
-            let after = runtime.Run(Console.isInputRedirectedExn).UnsafeSuccess()
+                    mock.IsInputRedirected <- true
+                    let after = runtime.Run(Console.isInputRedirectedExn).UnsafeSuccess()
 
-            Expect.isTrue after "Should reflect redirected state")
+                    Expect.isTrue after "Should reflect redirected state")
 
-        testAllRuntimes "isOutputRedirectedExn - reflects output redirection state" (fun mock runtime ->
-            let before = runtime.Run(Console.isOutputRedirectedExn).UnsafeSuccess()
+                testAllRuntimes "isOutputRedirectedExn - reflects output redirection state" (fun mock runtime ->
+                    let before = runtime.Run(Console.isOutputRedirectedExn).UnsafeSuccess()
 
-            Expect.isFalse before "Should be false by default"
+                    Expect.isFalse before "Should be false by default"
 
-            mock.IsOutputRedirected <- true
-            let after = runtime.Run(Console.isOutputRedirectedExn).UnsafeSuccess()
+                    mock.IsOutputRedirected <- true
+                    let after = runtime.Run(Console.isOutputRedirectedExn).UnsafeSuccess()
 
-            Expect.isTrue after "Should reflect redirected state")
+                    Expect.isTrue after "Should reflect redirected state")
 
-        testAllRuntimes "isErrorRedirectedExn - reflects error redirection state" (fun mock runtime ->
-            let before = runtime.Run(Console.isErrorRedirectedExn).UnsafeSuccess()
+                testAllRuntimes "isErrorRedirectedExn - reflects error redirection state" (fun mock runtime ->
+                    let before = runtime.Run(Console.isErrorRedirectedExn).UnsafeSuccess()
 
-            Expect.isFalse before "Should be false by default"
+                    Expect.isFalse before "Should be false by default"
 
-            mock.IsErrorRedirected <- true
-            let after = runtime.Run(Console.isErrorRedirectedExn).UnsafeSuccess()
+                    mock.IsErrorRedirected <- true
+                    let after = runtime.Run(Console.isErrorRedirectedExn).UnsafeSuccess()
 
-            Expect.isTrue after "Should reflect redirected state")
+                    Expect.isTrue after "Should reflect redirected state")
 
-        testAllRuntimes "getWindowWidthExn - returns window width" (fun mock runtime ->
-            mock.SetWindowSize(200, 50)
+                testAllRuntimes "getWindowWidthExn - returns window width" (fun mock runtime ->
+                    mock.SetWindowSize(200, 50)
 
-            let w = runtime.Run(Console.getWindowWidthExn).UnsafeSuccess()
+                    let w = runtime.Run(Console.getWindowWidthExn).UnsafeSuccess()
 
-            Expect.equal w 200 "Should return window width")
+                    Expect.equal w 200 "Should return window width")
 
-        testAllRuntimes "getWindowHeightExn - returns window height" (fun mock runtime ->
-            mock.SetWindowSize(200, 50)
+                testAllRuntimes "getWindowHeightExn - returns window height" (fun mock runtime ->
+                    mock.SetWindowSize(200, 50)
 
-            let h = runtime.Run(Console.getWindowHeightExn).UnsafeSuccess()
+                    let h = runtime.Run(Console.getWindowHeightExn).UnsafeSuccess()
 
-            Expect.equal h 50 "Should return window height")
+                    Expect.equal h 50 "Should return window height")
 
-        testAllRuntimes "getBufferWidthExn - returns buffer width" (fun mock runtime ->
-            mock.SetBufferSize(300, 1000)
+                testAllRuntimes "getBufferWidthExn - returns buffer width" (fun mock runtime ->
+                    mock.SetBufferSize(300, 1000)
 
-            let w = runtime.Run(Console.getBufferWidthExn).UnsafeSuccess()
+                    let w = runtime.Run(Console.getBufferWidthExn).UnsafeSuccess()
 
-            Expect.equal w 300 "Should return buffer width")
+                    Expect.equal w 300 "Should return buffer width")
 
-        testAllRuntimes "getBufferHeightExn - returns buffer height" (fun mock runtime ->
-            mock.SetBufferSize(300, 1000)
+                testAllRuntimes "getBufferHeightExn - returns buffer height" (fun mock runtime ->
+                    mock.SetBufferSize(300, 1000)
 
-            let h = runtime.Run(Console.getBufferHeightExn).UnsafeSuccess()
+                    let h = runtime.Run(Console.getBufferHeightExn).UnsafeSuccess()
 
-            Expect.equal h 1000 "Should return buffer height")
+                    Expect.equal h 1000 "Should return buffer height")
 
-        testAllRuntimes "printLinesExn - writes multiple lines to stdout" (fun mock runtime ->
-            runtime.Run(Console.printLinesExn ["a"; "b"; "c"]).UnsafeSuccess()
+                testAllRuntimes "printLinesExn - writes multiple lines to stdout" (fun mock runtime ->
+                    runtime.Run(Console.printLinesExn [ "a"; "b"; "c" ]).UnsafeSuccess()
 
-            Expect.stringContains mock.StdOut "a" "Should contain first line"
-            Expect.stringContains mock.StdOut "b" "Should contain second line"
-            Expect.stringContains mock.StdOut "c" "Should contain third line")
+                    Expect.stringContains mock.StdOut "a" "Should contain first line"
+                    Expect.stringContains mock.StdOut "b" "Should contain second line"
+                    Expect.stringContains mock.StdOut "c" "Should contain third line")
 
-        testAllRuntimes "readPasswordExn - reads masked input" (fun mock runtime ->
-            mock.QueueString "secret"
+                testAllRuntimes "readPasswordExn - reads masked input" (fun mock runtime ->
+                    mock.QueueString "secret"
 
-            let result = runtime.Run(Console.readPasswordExn).UnsafeSuccess()
+                    let result = runtime.Run(Console.readPasswordExn).UnsafeSuccess()
 
-            Expect.equal result "secret" "Should read password"
-            Expect.stringContains mock.StdOut "*" "Should mask with asterisks")
+                    Expect.equal result "secret" "Should read password"
+                    Expect.stringContains mock.StdOut "*" "Should mask with asterisks")
 
-        testAllRuntimes "readPasswordExn - handles backspace" (fun mock runtime ->
-            mock.QueueCharKey 'a'
-            mock.QueueCharKey 'b'
-            mock.QueueSpecialKey ConsoleKey.Backspace
-            mock.QueueCharKey 'c'
-            mock.QueueSpecialKey ConsoleKey.Enter
+                testAllRuntimes "readPasswordExn - handles backspace" (fun mock runtime ->
+                    mock.QueueCharKey 'a'
+                    mock.QueueCharKey 'b'
+                    mock.QueueSpecialKey ConsoleKey.Backspace
+                    mock.QueueCharKey 'c'
+                    mock.QueueSpecialKey ConsoleKey.Enter
 
-            let result = runtime.Run(Console.readPasswordExn).UnsafeSuccess()
+                    let result = runtime.Run(Console.readPasswordExn).UnsafeSuccess()
 
-            Expect.equal result "ac" "Backspace should remove previous character")
+                    Expect.equal result "ac" "Backspace should remove previous character")
 
-        testAllRuntimes "readPasswordExn - returns empty string for immediate Enter" (fun mock runtime ->
-            mock.QueueSpecialKey ConsoleKey.Enter
+                testAllRuntimes "readPasswordExn - returns empty string for immediate Enter" (fun mock runtime ->
+                    mock.QueueSpecialKey ConsoleKey.Enter
 
-            let result = runtime.Run(Console.readPasswordExn).UnsafeSuccess()
+                    let result = runtime.Run(Console.readPasswordExn).UnsafeSuccess()
 
-            Expect.equal result "" "Just Enter should yield empty password")
+                    Expect.equal result "" "Just Enter should yield empty password")
 
-        testAllRuntimes "readPasswordExn - ignores backspace on empty buffer" (fun mock runtime ->
-            mock.QueueSpecialKey ConsoleKey.Backspace
-            mock.QueueCharKey 'x'
-            mock.QueueSpecialKey ConsoleKey.Enter
+                testAllRuntimes "readPasswordExn - ignores backspace on empty buffer" (fun mock runtime ->
+                    mock.QueueSpecialKey ConsoleKey.Backspace
+                    mock.QueueCharKey 'x'
+                    mock.QueueSpecialKey ConsoleKey.Enter
 
-            let result = runtime.Run(Console.readPasswordExn).UnsafeSuccess()
+                    let result = runtime.Run(Console.readPasswordExn).UnsafeSuccess()
 
-            Expect.equal result "x" "Backspace on empty should be ignored")
+                    Expect.equal result "x" "Backspace on empty should be ignored")
 
-        testAllRuntimes "withForegroundColorExn - restores color on success" (fun mock runtime ->
-            (mock :> IConsoleBackend).ForegroundColor <- ConsoleColor.White
-            let eff = Console.withForegroundColorExn(ConsoleColor.Red, Console.writeExn "red")
+                testAllRuntimes "withForegroundColorExn - restores color on success" (fun mock runtime ->
+                    (mock :> IConsoleBackend).ForegroundColor <- ConsoleColor.White
+                    let eff = Console.withForegroundColorExn (ConsoleColor.Red, Console.writeExn "red")
 
-            runtime.Run(eff).UnsafeSuccess()
+                    runtime.Run(eff).UnsafeSuccess()
 
-            Expect.equal (mock :> IConsoleBackend).ForegroundColor ConsoleColor.White "Should restore color")
+                    Expect.equal (mock :> IConsoleBackend).ForegroundColor ConsoleColor.White "Should restore color")
 
-        testAllRuntimes "withForegroundColorExn - restores color on failure" (fun mock runtime ->
-            (mock :> IConsoleBackend).ForegroundColor <- ConsoleColor.White
-            let eff = Console.withForegroundColorExn(ConsoleColor.Red, FIO.fail (exn "boom"))
+                testAllRuntimes "withForegroundColorExn - restores color on failure" (fun mock runtime ->
+                    (mock :> IConsoleBackend).ForegroundColor <- ConsoleColor.White
+                    let eff = Console.withForegroundColorExn (ConsoleColor.Red, FIO.fail (exn "boom"))
 
-            let result = runtime.Run(eff).UnsafeResult()
+                    let result = runtime.Run(eff).UnsafeResult()
 
-            match result with
-            | Failed _ ->
-                Expect.equal (mock :> IConsoleBackend).ForegroundColor ConsoleColor.White "Should restore color on failure"
-            | other -> failtest $"Expected Failed but got: {other}")
+                    match result with
+                    | Failed _ ->
+                        Expect.equal
+                            (mock :> IConsoleBackend).ForegroundColor
+                            ConsoleColor.White
+                            "Should restore color on failure"
+                    | other -> failtest $"Expected Failed but got: {other}")
 
-        testAllRuntimes "withColorsExn - restores both colors on success" (fun mock runtime ->
-            (mock :> IConsoleBackend).ForegroundColor <- ConsoleColor.White
-            (mock :> IConsoleBackend).BackgroundColor <- ConsoleColor.Black
-            let eff = Console.withColorsExn(ConsoleColor.Red, ConsoleColor.Blue, Console.writeExn "colored")
+                testAllRuntimes "withColorsExn - restores both colors on success" (fun mock runtime ->
+                    (mock :> IConsoleBackend).ForegroundColor <- ConsoleColor.White
+                    (mock :> IConsoleBackend).BackgroundColor <- ConsoleColor.Black
 
-            runtime.Run(eff).UnsafeSuccess()
+                    let eff =
+                        Console.withColorsExn (ConsoleColor.Red, ConsoleColor.Blue, Console.writeExn "colored")
 
-            Expect.equal (mock :> IConsoleBackend).ForegroundColor ConsoleColor.White "Should restore foreground"
-            Expect.equal (mock :> IConsoleBackend).BackgroundColor ConsoleColor.Black "Should restore background")
+                    runtime.Run(eff).UnsafeSuccess()
 
-        testAllRuntimes "withColorsExn - restores both colors on failure" (fun mock runtime ->
-            (mock :> IConsoleBackend).ForegroundColor <- ConsoleColor.Cyan
-            (mock :> IConsoleBackend).BackgroundColor <- ConsoleColor.DarkMagenta
-            let eff = Console.withColorsExn(ConsoleColor.Red, ConsoleColor.Blue, FIO.fail (exn "boom"))
+                    Expect.equal
+                        (mock :> IConsoleBackend).ForegroundColor
+                        ConsoleColor.White
+                        "Should restore foreground"
 
-            let result = runtime.Run(eff).UnsafeResult()
+                    Expect.equal
+                        (mock :> IConsoleBackend).BackgroundColor
+                        ConsoleColor.Black
+                        "Should restore background")
 
-            match result with
-            | Failed _ ->
-                Expect.equal (mock :> IConsoleBackend).ForegroundColor ConsoleColor.Cyan "Should restore foreground"
-                Expect.equal (mock :> IConsoleBackend).BackgroundColor ConsoleColor.DarkMagenta "Should restore background"
-            | other -> failtest $"Expected Failed but got: {other}")
-    ])
+                testAllRuntimes "withColorsExn - restores both colors on failure" (fun mock runtime ->
+                    (mock :> IConsoleBackend).ForegroundColor <- ConsoleColor.Cyan
+                    (mock :> IConsoleBackend).BackgroundColor <- ConsoleColor.DarkMagenta
+
+                    let eff =
+                        Console.withColorsExn (ConsoleColor.Red, ConsoleColor.Blue, FIO.fail (exn "boom"))
+
+                    let result = runtime.Run(eff).UnsafeResult()
+
+                    match result with
+                    | Failed _ ->
+                        Expect.equal
+                            (mock :> IConsoleBackend).ForegroundColor
+                            ConsoleColor.Cyan
+                            "Should restore foreground"
+
+                        Expect.equal
+                            (mock :> IConsoleBackend).BackgroundColor
+                            ConsoleColor.DarkMagenta
+                            "Should restore background"
+                    | other -> failtest $"Expected Failed but got: {other}")
+            ]
+    )

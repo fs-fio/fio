@@ -19,64 +19,55 @@ module HttpHandler =
     /// Creates a handler that always returns the given response.
     /// </summary>
     /// <param name="response">The response to return.</param>
-    let succeed (response: HttpResponse) : HttpHandler<'E> =
-        fun _ -> FIO.succeed response
+    let succeed (response: HttpResponse) : HttpHandler<'E> = fun _ -> FIO.succeed response
 
     /// <summary>
     /// Creates a handler that always fails with the given error.
     /// </summary>
     /// <param name="error">The error to return.</param>
-    let fail (error: 'E) : HttpHandler<'E> =
-        fun _ -> FIO.fail error
+    let fail (error: 'E) : HttpHandler<'E> = fun _ -> FIO.fail error
 
     /// <summary>
     /// Creates a handler from an FIO effect.
     /// </summary>
     /// <param name="effect">The FIO effect to run.</param>
-    let fromFIO (effect: FIO<HttpResponse, 'E>) : HttpHandler<'E> =
-        fun _ -> effect
+    let fromFIO (effect: FIO<HttpResponse, 'E>) : HttpHandler<'E> = fun _ -> effect
 
     /// <summary>
     /// Creates a handler from a pure function.
     /// </summary>
     /// <param name="f">The function to wrap.</param>
     let fromFunc (f: HttpRequest -> HttpResponse) : HttpHandler<exn> =
-        fun request ->
-            FIO.attempt((fun () -> f request), id)
+        fun request -> FIO.attempt ((fun () -> f request), id)
 
     /// <summary>
     /// Creates a handler from a function returning an FIO effect.
     /// </summary>
     /// <param name="f">The function to wrap.</param>
-    let fromFuncZIO (f: HttpRequest -> FIO<HttpResponse, 'E>) : HttpHandler<'E> =
-        f
+    let fromFuncZIO (f: HttpRequest -> FIO<HttpResponse, 'E>) : HttpHandler<'E> = f
 
     /// <summary>
     /// Handler that returns HTTP 200 OK.
     /// </summary>
-    let ok<'E> : HttpHandler<'E> =
-        succeed Response.ok
+    let ok<'E> : HttpHandler<'E> = succeed Response.ok
 
     /// <summary>
     /// Handler that returns HTTP 200 OK with JSON body.
     /// </summary>
     /// <param name="value">The value to serialize as JSON.</param>
-    let okJson (value: 'T) : HttpHandler<'E> =
-        succeed (Response.okJson value)
+    let okJson (value: 'T) : HttpHandler<'E> = succeed (Response.okJson value)
 
     /// <summary>
     /// Handler that returns HTTP 200 OK with plain text body.
     /// </summary>
     /// <param name="text">The text content.</param>
-    let text (text: string) : HttpHandler<'E> =
-        succeed (Response.okText text)
+    let text (text: string) : HttpHandler<'E> = succeed (Response.okText text)
 
     /// <summary>
     /// Handler that returns HTTP 200 OK with HTML body.
     /// </summary>
     /// <param name="html">The HTML content.</param>
-    let html (html: string) : HttpHandler<'E> =
-        succeed (Response.okHtml html)
+    let html (html: string) : HttpHandler<'E> = succeed (Response.okHtml html)
 
     /// <summary>
     /// Handler that returns HTTP 200 OK with binary body.
@@ -98,27 +89,23 @@ module HttpHandler =
     /// <summary>
     /// Handler that returns HTTP 204 No Content.
     /// </summary>
-    let noContent<'E> : HttpHandler<'E> =
-        succeed Response.noContent
+    let noContent<'E> : HttpHandler<'E> = succeed Response.noContent
 
     /// <summary>
     /// Handler that returns HTTP 404 Not Found.
     /// </summary>
-    let notFound<'E> : HttpHandler<'E> =
-        succeed Response.notFound
+    let notFound<'E> : HttpHandler<'E> = succeed Response.notFound
 
     /// <summary>
     /// Handler that returns HTTP 404 Not Found with text message.
     /// </summary>
     /// <param name="message">The error message.</param>
-    let notFoundText (message: string) : HttpHandler<'E> =
-        succeed (Response.notFoundText message)
+    let notFoundText (message: string) : HttpHandler<'E> = succeed (Response.notFoundText message)
 
     /// <summary>
     /// Handler that returns HTTP 400 Bad Request.
     /// </summary>
-    let badRequest<'E> : HttpHandler<'E> =
-        succeed Response.badRequest
+    let badRequest<'E> : HttpHandler<'E> = succeed Response.badRequest
 
     /// <summary>
     /// Handler that returns HTTP 400 Bad Request with text message.
@@ -131,14 +118,12 @@ module HttpHandler =
     /// Handler that returns HTTP 400 Bad Request with JSON error.
     /// </summary>
     /// <param name="error">The error to serialize as JSON.</param>
-    let badRequestJson (error: 'T) : HttpHandler<'E> =
-        succeed (Response.badRequestJson error)
+    let badRequestJson (error: 'T) : HttpHandler<'E> = succeed (Response.badRequestJson error)
 
     /// <summary>
     /// Handler that returns HTTP 500 Internal Server Error.
     /// </summary>
-    let serverError<'E> : HttpHandler<'E> =
-        succeed Response.internalServerError
+    let serverError<'E> : HttpHandler<'E> = succeed Response.internalServerError
 
     /// <summary>
     /// Handler that returns HTTP 500 Internal Server Error with text message.
@@ -150,14 +135,12 @@ module HttpHandler =
     /// <summary>
     /// Handler that returns HTTP 401 Unauthorized.
     /// </summary>
-    let unauthorized<'E> : HttpHandler<'E> =
-        succeed Response.unauthorized
+    let unauthorized<'E> : HttpHandler<'E> = succeed Response.unauthorized
 
     /// <summary>
     /// Handler that returns HTTP 403 Forbidden.
     /// </summary>
-    let forbidden<'E> : HttpHandler<'E> =
-        succeed Response.forbidden
+    let forbidden<'E> : HttpHandler<'E> = succeed Response.forbidden
 
     /// <summary>
     /// Handler that returns a redirect response.
@@ -194,16 +177,17 @@ module HttpHandler =
                 return! f response request
             }
 
-
     /// <summary>
     /// Runs two handlers and combines their responses.
     /// </summary>
     /// <param name="combiner">The function to combine responses.</param>
     /// <param name="handler1">The first handler.</param>
     /// <param name="handler2">The second handler.</param>
-    let zipWith (combiner: HttpResponse -> HttpResponse -> HttpResponse)
-                (handler1: HttpHandler<'E>)
-                (handler2: HttpHandler<'E>) : HttpHandler<'E> =
+    let zipWith
+        (combiner: HttpResponse -> HttpResponse -> HttpResponse)
+        (handler1: HttpHandler<'E>)
+        (handler2: HttpHandler<'E>)
+        : HttpHandler<'E> =
         fun request ->
             fio {
                 let! response1 = handler1 request
@@ -217,8 +201,7 @@ module HttpHandler =
     /// <param name="handler2">The fallback handler.</param>
     /// <param name="handler1">The primary handler.</param>
     let orElse (handler2: HttpHandler<'E>) (handler1: HttpHandler<'E>) : HttpHandler<'E> =
-        fun request ->
-            handler1 request <|> handler2 request
+        fun request -> handler1 request <|> handler2 request
 
     /// <summary>
     /// Maps a function over the error type.
@@ -226,8 +209,7 @@ module HttpHandler =
     /// <param name="f">The error transformation function.</param>
     /// <param name="handler">The handler to transform.</param>
     let mapError (f: 'E1 -> 'E2) (handler: HttpHandler<'E1>) : HttpHandler<'E2> =
-        fun request ->
-            (handler request).MapError f
+        fun request -> (handler request).MapError f
 
     /// <summary>
     /// Runs a side effect after the handler without changing the response.
@@ -247,8 +229,7 @@ module HttpHandler =
     /// </summary>
     /// <param name="f">The side effect function receiving request and response.</param>
     /// <param name="handler">The handler to wrap.</param>
-    let tapWithRequest (f: HttpRequest -> HttpResponse -> FIO<unit, 'E>)
-                       (handler: HttpHandler<'E>) : HttpHandler<'E> =
+    let tapWithRequest (f: HttpRequest -> HttpResponse -> FIO<unit, 'E>) (handler: HttpHandler<'E>) : HttpHandler<'E> =
         fun request ->
             fio {
                 let! response = handler request
@@ -259,15 +240,13 @@ module HttpHandler =
     /// <summary>
     /// Handler that returns HTTP 200 OK (reader pattern).
     /// </summary>
-    let ask<'E> : HttpHandler<'E> =
-        fun _ -> FIO.succeed Response.ok
+    let ask<'E> : HttpHandler<'E> = fun _ -> FIO.succeed Response.ok
 
     /// <summary>
     /// Extracts a value from the request.
     /// </summary>
     /// <param name="f">The extraction function.</param>
-    let asks (f: HttpRequest -> 'T) : HttpRequest -> FIO<'T, 'E> =
-        fun request -> FIO.succeed (f request)
+    let asks (f: HttpRequest -> 'T) : HttpRequest -> FIO<'T, 'E> = fun request -> FIO.succeed (f request)
 
     /// <summary>
     /// Runs a handler with a modified request.
@@ -283,9 +262,7 @@ module HttpHandler =
     /// <param name="predicate">The condition to check.</param>
     /// <param name="handler">The handler to run when condition is true.</param>
     /// <param name="fallback">The response when condition is false.</param>
-    let when' (predicate: HttpRequest -> bool)
-             (handler: HttpHandler<'E>)
-             (fallback: HttpResponse) : HttpHandler<'E> =
+    let when' (predicate: HttpRequest -> bool) (handler: HttpHandler<'E>) (fallback: HttpResponse) : HttpHandler<'E> =
         fun request ->
             if predicate request then
                 handler request
@@ -298,9 +275,11 @@ module HttpHandler =
     /// <param name="predicate">The condition to check.</param>
     /// <param name="trueHandler">The handler when condition is true.</param>
     /// <param name="falseHandler">The handler when condition is false.</param>
-    let ifElse (predicate: HttpRequest -> bool)
-               (trueHandler: HttpHandler<'E>)
-               (falseHandler: HttpHandler<'E>) : HttpHandler<'E> =
+    let ifElse
+        (predicate: HttpRequest -> bool)
+        (trueHandler: HttpHandler<'E>)
+        (falseHandler: HttpHandler<'E>)
+        : HttpHandler<'E> =
         fun request ->
             if predicate request then
                 trueHandler request
@@ -313,21 +292,22 @@ module HttpHandler =
     /// <param name="options">Optional JSON serializer options.</param>
     let parseJsonBody<'T> (options: JsonSerializerOptions option) : HttpRequest -> FIO<'T, exn> =
         fun request ->
-            FIO.attempt(
+            FIO.attempt (
                 (fun () ->
                     let bodyStr = request.Body.AsString()
+
                     match options with
                     | Some opts -> JsonSerializer.Deserialize<'T>(bodyStr, opts)
                     | None -> JsonSerializer.Deserialize<'T> bodyStr),
-                id)
+                id
+            )
 
     /// <summary>
     /// Handler that parses JSON body and processes it.
     /// </summary>
     /// <param name="f">The function to process the parsed body.</param>
     /// <param name="onError">The error mapping function.</param>
-    let jsonBody<'T, 'E> (f: 'T -> FIO<HttpResponse, 'E>)
-                         (onError: exn -> 'E) : HttpHandler<'E> =
+    let jsonBody<'T, 'E> (f: 'T -> FIO<HttpResponse, 'E>) (onError: exn -> 'E) : HttpHandler<'E> =
         fun request ->
             fio {
                 let! body = (parseJsonBody<'T> None request).MapError onError
@@ -340,9 +320,11 @@ module HttpHandler =
     /// <param name="options">The JSON serializer options.</param>
     /// <param name="f">The function to process the parsed body.</param>
     /// <param name="onError">The error mapping function.</param>
-    let jsonBodyWith<'T, 'E> (options: JsonSerializerOptions)
-                             (f: 'T -> FIO<HttpResponse, 'E>)
-                             (onError: exn -> 'E) : HttpHandler<'E> =
+    let jsonBodyWith<'T, 'E>
+        (options: JsonSerializerOptions)
+        (f: 'T -> FIO<HttpResponse, 'E>)
+        (onError: exn -> 'E)
+        : HttpHandler<'E> =
         fun request ->
             fio {
                 let! body = (parseJsonBody<'T> (Some options) request).MapError onError

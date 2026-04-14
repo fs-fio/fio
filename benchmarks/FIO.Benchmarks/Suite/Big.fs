@@ -32,15 +32,16 @@ type private Message =
 /// Actor with separate ping/pong receive channels and a list of channels to send to.
 /// </summary>
 type private Actor =
-    { /// <summary>Channel for receiving ping messages.</summary>
-      PingReceiveChan: Channel<Message>
-      /// <summary>Channel for receiving pong messages.</summary>
-      PongReceiveChan: Channel<Message>
-      /// <summary>List of channels to send pings to.</summary>
-      SendingChans: Channel<Message> list
+    {
+        /// <summary>Channel for receiving ping messages.</summary>
+        PingReceiveChan: Channel<Message>
+        /// <summary>Channel for receiving pong messages.</summary>
+        PongReceiveChan: Channel<Message>
+        /// <summary>List of channels to send pings to.</summary>
+        SendingChans: Channel<Message> list
 #if DEBUG
-      /// <summary>Actor name for debugging.</summary>
-      Name: string
+        /// <summary>Actor name for debugging.</summary>
+        Name: string
 #endif
     }
 
@@ -57,11 +58,11 @@ let rec private sendPingsEff (actor, roundCount, ping, chans: Channel<Message> l
     fio {
         for chan in chans do
             do! chan.Send(Ping(ping, actor.PongReceiveChan)).Unit()
-            #if DEBUG
+#if DEBUG
             do! Console.printLineExn $"DEBUG: %s{actor.Name} sent ping: %i{ping}"
-            #endif
-        
-        return! receivePingsEff(actor, roundCount, actor.SendingChans.Length, ping, timerChan)
+#endif
+
+        return! receivePingsEff (actor, roundCount, actor.SendingChans.Length, ping, timerChan)
     }
 
 /// <summary>
@@ -76,22 +77,22 @@ and private receivePingsEff (actor, rounds, receiveCount, msg, timerChan) : FIO<
     fio {
         for _ in 1..receiveCount do
             match! actor.PingReceiveChan.Receive() with
-            | Ping (ping, replyChan) ->
-                #if DEBUG
+            | Ping(ping, replyChan) ->
+#if DEBUG
                 do! Console.printLineExn $"DEBUG: %s{actor.Name} received ping: %i{ping}"
-                #endif
+#endif
                 match! replyChan.Send(Pong(ping + 1)) with
                 | Pong _pong ->
-                    #if DEBUG
+#if DEBUG
                     do! Console.printLineExn $"DEBUG: %s{actor.Name} sent pong: %i{_pong}"
-                    #endif
+#endif
                     ()
                 | Ping _ ->
-                    return! FIO.fail(InvalidOperationException "receivePingsEff: Received ping when pong was expected!")
-            | _ ->
-                return! FIO.fail(InvalidOperationException "receivePingsEff: Received pong when ping was expected!")
-                
-        return! receivePongsEff(actor, rounds, actor.SendingChans.Length, msg, timerChan)
+                    return!
+                        FIO.fail (InvalidOperationException "receivePingsEff: Received ping when pong was expected!")
+            | _ -> return! FIO.fail (InvalidOperationException "receivePingsEff: Received pong when ping was expected!")
+
+        return! receivePongsEff (actor, rounds, actor.SendingChans.Length, msg, timerChan)
     }
 
 /// <summary>
@@ -102,22 +103,23 @@ and private receivePingsEff (actor, rounds, receiveCount, msg, timerChan) : FIO<
 /// <param name="receiveCount">Number of pongs to receive.</param>
 /// <param name="msg">Current message value.</param>
 /// <param name="timerChan">Channel for timer control messages.</param>
-and private receivePongsEff (actor, roundCount, receiveCount, msg, timerChan: Channel<TimerMessage<int>>) : FIO<unit, exn> =
+and private receivePongsEff
+    (actor, roundCount, receiveCount, msg, timerChan: Channel<TimerMessage<int>>)
+    : FIO<unit, exn> =
     fio {
         for _ in 1..receiveCount do
             match! actor.PongReceiveChan.Receive() with
             | Pong _pong ->
-                #if DEBUG
+#if DEBUG
                 do! Console.printLineExn $"DEBUG: %s{actor.Name} received pong: %i{_pong}"
-                #endif
+#endif
                 ()
-            | _ ->
-                return! FIO.fail(InvalidOperationException "receivePongsEff: Received ping when pong was expected!")
-        
+            | _ -> return! FIO.fail (InvalidOperationException "receivePongsEff: Received ping when pong was expected!")
+
         if roundCount <= 0 then
             do! timerChan.Send(Stop).Unit()
         else
-            return! sendPingsEff(actor, roundCount - 1, msg, actor.SendingChans, timerChan)
+            return! sendPingsEff (actor, roundCount - 1, msg, actor.SendingChans, timerChan)
     }
 
 /// <summary>
@@ -128,11 +130,13 @@ and private receivePongsEff (actor, roundCount, receiveCount, msg, timerChan: Ch
 /// <param name="roundCount">Number of rounds to execute.</param>
 /// <param name="timerChan">Channel for timer control messages.</param>
 /// <param name="startChan">Channel for synchronizing start.</param>
-let private actorEff (actor, msg, roundCount, timerChan: Channel<TimerMessage<int>>, startChan: Channel<int>) : FIO<unit, exn> =
+let private actorEff
+    (actor, msg, roundCount, timerChan: Channel<TimerMessage<int>>, startChan: Channel<int>)
+    : FIO<unit, exn> =
     fio {
         do! timerChan.Send(Start).Unit()
         do! startChan.Receive().Unit()
-        return! sendPingsEff(actor, roundCount - 1, msg, actor.SendingChans, timerChan)
+        return! sendPingsEff (actor, roundCount - 1, msg, actor.SendingChans, timerChan)
     }
 
 /// <summary>
@@ -147,14 +151,16 @@ let rec private receivingActors (actorCount, acc) =
     | 0 -> acc
     | count ->
         let actor =
-            { PingReceiveChan = Channel<Message>()
-              PongReceiveChan = Channel<Message>()
-              SendingChans = []
+            {
+                PingReceiveChan = Channel<Message>()
+                PongReceiveChan = Channel<Message>()
+                SendingChans = []
 #if DEBUG
-              Name = $"Actor-{count - 1}"
+                Name = $"Actor-{count - 1}"
 #endif
             }
-        receivingActors(count - 1, acc @ [actor])
+
+        receivingActors (count - 1, acc @ [ actor ])
 
 /// <summary>
 /// Assigns send channels to each actor pointing to all other actors.
@@ -172,15 +178,16 @@ let rec private createActorsHelper (receivingActors, prevReceivingActors, acc) =
         let chansSend = List.map _.PingReceiveChan otherActors
 
         let actor =
-            { PingReceiveChan = ac.PingReceiveChan
-              PongReceiveChan = ac.PongReceiveChan
-              SendingChans = chansSend
+            {
+                PingReceiveChan = ac.PingReceiveChan
+                PongReceiveChan = ac.PongReceiveChan
+                SendingChans = chansSend
 #if DEBUG
-              Name = ac.Name
+                Name = ac.Name
 #endif
             }
 
-        createActorsHelper(acs, prevReceivingActors @ [ac], actor :: acc)
+        createActorsHelper (acs, prevReceivingActors @ [ ac ], actor :: acc)
 
 /// <summary>
 /// Creates a fully connected network of actors.
@@ -188,8 +195,8 @@ let rec private createActorsHelper (receivingActors, prevReceivingActors, acc) =
 /// <param name="actorCount">Number of actors to create.</param>
 /// <returns>List of fully connected actors.</returns>
 let private createActors actorCount =
-    let receivingActors = receivingActors(actorCount, [])
-    createActorsHelper(receivingActors, [], [])
+    let receivingActors = receivingActors (actorCount, [])
+    createActorsHelper (receivingActors, [], [])
 
 /// <summary>
 /// Composes all actor effects to run concurrently.
@@ -200,11 +207,12 @@ let private createActors actorCount =
 /// <param name="timerChan">Channel for timer control messages.</param>
 /// <param name="startChan">Channel for synchronizing start.</param>
 let private bigEff (actors: Actor list, roundCount, msg, timerChan, startChan) : FIO<unit, exn> =
-    let headEff = actorEff(actors.Head, msg, roundCount, timerChan, startChan)
+    let headEff = actorEff (actors.Head, msg, roundCount, timerChan, startChan)
+
     actors.Tail
     |> List.indexed
-    |> List.fold (fun acc (i, actor) ->
-        actorEff(actor, msg + (i + 1) * 10, roundCount, timerChan, startChan) <&&> acc)
+    |> List.fold
+        (fun acc (i, actor) -> actorEff (actor, msg + (i + 1) * 10, roundCount, timerChan, startChan) <&&> acc)
         headEff
 
 /// <summary>
@@ -216,21 +224,34 @@ let benchmark config : FIO<int64, exn> =
     fio {
         let! actorCount, roundCount =
             match config with
-            | BigConfig(ac, rc) -> FIO.succeed(ac, rc)
-            | _ -> FIO.fail(ArgumentException("Big benchmark initialization failed: Requires a BigConfig", nameof config))
-        
+            | BigConfig(ac, rc) -> FIO.succeed (ac, rc)
+            | _ ->
+                FIO.fail (ArgumentException("Big benchmark initialization failed: Requires a BigConfig", nameof config))
+
         if actorCount < 2 then
-            return! FIO.fail(ArgumentException($"Big benchmark initialization failed: At least 2 actors should be specified. actorCount = %i{actorCount}", nameof actorCount))
-        
+            return!
+                FIO.fail (
+                    ArgumentException(
+                        $"Big benchmark initialization failed: At least 2 actors should be specified. actorCount = %i{actorCount}",
+                        nameof actorCount
+                    )
+                )
+
         if roundCount < 1 then
-            return! FIO.fail(ArgumentException($"Big benchmark initialization failed: At least 1 round should be specified. roundCount = %i{roundCount}", nameof roundCount))
-        
+            return!
+                FIO.fail (
+                    ArgumentException(
+                        $"Big benchmark initialization failed: At least 1 round should be specified. roundCount = %i{roundCount}",
+                        nameof roundCount
+                    )
+                )
+
         let timerChan = Channel<TimerMessage<int>>()
         let startChan = Channel<int>()
         let actors = createActors actorCount
 
         let! timerFiber = timerEff(actorCount, actorCount, actorCount, timerChan).Fork()
         do! timerChan.Send(MsgChannel startChan).Unit()
-        do! bigEff(actors, roundCount, 0, timerChan, startChan)
+        do! bigEff (actors, roundCount, 0, timerChan, startChan)
         return! timerFiber.Join()
     }

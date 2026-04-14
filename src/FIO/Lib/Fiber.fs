@@ -50,7 +50,8 @@ let interruptAll<'R, 'E, 'E1> (fibers: Fiber<'R, 'E> list) : FIO<unit, 'E1> =
         (fun () ->
             for f in fibers do
                 f.Context.Interrupt(ExplicitInterrupt, "Fiber was interrupted.")),
-        fun ex -> raise ex)
+        fun ex -> raise ex
+    )
 
 /// <summary>
 /// Interrupts all fibers and waits for all to reach a terminal state, collecting their FiberResults.

@@ -9,8 +9,7 @@ module Response =
     /// <summary>
     /// Creates an HTTP 200 OK response.
     /// </summary>
-    let ok =
-        HttpResponse.create HttpStatusCode.OK
+    let ok = HttpResponse.create HttpStatusCode.OK
 
     /// <summary>
     /// Creates an HTTP 200 OK response with JSON body.
@@ -62,15 +61,15 @@ module Response =
     let okStream stream length contentType =
         if isNull stream then
             invalidArg "stream" "Stream cannot be null"
+
         HttpResponse.create HttpStatusCode.OK
         |> HttpResponse.withHeader "Content-Type" contentType
-        |> HttpResponse.withBody (Stream (stream, length))
+        |> HttpResponse.withBody (Stream(stream, length))
 
     /// <summary>
     /// Creates an HTTP 201 Created response.
     /// </summary>
-    let created =
-        HttpResponse.create HttpStatusCode.Created
+    let created = HttpResponse.create HttpStatusCode.Created
 
     /// <summary>
     /// Creates an HTTP 201 Created response with Location header.
@@ -92,14 +91,12 @@ module Response =
     /// <summary>
     /// Creates an HTTP 202 Accepted response.
     /// </summary>
-    let accepted =
-        HttpResponse.create HttpStatusCode.Accepted
+    let accepted = HttpResponse.create HttpStatusCode.Accepted
 
     /// <summary>
     /// Creates an HTTP 204 No Content response.
     /// </summary>
-    let noContent =
-        HttpResponse.create HttpStatusCode.NoContent
+    let noContent = HttpResponse.create HttpStatusCode.NoContent
 
     /// <summary>
     /// Creates an HTTP 301 Moved Permanently redirect response.
@@ -128,8 +125,7 @@ module Response =
     /// <summary>
     /// Creates an HTTP 304 Not Modified response.
     /// </summary>
-    let notModified =
-        HttpResponse.create HttpStatusCode.NotModified
+    let notModified = HttpResponse.create HttpStatusCode.NotModified
 
     /// <summary>
     /// Creates an HTTP 307 Temporary Redirect response.
@@ -150,8 +146,7 @@ module Response =
     /// <summary>
     /// Creates an HTTP 400 Bad Request response.
     /// </summary>
-    let badRequest =
-        HttpResponse.create HttpStatusCode.BadRequest
+    let badRequest = HttpResponse.create HttpStatusCode.BadRequest
 
     /// <summary>
     /// Creates an HTTP 400 Bad Request response with text message.
@@ -174,8 +169,7 @@ module Response =
     /// <summary>
     /// Creates an HTTP 401 Unauthorized response.
     /// </summary>
-    let unauthorized =
-        HttpResponse.create HttpStatusCode.Unauthorized
+    let unauthorized = HttpResponse.create HttpStatusCode.Unauthorized
 
     /// <summary>
     /// Creates an HTTP 401 Unauthorized response with WWW-Authenticate header.
@@ -188,8 +182,7 @@ module Response =
     /// <summary>
     /// Creates an HTTP 403 Forbidden response.
     /// </summary>
-    let forbidden =
-        HttpResponse.create HttpStatusCode.Forbidden
+    let forbidden = HttpResponse.create HttpStatusCode.Forbidden
 
     /// <summary>
     /// Creates an HTTP 403 Forbidden response with text message.
@@ -203,8 +196,7 @@ module Response =
     /// <summary>
     /// Creates an HTTP 404 Not Found response.
     /// </summary>
-    let notFound =
-        HttpResponse.create HttpStatusCode.NotFound
+    let notFound = HttpResponse.create HttpStatusCode.NotFound
 
     /// <summary>
     /// Creates an HTTP 404 Not Found response with text message.
@@ -226,14 +218,12 @@ module Response =
     /// <summary>
     /// Creates an HTTP 408 Request Timeout response.
     /// </summary>
-    let requestTimeout =
-        HttpResponse.create HttpStatusCode.RequestTimeout
+    let requestTimeout = HttpResponse.create HttpStatusCode.RequestTimeout
 
     /// <summary>
     /// Creates an HTTP 409 Conflict response.
     /// </summary>
-    let conflict =
-        HttpResponse.create HttpStatusCode.Conflict
+    let conflict = HttpResponse.create HttpStatusCode.Conflict
 
     /// <summary>
     /// Creates an HTTP 409 Conflict response with text message.
@@ -247,14 +237,12 @@ module Response =
     /// <summary>
     /// Creates an HTTP 415 Unsupported Media Type response.
     /// </summary>
-    let unsupportedMediaType =
-        HttpResponse.create HttpStatusCode.UnsupportedMediaType
+    let unsupportedMediaType = HttpResponse.create HttpStatusCode.UnsupportedMediaType
 
     /// <summary>
     /// Creates an HTTP 422 Unprocessable Entity response.
     /// </summary>
-    let unprocessableEntity =
-        HttpResponse.create HttpStatusCode.UnprocessableEntity
+    let unprocessableEntity = HttpResponse.create HttpStatusCode.UnprocessableEntity
 
     /// <summary>
     /// Creates an HTTP 422 Unprocessable Entity response with JSON errors.
@@ -268,8 +256,7 @@ module Response =
     /// <summary>
     /// Creates an HTTP 429 Too Many Requests response.
     /// </summary>
-    let tooManyRequests =
-        HttpResponse.create HttpStatusCode.TooManyRequests
+    let tooManyRequests = HttpResponse.create HttpStatusCode.TooManyRequests
 
     /// <summary>
     /// Creates an HTTP 429 Too Many Requests response with Retry-After header.
@@ -282,8 +269,7 @@ module Response =
     /// <summary>
     /// Creates an HTTP 500 Internal Server Error response.
     /// </summary>
-    let internalServerError =
-        HttpResponse.create HttpStatusCode.InternalServerError
+    let internalServerError = HttpResponse.create HttpStatusCode.InternalServerError
 
     /// <summary>
     /// Creates an HTTP 500 Internal Server Error response with text message.
@@ -297,20 +283,17 @@ module Response =
     /// <summary>
     /// Creates an HTTP 501 Not Implemented response.
     /// </summary>
-    let notImplemented =
-        HttpResponse.create HttpStatusCode.NotImplemented
+    let notImplemented = HttpResponse.create HttpStatusCode.NotImplemented
 
     /// <summary>
     /// Creates an HTTP 502 Bad Gateway response.
     /// </summary>
-    let badGateway =
-        HttpResponse.create HttpStatusCode.BadGateway
+    let badGateway = HttpResponse.create HttpStatusCode.BadGateway
 
     /// <summary>
     /// Creates an HTTP 503 Service Unavailable response.
     /// </summary>
-    let serviceUnavailable =
-        HttpResponse.create HttpStatusCode.ServiceUnavailable
+    let serviceUnavailable = HttpResponse.create HttpStatusCode.ServiceUnavailable
 
     /// <summary>
     /// Creates an HTTP 503 Service Unavailable response with Retry-After header.
@@ -323,15 +306,13 @@ module Response =
     /// <summary>
     /// Creates an HTTP 504 Gateway Timeout response.
     /// </summary>
-    let gatewayTimeout =
-        HttpResponse.create HttpStatusCode.GatewayTimeout
+    let gatewayTimeout = HttpResponse.create HttpStatusCode.GatewayTimeout
 
     /// <summary>
     /// Creates an HTTP response with the specified status code.
     /// </summary>
     /// <param name="code">The HTTP status code.</param>
-    let status code =
-        HttpResponse.create code
+    let status code = HttpResponse.create code
 
     /// <summary>
     /// Creates an HTTP response with the specified status code and text message.

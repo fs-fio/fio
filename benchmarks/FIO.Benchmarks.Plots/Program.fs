@@ -14,8 +14,7 @@ let private RuntimeErrorExitCode = 1
 [<Literal>]
 let private InvalidArgsExitCode = 2
 
-let private showPlot plotArgs =
-    PlotArgs.show plotArgs
+let private showPlot plotArgs = PlotArgs.show plotArgs
 
 let internal runWithArgsUsing execute args =
     match Args.parse args with
@@ -34,8 +33,7 @@ let internal runWithArgsUsing execute args =
             eprintfn "%s" (ex.ToString())
             RuntimeErrorExitCode
 
-let internal runWithArgs args =
-    runWithArgsUsing showPlot args
+let internal runWithArgs args = runWithArgsUsing showPlot args
 
 /// <summary>
 /// Application entry point. Parses arguments and generates the specified plot type.
@@ -43,5 +41,4 @@ let internal runWithArgs args =
 /// <param name="args">Command-line arguments.</param>
 /// <returns>Exit code (0 for success).</returns>
 [<EntryPoint>]
-let main args =
-    runWithArgs args
+let main args = runWithArgs args
