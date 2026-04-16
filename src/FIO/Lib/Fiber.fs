@@ -7,26 +7,36 @@ open FIO.DSL.Factories
 open FIO.DSL.Exceptions
 
 /// Creates a fiber already completed with a success value.
+/// <param name="value">The success value.</param>
+/// <returns>A fiber already in the succeeded state.</returns>
 let succeed<'R, 'E> (value: 'R) =
     let fiber = new Fiber<'R, 'E>()
     fiber.Context.Complete(Ok(value :> obj))
     fiber
 
 /// Creates a fiber already completed with an error value.
+/// <param name="err">The error value.</param>
+/// <returns>A fiber already in the failed state.</returns>
 let fail<'R, 'E> (err: 'E) =
     let fiber = new Fiber<'R, 'E>()
     fiber.Context.Complete(Error(err :> obj))
     fiber
 
 /// Joins all fibers, collecting success values into a list. Fails on the first error encountered by re-raising it in the caller's fiber.
+/// <param name="fibers">The fibers to join.</param>
+/// <returns>An effect that produces a list of all fiber results.</returns>
 let joinAll<'R, 'E> (fibers: Fiber<'R, 'E> list) : FIO<'R list, 'E> =
     fibers |> List.map (fun f -> f.Join()) |> FIO.collectAll
 
 /// Awaits all fibers, collecting their terminal states without re-raising errors. Use instead of joinAll when you need to inspect individual outcomes.
+/// <param name="fibers">The fibers to await.</param>
+/// <returns>An effect that produces a list of fiber results including successes, failures, and interruptions.</returns>
 let awaitAll<'R, 'E, 'E1> (fibers: Fiber<'R, 'E> list) : FIO<FiberResult<'R, 'E> list, 'E1> =
     fibers |> List.map (fun f -> f.Await()) |> FIO.collectAll
 
 /// Interrupts all fibers without waiting for them to terminate.
+/// <param name="fibers">The fibers to interrupt.</param>
+/// <returns>An effect that interrupts all fibers.</returns>
 let interruptAll<'R, 'E, 'E1> (fibers: Fiber<'R, 'E> list) : FIO<unit, 'E1> =
     Action(
         (fun () ->
@@ -36,9 +46,13 @@ let interruptAll<'R, 'E, 'E1> (fibers: Fiber<'R, 'E> list) : FIO<unit, 'E1> =
     )
 
 /// Interrupts all fibers and waits for each to reach a terminal state.
+/// <param name="fibers">The fibers to interrupt and await.</param>
+/// <returns>An effect that produces a list of fiber results after interruption.</returns>
 let interruptAwaitAll<'R, 'E, 'E1> (fibers: Fiber<'R, 'E> list) : FIO<FiberResult<'R, 'E> list, 'E1> =
     (interruptAll fibers).FlatMap(fun () -> awaitAll fibers)
 
 /// Non-blocking poll of all fibers. Returns Some result for completed fibers, None for those still running.
+/// <param name="fibers">The fibers to poll.</param>
+/// <returns>An effect that produces a list of optional fiber results.</returns>
 let pollAll<'R, 'E, 'E1> (fibers: Fiber<'R, 'E> list) : FIO<FiberResult<'R, 'E> option list, 'E1> =
     fibers |> List.map (fun f -> f.Poll()) |> FIO.collectAll
