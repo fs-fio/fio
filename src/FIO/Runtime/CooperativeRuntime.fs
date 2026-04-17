@@ -271,6 +271,8 @@ and internal BlockingWorker(config: BlockingWorkerConfig) =
             cancellationTokenSource.Cancel()
             cancellationTokenSource.Dispose()
 
+    /// Submits a blocking item to the blocking worker for periodic polling.
+    /// <param name="blockingItem">The blocking item to reschedule.</param>
     member internal _.RescheduleForBlocking blockingItem =
         config.ActiveBlockingItemChan.AddAsync { Item = blockingItem; MissCount = 0 }
 

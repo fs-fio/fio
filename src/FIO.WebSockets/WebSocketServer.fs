@@ -5,15 +5,11 @@ open FIO.DSL
 open System
 open System.Net
 
-/// <summary>
 /// Server operations for accepting WebSocket connections.
-/// </summary>
 [<RequireQualifiedAccess>]
 module WebSocketServer =
 
-    /// <summary>
     /// Starts a WebSocket server listening on the specified URL prefix.
-    /// </summary>
     /// <param name="url">The URL prefix to listen on.</param>
     /// <returns>The HTTP listener for the server.</returns>
     let start (url: string) =
@@ -24,39 +20,33 @@ module WebSocketServer =
             return listener
         }
 
-    /// <summary>
     /// Starts a server with default configuration.
-    /// </summary>
     /// <param name="url">The URL prefix to listen on.</param>
     /// <returns>The HTTP listener for the server.</returns>
     let startDefault (url: string) = start url
 
-    /// <summary>
     /// Closes the server.
-    /// </summary>
     /// <param name="listener">The HTTP listener to close.</param>
     /// <returns>Effect that stops the server.</returns>
     let close (listener: HttpListener) =
         FIO.attempt ((fun () -> listener.Stop()), WsError.fromException)
 
-    /// <summary>
     /// Aborts the server immediately.
-    /// </summary>
     /// <param name="listener">The HTTP listener to abort.</param>
     /// <returns>Effect that aborts the server.</returns>
     let abort (listener: HttpListener) =
         FIO.attempt ((fun () -> listener.Abort()), WsError.fromException)
 
-    /// <summary>
     /// Accepts a single incoming WebSocket connection.
-    /// </summary>
     /// <param name="listener">The HTTP listener.</param>
     /// <param name="config">WebSocket configuration options.</param>
     /// <param name="subProtocol">Optional subprotocol to negotiate.</param>
     /// <returns>The accepted WebSocket connection.</returns>
     let accept (listener: HttpListener) (config: WebSocketConfig) (subProtocol: string option) =
         fio {
-            let! listenerCtxTask = FIO.attempt ((fun () -> listener.GetContextAsync()), WsError.fromException)
+            let! listenerCtxTask =
+                FIO.attempt ((fun () -> listener.GetContextAsync()), WsError.fromException)
+
             let! listenerCtx = FIO.awaitGenericTask (listenerCtxTask, WsError.fromException)
 
             if listenerCtx.Request.IsWebSocketRequest then
@@ -76,18 +66,14 @@ module WebSocketServer =
                 return! FIO.fail (WsError.fromException <| Exception "Not a WebSocket request")
         }
 
-    /// <summary>
     /// Accepts a connection with default subprotocol.
-    /// </summary>
     /// <param name="listener">The HTTP listener.</param>
     /// <param name="config">WebSocket configuration options.</param>
     /// <returns>The accepted WebSocket connection.</returns>
     let acceptDefault (listener: HttpListener) (config: WebSocketConfig) = accept listener config None
 
-    /// <summary>
     /// Continuously accepts connections and handles them with the provided handler.
     /// Each connection is forked into its own fiber for concurrent handling.
-    /// </summary>
     /// <param name="listener">The HTTP listener.</param>
     /// <param name="config">WebSocket configuration options.</param>
     /// <param name="handler">Handler function for each connection.</param>
@@ -102,10 +88,8 @@ module WebSocketServer =
 
         loop ()
 
-    /// <summary>
     /// Runs a complete WebSocket server with the given handler.
     /// Starts listening, accepts connections in a loop, and handles them concurrently.
-    /// </summary>
     /// <param name="url">The URL prefix to listen on.</param>
     /// <param name="config">WebSocket configuration options.</param>
     /// <param name="handler">Handler function for each connection.</param>
@@ -117,9 +101,7 @@ module WebSocketServer =
             fun listener -> acceptLoop listener config handler
         )
 
-    /// <summary>
     /// Runs a codec-based request/response server.
-    /// </summary>
     /// <typeparam name="Req">The request type.</typeparam>
     /// <typeparam name="Resp">The response type.</typeparam>
     /// <param name="url">The URL prefix to listen on.</param>

@@ -100,19 +100,9 @@ module internal PlotArgs =
                     |> List.head
                     |> fst
                     |> fun fm -> fm.BenchmarkName.ToLowerInvariant() = "threadring"
-            yield fun d -> d |> List.head |> fst |> (fun fm -> fm.BenchmarkName.ToLowerInvariant() = "big")
-            yield
-                fun d ->
-                    d
-                    |> List.head
-                    |> fst
-                    |> fun fm -> fm.BenchmarkName.ToLowerInvariant() = "bang"
-            yield
-                fun d ->
-                    d
-                    |> List.head
-                    |> fst
-                    |> fun fm -> fm.BenchmarkName.ToLowerInvariant() = "fork"
+            yield fun d -> d |> List.head |> fst |> fun fm -> fm.BenchmarkName.ToLowerInvariant() = "big"
+            yield fun d -> d |> List.head |> fst |> fun fm -> fm.BenchmarkName.ToLowerInvariant() = "bang"
+            yield fun d -> d |> List.head |> fst |> fun fm -> fm.BenchmarkName.ToLowerInvariant() = "fork"
         ]
 
     /// <summary>

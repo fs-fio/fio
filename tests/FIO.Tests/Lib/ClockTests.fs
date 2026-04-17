@@ -9,6 +9,7 @@ open Expecto
 open FIO.Runtime
 
 open System
+open System.Threading
 
 module Clock = FIO.Clock
 
@@ -160,4 +161,32 @@ let clockTests =
                 let result = runtime.Run(Clock.fromTimestampMillis 0L).UnsafeSuccess()
 
                 Expect.equal result (DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)) "0ms should be Unix epoch"
+
+            testPropertyWithConfig
+                fsCheckConfig
+                "now - lazy (sleep between construction and run, result reflects run time)"
+            <| fun (runtime: FIORuntime) ->
+                let eff = Clock.now ()
+                Thread.Sleep 30
+                let before = DateTime.Now
+
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                Expect.isGreaterThanOrEqual
+                    result
+                    before
+                    "Clock.now must evaluate at run time; a value captured at construction would be < before"
+
+            testPropertyWithConfig fsCheckConfig "timed - lazy (reusable; stopwatch restarts on each run)"
+            <| fun (runtime: FIORuntime) ->
+                let eff = Clock.timed (FIO.succeed ())
+
+                let _, first = runtime.Run(eff).UnsafeSuccess()
+                Thread.Sleep 50
+                let _, second = runtime.Run(eff).UnsafeSuccess()
+
+                Expect.isLessThan
+                    second
+                    (TimeSpan.FromMilliseconds 30.0)
+                    "Clock.timed must start fresh on each run; a composition-time stopwatch would show >= 50ms here"
         ]

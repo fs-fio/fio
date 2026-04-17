@@ -2,22 +2,20 @@
 
 HTTP server library for [FIO](https://github.com/fs-fio/fio), built on ASP.NET Core Kestrel.
 
-## Installation
+## Install
 
 ```bash
 dotnet add package FIO.Http
 ```
 
-Requires the core `FIO` package.
-
 ## Features
 
-- **Composable Routes** - Build routes with `++` operator
-- **HTTP Handlers** - Functional request handlers returning FIO effects
-- **Middleware** - Before, after, and around middleware composition
-- **Path Parameters** - Type-safe path parameter extraction
+- **Composable routes** — build routes with the `++` operator
+- **HTTP handlers** — functional request handlers returning FIO effects
+- **Middleware** — before, after, and around middleware composition
+- **Path parameters** — type-safe path parameter extraction
 
-## Quick Example
+## Quick Start
 
 ```fsharp
 open FIO.Http
@@ -31,10 +29,8 @@ let config = ServerConfig.defaultConfig
 Server.runServer config routes
 ```
 
-## Documentation
-
-See the [FIO repository](https://github.com/fs-fio/fio) for full documentation and examples.
+See the [examples](https://github.com/fs-fio/fio/tree/main/examples/FIO.Examples.Http) for more.
 
 ## License
 
-MIT License - see [LICENSE.md](https://github.com/fs-fio/fio/blob/main/LICENSE.md)
+MIT — see [LICENSE.md](https://github.com/fs-fio/fio/blob/main/LICENSE.md).

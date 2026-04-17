@@ -6,31 +6,21 @@ open System
 open System.Text
 open System.Text.Json
 
-/// <summary>
 /// Codec for encoding and decoding messages to/from bytes.
-/// </summary>
 type SocketCodec<'T> =
     {
-        /// <summary>
         /// Encodes a value to bytes.
-        /// </summary>
         /// <returns>An FIO effect producing the encoded byte array.</returns>
         Encode: 'T -> FIO<byte[], SocketError>
-        /// <summary>
         /// Decodes bytes to a value.
-        /// </summary>
         /// <returns>An FIO effect producing the decoded value.</returns>
         Decode: byte[] -> FIO<'T, SocketError>
     }
 
-/// <summary>
 /// Codec builders and common codecs.
-/// </summary>
 module Codec =
 
-    /// <summary>
     /// Identity codec for byte arrays (no encoding/decoding).
-    /// </summary>
     /// <returns>The identity byte array codec.</returns>
     let bytes: SocketCodec<byte[]> =
         {
@@ -38,9 +28,7 @@ module Codec =
             Decode = fun bytes -> FIO.succeed bytes
         }
 
-    /// <summary>
     /// UTF-8 string codec.
-    /// </summary>
     /// <returns>The UTF-8 string codec.</returns>
     let string: SocketCodec<string> =
         {
@@ -58,9 +46,7 @@ module Codec =
                     )
         }
 
-    /// <summary>
     /// Line-delimited string codec (adds/removes newline).
-    /// </summary>
     /// <returns>The line-delimited string codec.</returns>
     let line: SocketCodec<string> =
         {
@@ -78,9 +64,7 @@ module Codec =
                     }
         }
 
-    /// <summary>
     /// JSON codec with custom options.
-    /// </summary>
     /// <param name="options">JSON serializer options.</param>
     /// <returns>The JSON codec.</returns>
     let jsonWithOptions<'T> (options: JsonSerializerOptions) =
@@ -103,15 +87,11 @@ module Codec =
                     )
         }
 
-    /// <summary>
     /// JSON codec with default options.
-    /// </summary>
     /// <returns>The JSON codec with default options.</returns>
     let json<'T> = jsonWithOptions<'T> (JsonSerializerOptions())
 
-    /// <summary>
     /// Line-delimited JSON codec.
-    /// </summary>
     /// <param name="options">Optional JSON serializer options.</param>
     /// <returns>The line-delimited JSON codec.</returns>
     let jsonLine<'T> options =
@@ -136,9 +116,7 @@ module Codec =
                     )
         }
 
-    /// <summary>
     /// Maps a codec to a different type using bidirectional functions.
-    /// </summary>
     /// <param name="f">Function to convert from 'A to 'B.</param>
     /// <param name="g">Function to convert from 'B to 'A.</param>
     /// <param name="codec">The source codec.</param>
@@ -154,9 +132,7 @@ module Codec =
                     }
         }
 
-    /// <summary>
     /// Composes two codecs to handle pairs using length-prefixed framing.
-    /// </summary>
     /// <param name="codec1">Codec for the first element.</param>
     /// <param name="codec2">Codec for the second element.</param>
     /// <returns>The composed codec for pairs.</returns>
@@ -212,9 +188,7 @@ module Codec =
                     }
         }
 
-    /// <summary>
     /// Length-prefixed framing codec (4-byte length header).
-    /// </summary>
     /// <param name="innerCodec">The codec to wrap with length-prefixing.</param>
     /// <returns>The length-prefixed codec.</returns>
     let lengthPrefixed<'T> (innerCodec: SocketCodec<'T>) =
@@ -248,18 +222,14 @@ module Codec =
                     }
         }
 
-    /// <summary>
     /// Creates a codec from encode/decode functions.
-    /// </summary>
     /// <param name="encode">Encoding function.</param>
     /// <param name="decode">Decoding function.</param>
     /// <returns>The created codec.</returns>
     let create (encode: 'T -> FIO<byte[], SocketError>) (decode: byte[] -> FIO<'T, SocketError>) =
         { Encode = encode; Decode = decode }
 
-    /// <summary>
     /// Creates a codec from pure (non-FIO) encode/decode functions.
-    /// </summary>
     /// <param name="encode">Pure encoding function.</param>
     /// <param name="decode">Pure decoding function.</param>
     /// <returns>The created codec.</returns>

@@ -431,7 +431,10 @@ let semaphoreWithPermitsTests =
                 let eff =
                     fio {
                         let! sem = Semaphore.make 5
-                        let! _ = sem.WithPermits(3, FIO.fail (exn "error"), id).CatchAll(fun _ -> FIO.unit ())
+
+                        let! _ =
+                            sem.WithPermits(3, FIO.fail (exn "error"), id).CatchAll(fun _ -> FIO.unit ())
+
                         let! after = sem.Available()
                         return after
                     }
@@ -482,6 +485,22 @@ let semaphoreMakeTests =
                 match result with
                 | Interrupted _ -> ()
                 | other -> failtest $"Expected Interrupted but got: {other}"
+
+            testAllRuntimes
+                "Semaphore.make - lazy (constructing once, running twice yields distinct semaphores)"
+                (fun runtime ->
+                    let eff = Semaphore.make 1
+
+                    let s1 = runtime.Run(eff).UnsafeSuccess()
+                    let s2 = runtime.Run(eff).UnsafeSuccess()
+
+                    try
+                        Expect.isFalse
+                            (obj.ReferenceEquals(s1, s2))
+                            "Semaphore.make must allocate a fresh semaphore per run, not at construction"
+                    finally
+                        (s1 :> IDisposable).Dispose()
+                        (s2 :> IDisposable).Dispose())
         ]
 
 [<Tests>]

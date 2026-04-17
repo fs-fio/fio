@@ -5,17 +5,13 @@ open FIO.DSL
 open System.Text.Json
 open System.Threading
 
-/// <summary>
 /// Extension methods for JSON serialization and other conveniences over WebSockets.
-/// </summary>
 [<AutoOpen>]
 module WebSocketExtensions =
 
     type WebSocket with
 
-        /// <summary>
         /// Sends a value as JSON over the WebSocket.
-        /// </summary>
         /// <param name="value">The value to send.</param>
         /// <param name="options">Optional JSON serializer options.</param>
         /// <param name="ct">Optional cancellation token.</param>
@@ -24,13 +20,14 @@ module WebSocketExtensions =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
                 let ct = defaultArg ct CancellationToken.None
-                let! jsonString = FIO.attempt ((fun () -> JsonSerializer.Serialize(value, opts)), WsError.fromException)
+
+                let! jsonString =
+                    FIO.attempt ((fun () -> JsonSerializer.Serialize(value, opts)), WsError.fromException)
+
                 do! this.SendText(jsonString, ct)
             }
 
-        /// <summary>
         /// Receives and deserializes a JSON value from the WebSocket.
-        /// </summary>
         /// <typeparam name="T">The type to deserialize to.</typeparam>
         /// <param name="options">Optional JSON serializer options.</param>
         /// <param name="ct">Optional cancellation token.</param>
@@ -61,16 +58,12 @@ module WebSocketExtensions =
                         )
             }
 
-        /// <summary>
         /// Sends a string as a text frame (convenience method).
-        /// </summary>
         /// <param name="text">The string to send.</param>
         /// <returns>Effect that sends the text frame.</returns>
         member this.SendString(text: string) = this.SendText text
 
-        /// <summary>
         /// Receives a text frame as a string (convenience method).
-        /// </summary>
         /// <returns>The received text string.</returns>
         member this.ReceiveString() =
             fio {
@@ -89,16 +82,12 @@ module WebSocketExtensions =
                         )
             }
 
-        /// <summary>
         /// Sends binary data (convenience method).
-        /// </summary>
         /// <param name="data">The binary data to send.</param>
         /// <returns>Effect that sends the binary frame.</returns>
         member this.SendBytes(data: byte[]) = this.SendBinary data
 
-        /// <summary>
         /// Receives binary data (convenience method).
-        /// </summary>
         /// <returns>The received binary data.</returns>
         member this.ReceiveBytes() =
             fio {

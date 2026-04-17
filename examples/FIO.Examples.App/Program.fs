@@ -6,7 +6,6 @@ module private FIO.Examples.App
 open FIO.DSL
 open FIO.App
 open FIO.Random
-open FIO.Runtime
 open FIO.Console
 open FIO.Environment
 open FIO.Runtime.Concurrent
@@ -600,16 +599,22 @@ type CustomRuntimeApp() =
 /// <summary>
 /// Demonstrates shutdown hooks for cleanup on Ctrl+C.
 /// </summary>
-type ShutdownHookApp() =
-    inherit FIOApp<unit, exn>(
-        settings = { FIOAppSettings.Default with ShutdownHookTimeout = TimeSpan.FromSeconds 5.0 })
+type ShutdownApp() =
+    inherit FIOApp<unit, exn>()
 
-    let mutable resourceAcquired = false
+    override _.verbose = true
+    override _.onShutdownTimeout = TimeSpan.FromSeconds 5.0
+
+    override _.onShutdown() =
+        fio {
+            do! Console.printLine ("Shutdown hook: Releasing resource...", id)
+            do! FIO.sleep (TimeSpan.FromSeconds 1.0, id)
+            do! Console.printLine ("Shutdown hook: Resource released!", id)
+        }
 
     override _.effect =
         fio {
             do! Console.printLine ("Acquiring resource...", id)
-            resourceAcquired <- true
             do! Console.printLine ("Resource acquired for 10 seconds! Press Ctrl+C to test shutdown hook.", id)
 
             for i in 1..10 do
@@ -619,26 +624,19 @@ type ShutdownHookApp() =
             do! Console.printLine ("Completed normally (no Ctrl+C)", id)
         }
 
-    override _.shutdownHook() =
-        fio {
-            if resourceAcquired then
-                do! Console.printLine ("Shutdown hook: Releasing resource...", id)
-                do! FIO.sleep (TimeSpan.FromSeconds 1.0, id)
-                do! Console.printLine ("Shutdown hook: Resource released!", id)
-        }
-
 /// <summary>
 /// Demonstrates custom exit codes based on effect results.
 /// </summary>
 type CustomExitCodeApp() =
-    inherit FIOApp<int, int>(
-        handlers = { FIOAppHandlers<int, int>.Default(FIOAppSettings.Default) with
-                        ExitCodeSuccess = fun res ->
-                            printfn $"Success with value: {res}"
-                            0
-                        ExitCodeError = fun err ->
-                            printfn $"Failed with error code: {err}"
-                            err })
+    inherit FIOApp<int, int>()
+
+    override _.exitCodeSuccess res =
+        printfn $"Success with value: {res}"
+        0
+
+    override _.exitCodeError err =
+        printfn $"Failed with error code: {err}"
+        err
 
     override _.effect =
         fio {
@@ -650,17 +648,6 @@ type CustomExitCodeApp() =
             | true, n when n > 0 && n <= 5 -> return! FIO.fail n
             | _ -> return! FIO.fail 99
         }
-
-/// <summary>
-/// Demonstrates disabling automatic ThreadPool configuration.
-/// </summary>
-type DisableThreadPoolConfigApp() =
-    inherit FIOApp<unit, exn>(
-        handlers = { FIOAppHandlers<unit, exn>.Default(FIOAppSettings.Default) with
-                        ConfigureThreadPool = fun () -> printfn "ThreadPool configuration disabled for this app" })
-
-    override _.effect =
-        fio { do! Console.printLine ("Running without automatic ThreadPool configuration", id) }
 
 /// <summary>
 /// Demonstrates Environment module for system information and env vars.
@@ -726,38 +713,38 @@ type EnvironmentApp() =
 /// Demonstrates automatic startup banner display.
 /// </summary>
 type BannerApp() as this =
-    inherit FIOApp<unit, exn>(
-        settings = { FIOAppSettings.Default with
-                        Name = Some "FIO Banner Demo"
-                        Version = Some "1.0.0"
-                        Description = "Demonstrates the startup banner feature"
-                        ShowBanner = true })
+    inherit FIOApp<unit, exn>()
+
+    override _.name = "FIO Banner Demo"
+    override _.version = "1.0.0"
+    override _.showBanner = true
 
     override _.effect =
         fio {
             do! Console.printLine ("", id)
             do! Console.printLine ("The banner above was automatically displayed!", id)
-            do! Console.printLine ($"App name: {this.Name}", id)
-            do! Console.printLine ($"App version: {this.Version}", id)
-            do! Console.printLine ($"App description: {this.Settings.Description}", id)
+            do! Console.printLine ($"App name: {this.name}", id)
+            do! Console.printLine ($"App version: {this.version}", id)
         }
 
 /// <summary>
 /// Demonstrates custom banner override.
 /// </summary>
 type CustomBannerApp() =
-    inherit FIOApp<unit, exn>(
-        settings = { FIOAppSettings.Default with
-                        Name = Some "Custom Banner App"
-                        Version = Some "2.0.0"
-                        ShowBanner = true
-                        Banner = Some """
+    inherit FIOApp<unit, exn>()
+
+    override _.name = "Custom Banner App"
+    override _.version = "2.0.0"
+    override _.showBanner = true
+
+    override _.banner =
+        """
   ╔═══════════════════════════════════╗
   ║     🚀 Custom Banner App 🚀       ║
   ║         Version 2.0.0             ║
   ║   Powered by FIO Effect System    ║
   ╚═══════════════════════════════════╝
-        """ })
+        """
 
     override _.effect =
         fio { do! Console.printLine ("This app uses a custom banner defined by overriding the 'banner' property.", id) }
@@ -785,9 +772,8 @@ let examples =
         nameof FiberFromGenericTaskApp, fun () -> FiberFromGenericTaskApp().Run()
         nameof CommandLineArgsApp, fun () -> CommandLineArgsApp([| "arg1"; "arg2"; "test" |]).Run()
         nameof CustomRuntimeApp, fun () -> CustomRuntimeApp().Run()
-        nameof ShutdownHookApp, fun () -> ShutdownHookApp().Run()
+        nameof ShutdownApp, fun () -> ShutdownApp().Run()
         nameof CustomExitCodeApp, fun () -> CustomExitCodeApp().Run()
-        nameof DisableThreadPoolConfigApp, fun () -> DisableThreadPoolConfigApp().Run()
         nameof EnvironmentApp, fun () -> EnvironmentApp().Run()
         nameof BannerApp, fun () -> BannerApp().Run()
         nameof CustomBannerApp, fun () -> CustomBannerApp().Run()

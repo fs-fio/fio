@@ -435,7 +435,9 @@ let factoryTests =
             testAllRuntimes "fromTaskExn - propagates faulted task as exception" (fun runtime ->
                 let eff =
                     fio {
-                        let! fiber = FIO.fromTask ((fun () -> Task.FromException(Exception "task exn err")), id)
+                        let! fiber =
+                            FIO.fromTask ((fun () -> Task.FromException(Exception "task exn err")), id)
+
                         let! result = fiber.Join()
                         return result
                     }

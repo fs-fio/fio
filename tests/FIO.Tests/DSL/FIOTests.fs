@@ -245,7 +245,10 @@ let fioTests =
                 let eff =
                     fio {
                         let! ref = Ref.makeValue false
-                        let! fiber = FIO.sleep(TimeSpan.FromSeconds 60.0, id).Ensuring(ref.Set(true, id)).Fork()
+
+                        let! fiber =
+                            FIO.sleep(TimeSpan.FromSeconds 60.0, id).Ensuring(ref.Set(true, id)).Fork()
+
                         do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
                         do! fiber.Interrupt()
                         do! fiber.Join().CatchAll(fun _ -> FIO.unit ())

@@ -84,7 +84,9 @@ and private BlockingWorker(config: BlockingWorkerConfig) =
                 let mutable keepProcessing = true
 
                 while keepProcessing do
-                    let! rescheduled = blockingChan.TryRescheduleNextBlockingWorkItem config.ActiveWorkItemChan
+                    let! rescheduled =
+                        blockingChan.TryRescheduleNextBlockingWorkItem config.ActiveWorkItemChan
+
                     let hasPendingMessages = blockingChan.Count > 0
                     let hasBlockedWorkItems = blockingChan.BlockingWorkItemCount > 0
                     keepProcessing <- rescheduled && hasPendingMessages && hasBlockedWorkItems

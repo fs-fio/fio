@@ -24,7 +24,10 @@ let webSocketClientTests =
                     (fun port ->
                         fio {
                             let uri = Uri $"ws://localhost:{port}/"
-                            let! ws = WebSocketClient.connect uri WebSocketConfig.defaultConfig CancellationToken.None
+
+                            let! ws =
+                                WebSocketClient.connect uri WebSocketConfig.defaultConfig CancellationToken.None
+
                             let! state = ws.State()
 
                             Expect.equal state WebSocketState.Open "Should be connected"

@@ -444,6 +444,16 @@ let promiseMakeTests =
                 let result = runtime.Run(eff).UnsafeSuccess()
 
                 Expect.isFalse result "New promise should not be done"
+
+            testAllRuntimes "make - lazy (constructing once, running twice yields distinct instances)" (fun runtime ->
+                let eff = Promise.make<int, exn> ()
+
+                let p1 = runtime.Run(eff).UnsafeSuccess()
+                let p2 = runtime.Run(eff).UnsafeSuccess()
+
+                Expect.isFalse
+                    (obj.ReferenceEquals(p1, p2))
+                    "Promise.make must allocate a fresh promise per run, not at construction")
         ]
 
 [<Tests>]

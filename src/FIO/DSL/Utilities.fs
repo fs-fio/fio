@@ -49,5 +49,4 @@ module internal Casting =
         wrapTaskCore (fun () -> box genericTask.Result) (genericTask :> Task)
 
     /// Wraps a void Task as a Task&lt;obj&gt; returning boxed unit.
-    let inline wrapVoidTask (task: Task) : Task<obj> =
-        wrapTaskCore (fun () -> box ()) task
+    let inline wrapVoidTask (task: Task) : Task<obj> = wrapTaskCore (fun () -> box ()) task

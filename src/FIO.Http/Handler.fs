@@ -4,183 +4,133 @@ open FIO.DSL
 
 open System.Text.Json
 
-/// <summary>
 /// HTTP handler - a function from Request to FIO Response.
-/// </summary>
 type HttpHandler<'E> = HttpRequest -> FIO<HttpResponse, 'E>
 
-/// <summary>
 /// Functions for creating and composing HTTP handlers.
-/// </summary>
 [<RequireQualifiedAccess>]
 module HttpHandler =
 
-    /// <summary>
     /// Creates a handler that always returns the given response.
-    /// </summary>
-    /// <param name="response">The response to return.</param>
-    /// <returns>The HTTP handler.</returns>
+    /// <param name="response">The HTTP response to return.</param>
+    /// <returns>A handler that produces the given response.</returns>
     let succeed (response: HttpResponse) : HttpHandler<'E> = fun _ -> FIO.succeed response
 
-    /// <summary>
     /// Creates a handler that always fails with the given error.
-    /// </summary>
-    /// <param name="error">The error to return.</param>
-    /// <returns>The HTTP handler.</returns>
+    /// <param name="error">The error to fail with.</param>
+    /// <returns>A handler that always fails.</returns>
     let fail (error: 'E) : HttpHandler<'E> = fun _ -> FIO.fail error
 
-    /// <summary>
     /// Creates a handler from an FIO effect.
-    /// </summary>
-    /// <param name="effect">The FIO effect to run.</param>
-    /// <returns>The HTTP handler.</returns>
+    /// <param name="effect">The FIO effect producing the response.</param>
+    /// <returns>A handler that ignores the request and runs the given effect.</returns>
     let fromFIO (effect: FIO<HttpResponse, 'E>) : HttpHandler<'E> = fun _ -> effect
 
-    /// <summary>
     /// Creates a handler from a pure function.
-    /// </summary>
-    /// <param name="f">The function to wrap.</param>
-    /// <returns>The HTTP handler.</returns>
+    /// <param name="f">The function that transforms a request into a response.</param>
+    /// <returns>A handler that applies the function, catching exceptions as errors.</returns>
     let fromFunc (f: HttpRequest -> HttpResponse) : HttpHandler<exn> =
         fun request -> FIO.attempt ((fun () -> f request), id)
 
-    /// <summary>
     /// Creates a handler from a function returning an FIO effect.
-    /// </summary>
-    /// <param name="f">The function to wrap.</param>
-    /// <returns>The HTTP handler.</returns>
+    /// <param name="f">The function that transforms a request into an FIO effect.</param>
+    /// <returns>A handler wrapping the given function.</returns>
     let fromFuncZIO (f: HttpRequest -> FIO<HttpResponse, 'E>) : HttpHandler<'E> = f
 
-    /// <summary>
     /// Handler that returns HTTP 200 OK.
-    /// </summary>
-    /// <returns>The HTTP handler.</returns>
+    /// <returns>A handler that produces a 200 OK response.</returns>
     let ok<'E> : HttpHandler<'E> = succeed Response.ok
 
-    /// <summary>
     /// Handler that returns HTTP 200 OK with JSON body.
-    /// </summary>
     /// <param name="value">The value to serialize as JSON.</param>
-    /// <returns>The HTTP handler.</returns>
+    /// <returns>A handler that produces a 200 OK response with JSON body.</returns>
     let okJson (value: 'T) : HttpHandler<'E> = succeed (Response.okJson value)
 
-    /// <summary>
     /// Handler that returns HTTP 200 OK with plain text body.
-    /// </summary>
     /// <param name="text">The text content.</param>
-    /// <returns>The HTTP handler.</returns>
+    /// <returns>A handler that produces a 200 OK response with text body.</returns>
     let text (text: string) : HttpHandler<'E> = succeed (Response.okText text)
 
-    /// <summary>
     /// Handler that returns HTTP 200 OK with HTML body.
-    /// </summary>
     /// <param name="html">The HTML content.</param>
-    /// <returns>The HTTP handler.</returns>
+    /// <returns>A handler that produces a 200 OK response with HTML body.</returns>
     let html (html: string) : HttpHandler<'E> = succeed (Response.okHtml html)
 
-    /// <summary>
     /// Handler that returns HTTP 200 OK with binary body.
-    /// </summary>
     /// <param name="bytes">The binary content.</param>
     /// <param name="contentType">The content type header value.</param>
-    /// <returns>The HTTP handler.</returns>
+    /// <returns>A handler that produces a 200 OK response with binary body.</returns>
     let bytes (bytes: byte[]) (contentType: string) : HttpHandler<'E> =
         succeed (Response.okBytes bytes contentType)
 
-    /// <summary>
     /// Handler that returns HTTP 200 OK with stream body.
-    /// </summary>
     /// <param name="stream">The stream to send.</param>
     /// <param name="length">The optional content length.</param>
     /// <param name="contentType">The content type header value.</param>
-    /// <returns>The HTTP handler.</returns>
+    /// <returns>A handler that produces a 200 OK response with stream body.</returns>
     let stream (stream: System.IO.Stream) (length: int64 option) (contentType: string) : HttpHandler<'E> =
         succeed (Response.okStream stream length contentType)
 
-    /// <summary>
     /// Handler that returns HTTP 204 No Content.
-    /// </summary>
-    /// <returns>The HTTP handler.</returns>
+    /// <returns>A handler that produces a 204 No Content response.</returns>
     let noContent<'E> : HttpHandler<'E> = succeed Response.noContent
 
-    /// <summary>
     /// Handler that returns HTTP 404 Not Found.
-    /// </summary>
-    /// <returns>The HTTP handler.</returns>
+    /// <returns>A handler that produces a 404 Not Found response.</returns>
     let notFound<'E> : HttpHandler<'E> = succeed Response.notFound
 
-    /// <summary>
     /// Handler that returns HTTP 404 Not Found with text message.
-    /// </summary>
-    /// <param name="message">The error message.</param>
-    /// <returns>The HTTP handler.</returns>
+    /// <param name="message">The not-found message.</param>
+    /// <returns>A handler that produces a 404 Not Found response with text body.</returns>
     let notFoundText (message: string) : HttpHandler<'E> = succeed (Response.notFoundText message)
 
-    /// <summary>
     /// Handler that returns HTTP 400 Bad Request.
-    /// </summary>
-    /// <returns>The HTTP handler.</returns>
+    /// <returns>A handler that produces a 400 Bad Request response.</returns>
     let badRequest<'E> : HttpHandler<'E> = succeed Response.badRequest
 
-    /// <summary>
     /// Handler that returns HTTP 400 Bad Request with text message.
-    /// </summary>
     /// <param name="message">The error message.</param>
-    /// <returns>The HTTP handler.</returns>
+    /// <returns>A handler that produces a 400 Bad Request response with text body.</returns>
     let badRequestText (message: string) : HttpHandler<'E> =
         succeed (Response.badRequestText message)
 
-    /// <summary>
     /// Handler that returns HTTP 400 Bad Request with JSON error.
-    /// </summary>
-    /// <param name="error">The error to serialize as JSON.</param>
-    /// <returns>The HTTP handler.</returns>
+    /// <param name="error">The error value to serialize as JSON.</param>
+    /// <returns>A handler that produces a 400 Bad Request response with JSON body.</returns>
     let badRequestJson (error: 'T) : HttpHandler<'E> = succeed (Response.badRequestJson error)
 
-    /// <summary>
     /// Handler that returns HTTP 500 Internal Server Error.
-    /// </summary>
-    /// <returns>The HTTP handler.</returns>
+    /// <returns>A handler that produces a 500 Internal Server Error response.</returns>
     let serverError<'E> : HttpHandler<'E> = succeed Response.internalServerError
 
-    /// <summary>
     /// Handler that returns HTTP 500 Internal Server Error with text message.
-    /// </summary>
     /// <param name="message">The error message.</param>
-    /// <returns>The HTTP handler.</returns>
+    /// <returns>A handler that produces a 500 Internal Server Error response with text body.</returns>
     let serverErrorText (message: string) : HttpHandler<'E> =
         succeed (Response.internalServerErrorText message)
 
-    /// <summary>
     /// Handler that returns HTTP 401 Unauthorized.
-    /// </summary>
-    /// <returns>The HTTP handler.</returns>
+    /// <returns>A handler that produces a 401 Unauthorized response.</returns>
     let unauthorized<'E> : HttpHandler<'E> = succeed Response.unauthorized
 
-    /// <summary>
     /// Handler that returns HTTP 403 Forbidden.
-    /// </summary>
-    /// <returns>The HTTP handler.</returns>
+    /// <returns>A handler that produces a 403 Forbidden response.</returns>
     let forbidden<'E> : HttpHandler<'E> = succeed Response.forbidden
 
-    /// <summary>
     /// Handler that returns a redirect response.
-    /// </summary>
     /// <param name="location">The redirect location URI.</param>
     /// <param name="permanent">Whether the redirect is permanent (301) or temporary (302).</param>
-    /// <returns>The HTTP handler.</returns>
+    /// <returns>A handler that produces a redirect response.</returns>
     let redirect (location: string) (permanent: bool) : HttpHandler<'E> =
         if permanent then
             succeed (Response.movedPermanently location)
         else
             succeed (Response.found location)
 
-    /// <summary>
     /// Maps a function over the response.
-    /// </summary>
-    /// <param name="f">The transformation function.</param>
+    /// <param name="f">The function to apply to the response.</param>
     /// <param name="handler">The handler to transform.</param>
-    /// <returns>The transformed HTTP handler.</returns>
+    /// <returns>A handler that applies the function to the original handler's response.</returns>
     let map (f: HttpResponse -> HttpResponse) (handler: HttpHandler<'E>) : HttpHandler<'E> =
         fun request ->
             fio {
@@ -188,12 +138,10 @@ module HttpHandler =
                 return f response
             }
 
-    /// <summary>
     /// Binds a handler to a function that produces a new handler.
-    /// </summary>
-    /// <param name="f">The function producing the next handler.</param>
-    /// <param name="handler">The initial handler.</param>
-    /// <returns>The composed HTTP handler.</returns>
+    /// <param name="f">The function that takes a response and produces a new handler.</param>
+    /// <param name="handler">The handler to bind.</param>
+    /// <returns>A handler that chains the original handler's response through the function.</returns>
     let bind (f: HttpResponse -> HttpHandler<'E>) (handler: HttpHandler<'E>) : HttpHandler<'E> =
         fun request ->
             fio {
@@ -201,13 +149,11 @@ module HttpHandler =
                 return! f response request
             }
 
-    /// <summary>
     /// Runs two handlers and combines their responses.
-    /// </summary>
-    /// <param name="combiner">The function to combine responses.</param>
-    /// <param name="handler1">The first handler.</param>
-    /// <param name="handler2">The second handler.</param>
-    /// <returns>The combined HTTP handler.</returns>
+    /// <param name="combiner">The function that merges two responses into one.</param>
+    /// <param name="handler1">The first handler to run.</param>
+    /// <param name="handler2">The second handler to run.</param>
+    /// <returns>A handler that runs both handlers and combines their responses.</returns>
     let zipWith
         (combiner: HttpResponse -> HttpResponse -> HttpResponse)
         (handler1: HttpHandler<'E>)
@@ -220,30 +166,24 @@ module HttpHandler =
                 return combiner response1 response2
             }
 
-    /// <summary>
     /// Tries the first handler, falling back to the second on failure.
-    /// </summary>
-    /// <param name="handler2">The fallback handler.</param>
-    /// <param name="handler1">The primary handler.</param>
-    /// <returns>The HTTP handler with fallback.</returns>
+    /// <param name="handler2">The fallback handler to use on failure.</param>
+    /// <param name="handler1">The primary handler to try first.</param>
+    /// <returns>A handler that attempts handler1 and falls back to handler2 on failure.</returns>
     let orElse (handler2: HttpHandler<'E>) (handler1: HttpHandler<'E>) : HttpHandler<'E> =
         fun request -> handler1 request <|> handler2 request
 
-    /// <summary>
     /// Maps a function over the error type.
-    /// </summary>
-    /// <param name="f">The error transformation function.</param>
-    /// <param name="handler">The handler to transform.</param>
-    /// <returns>The HTTP handler with mapped error type.</returns>
+    /// <param name="f">The function to apply to the error.</param>
+    /// <param name="handler">The handler whose error type to transform.</param>
+    /// <returns>A handler with the error type mapped by the function.</returns>
     let mapError (f: 'E1 -> 'E2) (handler: HttpHandler<'E1>) : HttpHandler<'E2> =
         fun request -> (handler request).MapError f
 
-    /// <summary>
     /// Runs a side effect after the handler without changing the response.
-    /// </summary>
-    /// <param name="f">The side effect function.</param>
-    /// <param name="handler">The handler to wrap.</param>
-    /// <returns>The HTTP handler with side effect.</returns>
+    /// <param name="f">The side effect to run with the response.</param>
+    /// <param name="handler">The handler to tap into.</param>
+    /// <returns>A handler that runs the original handler, executes the side effect, and returns the original response.</returns>
     let tap (f: HttpResponse -> FIO<unit, 'E>) (handler: HttpHandler<'E>) : HttpHandler<'E> =
         fun request ->
             fio {
@@ -252,12 +192,10 @@ module HttpHandler =
                 return response
             }
 
-    /// <summary>
     /// Runs a side effect with request and response without changing the response.
-    /// </summary>
-    /// <param name="f">The side effect function receiving request and response.</param>
-    /// <param name="handler">The handler to wrap.</param>
-    /// <returns>The HTTP handler with side effect.</returns>
+    /// <param name="f">Side effect function receiving request and response.</param>
+    /// <param name="handler">The handler to tap into.</param>
+    /// <returns>A handler that runs the original handler, executes the side effect, and returns the original response.</returns>
     let tapWithRequest (f: HttpRequest -> HttpResponse -> FIO<unit, 'E>) (handler: HttpHandler<'E>) : HttpHandler<'E> =
         fun request ->
             fio {
@@ -266,35 +204,27 @@ module HttpHandler =
                 return response
             }
 
-    /// <summary>
     /// Handler that returns HTTP 200 OK (reader pattern).
-    /// </summary>
-    /// <returns>The HTTP handler.</returns>
+    /// <returns>A handler that produces a 200 OK response.</returns>
     let ask<'E> : HttpHandler<'E> = fun _ -> FIO.succeed Response.ok
 
-    /// <summary>
     /// Extracts a value from the request.
-    /// </summary>
-    /// <param name="f">The extraction function.</param>
-    /// <returns>A function from request to effect returning the extracted value.</returns>
+    /// <param name="f">The function that extracts a value from the request.</param>
+    /// <returns>A function that produces an FIO effect with the extracted value.</returns>
     let asks (f: HttpRequest -> 'T) : HttpRequest -> FIO<'T, 'E> = fun request -> FIO.succeed (f request)
 
-    /// <summary>
     /// Runs a handler with a modified request.
-    /// </summary>
-    /// <param name="f">The request transformation function.</param>
-    /// <param name="handler">The handler to run.</param>
-    /// <returns>The HTTP handler with modified request.</returns>
+    /// <param name="f">The function that transforms the request before passing it to the handler.</param>
+    /// <param name="handler">The handler to run with the modified request.</param>
+    /// <returns>A handler that transforms the request and delegates to the original handler.</returns>
     let local (f: HttpRequest -> HttpRequest) (handler: HttpHandler<'E>) : HttpHandler<'E> =
         fun request -> handler (f request)
 
-    /// <summary>
     /// Runs a handler conditionally, returning fallback otherwise.
-    /// </summary>
-    /// <param name="predicate">The condition to check.</param>
-    /// <param name="handler">The handler to run when condition is true.</param>
+    /// <param name="predicate">The condition to check against the request.</param>
+    /// <param name="handler">The handler to run when the predicate is true.</param>
     /// <param name="fallback">The response when condition is false.</param>
-    /// <returns>The conditional HTTP handler.</returns>
+    /// <returns>A handler that runs conditionally based on the predicate.</returns>
     let when' (predicate: HttpRequest -> bool) (handler: HttpHandler<'E>) (fallback: HttpResponse) : HttpHandler<'E> =
         fun request ->
             if predicate request then
@@ -302,13 +232,11 @@ module HttpHandler =
             else
                 FIO.succeed fallback
 
-    /// <summary>
     /// Runs one of two handlers based on a condition.
-    /// </summary>
-    /// <param name="predicate">The condition to check.</param>
-    /// <param name="trueHandler">The handler when condition is true.</param>
-    /// <param name="falseHandler">The handler when condition is false.</param>
-    /// <returns>The conditional HTTP handler.</returns>
+    /// <param name="predicate">The condition to check against the request.</param>
+    /// <param name="trueHandler">The handler to run when the predicate is true.</param>
+    /// <param name="falseHandler">The handler to run when the predicate is false.</param>
+    /// <returns>A handler that delegates to one of two handlers based on the predicate.</returns>
     let ifElse
         (predicate: HttpRequest -> bool)
         (trueHandler: HttpHandler<'E>)
@@ -320,11 +248,9 @@ module HttpHandler =
             else
                 falseHandler request
 
-    /// <summary>
     /// Parses the request body as JSON.
-    /// </summary>
     /// <param name="options">Optional JSON serializer options.</param>
-    /// <returns>A function from request to effect returning the parsed body.</returns>
+    /// <returns>A function that parses the request body as JSON, producing an FIO effect.</returns>
     let parseJsonBody<'T> (options: JsonSerializerOptions option) : HttpRequest -> FIO<'T, exn> =
         fun request ->
             FIO.attempt (
@@ -337,12 +263,10 @@ module HttpHandler =
                 id
             )
 
-    /// <summary>
     /// Handler that parses JSON body and processes it.
-    /// </summary>
-    /// <param name="f">The function to process the parsed body.</param>
-    /// <param name="onError">Maps exceptions to the error type.</param>
-    /// <returns>The HTTP handler.</returns>
+    /// <param name="f">The function that processes the deserialized body and produces a response effect.</param>
+    /// <param name="onError">Maps parse exceptions to the error type.</param>
+    /// <returns>A handler that deserializes the JSON body and processes it.</returns>
     let jsonBody<'T, 'E> (f: 'T -> FIO<HttpResponse, 'E>) (onError: exn -> 'E) : HttpHandler<'E> =
         fun request ->
             fio {
@@ -350,13 +274,11 @@ module HttpHandler =
                 return! f body
             }
 
-    /// <summary>
     /// Handler that parses JSON body with custom options and processes it.
-    /// </summary>
-    /// <param name="options">The JSON serializer options.</param>
-    /// <param name="f">The function to process the parsed body.</param>
-    /// <param name="onError">Maps exceptions to the error type.</param>
-    /// <returns>The HTTP handler.</returns>
+    /// <param name="options">The JSON serializer options to use.</param>
+    /// <param name="f">The function that processes the deserialized body and produces a response effect.</param>
+    /// <param name="onError">Maps parse exceptions to the error type.</param>
+    /// <returns>A handler that deserializes the JSON body with custom options and processes it.</returns>
     let jsonBodyWith<'T, 'E>
         (options: JsonSerializerOptions)
         (f: 'T -> FIO<HttpResponse, 'E>)
@@ -368,31 +290,23 @@ module HttpHandler =
                 return! f body
             }
 
-/// <summary>
 /// Operators for HTTP handler composition.
-/// </summary>
 module HttpHandlerOperators =
 
-    /// <summary>
-    /// Maps a function over the response.
-    /// </summary>
+    /// Maps a function over the handler's response.
     /// <param name="f">The function to apply to the response.</param>
-    /// <param name="handler">The HTTP handler to map over.</param>
-    /// <returns>The transformed HTTP handler.</returns>
+    /// <param name="handler">The handler to transform.</param>
+    /// <returns>A handler with the response mapped by the function.</returns>
     let (<!>) f handler = HttpHandler.map f handler
 
-    /// <summary>
     /// Binds a handler to a function producing a new handler.
-    /// </summary>
-    /// <param name="handler">The HTTP handler to bind.</param>
-    /// <param name="f">The function producing a new handler.</param>
-    /// <returns>The composed HTTP handler.</returns>
+    /// <param name="handler">The handler to bind.</param>
+    /// <param name="f">The function that takes a response and produces a new handler.</param>
+    /// <returns>A handler that chains the original handler's response through the function.</returns>
     let (>>=) handler f = HttpHandler.bind f handler
 
-    /// <summary>
     /// Tries the first handler, falling back to the second on failure.
-    /// </summary>
-    /// <param name="handler1">The primary HTTP handler.</param>
-    /// <param name="handler2">The fallback HTTP handler.</param>
-    /// <returns>The HTTP handler with fallback.</returns>
+    /// <param name="handler1">The primary handler to try first.</param>
+    /// <param name="handler2">The fallback handler to use on failure.</param>
+    /// <returns>A handler that attempts handler1 and falls back to handler2 on failure.</returns>
     let (<|>) handler1 handler2 = HttpHandler.orElse handler2 handler1

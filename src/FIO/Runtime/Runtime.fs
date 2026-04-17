@@ -39,6 +39,7 @@ type internal ContStackPool private () =
     static val mutable private pool: Stack<Stack<ContStackFrame>>
 
     /// Rents a continuation stack from the pool or creates a new one.
+    /// <returns>A continuation stack from the pool or newly created.</returns>
     static member inline Rent() =
         if isNull ContStackPool.pool then
             ContStackPool.pool <- Stack<_>()
@@ -51,6 +52,7 @@ type internal ContStackPool private () =
             Stack<ContStackFrame> DefaultStackCapacity
 
     /// Returns a continuation stack to the pool for reuse.
+    /// <param name="stack">The stack to return to the pool.</param>
     static member inline Return(stack: Stack<ContStackFrame>) =
         if isNull ContStackPool.pool then
             ContStackPool.pool <- Stack<_>()
@@ -67,6 +69,10 @@ type internal WorkItemPool private () =
     static val mutable private pool: Stack<WorkItem>
 
     /// Rents a WorkItem from the pool or creates a new one.
+    /// <param name="eff">The effect to evaluate.</param>
+    /// <param name="fiberContext">The fiber context for execution.</param>
+    /// <param name="stack">The continuation stack.</param>
+    /// <returns>A work item from the pool or newly created.</returns>
     static member inline Rent(eff: FIO<obj, obj>, fiberContext: FiberContext, stack: ContStack) : WorkItem =
         if isNull WorkItemPool.pool then
             WorkItemPool.pool <- Stack<WorkItem>()
@@ -87,6 +93,7 @@ type internal WorkItemPool private () =
             }
 
     /// Returns a WorkItem to the pool for reuse.
+    /// <param name="workItem">The work item to return to the pool.</param>
     static member inline Return(workItem: WorkItem) =
         if isNull WorkItemPool.pool then
             WorkItemPool.pool <- Stack<WorkItem>()
@@ -102,17 +109,22 @@ type internal WorkItemPool private () =
 [<AbstractClass>]
 type FIORuntime internal () =
     /// Gets the name of this runtime.
+    /// <returns>The runtime's name.</returns>
     abstract member Name: string
 
     /// Gets a string describing this runtime's configuration.
+    /// <returns>A description of the runtime configuration.</returns>
     abstract member ConfigString: string
 
     override this.ConfigString = this.Name
 
     /// Runs an FIO effect and returns a fiber representing its execution.
+    /// <param name="eff">The effect to execute.</param>
+    /// <returns>A fiber representing the execution.</returns>
     abstract member Run<'R, 'E> : FIO<'R, 'E> -> Fiber<'R, 'E>
 
     /// Returns a lowercase, file-friendly string representation of the runtime.
+    /// <returns>A lowercase file-friendly runtime name.</returns>
     member this.ToFileString() =
         this.ToString().ToLowerInvariant().Replace("(", "").Replace(")", "").Replace(":", "").Replace(' ', '-')
 
@@ -130,6 +142,7 @@ type WorkerConfig =
     }
 
     /// Default worker configuration based on system resources.
+    /// <returns>Default configuration with system-appropriate processor allocation.</returns>
     static member Default =
         {
             EWC = WorkerRuntimeDefaults.ComputeEvaluationWorkerCount()

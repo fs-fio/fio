@@ -2,22 +2,19 @@
 
 WebSocket library for [FIO](https://github.com/fs-fio/fio), the type-safe functional effect system for F#.
 
-## Installation
+## Install
 
 ```bash
 dotnet add package FIO.WebSockets
 ```
 
-Requires the core `FIO` package.
-
 ## Features
 
-- **WebSocket Client** - Connect to WebSocket servers
-- **WebSocket Server** - Accept incoming WebSocket connections
-- **Connection Pooling** - Efficient connection reuse
-- **Codec Support** - Encode/decode messages with custom codecs
+- **WebSocket client** — connect to WebSocket servers
+- **WebSocket server** — accept incoming WebSocket connections
+- **Codec support** — encode/decode messages with custom codecs
 
-## Quick Example
+## Quick Start
 
 ```fsharp
 open FIO.DSL
@@ -31,10 +28,8 @@ let client = fio {
 }
 ```
 
-## Documentation
-
-See the [FIO repository](https://github.com/fs-fio/fio) for full documentation.
+See the [examples](https://github.com/fs-fio/fio/tree/main/examples/FIO.Examples.WebSockets) for more.
 
 ## License
 
-MIT License - see [LICENSE.md](https://github.com/fs-fio/fio/blob/main/LICENSE.md)
+MIT — see [LICENSE.md](https://github.com/fs-fio/fio/blob/main/LICENSE.md).

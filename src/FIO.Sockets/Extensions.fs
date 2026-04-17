@@ -4,17 +4,13 @@ open FIO.DSL
 
 open System.Text.Json
 
-/// <summary>
 /// Extension methods for TCP sockets providing additional convenience operations.
-/// </summary>
 [<AutoOpen>]
 module SocketExtensions =
 
     type Socket with
 
-        /// <summary>
         /// Sends a value as JSON with custom serializer options.
-        /// </summary>
         /// <param name="value">The value to send.</param>
         /// <param name="options">Optional JSON serializer options.</param>
         /// <returns>Effect that sends the JSON value.</returns>
@@ -25,9 +21,7 @@ module SocketExtensions =
                 do! this.Send(codec, value)
             }
 
-        /// <summary>
         /// Receives and deserializes JSON with custom serializer options.
-        /// </summary>
         /// <param name="maxBytes">Maximum number of bytes to receive.</param>
         /// <param name="options">Optional JSON serializer options.</param>
         /// <returns>The deserialized JSON value.</returns>
@@ -38,9 +32,7 @@ module SocketExtensions =
                 return! this.Receive(codec, maxBytes)
             }
 
-        /// <summary>
         /// Sends line-delimited JSON with custom serializer options.
-        /// </summary>
         /// <param name="value">The value to send.</param>
         /// <param name="options">Optional JSON serializer options.</param>
         /// <returns>Effect that sends the JSON line value.</returns>
@@ -50,9 +42,7 @@ module SocketExtensions =
                 do! this.Send(codec, value)
             }
 
-        /// <summary>
         /// Receives line-delimited JSON with custom serializer options.
-        /// </summary>
         /// <param name="maxBytes">Maximum number of bytes to receive.</param>
         /// <param name="options">Optional JSON serializer options.</param>
         /// <returns>The deserialized JSON value.</returns>

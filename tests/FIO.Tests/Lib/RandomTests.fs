@@ -64,7 +64,9 @@ let randomNextIntBoundedTests =
             <| fun (runtime: FIORuntime) ->
                 let eff =
                     fio {
-                        let! results = [ 1..10 ] |> List.map (fun _ -> Random.nextIntBounded 1) |> FIO.collectAll
+                        let! results =
+                            [ 1..10 ] |> List.map (fun _ -> Random.nextIntBounded 1) |> FIO.collectAll
+
                         return results |> List.forall ((=) 0)
                     }
 
@@ -175,7 +177,9 @@ let randomNextInt64BoundedTests =
             <| fun (runtime: FIORuntime) ->
                 let eff =
                     fio {
-                        let! results = [ 1..10 ] |> List.map (fun _ -> Random.nextInt64Bounded 1L) |> FIO.collectAll
+                        let! results =
+                            [ 1..10 ] |> List.map (fun _ -> Random.nextInt64Bounded 1L) |> FIO.collectAll
+
                         return results |> List.forall ((=) 0L)
                     }
 

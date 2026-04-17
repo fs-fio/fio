@@ -4,17 +4,13 @@ open FIO.DSL
 
 open System.Net
 
-/// <summary>
 /// Low-level server socket operations.
-/// </summary>
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module ServerSocket =
 
-    /// <summary>
     /// Internal: Logs an error and suppresses it.
     /// Used for cleanup operations where errors should not propagate.
-    /// </summary>
     /// <param name="context">Description of the operation that failed.</param>
     /// <param name="err">The error to log.</param>
     /// <returns>Effect that logs the error and succeeds.</returns>
@@ -31,9 +27,7 @@ module ServerSocket =
             return ()
         }
 
-    /// <summary>
     /// Binds to a local address and starts listening for connections.
-    /// </summary>
     /// <param name="config">Server socket configuration.</param>
     /// <returns>The bound server socket.</returns>
     let bind (config: ServerSocketConfig) =
@@ -61,9 +55,7 @@ module ServerSocket =
             return { NetSocket = netSocket; Config = config }
         }
 
-    /// <summary>
     /// Closes the server socket.
-    /// </summary>
     /// <param name="serverSocket">The server socket to close.</param>
     /// <returns>Effect that closes the server socket.</returns>
     let close (serverSocket: ServerSocket) =
@@ -76,38 +68,31 @@ module ServerSocket =
             )
             .CatchAll(logAndSuppress "server socket close")
 
-    /// <summary>
     /// Acquires a server socket.
-    /// </summary>
     /// <param name="config">Server socket configuration.</param>
     /// <returns>The acquired server socket.</returns>
     let acquire (config: ServerSocketConfig) = bind config
 
-    /// <summary>
     /// Releases a server socket.
     /// Suppresses errors during cleanup to avoid masking original failures.
-    /// </summary>
     /// <param name="serverSocket">The server socket to release.</param>
     /// <returns>Effect that releases the server socket.</returns>
     let release (serverSocket: ServerSocket) = close serverSocket
 
-    /// <summary>
     /// Executes an action with a server socket, automatically closing it.
-    /// </summary>
     /// <param name="config">Server socket configuration.</param>
     /// <param name="action">Action to execute with the server socket.</param>
     /// <returns>The result of the action.</returns>
     let withServerSocket (config: ServerSocketConfig, action: ServerSocket -> FIO<'R, SocketError>) =
         FIO.acquireRelease (acquire config, release, action)
 
-    /// <summary>
     /// Accepts a single incoming connection.
-    /// </summary>
     /// <param name="serverSocket">The server socket to accept from.</param>
     /// <returns>The connected socket.</returns>
     let accept (serverSocket: ServerSocket) =
         fio {
-            let! netSocket = FIO.awaitGenericTask (serverSocket.NetSocket.AcceptAsync(), AcceptFailed)
+            let! netSocket =
+                FIO.awaitGenericTask (serverSocket.NetSocket.AcceptAsync(), AcceptFailed)
 
             let config =
                 match serverSocket.Config.AcceptedSocketConfig with
@@ -131,11 +116,9 @@ module ServerSocket =
             return new Socket(netSocket, config)
         }
 
-    /// <summary>
     /// Accept loop: accepts connections and processes them with the given handler.
     /// Each connection is handled concurrently via Fork.
     /// Runs until interrupted.
-    /// </summary>
     /// <param name="handler">Handler to process each accepted connection.</param>
     /// <param name="serverSocket">The server socket to accept from.</param>
     /// <returns>Effect that accepts connections until interrupted.</returns>
@@ -157,35 +140,27 @@ module ServerSocket =
 
         loop ()
 
-    /// <summary>
     /// Gets the server socket configuration.
-    /// </summary>
     /// <param name="serverSocket">The server socket to query.</param>
     /// <returns>The server socket configuration.</returns>
     let getConfig (serverSocket: ServerSocket) = serverSocket.Config
 
-    /// <summary>
     /// Gets the local endpoint the server socket is bound to.
-    /// </summary>
     /// <param name="serverSocket">The server socket to query.</param>
     /// <returns>The local endpoint.</returns>
     let getLocalEndPoint (serverSocket: ServerSocket) =
         FIO.attempt ((fun () -> serverSocket.NetSocket.LocalEndPoint), SocketError.fromException)
 
-    /// <summary>
     /// Starts a server and processes connections with the given handler.
     /// Runs until interrupted.
-    /// </summary>
     /// <param name="config">Server socket configuration.</param>
     /// <param name="handler">Handler to process each accepted connection.</param>
     /// <returns>Effect that runs the server until interrupted.</returns>
     let serve (config: ServerSocketConfig, handler: Socket -> FIO<unit, SocketError>) =
         withServerSocket (config, fun serverSocket -> acceptLoop (handler, serverSocket))
 
-    /// <summary>
     /// Starts a server with a codec-based request/response handler with configurable buffer size.
     /// Receives a request using requestCodec, processes it, and sends response using responseCodec.
-    /// </summary>
     /// <param name="requestCodec">Codec for decoding requests.</param>
     /// <param name="responseCodec">Codec for encoding responses.</param>
     /// <param name="handler">Handler that processes requests and returns responses.</param>
@@ -209,11 +184,9 @@ module ServerSocket =
 
         serve (config, connectionHandler)
 
-    /// <summary>
     /// Starts a server with a codec-based request/response handler.
     /// Receives a request using requestCodec, processes it, and sends response using responseCodec.
     /// Uses a buffer size of 8192 bytes for receiving requests.
-    /// </summary>
     /// <param name="requestCodec">Codec for decoding requests.</param>
     /// <param name="responseCodec">Codec for encoding responses.</param>
     /// <param name="handler">Handler that processes requests and returns responses.</param>

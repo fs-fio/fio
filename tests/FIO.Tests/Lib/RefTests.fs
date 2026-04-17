@@ -512,6 +512,36 @@ let refMakeTests =
                 let result = runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result initial "RefValue should contain initial value"
+
+            testPropertyWithConfig
+                fsCheckConfig
+                "Ref.make - lazy (constructing once, running twice yields independent refs)"
+            <| fun (runtime: FIORuntime) ->
+                let eff = Ref.make "initial"
+
+                let r1 = runtime.Run(eff).UnsafeSuccess()
+                let r2 = runtime.Run(eff).UnsafeSuccess()
+
+                runtime.Run(r1.Set("mutated", onError)) |> ignore
+                let v2 = runtime.Run(r2.Get()).UnsafeSuccess()
+
+                Expect.isFalse (obj.ReferenceEquals(r1, r2)) "Ref.make must allocate a fresh ref per run"
+                Expect.equal v2 "initial" "Mutation of one run's ref must not affect another run's ref"
+
+            testPropertyWithConfig
+                fsCheckConfig
+                "Ref.makeValue - lazy (constructing once, running twice yields independent refs)"
+            <| fun (runtime: FIORuntime) ->
+                let eff = Ref.makeValue 0
+
+                let r1 = runtime.Run(eff).UnsafeSuccess()
+                let r2 = runtime.Run(eff).UnsafeSuccess()
+
+                runtime.Run(r1.Set(99, onError)) |> ignore
+                let v2 = runtime.Run(r2.Get()).UnsafeSuccess()
+
+                Expect.isFalse (obj.ReferenceEquals(r1, r2)) "Ref.makeValue must allocate a fresh ref per run"
+                Expect.equal v2 0 "Mutation of one run's ref must not affect another run's ref"
         ]
 
 [<Tests>]
@@ -535,7 +565,8 @@ let refConcurrencyTests =
                                     do! successCount.Update((fun x -> x + 1), Operators.id)
                             }
 
-                        let! fibers = [ 1..10 ] |> List.map (fun id -> (casFiber id).Fork()) |> FIO.collectAll
+                        let! fibers =
+                            [ 1..10 ] |> List.map (fun id -> (casFiber id).Fork()) |> FIO.collectAll
 
                         for fiber in fibers do
                             do! fiber.Join()

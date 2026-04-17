@@ -4,6 +4,3 @@ bin/
 
 # Ignore auto-generated assembly info
 **/AssemblyInfo.fs
-
-# Fantomas bug: renames struct constructor parameter (new cont = { Cont = cont })
-src/FIO/DSL/Core.fs

@@ -6,31 +6,21 @@ open System
 open System.Text
 open System.Text.Json
 
-/// <summary>
 /// Codec for encoding and decoding values to/from WebSocket frames.
-/// </summary>
 type WebSocketCodec<'T> =
     {
-        /// <summary>
         /// Encodes a value to a WebSocket frame.
-        /// </summary>
         /// <returns>An FIO effect producing the encoded WebSocket frame.</returns>
         Encode: 'T -> FIO<WebSocketFrame, WsError>
-        /// <summary>
         /// Decodes a WebSocket frame to a value.
-        /// </summary>
         /// <returns>An FIO effect producing the decoded value.</returns>
         Decode: WebSocketFrame -> FIO<'T, WsError>
     }
 
-/// <summary>
 /// Codec builders and common codecs for WebSocket communications.
-/// </summary>
 module Codec =
 
-    /// <summary>
     /// Identity codec for WebSocketFrame (no encoding/decoding).
-    /// </summary>
     /// <returns>The identity frame codec.</returns>
     let frame: WebSocketCodec<WebSocketFrame> =
         {
@@ -38,9 +28,7 @@ module Codec =
             Decode = fun frame -> FIO.succeed frame
         }
 
-    /// <summary>
     /// Codec for byte arrays (binary frames).
-    /// </summary>
     /// <returns>The binary frame codec.</returns>
     let binary: WebSocketCodec<byte[]> =
         {
@@ -53,9 +41,7 @@ module Codec =
                     | Close _ -> FIO.fail (CodecError "Expected binary frame, got close frame")
         }
 
-    /// <summary>
     /// UTF-8 string codec (text frames).
-    /// </summary>
     /// <returns>The text frame codec.</returns>
     let text: WebSocketCodec<string> =
         {
@@ -68,9 +54,7 @@ module Codec =
                     | Close _ -> FIO.fail (CodecError "Expected text frame, got close frame")
         }
 
-    /// <summary>
     /// JSON codec with custom options (sent as text frames).
-    /// </summary>
     /// <typeparam name="T">The type to encode/decode.</typeparam>
     /// <param name="options">JSON serializer options.</param>
     /// <returns>A codec for JSON serialization.</returns>
@@ -99,15 +83,11 @@ module Codec =
                     | Close _ -> FIO.fail (CodecError "Cannot decode close frame as JSON")
         }
 
-    /// <summary>
     /// JSON codec with default options.
-    /// </summary>
     /// <returns>The JSON codec with default options.</returns>
     let json<'T> = jsonWithOptions<'T> (JsonSerializerOptions())
 
-    /// <summary>
     /// Line-delimited JSON codec (text frame with newline appended).
-    /// </summary>
     /// <typeparam name="T">The type to encode/decode.</typeparam>
     /// <param name="options">Optional JSON serializer options.</param>
     /// <returns>A codec for line-delimited JSON.</returns>
@@ -143,9 +123,7 @@ module Codec =
                     | Close _ -> FIO.fail (CodecError "Cannot decode close frame as JSON line")
         }
 
-    /// <summary>
     /// Maps a codec to a different type using bidirectional functions.
-    /// </summary>
     /// <typeparam name="A">The source type.</typeparam>
     /// <typeparam name="B">The target type.</typeparam>
     /// <param name="f">Function to convert from 'A to 'B.</param>
@@ -163,9 +141,7 @@ module Codec =
                     }
         }
 
-    /// <summary>
     /// Composes two codecs to handle pairs (both values in same frame).
-    /// </summary>
     /// <typeparam name="A">The type of the first element.</typeparam>
     /// <typeparam name="B">The type of the second element.</typeparam>
     /// <param name="codec1">Codec for the first element.</param>
@@ -229,9 +205,7 @@ module Codec =
                         )
         }
 
-    /// <summary>
     /// Creates a codec from encode/decode functions.
-    /// </summary>
     /// <typeparam name="T">The type to encode/decode.</typeparam>
     /// <param name="encode">Encoding function.</param>
     /// <param name="decode">Decoding function.</param>
@@ -239,9 +213,7 @@ module Codec =
     let create (encode: 'T -> FIO<WebSocketFrame, WsError>) (decode: WebSocketFrame -> FIO<'T, WsError>) =
         { Encode = encode; Decode = decode }
 
-    /// <summary>
     /// Creates a codec from pure (non-FIO) encode/decode functions.
-    /// </summary>
     /// <typeparam name="T">The type to encode/decode.</typeparam>
     /// <param name="encode">Pure encoding function.</param>
     /// <param name="decode">Pure decoding function.</param>
