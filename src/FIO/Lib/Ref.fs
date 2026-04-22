@@ -47,7 +47,8 @@ type Ref<'T when 'T: not struct> private (initial: 'T) =
 
     /// Gets the current value.
     /// <returns>An effect that produces the current value.</returns>
-    member _.Get<'E>() : FIO<'T, 'E> = FIO.succeed (Volatile.Read(&value))
+    member _.Get<'E>() : FIO<'T, 'E> =
+        FIO.attempt ((fun () -> Volatile.Read(&value)), fun ex -> raise ex)
 
     /// Sets a new value.
     /// <param name="newValue">The value to set.</param>
@@ -148,7 +149,7 @@ type RefValue<'T when 'T: struct> private (initial: 'T) =
     /// Gets the current value.
     /// <returns>An effect that produces the current value.</returns>
     member _.Get<'E>() : FIO<'T, 'E> =
-        FIO.succeed (Volatile.Read(&value) :?> 'T)
+        FIO.attempt ((fun () -> Volatile.Read(&value) :?> 'T), fun ex -> raise ex)
 
     /// Sets a new value.
     /// <param name="newValue">The value to set.</param>

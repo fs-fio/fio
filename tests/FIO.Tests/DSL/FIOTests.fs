@@ -381,4 +381,37 @@ let fioTests =
 
                 let result = runtime.Run(eff).UnsafeSuccess()
                 Expect.equal result 200 "All fast-completing forks should be observed"
+
+            testAllRuntimes "Action - throwing onError falls back to original exception (E-1)" (fun runtime ->
+                let originalExn = InvalidOperationException("original")
+
+                let eff: FIO<int, exn> =
+                    FIO.attempt (
+                        (fun () -> raise originalExn),
+                        (fun _ -> failwith "onError also throws")
+                    )
+
+                let result = runtime.Run(eff).UnsafeError()
+
+                Expect.isTrue
+                    (obj.ReferenceEquals(result, originalExn))
+                    "When onError throws, the original exception should be used as the error")
+
+            testAllRuntimes "FlatMap - throwing continuation produces error (E-2)" (fun runtime ->
+                let eff: FIO<int, exn> =
+                    FIO.succeed(42).FlatMap(fun (_: int) -> failwith "continuation throws" : FIO<int, exn>)
+
+                let result = runtime.Run(eff).UnsafeError()
+
+                Expect.equal result.Message "continuation throws" "Thrown exception should become the error")
+
+            testAllRuntimes "CatchAll - throwing error handler produces error (E-2)" (fun runtime ->
+                let eff: FIO<int, exn> =
+                    FIO
+                        .fail(InvalidOperationException "typed error" :> exn)
+                        .CatchAll(fun _ -> failwith "handler throws" : FIO<int, exn>)
+
+                let result = runtime.Run(eff).UnsafeError()
+
+                Expect.equal result.Message "handler throws" "Thrown exception in CatchAll handler should become the error")
         ]

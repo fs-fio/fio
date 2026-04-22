@@ -203,12 +203,12 @@ type FIOApp<'R, 'E>() as this =
 
     /// Gets whether the application is currently running.
     /// <returns>True if the application is currently executing.</returns>
-    member _.IsRunning = Option.isSome runningFiber
+    member _.IsRunning = Option.isSome (Volatile.Read(&runningFiber))
 
     /// Requests graceful shutdown of the application.
     /// Safe to call from any thread. No-op if not running or already shutting down.
     member this.Stop() =
-        match runningFiber with
+        match Volatile.Read(&runningFiber) with
         | Some fiber when Interlocked.CompareExchange(&shutdownRequested, 1, 0) = 0 ->
             this.onShutdownRequested ()
             fiber.Context.Interrupt(ExplicitInterrupt, "Application shutdown requested programmatically.")
@@ -266,7 +266,7 @@ type FIOApp<'R, 'E>() as this =
                     this.onRuntimeInitialized runtime
 
                     let fiber = runtime.Run this.effect
-                    runningFiber <- Some fiber
+                    Volatile.Write(&runningFiber, Some fiber)
 
                     try
                         this.onFiberRunning ()
@@ -316,7 +316,7 @@ type FIOApp<'R, 'E>() as this =
 
                     return this.exitCodeFatalError ex
             finally
-                runningFiber <- None
+                Volatile.Write(&runningFiber, None)
                 shutdownRequested <- 0
 
                 match registeredHandler with

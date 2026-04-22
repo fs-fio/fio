@@ -1125,19 +1125,20 @@ let ceTests =
 
                 Expect.equal result err1 "and! should return first error when multiple effects fail"
 
-            testAllRuntimes "MergeSources - and! executes sequentially" (fun runtime ->
-                let mutable order = []
+            testAllRuntimes "MergeSources - and! executes in parallel" (fun runtime ->
+                let mutable firstRan = false
+                let mutable secondRan = false
 
                 let eff =
                     fio {
                         let! a =
                             FIO.suspend (fun () ->
-                                order <- order @ [ 1 ]
+                                firstRan <- true
                                 FIO.succeed 1)
 
                         and! b =
                             FIO.suspend (fun () ->
-                                order <- order @ [ 2 ]
+                                secondRan <- true
                                 FIO.succeed 2)
 
                         return a, b
@@ -1146,26 +1147,29 @@ let ceTests =
                 let result = runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result (1, 2) "Should return both values"
-                Expect.equal order [ 1; 2 ] "and! should execute first then second (sequential)")
+                Expect.isTrue firstRan "First effect should have run"
+                Expect.isTrue secondRan "Second effect should have run")
 
-            testAllRuntimes "MergeSources3 - and! x3 executes sequentially" (fun runtime ->
-                let mutable order = []
+            testAllRuntimes "MergeSources3 - and! x3 executes in parallel" (fun runtime ->
+                let mutable firstRan = false
+                let mutable secondRan = false
+                let mutable thirdRan = false
 
                 let eff =
                     fio {
                         let! a =
                             FIO.suspend (fun () ->
-                                order <- order @ [ 1 ]
+                                firstRan <- true
                                 FIO.succeed 1)
 
                         and! b =
                             FIO.suspend (fun () ->
-                                order <- order @ [ 2 ]
+                                secondRan <- true
                                 FIO.succeed 2)
 
                         and! c =
                             FIO.suspend (fun () ->
-                                order <- order @ [ 3 ]
+                                thirdRan <- true
                                 FIO.succeed 3)
 
                         return a, b, c
@@ -1174,7 +1178,9 @@ let ceTests =
                 let result = runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result (1, 2, 3) "Should return all three values"
-                Expect.equal order [ 1; 2; 3 ] "and! x3 should execute in order")
+                Expect.isTrue firstRan "First effect should have run"
+                Expect.isTrue secondRan "Second effect should have run"
+                Expect.isTrue thirdRan "Third effect should have run")
 
             testPropertyWithConfig fsCheckConfig "MergeSources3 - let! ... and! ... and! zips three effects"
             <| fun (runtime: FIORuntime, a: int, b: int, c: int) ->
@@ -1190,19 +1196,14 @@ let ceTests =
 
                 Expect.equal result (a + b + c) "let! ... and! ... and! should zip three effects"
 
-            testPropertyWithConfig fsCheckConfig "MergeSources3 - error from first short-circuits later effects"
+            testPropertyWithConfig fsCheckConfig "MergeSources3 - error from first propagates"
             <| fun (runtime: FIORuntime, err: int) ->
-                let mutable secondRan = false
-                let mutable thirdRan = false
-
                 let second =
                     FIO.suspend (fun () ->
-                        secondRan <- true
                         FIO.succeed 1)
 
                 let third =
                     FIO.suspend (fun () ->
-                        thirdRan <- true
                         FIO.succeed 2)
 
                 let eff = fio.MergeSources3(FIO.fail err, second, third)
@@ -1210,8 +1211,6 @@ let ceTests =
                 let result = runtime.Run(eff).UnsafeError()
 
                 Expect.equal result err "MergeSources3 should propagate the first error"
-                Expect.isFalse secondRan "Second effect should not run after first failure"
-                Expect.isFalse thirdRan "Third effect should not run after first failure"
 
             testPropertyWithConfig fsCheckConfig "MergeSources4 - let! ... and! x4 zips four effects"
             <| fun (runtime: FIORuntime, a: int, b: int, c: int, d: int) ->
@@ -1246,8 +1245,6 @@ let ceTests =
 
             testPropertyWithConfig fsCheckConfig "MergeSources3 - error from second effect propagates"
             <| fun (runtime: FIORuntime, err: int) ->
-                let mutable thirdRan = false
-
                 let eff =
                     fio {
                         let! _a = FIO.succeed 1
@@ -1255,7 +1252,6 @@ let ceTests =
 
                         and! _c =
                             FIO.suspend (fun () ->
-                                thirdRan <- true
                                 FIO.succeed 3)
 
                         return ()
@@ -1264,7 +1260,6 @@ let ceTests =
                 let result = runtime.Run(eff).UnsafeError()
 
                 Expect.equal result err "Error from second effect should propagate"
-                Expect.isFalse thirdRan "Third effect should not run after second fails"
 
             testPropertyWithConfig fsCheckConfig "MergeSources3 - error from third effect propagates"
             <| fun (runtime: FIORuntime, err: int) ->

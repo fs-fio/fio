@@ -59,21 +59,25 @@ and private EvaluationWorker(config: EvaluationWorkerConfig) =
                 .StartNew(
                     Func<Task>(fun () ->
                         task {
+                            let token = cts.Token
                             let mutable loop = true
 
-                            while loop && not cts.Token.IsCancellationRequested do
+                            while loop && not token.IsCancellationRequested do
                                 try
-                                    let! hasWorkItem = config.ActiveWorkItemChan.WaitToTakeAsync cts.Token
+                                    let! hasWorkItem = config.ActiveWorkItemChan.WaitToTakeAsync token
 
-                                    if not hasWorkItem || cts.Token.IsCancellationRequested then
+                                    if not hasWorkItem || token.IsCancellationRequested then
                                         loop <- false
                                     else
                                         let! workItem = config.ActiveWorkItemChan.TakeAsync()
 
                                         if not (workItem.FiberContext.IsTerminal()) then
                                             do! processWorkItem workItem
-                                with :? OperationCanceledException ->
-                                    loop <- false
+                                with
+                                | :? OperationCanceledException -> loop <- false
+                                | exn ->
+                                    System.Console.Error.WriteLine
+                                        $"[FIO] EvaluationWorker caught unhandled exception: {exn}"
                         }
                         :> Task),
                     CancellationToken.None,
@@ -231,7 +235,7 @@ and internal BlockingWorker(config: BlockingWorkerConfig) =
                     return true
         }
 
-    let cancellationTokenSource = new CancellationTokenSource()
+    let cts = new CancellationTokenSource()
 
     let mutable workerTask: Task = Unchecked.defaultof<_>
 
@@ -241,21 +245,25 @@ and internal BlockingWorker(config: BlockingWorkerConfig) =
                 .StartNew(
                     Func<Task>(fun () ->
                         task {
+                            let token = cts.Token
                             let mutable loop = true
 
-                            while loop && not cancellationTokenSource.Token.IsCancellationRequested do
+                            while loop && not token.IsCancellationRequested do
                                 try
-                                    let! hasItemToProcess = waitForFirstIfNeeded cancellationTokenSource.Token
+                                    let! hasItemToProcess = waitForFirstIfNeeded token
 
                                     if
-                                        not hasItemToProcess || cancellationTokenSource.Token.IsCancellationRequested
+                                        not hasItemToProcess || token.IsCancellationRequested
                                     then
                                         loop <- false
                                     else
                                         tryDrainIncoming ()
                                         do! processBatch ()
-                                with :? OperationCanceledException ->
-                                    loop <- false
+                                with
+                                | :? OperationCanceledException -> loop <- false
+                                | exn ->
+                                    System.Console.Error.WriteLine
+                                        $"[FIO] BlockingWorker caught unhandled exception: {exn}"
                         }
                         :> Task),
                     CancellationToken.None,
@@ -268,8 +276,8 @@ and internal BlockingWorker(config: BlockingWorkerConfig) =
 
     interface IDisposable with
         member _.Dispose() =
-            cancellationTokenSource.Cancel()
-            cancellationTokenSource.Dispose()
+            cts.Cancel()
+            cts.Dispose()
 
     /// Submits a blocking item to the blocking worker for periodic polling.
     /// <param name="blockingItem">The blocking item to reschedule.</param>
@@ -351,7 +359,10 @@ and CooperativeRuntime(config: WorkerConfig) as this =
 
                     match stackFrame.Cont with
                     | SuccessCont cont ->
-                        currentEff <- cont res
+                        try
+                            currentEff <- cont res
+                        with exn ->
+                            currentEff <- Failure(exn :> obj)
                         loop <- false
                     | FailureCont _ -> ()
                     | FinalizerCont finalizer ->
@@ -378,7 +389,10 @@ and CooperativeRuntime(config: WorkerConfig) as this =
                     match stackFrame.Cont with
                     | SuccessCont _ -> ()
                     | FailureCont cont ->
-                        currentEff <- cont err
+                        try
+                            currentEff <- cont err
+                        with exn ->
+                            currentEff <- Failure(exn :> obj)
                         loop <- false
                     | FinalizerCont finalizer ->
                         interruptionSuppressed <- interruptionSuppressed + 1
@@ -453,7 +467,10 @@ and CooperativeRuntime(config: WorkerConfig) as this =
                                 let res = func ()
                                 processSuccess res
                             with exn ->
-                                processError (onError exn)
+                                let err =
+                                    try onError exn
+                                    with _ -> exn :> obj
+                                processError err
                         | SendChan(msg, chan) ->
                             do! chan.SendAsync msg
                             processSuccess msg
@@ -495,10 +512,9 @@ and CooperativeRuntime(config: WorkerConfig) as this =
                             do!
                                 Task.Run(fun () ->
                                     task {
-                                        let t = taskFactory ()
-
                                         try
                                             try
+                                                let t = taskFactory ()
                                                 let! result = t.WaitAsync fiberContext.CancellationToken
                                                 fiberContext.Complete(Ok result)
                                             with

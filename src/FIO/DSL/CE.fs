@@ -149,29 +149,36 @@ type FIOBuilder internal () =
     /// Enables and! patterns with 2 sources.
     /// <param name="eff">The first effect.</param>
     /// <param name="eff'">The second effect.</param>
-    /// <returns>An effect that evaluates both and returns a tuple of their results.</returns>
-    member inline _.MergeSources<'R, 'R1, 'E>(eff: FIO<'R, 'E>, eff': FIO<'R1, 'E>) : FIO<'R * 'R1, 'E> = eff.Zip eff'
+    /// <returns>An effect that executes both in parallel and returns a tuple of their results.</returns>
+    /// <remarks>Both effects run concurrently in fiber runtimes.</remarks>
+    member inline _.MergeSources<'R, 'R1, 'E>(eff: FIO<'R, 'E>, eff': FIO<'R1, 'E>) : FIO<'R * 'R1, 'E> = eff.ZipPar eff'
 
     /// Enables and! patterns with 3 sources.
     /// <param name="eff">The first effect.</param>
     /// <param name="eff'">The second effect.</param>
     /// <param name="eff''">The third effect.</param>
-    /// <returns>An effect that evaluates all three and returns a triple of their results.</returns>
+    /// <returns>An effect that executes all three in parallel and returns a triple of their results.</returns>
+    /// <remarks>All effects run concurrently in fiber runtimes.</remarks>
     member inline _.MergeSources3<'R, 'R1, 'R2, 'E>
         (eff: FIO<'R, 'E>, eff': FIO<'R1, 'E>, eff'': FIO<'R2, 'E>)
         : FIO<'R * 'R1 * 'R2, 'E> =
-        eff.Zip(eff').FlatMap(fun (r, r1) -> eff''.Map(fun r2 -> r, r1, r2))
+        eff.ZipPar(eff').ZipPar(eff'').Map(fun ((r, r1), r2) -> r, r1, r2)
 
     /// Enables and! patterns with 4 sources.
     /// <param name="eff">The first effect.</param>
     /// <param name="eff'">The second effect.</param>
     /// <param name="eff''">The third effect.</param>
     /// <param name="eff'''">The fourth effect.</param>
-    /// <returns>An effect that evaluates all four and returns a quadruple of their results.</returns>
+    /// <returns>An effect that executes all four in parallel and returns a quadruple of their results.</returns>
+    /// <remarks>All effects run concurrently in fiber runtimes.</remarks>
     member inline _.MergeSources4<'R, 'R1, 'R2, 'R3, 'E>
         (eff: FIO<'R, 'E>, eff': FIO<'R1, 'E>, eff'': FIO<'R2, 'E>, eff''': FIO<'R3, 'E>)
         : FIO<'R * 'R1 * 'R2 * 'R3, 'E> =
-        eff.Zip(eff').FlatMap(fun (r, r1) -> eff''.Zip(eff''').Map(fun (r2, r3) -> r, r1, r2, r3))
+        eff
+            .ZipPar(eff')
+            .ZipPar(eff'')
+            .ZipPar(eff''')
+            .Map(fun (((r, r1), r2), r3) -> r, r1, r2, r3)
 
     /// Enables and! patterns with 5 sources.
     /// <param name="eff">The first effect.</param>
@@ -179,13 +186,17 @@ type FIOBuilder internal () =
     /// <param name="eff''">The third effect.</param>
     /// <param name="eff'''">The fourth effect.</param>
     /// <param name="eff''''">The fifth effect.</param>
-    /// <returns>An effect that evaluates all five and returns a quintuple of their results.</returns>
+    /// <returns>An effect that executes all five in parallel and returns a quintuple of their results.</returns>
+    /// <remarks>All effects run concurrently in fiber runtimes.</remarks>
     member inline _.MergeSources5<'R, 'R1, 'R2, 'R3, 'R4, 'E>
         (eff: FIO<'R, 'E>, eff': FIO<'R1, 'E>, eff'': FIO<'R2, 'E>, eff''': FIO<'R3, 'E>, eff'''': FIO<'R4, 'E>)
         : FIO<'R * 'R1 * 'R2 * 'R3 * 'R4, 'E> =
         eff
-            .Zip(eff')
-            .FlatMap(fun (r, r1) -> eff''.Zip(eff''').FlatMap(fun (r2, r3) -> eff''''.Map(fun r4 -> r, r1, r2, r3, r4)))
+            .ZipPar(eff')
+            .ZipPar(eff'')
+            .ZipPar(eff''')
+            .ZipPar(eff'''')
+            .Map(fun ((((r, r1), r2), r3), r4) -> r, r1, r2, r3, r4)
 
 /// The FIO computation expression builder instance.
 let fio = FIOBuilder()

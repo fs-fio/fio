@@ -38,7 +38,10 @@ type DirectRuntime() =
 
                     match stackFrame.Cont with
                     | SuccessCont cont ->
-                        currentEff <- cont res
+                        try
+                            currentEff <- cont res
+                        with exn ->
+                            currentEff <- Failure(exn :> obj)
                         loop <- false
                     | FailureCont _ -> ()
                     | FinalizerCont finalizer ->
@@ -64,7 +67,10 @@ type DirectRuntime() =
                     match stackFrame.Cont with
                     | SuccessCont _ -> ()
                     | FailureCont cont ->
-                        currentEff <- cont err
+                        try
+                            currentEff <- cont err
+                        with exn ->
+                            currentEff <- Failure(exn :> obj)
                         loop <- false
                     | FinalizerCont finalizer ->
                         interruptionSuppressed <- interruptionSuppressed + 1
@@ -126,7 +132,10 @@ type DirectRuntime() =
                                 let res = func ()
                                 processSuccess res
                             with exn ->
-                                processError (onError exn)
+                                let err =
+                                    try onError exn
+                                    with _ -> exn :> obj
+                                processError err
                         | SendChan(msg, chan) ->
                             do! chan.SendAsync msg
                             processSuccess msg
@@ -171,9 +180,8 @@ type DirectRuntime() =
                             Task.Run(fun () ->
                                 task {
                                     try
-                                        let t = taskFactory ()
-
                                         try
+                                            let t = taskFactory ()
                                             let! result = t.WaitAsync fiberContext.CancellationToken
                                             fiberContext.Complete(Ok result)
                                         with

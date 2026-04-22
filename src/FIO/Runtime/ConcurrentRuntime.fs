@@ -45,21 +45,25 @@ and private EvaluationWorker(config: EvaluationWorkerConfig) =
                 .StartNew(
                     Func<Task>(fun () ->
                         task {
+                            let token = cts.Token
                             let mutable loop = true
 
-                            while loop && not cts.Token.IsCancellationRequested do
+                            while loop && not token.IsCancellationRequested do
                                 try
-                                    let! hasWorkItem = config.ActiveWorkItemChan.WaitToTakeAsync cts.Token
+                                    let! hasWorkItem = config.ActiveWorkItemChan.WaitToTakeAsync token
 
-                                    if not hasWorkItem || cts.Token.IsCancellationRequested then
+                                    if not hasWorkItem || token.IsCancellationRequested then
                                         loop <- false
                                     else
                                         let! workItem = config.ActiveWorkItemChan.TakeAsync()
 
                                         if not (workItem.FiberContext.IsTerminal()) then
                                             do! processWorkItem workItem
-                                with :? OperationCanceledException ->
-                                    loop <- false
+                                with
+                                | :? OperationCanceledException -> loop <- false
+                                | exn ->
+                                    System.Console.Error.WriteLine
+                                        $"[FIO] EvaluationWorker caught unhandled exception: {exn}"
                         }
                         :> Task),
                     CancellationToken.None,
@@ -101,7 +105,7 @@ and private BlockingWorker(config: BlockingWorkerConfig) =
                 do! config.ActiveBlockingEventChan.AddAsync blockingChan
         }
 
-    let cancellationTokenSource = new CancellationTokenSource()
+    let cts = new CancellationTokenSource()
 
     let mutable workerTask: Task = Unchecked.defaultof<_>
 
@@ -111,22 +115,26 @@ and private BlockingWorker(config: BlockingWorkerConfig) =
                 .StartNew(
                     Func<Task>(fun () ->
                         task {
+                            let token = cts.Token
                             let mutable loop = true
 
-                            while loop && not cancellationTokenSource.Token.IsCancellationRequested do
+                            while loop && not token.IsCancellationRequested do
                                 try
                                     let! hasBlockingItem =
-                                        config.ActiveBlockingEventChan.WaitToTakeAsync cancellationTokenSource.Token
+                                        config.ActiveBlockingEventChan.WaitToTakeAsync token
 
                                     if
-                                        not hasBlockingItem || cancellationTokenSource.Token.IsCancellationRequested
+                                        not hasBlockingItem || token.IsCancellationRequested
                                     then
                                         loop <- false
                                     else
                                         let! blockingChanEvent = config.ActiveBlockingEventChan.TakeAsync()
                                         do! processBlockingChannel blockingChanEvent
-                                with :? OperationCanceledException ->
-                                    loop <- false
+                                with
+                                | :? OperationCanceledException -> loop <- false
+                                | exn ->
+                                    System.Console.Error.WriteLine
+                                        $"[FIO] BlockingWorker caught unhandled exception: {exn}"
                         }
                         :> Task),
                     CancellationToken.None,
@@ -139,8 +147,8 @@ and private BlockingWorker(config: BlockingWorkerConfig) =
 
     interface IDisposable with
         member _.Dispose() =
-            cancellationTokenSource.Cancel()
-            cancellationTokenSource.Dispose()
+            cts.Cancel()
+            cts.Dispose()
 
 /// Runtime using custom fibers with event-driven, constant-time blocked fiber handling.
 and ConcurrentRuntime(config: WorkerConfig) as this =
@@ -214,7 +222,10 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
 
                     match stackFrame.Cont with
                     | SuccessCont cont ->
-                        currentEff <- cont res
+                        try
+                            currentEff <- cont res
+                        with exn ->
+                            currentEff <- Failure(exn :> obj)
                         loop <- false
                     | FailureCont _ -> ()
                     | FinalizerCont finalizer ->
@@ -241,7 +252,10 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
                     match stackFrame.Cont with
                     | SuccessCont _ -> ()
                     | FailureCont cont ->
-                        currentEff <- cont err
+                        try
+                            currentEff <- cont err
+                        with exn ->
+                            currentEff <- Failure(exn :> obj)
                         loop <- false
                     | FinalizerCont finalizer ->
                         interruptionSuppressed <- interruptionSuppressed + 1
@@ -325,7 +339,10 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
                                 let res = func ()
                                 processSuccess res
                             with exn ->
-                                processError (onError exn)
+                                let err =
+                                    try onError exn
+                                    with _ -> exn :> obj
+                                processError err
                         | SendChan(msg, chan) ->
                             do! chan.SendAsync msg
                             do! signalBlockingWorkerIfPending chan
@@ -368,10 +385,9 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
                             do!
                                 Task.Run(fun () ->
                                     task {
-                                        let t = taskFactory ()
-
                                         try
                                             try
+                                                let t = taskFactory ()
                                                 let! res = t.WaitAsync fiberContext.CancellationToken
                                                 do! fiberContext.CompleteAndReschedule(Ok res, activeWorkItemChan)
                                             with
