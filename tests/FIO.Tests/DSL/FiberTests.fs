@@ -11,6 +11,7 @@ open FIO.Runtime.Concurrent
 open Expecto
 
 open System
+open System.IO
 
 let private runtimes () =
     [
@@ -290,8 +291,13 @@ let fiberTests =
 
                     testAllRuntimes "Does not throw on success" (fun runtime ->
                         let fiber = runtime.Run(FIO.succeed 42)
+                        let oldOut = Console.Out
+                        Console.SetOut TextWriter.Null
 
-                        fiber.UnsafePrintResult()
+                        try
+                            fiber.UnsafePrintResult()
+                        finally
+                            Console.SetOut oldOut
 
                         Expect.isTrue (fiber.IsCompleted()) "Fiber should be completed after UnsafePrintResult")
                 ]

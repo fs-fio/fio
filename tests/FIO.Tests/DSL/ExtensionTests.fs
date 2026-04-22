@@ -297,69 +297,77 @@ let extensionTests =
                 Expect.isFalse successTap "TapBoth should not execute success tap on error"
                 Expect.isTrue errorTap "TapBoth should execute error tap"
 
-            testPropertyWithConfig fsCheckConfig "Debug - preserves success value"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed(res).Debug()
-                let oldOut = Console.Out
-                let oldErr = Console.Error
-                Console.SetOut TextWriter.Null
-                Console.SetError TextWriter.Null
+            // Debug/DebugError tests must run sequentially because they mutate process-global Console.Out/Error
+            testSequenced (
+                testList
+                    "Debug"
+                    [
 
-                try
-                    let result = runtime.Run(eff).UnsafeSuccess()
+                        testPropertyWithConfig fsCheckConfig "Debug - preserves success value"
+                        <| fun (runtime: FIORuntime, res: int) ->
+                            let eff = FIO.succeed(res).Debug()
+                            let oldOut = Console.Out
+                            let oldErr = Console.Error
+                            Console.SetOut TextWriter.Null
+                            Console.SetError TextWriter.Null
 
-                    Expect.equal result res "Debug should preserve success value"
-                finally
-                    Console.SetOut oldOut
-                    Console.SetError oldErr
+                            try
+                                let result = runtime.Run(eff).UnsafeSuccess()
 
-            testPropertyWithConfig fsCheckConfig "Debug - with custom message preserves value"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed(res).Debug "Custom"
-                let oldOut = Console.Out
-                let oldErr = Console.Error
-                Console.SetOut TextWriter.Null
-                Console.SetError TextWriter.Null
+                                Expect.equal result res "Debug should preserve success value"
+                            finally
+                                Console.SetOut oldOut
+                                Console.SetError oldErr
 
-                try
-                    let result = runtime.Run(eff).UnsafeSuccess()
+                        testPropertyWithConfig fsCheckConfig "Debug - with custom message preserves value"
+                        <| fun (runtime: FIORuntime, res: int) ->
+                            let eff = FIO.succeed(res).Debug "Custom"
+                            let oldOut = Console.Out
+                            let oldErr = Console.Error
+                            Console.SetOut TextWriter.Null
+                            Console.SetError TextWriter.Null
 
-                    Expect.equal result res "Debug with message should preserve success value"
-                finally
-                    Console.SetOut oldOut
-                    Console.SetError oldErr
+                            try
+                                let result = runtime.Run(eff).UnsafeSuccess()
 
-            testPropertyWithConfig fsCheckConfig "DebugError - preserves error value"
-            <| fun (runtime: FIORuntime, err: string) ->
-                let eff = FIO.fail(err).DebugError()
-                let oldOut = Console.Out
-                let oldErr = Console.Error
-                Console.SetOut TextWriter.Null
-                Console.SetError TextWriter.Null
+                                Expect.equal result res "Debug with message should preserve success value"
+                            finally
+                                Console.SetOut oldOut
+                                Console.SetError oldErr
 
-                try
-                    let result = runtime.Run(eff).UnsafeError()
+                        testPropertyWithConfig fsCheckConfig "DebugError - preserves error value"
+                        <| fun (runtime: FIORuntime, err: string) ->
+                            let eff = FIO.fail(err).DebugError()
+                            let oldOut = Console.Out
+                            let oldErr = Console.Error
+                            Console.SetOut TextWriter.Null
+                            Console.SetError TextWriter.Null
 
-                    Expect.equal result err "DebugError should preserve error value"
-                finally
-                    Console.SetOut oldOut
-                    Console.SetError oldErr
+                            try
+                                let result = runtime.Run(eff).UnsafeError()
 
-            testPropertyWithConfig fsCheckConfig "DebugError - with custom message preserves error"
-            <| fun (runtime: FIORuntime, err: string) ->
-                let eff = FIO.fail(err).DebugError "Custom Error"
-                let oldOut = Console.Out
-                let oldErr = Console.Error
-                Console.SetOut TextWriter.Null
-                Console.SetError TextWriter.Null
+                                Expect.equal result err "DebugError should preserve error value"
+                            finally
+                                Console.SetOut oldOut
+                                Console.SetError oldErr
 
-                try
-                    let result = runtime.Run(eff).UnsafeError()
+                        testPropertyWithConfig fsCheckConfig "DebugError - with custom message preserves error"
+                        <| fun (runtime: FIORuntime, err: string) ->
+                            let eff = FIO.fail(err).DebugError "Custom Error"
+                            let oldOut = Console.Out
+                            let oldErr = Console.Error
+                            Console.SetOut TextWriter.Null
+                            Console.SetError TextWriter.Null
 
-                    Expect.equal result err "DebugError with message should preserve error value"
-                finally
-                    Console.SetOut oldOut
-                    Console.SetError oldErr
+                            try
+                                let result = runtime.Run(eff).UnsafeError()
+
+                                Expect.equal result err "DebugError with message should preserve error value"
+                            finally
+                                Console.SetOut oldOut
+                                Console.SetError oldErr
+                    ]
+            )
 
             testPropertyWithConfig fsCheckConfig "OrElse - falls back on error"
             <| fun (runtime: FIORuntime, err: string, fallback: int) ->

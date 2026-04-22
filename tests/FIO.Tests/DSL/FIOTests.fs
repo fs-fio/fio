@@ -10,6 +10,7 @@ open FIO.Runtime.Cooperative
 open FIO.Runtime.Concurrent
 
 open System
+open System.Threading
 
 open Expecto
 
@@ -414,4 +415,39 @@ let fioTests =
                     result.Message
                     "handler throws"
                     "Thrown exception in CatchAll handler should become the error")
+
+            testAllRuntimes "Run - orphaned child fibers are interrupted on re-Run (R-8)" (fun runtime ->
+                let childStarted = new ManualResetEventSlim(false)
+
+                let childEffect: FIO<unit, exn> =
+                    fio {
+                        do! FIO.attempt ((fun () -> childStarted.Set()), id)
+                        return! FIO.never ()
+                    }
+
+                let parentEffect: FIO<obj, exn> =
+                    fio {
+                        let! fiber = childEffect.Fork()
+                        do! FIO.attempt ((fun () -> childStarted.Wait(TimeSpan.FromSeconds 5.0) |> ignore), id)
+                        return fiber :> obj
+                    }
+
+                let fiber1 = runtime.Run parentEffect
+                let childFiber = fiber1.UnsafeSuccess() :?> Fiber<unit, exn>
+
+                let fiber2 = runtime.Run(FIO.succeed 99)
+                Expect.equal (fiber2.UnsafeSuccess()) 99 "Second run should succeed"
+
+                let childResult = childFiber.UnsafeResult()
+
+                match childResult with
+                | Interrupted _ -> ()
+                | other -> failtestf "Expected child fiber to be Interrupted, got %A" other)
+
+            testAllRuntimes "Run - second Run produces correct result after first completes" (fun runtime ->
+                let fiber1 = runtime.Run(FIO.succeed 1)
+                Expect.equal (fiber1.UnsafeSuccess()) 1 "First run"
+
+                let fiber2 = runtime.Run(FIO.succeed 2)
+                Expect.equal (fiber2.UnsafeSuccess()) 2 "Second run")
         ]

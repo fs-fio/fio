@@ -193,7 +193,10 @@ and internal BlockingWorker(config: BlockingWorkerConfig) =
                 if hasEntry then
                     processed <- processed + 1
 
-                    if isReady entry then
+                    if (getWorkItem entry).FiberContext.IsTerminal() then
+                        // Discard stale blocking items whose fiber has already completed or been interrupted.
+                        ()
+                    elif isReady entry then
                         do! queueActive (getWorkItem entry)
                     else
                         let missed = { entry with MissCount = entry.MissCount + 1 }
@@ -498,6 +501,10 @@ and CooperativeRuntime(config: WorkerConfig) as this =
             | Some fiberContext when not (fiberContext.IsTerminal()) ->
                 fiberContext.Task |> Async.AwaitTask |> Async.RunSynchronously |> ignore
             | _ -> ()
+
+            match currentFiber with
+            | Some fiberContext -> fiberContext.CancelToken()
+            | None -> ()
 
             this.Reset()
             let fiber = new Fiber<'R, 'E>()

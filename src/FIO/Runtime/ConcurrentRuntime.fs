@@ -380,6 +380,10 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
                 fiberContext.Task |> Async.AwaitTask |> Async.RunSynchronously |> ignore
             | _ -> ()
 
+            match currentFiber with
+            | Some fiberContext -> fiberContext.CancelToken()
+            | None -> ()
+
             this.Reset()
             let fiber = new Fiber<'R, 'E>()
             currentFiber <- Some fiber.Context

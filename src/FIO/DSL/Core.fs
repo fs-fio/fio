@@ -224,6 +224,14 @@ and [<Sealed>] internal FiberContext() =
     member internal _.IsTerminal() =
         Volatile.Read &state <> int FiberContextState.Running
 
+    /// Cancels the CancellationTokenSource to cascade interruption to child fibers.
+    /// <remarks>Safe to call on completed/interrupted/disposed contexts. Idempotent.</remarks>
+    member internal _.CancelToken() =
+        try
+            cts.Cancel(throwOnFirstException = false)
+        with :? ObjectDisposedException ->
+            ()
+
     /// Disposes all tracked registrations.
     member private _.DisposeRegistrations() =
         let bag = Volatile.Read &registrations

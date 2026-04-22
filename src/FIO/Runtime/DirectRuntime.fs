@@ -150,6 +150,10 @@ type DirectRuntime() =
                 fiberContext.Task |> Async.AwaitTask |> Async.RunSynchronously |> ignore
             | _ -> ()
 
+            match currentFiber with
+            | Some fiberContext -> fiberContext.CancelToken()
+            | None -> ()
+
             let fiber = new Fiber<'R, 'E>()
             currentFiber <- Some fiber.Context
 
