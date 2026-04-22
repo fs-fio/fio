@@ -386,10 +386,7 @@ let fioTests =
                 let originalExn = InvalidOperationException("original")
 
                 let eff: FIO<int, exn> =
-                    FIO.attempt (
-                        (fun () -> raise originalExn),
-                        (fun _ -> failwith "onError also throws")
-                    )
+                    FIO.attempt ((fun () -> raise originalExn), (fun _ -> failwith "onError also throws"))
 
                 let result = runtime.Run(eff).UnsafeError()
 
@@ -399,7 +396,7 @@ let fioTests =
 
             testAllRuntimes "FlatMap - throwing continuation produces error (E-2)" (fun runtime ->
                 let eff: FIO<int, exn> =
-                    FIO.succeed(42).FlatMap(fun (_: int) -> failwith "continuation throws" : FIO<int, exn>)
+                    FIO.succeed(42).FlatMap(fun (_: int) -> failwith "continuation throws": FIO<int, exn>)
 
                 let result = runtime.Run(eff).UnsafeError()
 
@@ -409,9 +406,12 @@ let fioTests =
                 let eff: FIO<int, exn> =
                     FIO
                         .fail(InvalidOperationException "typed error" :> exn)
-                        .CatchAll(fun _ -> failwith "handler throws" : FIO<int, exn>)
+                        .CatchAll(fun _ -> failwith "handler throws": FIO<int, exn>)
 
                 let result = runtime.Run(eff).UnsafeError()
 
-                Expect.equal result.Message "handler throws" "Thrown exception in CatchAll handler should become the error")
+                Expect.equal
+                    result.Message
+                    "handler throws"
+                    "Thrown exception in CatchAll handler should become the error")
         ]

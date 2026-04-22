@@ -1198,13 +1198,9 @@ let ceTests =
 
             testPropertyWithConfig fsCheckConfig "MergeSources3 - error from first propagates"
             <| fun (runtime: FIORuntime, err: int) ->
-                let second =
-                    FIO.suspend (fun () ->
-                        FIO.succeed 1)
+                let second = FIO.suspend (fun () -> FIO.succeed 1)
 
-                let third =
-                    FIO.suspend (fun () ->
-                        FIO.succeed 2)
+                let third = FIO.suspend (fun () -> FIO.succeed 2)
 
                 let eff = fio.MergeSources3(FIO.fail err, second, third)
 
@@ -1250,9 +1246,7 @@ let ceTests =
                         let! _a = FIO.succeed 1
                         and! _b = FIO.fail err
 
-                        and! _c =
-                            FIO.suspend (fun () ->
-                                FIO.succeed 3)
+                        and! _c = FIO.suspend (fun () -> FIO.succeed 3)
 
                         return ()
                     }
