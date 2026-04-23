@@ -10,6 +10,7 @@ open FIO.Runtime.Cooperative
 open FIO.Runtime.Concurrent
 
 open System
+open System.IO
 open System.Threading
 
 open Expecto
@@ -450,4 +451,112 @@ let fioTests =
 
                 let fiber2 = runtime.Run(FIO.succeed 2)
                 Expect.equal (fiber2.UnsafeSuccess()) 2 "Second run")
+
+            testCase "WorkerHealthMonitor - Healthy by default" (fun () ->
+                let monitor = WorkerHealthMonitor(4)
+                Expect.equal monitor.State Healthy "Should start Healthy")
+
+            testCase "WorkerHealthMonitor - Degraded on EW permanent fault" (fun () ->
+                let monitor = WorkerHealthMonitor(4)
+                monitor.ReportPermanentFault(Evaluation, "test fault")
+                Expect.equal monitor.State (Degraded 1) "Should be Degraded(1)")
+
+            testCase "WorkerHealthMonitor - Faulted when all EWs fault" (fun () ->
+                let monitor = WorkerHealthMonitor(2)
+                monitor.ReportPermanentFault(Evaluation, "fault 1")
+                monitor.ReportPermanentFault(Evaluation, "fault 2")
+
+                match monitor.State with
+                | Faulted _ -> ()
+                | other -> failtestf "Expected Faulted, got %A" other)
+
+            testCase "WorkerHealthMonitor - Faulted on BW permanent fault" (fun () ->
+                let monitor = WorkerHealthMonitor(4)
+                monitor.ReportPermanentFault(Blocking, "bw fault")
+
+                match monitor.State with
+                | Faulted _ -> ()
+                | other -> failtestf "Expected Faulted, got %A" other)
+
+            testCase "WorkerHealthMonitor - NotifyFault invokes callback" (fun () ->
+                let monitor = WorkerHealthMonitor(4)
+                let mutable received = false
+                monitor.OnFault(Action<WorkerFaultEvent>(fun _ -> received <- true))
+
+                let origErr = Console.Error
+                Console.SetError TextWriter.Null
+
+                try
+                    monitor.NotifyFault
+                        {
+                            WorkerName = "test"
+                            WorkerKind = Evaluation
+                            FaultCount = 1
+                            Exception = exn "test"
+                            Timestamp = DateTimeOffset.UtcNow
+                            WillRestart = true
+                        }
+                finally
+                    Console.SetError origErr
+
+                Expect.isTrue received "Callback should have been invoked")
+
+            testCase "RuntimeFaultedException - Run throws on Faulted runtime (ConcurrentRuntime)" (fun () ->
+                let runtime = new ConcurrentRuntime()
+                runtime.Monitor.ReportPermanentFault(Blocking, "test fault")
+
+                Expect.throws
+                    (fun () -> runtime.Run(FIO.succeed 1) |> ignore)
+                    "Run should throw RuntimeFaultedException"
+
+                (runtime :> IDisposable).Dispose())
+
+            testCase "RuntimeFaultedException - Run throws on Faulted runtime (CooperativeRuntime)" (fun () ->
+                let runtime = new CooperativeRuntime()
+                runtime.Monitor.ReportPermanentFault(Blocking, "test fault")
+
+                Expect.throws
+                    (fun () -> runtime.Run(FIO.succeed 1) |> ignore)
+                    "Run should throw RuntimeFaultedException"
+
+                (runtime :> IDisposable).Dispose())
+
+            testCase "HealthState - Degraded allows Run (ConcurrentRuntime)" (fun () ->
+                let runtime = new ConcurrentRuntime()
+                runtime.Monitor.ReportPermanentFault(Evaluation, "one ew down")
+                let fiber = runtime.Run(FIO.succeed 42)
+                Expect.equal (fiber.UnsafeSuccess()) 42 "Should still work when Degraded"
+                (runtime :> IDisposable).Dispose())
+
+            testCase "HealthState - Degraded allows Run (CooperativeRuntime)" (fun () ->
+                let runtime = new CooperativeRuntime()
+                runtime.Monitor.ReportPermanentFault(Evaluation, "one ew down")
+                let fiber = runtime.Run(FIO.succeed 42)
+                Expect.equal (fiber.UnsafeSuccess()) 42 "Should still work when Degraded"
+                (runtime :> IDisposable).Dispose())
+
+            testCase "OnWorkerFault - callback accessible from FIOWorkerRuntime" (fun () ->
+                let runtime = new ConcurrentRuntime()
+                let mutable received = false
+
+                runtime.OnWorkerFault(Action<WorkerFaultEvent>(fun _ -> received <- true))
+
+                let origErr = Console.Error
+                Console.SetError TextWriter.Null
+
+                try
+                    runtime.Monitor.NotifyFault
+                        {
+                            WorkerName = "test"
+                            WorkerKind = Evaluation
+                            FaultCount = 1
+                            Exception = exn "test"
+                            Timestamp = DateTimeOffset.UtcNow
+                            WillRestart = true
+                        }
+                finally
+                    Console.SetError origErr
+
+                Expect.isTrue received "OnWorkerFault callback should work"
+                (runtime :> IDisposable).Dispose())
         ]

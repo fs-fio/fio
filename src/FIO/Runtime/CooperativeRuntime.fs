@@ -32,6 +32,9 @@ type private EvaluationWorkerConfig =
         ActiveWorkItemChan: UnboundedChannel<WorkItem>
         BlockingWorker: BlockingWorker
         EWSteps: int
+        Admission: IFiberAdmission
+        Monitor: WorkerHealthMonitor
+        RestartPolicy: WorkerRestartPolicy
     }
 
 /// Blocking worker configuration.
@@ -39,55 +42,50 @@ and internal BlockingWorkerConfig =
     {
         ActiveWorkItemChan: UnboundedChannel<WorkItem>
         ActiveBlockingItemChan: UnboundedChannel<BlockingEntry>
+        Monitor: WorkerHealthMonitor
+        RestartPolicy: WorkerRestartPolicy
     }
 
 /// Blocking item with miss count for backoff.
 and [<Struct>] internal BlockingEntry = { Item: BlockingItem; MissCount: int }
 
 /// Worker that evaluates FIO effects.
-and private EvaluationWorker(config: EvaluationWorkerConfig) =
+and private EvaluationWorker(config: EvaluationWorkerConfig, workerId: int) =
 
     let processWorkItem (workItem: WorkItem) =
-        config.Runtime.InterpretAsync(workItem, config.EWSteps, config.ActiveWorkItemChan, config.BlockingWorker)
+        config.Runtime.InterpretAsync(
+            workItem,
+            config.EWSteps,
+            config.ActiveWorkItemChan,
+            config.BlockingWorker,
+            config.Admission
+        )
 
-    let cts = new CancellationTokenSource()
+    let struct (cts, _workerTask) =
+        WorkerLifecycle.startWorker config.Monitor config.RestartPolicy $"EvaluationWorker-{workerId}" Evaluation ignore
+        <| fun token ->
+            task {
+                let mutable loop = true
 
-    let mutable workerTask: Task = Unchecked.defaultof<_>
+                while loop && not token.IsCancellationRequested do
+                    let! hasWorkItem = config.ActiveWorkItemChan.WaitToTakeAsync token
 
-    let startWorker () =
-        workerTask <-
-            Task.Factory
-                .StartNew(
-                    Func<Task>(fun () ->
-                        task {
-                            let token = cts.Token
-                            let mutable loop = true
+                    if not hasWorkItem || token.IsCancellationRequested then
+                        loop <- false
+                    else
+                        let! workItem = config.ActiveWorkItemChan.TakeAsync()
 
-                            while loop && not token.IsCancellationRequested do
+                        if not (workItem.FiberContext.IsTerminal()) then
+                            try
+                                do! processWorkItem workItem
+                            with exn ->
                                 try
-                                    let! hasWorkItem = config.ActiveWorkItemChan.WaitToTakeAsync token
+                                    workItem.FiberContext.Complete(Error(exn :> obj))
+                                with _ ->
+                                    ()
 
-                                    if not hasWorkItem || token.IsCancellationRequested then
-                                        loop <- false
-                                    else
-                                        let! workItem = config.ActiveWorkItemChan.TakeAsync()
-
-                                        if not (workItem.FiberContext.IsTerminal()) then
-                                            do! processWorkItem workItem
-                                with
-                                | :? OperationCanceledException -> loop <- false
-                                | exn ->
-                                    System.Console.Error.WriteLine
-                                        $"[FIO] EvaluationWorker caught unhandled exception: {exn}"
-                        }
-                        :> Task),
-                    CancellationToken.None,
-                    TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default
-                )
-                .Unwrap()
-
-    do startWorker ()
+                                raise exn
+            }
 
     interface IDisposable with
         member _.Dispose() =
@@ -95,7 +93,7 @@ and private EvaluationWorker(config: EvaluationWorkerConfig) =
             cts.Dispose()
 
 /// Handles blocked effects via linear-time polling with progressive backoff.
-and internal BlockingWorker(config: BlockingWorkerConfig) =
+and internal BlockingWorker(config: BlockingWorkerConfig, workerId: int) =
 
     let batchSize = CooperativePolling.BatchSize
 
@@ -194,7 +192,6 @@ and internal BlockingWorker(config: BlockingWorkerConfig) =
                     processed <- processed + 1
 
                     if (getWorkItem entry).FiberContext.IsTerminal() then
-                        // Discard stale blocking items whose fiber has already completed or been interrupted.
                         ()
                     elif isReady entry then
                         do! queueActive (getWorkItem entry)
@@ -239,42 +236,24 @@ and internal BlockingWorker(config: BlockingWorkerConfig) =
                     return true
         }
 
-    let cts = new CancellationTokenSource()
+    let struct (cts, _workerTask) =
+        WorkerLifecycle.startWorker config.Monitor config.RestartPolicy $"BlockingWorker-{workerId}" Blocking (fun () ->
+            channelPending.Clear()
+            fiberPending.Clear()
+            preferChannelFirst <- true)
+        <| fun token ->
+            task {
+                let mutable loop = true
 
-    let mutable workerTask: Task = Unchecked.defaultof<_>
+                while loop && not token.IsCancellationRequested do
+                    let! hasItemToProcess = waitForFirstIfNeeded token
 
-    let startWorker () =
-        workerTask <-
-            Task.Factory
-                .StartNew(
-                    Func<Task>(fun () ->
-                        task {
-                            let token = cts.Token
-                            let mutable loop = true
-
-                            while loop && not token.IsCancellationRequested do
-                                try
-                                    let! hasItemToProcess = waitForFirstIfNeeded token
-
-                                    if not hasItemToProcess || token.IsCancellationRequested then
-                                        loop <- false
-                                    else
-                                        tryDrainIncoming ()
-                                        do! processBatch ()
-                                with
-                                | :? OperationCanceledException -> loop <- false
-                                | exn ->
-                                    System.Console.Error.WriteLine
-                                        $"[FIO] BlockingWorker caught unhandled exception: {exn}"
-                        }
-                        :> Task),
-                    CancellationToken.None,
-                    TaskCreationOptions.LongRunning,
-                    TaskScheduler.Default
-                )
-                .Unwrap()
-
-    do startWorker ()
+                    if not hasItemToProcess || token.IsCancellationRequested then
+                        loop <- false
+                    else
+                        tryDrainIncoming ()
+                        do! processBatch ()
+            }
 
     interface IDisposable with
         member _.Dispose() =
@@ -294,18 +273,23 @@ and CooperativeRuntime(config: WorkerConfig) as this =
 
     let activeBlockingItemChan = UnboundedChannel<BlockingEntry>()
 
+    let admission = FiberAdmission.fromConfig config
+
     let mutable currentFiber: FiberContext option = None
 
     let runLock = obj ()
 
     let blockingWorkers =
         List.init config.BWC
-        <| fun _ ->
+        <| fun i ->
             new BlockingWorker(
                 {
                     ActiveWorkItemChan = activeWorkItemChan
                     ActiveBlockingItemChan = activeBlockingItemChan
-                }
+                    Monitor = this.Monitor
+                    RestartPolicy = WorkerRestartPolicy.Default
+                },
+                i
             )
 
     let evaluationWorkers =
@@ -319,7 +303,11 @@ and CooperativeRuntime(config: WorkerConfig) as this =
                     ActiveWorkItemChan = activeWorkItemChan
                     BlockingWorker = blockingWorker
                     EWSteps = config.EWS
-                }
+                    Admission = admission
+                    Monitor = this.Monitor
+                    RestartPolicy = WorkerRestartPolicy.Default
+                },
+                i
             )
 
     override _.Name = "CooperativeRuntime"
@@ -328,6 +316,10 @@ and CooperativeRuntime(config: WorkerConfig) as this =
         member _.Dispose() =
             blockingWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
             evaluationWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
+
+            match admission with
+            | :? IDisposable as d -> d.Dispose()
+            | _ -> ()
 
     new() = new CooperativeRuntime(WorkerConfig.Default)
 
@@ -338,7 +330,8 @@ and CooperativeRuntime(config: WorkerConfig) as this =
             workItem: WorkItem,
             evalSteps: int,
             activeWorkItemChan: UnboundedChannel<WorkItem>,
-            blockingWorker: BlockingWorker
+            blockingWorker: BlockingWorker,
+            admission: IFiberAdmission
         ) =
         let mutable state =
             InterpreterState(workItem.Eff, workItem.Stack, workItem.FiberContext, workItem.InterruptionSuppressed)
@@ -397,55 +390,65 @@ and CooperativeRuntime(config: WorkerConfig) as this =
                                     workItemOwnership <- false
                                     state.Completed <- true
                             | HandleForkEffect(eff, fiber, fiberContext) ->
-                                let registration =
-                                    currentFiberContext.CancellationToken.Register(fun () ->
-                                        fiberContext.Interrupt(
-                                            ParentInterrupted currentFiberContext.Id,
-                                            "Parent fiber was interrupted."
-                                        ))
+                                if admission.TryAcquire() then
+                                    fiberContext.SetOnTerminal(fun () -> admission.Release())
 
-                                fiberContext.AddRegistration registration
-                                let workItem = WorkItemPool.Rent(eff, fiberContext, ContStackPool.Rent())
-                                do! activeWorkItemChan.AddAsync workItem
-                                processSuccess &state onSuccessComplete fiber
+                                    let registration =
+                                        currentFiberContext.CancellationToken.Register(fun () ->
+                                            fiberContext.Interrupt(
+                                                ParentInterrupted currentFiberContext.Id,
+                                                "Parent fiber was interrupted."
+                                            ))
+
+                                    fiberContext.AddRegistration registration
+                                    let workItem = WorkItemPool.Rent(eff, fiberContext, ContStackPool.Rent())
+                                    do! activeWorkItemChan.AddAsync workItem
+                                    processSuccess &state onSuccessComplete fiber
+                                else
+                                    do! Task.Yield()
                             | HandleForkTask(taskFactory, onError, fiber, fiberContext) ->
-                                let registration =
-                                    currentFiberContext.CancellationToken.Register(fun () ->
-                                        fiberContext.Interrupt(
-                                            ParentInterrupted currentFiberContext.Id,
-                                            "Parent fiber was interrupted."
-                                        ))
+                                if admission.TryAcquire() then
+                                    fiberContext.SetOnTerminal(fun () -> admission.Release())
 
-                                fiberContext.AddRegistration registration
+                                    let registration =
+                                        currentFiberContext.CancellationToken.Register(fun () ->
+                                            fiberContext.Interrupt(
+                                                ParentInterrupted currentFiberContext.Id,
+                                                "Parent fiber was interrupted."
+                                            ))
 
-                                do!
-                                    Task.Run(fun () ->
-                                        task {
-                                            try
+                                    fiberContext.AddRegistration registration
+
+                                    do!
+                                        Task.Run(fun () ->
+                                            task {
                                                 try
-                                                    let t = taskFactory ()
-                                                    let! result = t.WaitAsync fiberContext.CancellationToken
-                                                    fiberContext.Complete(Ok result)
-                                                with
-                                                | :? OperationCanceledException ->
-                                                    fiberContext.Complete(
-                                                        Error(
-                                                            onError (
-                                                                FiberInterruptedException(
-                                                                    fiberContext.Id,
-                                                                    ExplicitInterrupt,
-                                                                    "Task has been cancelled."
+                                                    try
+                                                        let t = taskFactory ()
+                                                        let! result = t.WaitAsync fiberContext.CancellationToken
+                                                        fiberContext.Complete(Ok result)
+                                                    with
+                                                    | :? OperationCanceledException ->
+                                                        fiberContext.Complete(
+                                                            Error(
+                                                                onError (
+                                                                    FiberInterruptedException(
+                                                                        fiberContext.Id,
+                                                                        ExplicitInterrupt,
+                                                                        "Task has been cancelled."
+                                                                    )
                                                                 )
                                                             )
                                                         )
-                                                    )
-                                                | exn -> fiberContext.Complete(Error(onError exn))
-                                            finally
-                                                registration.Dispose()
-                                        }
-                                        :> Task)
+                                                    | exn -> fiberContext.Complete(Error(onError exn))
+                                                finally
+                                                    registration.Dispose()
+                                            }
+                                            :> Task)
 
-                                processSuccess &state onSuccessComplete fiber
+                                    processSuccess &state onSuccessComplete fiber
+                                else
+                                    do! Task.Yield()
                             | HandleJoinFiber fiberContext ->
                                 if fiberContext.IsTerminal() then
                                     let! res = fiberContext.Task
@@ -494,25 +497,35 @@ and CooperativeRuntime(config: WorkerConfig) as this =
     member private _.Reset() =
         activeWorkItemChan.Clear()
         activeBlockingItemChan.Clear()
+        admission.Reset()
 
     override _.Run<'R, 'E>(eff: FIO<'R, 'E>) : Fiber<'R, 'E> =
         lock runLock (fun () ->
-            match currentFiber with
-            | Some fiberContext when not (fiberContext.IsTerminal()) ->
-                fiberContext.Task |> Async.AwaitTask |> Async.RunSynchronously |> ignore
-            | _ -> ()
+            match this.Monitor.State with
+            | Faulted reason -> raise (RuntimeFaultedException reason)
+            | Degraded _
+            | Healthy ->
 
-            match currentFiber with
-            | Some fiberContext -> fiberContext.CancelToken()
-            | None -> ()
+                match currentFiber with
+                | Some fiberContext when not (fiberContext.IsTerminal()) ->
+                    fiberContext.Task |> Async.AwaitTask |> Async.RunSynchronously |> ignore
+                | _ -> ()
 
-            this.Reset()
-            let fiber = new Fiber<'R, 'E>()
-            currentFiber <- Some fiber.Context
+                match currentFiber with
+                | Some fiberContext -> fiberContext.CancelToken()
+                | None -> ()
 
-            let workItem =
-                WorkItemPool.Rent(eff.UpcastBoth(), fiber.Context, ContStackPool.Rent())
+                this.Reset()
+                let fiber = new Fiber<'R, 'E>()
+                currentFiber <- Some fiber.Context
 
-            activeWorkItemChan.AddAsync workItem |> ignore
+                // Acquire a permit for the root fiber.
+                admission.TryAcquire() |> ignore
+                fiber.Context.SetOnTerminal(fun () -> admission.Release())
 
-            fiber)
+                let workItem =
+                    WorkItemPool.Rent(eff.UpcastBoth(), fiber.Context, ContStackPool.Rent())
+
+                activeWorkItemChan.AddAsync workItem |> ignore
+
+                fiber)

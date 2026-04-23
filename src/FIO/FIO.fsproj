@@ -44,6 +44,7 @@
         <Compile Include="Lib\Semaphore.fs" />
         <Compile Include="Lib\Fiber.fs" />
         <Compile Include="Runtime\Runtime.fs" />
+        <Compile Include="Runtime\WorkerInfrastructure.fs" />
         <Compile Include="Runtime\InterpreterCore.fs" />
         <Compile Include="Runtime\DirectRuntime.fs" />
         <Compile Include="Runtime\CooperativeRuntime.fs" />

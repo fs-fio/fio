@@ -117,6 +117,9 @@ and [<Sealed>] internal FiberContext() =
     [<VolatileField>]
     let mutable disposed = false
 
+    [<VolatileField>]
+    let mutable onTerminalCallback: (unit -> unit) voption = ValueNone
+
     /// Gets the unique identifier.
     member internal _.Id = id
 
@@ -126,6 +129,31 @@ and [<Sealed>] internal FiberContext() =
     /// Gets the cancellation token for cooperative cancellation.
     member internal _.CancellationToken = cts.Token
 
+    /// Invokes the on-terminal callback if registered.
+    member private _.InvokeOnTerminal() =
+        match onTerminalCallback with
+        | ValueSome cb ->
+            try
+                cb ()
+            with _ ->
+                ()
+        | ValueNone -> ()
+
+    /// Registers a callback invoked exactly once when the fiber reaches a terminal state.
+    /// <param name="callback">The callback to invoke on completion or interruption.</param>
+    /// <remarks>
+    /// If the fiber is already terminal when this is called, the callback is invoked immediately.
+    /// The callback is invoked by whichever thread wins the CAS to the terminal state.
+    /// </remarks>
+    member internal this.SetOnTerminal(callback: unit -> unit) =
+        onTerminalCallback <- ValueSome callback
+
+        if this.IsTerminal() then
+            try
+                callback ()
+            with _ ->
+                ()
+
     /// Completes the fiber with the given result.
     member internal this.Complete res =
         if
@@ -134,6 +162,7 @@ and [<Sealed>] internal FiberContext() =
         then
             this.DisposeRegistrations()
             resTcs.TrySetResult res |> ignore
+            this.InvokeOnTerminal()
 
     /// Completes the fiber and reschedules blocking work items.
     member internal this.CompleteAndReschedule(res, activeWorkItemChan) =
@@ -144,6 +173,7 @@ and [<Sealed>] internal FiberContext() =
             if oldState = int FiberContextState.Running then
                 this.DisposeRegistrations()
                 resTcs.TrySetResult res |> ignore
+                this.InvokeOnTerminal()
 
                 if blockingWorkItemChan.Count > 0 then
                     do! this.RescheduleBlockingWorkItems activeWorkItemChan
@@ -168,6 +198,7 @@ and [<Sealed>] internal FiberContext() =
             this.DisposeRegistrations()
             let interruptError = Error(FiberInterruptedException(id, cause, msg) :> obj)
             resTcs.TrySetResult interruptError |> ignore
+            this.InvokeOnTerminal()
 
     /// Adds a blocking work item to the queue.
     member internal _.AddBlockingWorkItem blockingWorkItem =

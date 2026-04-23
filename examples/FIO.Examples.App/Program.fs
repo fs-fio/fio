@@ -586,7 +586,12 @@ type CustomRuntimeApp() =
     inherit FIOApp<unit, exn>()
 
     override _.runtime =
-        new ConcurrentRuntime { EWC = Environment.ProcessorCount * 2; EWS = 500; BWC = 2 }
+        new ConcurrentRuntime {
+            EWC = Environment.ProcessorCount * 2
+            EWS = 500
+            BWC = 2
+            MaxFibers = None
+        }
 
     override _.effect =
         fio {

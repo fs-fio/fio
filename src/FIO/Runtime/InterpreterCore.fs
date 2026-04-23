@@ -105,11 +105,25 @@ let inline processError (state: byref<InterpreterState>) ([<InlineIfLambda>] onC
 /// Walks the continuation stack on the interruption path.
 /// Skips both SuccessCont and FailureCont, only runs FinalizerCont.
 /// On empty stack, calls onComplete to perform runtime-specific fiber completion.
+/// <remarks>
+/// First unwinds any top-level OnFinalize nodes from the current effect, pushing their
+/// FinalizerCont entries onto the stack. This ensures finalizers are registered even when
+/// interruption is detected before the interpreter processes OnFinalize normally.
+/// </remarks>
 let inline processInterruptError
     (state: byref<InterpreterState>)
     ([<InlineIfLambda>] onComplete: obj -> unit)
     (err: obj)
     =
+    let mutable unwinding = true
+
+    while unwinding do
+        match state.Eff with
+        | OnFinalize(eff, finalizer) ->
+            state.ContStack.Push(ContStackFrame(FinalizerCont finalizer))
+            state.Eff <- eff
+        | _ -> unwinding <- false
+
     let mutable loop = true
 
     while loop do

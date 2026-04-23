@@ -3,7 +3,7 @@
 open FIO.DSL
 
 open System
-open System.Globalization
+open System.Threading
 open System.Collections.Generic
 
 /// Shared defaults for worker-based runtimes.
@@ -139,6 +139,8 @@ type WorkerConfig =
         EWS: int
         /// Blocking worker count.
         BWC: int
+        /// Maximum number of concurrently active fibers. None = unbounded (default).
+        MaxFibers: int option
     }
 
     /// Default worker configuration based on system resources.
@@ -148,23 +150,76 @@ type WorkerConfig =
             EWC = WorkerRuntimeDefaults.ComputeEvaluationWorkerCount()
             EWS = WorkerRuntimeDefaults.EvaluationWorkerSteps
             BWC = WorkerRuntimeDefaults.BlockingWorkerCount
+            MaxFibers = None
         }
 
-/// Base class for worker-based FIO runtimes.
-[<AbstractClass>]
-type FIOWorkerRuntime internal (config: WorkerConfig) as this =
-    inherit FIORuntime()
+/// Fiber admission control abstraction for backpressure.
+/// <remarks>Thread-safe. Implementations must be safe for concurrent TryAcquire/Release calls.</remarks>
+type internal IFiberAdmission =
+    /// Attempts to acquire a permit without blocking.
+    /// <returns>true if a permit was acquired; false if at capacity.</returns>
+    abstract TryAcquire: unit -> bool
+    /// Releases a permit, indicating a fiber has terminated.
+    abstract Release: unit -> unit
+    /// Resets admission state to full capacity.
+    abstract Reset: unit -> unit
 
-    let validateWorkerConfiguration () =
-        if config.EWC <= 0 || config.EWS <= 0 || config.BWC <= 0 then
-            invalidArg "config" $"Invalid worker configuration! %s{this.ToString()}"
+/// No-op admission control — always admits. Used when MaxFibers is None.
+[<Sealed>]
+type internal UnboundedAdmission private () =
+    static let instance = UnboundedAdmission()
 
-    do validateWorkerConfiguration ()
+    /// Gets the singleton instance.
+    static member Instance = instance :> IFiberAdmission
 
-    member _.WorkerConfig = config
+    interface IFiberAdmission with
+        member _.TryAcquire() = true
+        member _.Release() = ()
+        member _.Reset() = ()
 
-    override _.ConfigString =
-        let ci = CultureInfo "en-US"
-        $"""EWC: %s{config.EWC.ToString("N0", ci)} EWS: %s{config.EWS.ToString("N0", ci)} BWC: %s{config.BWC.ToString("N0", ci)}"""
+/// Bounded admission control — limits concurrent active fibers using a semaphore.
+/// <param name="maxFibers">Maximum number of concurrently active fibers.</param>
+/// <remarks>
+/// Uses SemaphoreSlim for non-blocking TryAcquire via Wait(0).
+/// Release guards against SemaphoreFullException from stale fibers after Reset.
+/// </remarks>
+[<Sealed>]
+type internal BoundedAdmission(maxFibers: int) =
+    let sem = new SemaphoreSlim(maxFibers, maxFibers)
 
-    override this.ToString() = $"{this.Name} ({this.ConfigString})"
+    interface IFiberAdmission with
+        /// Attempts to acquire a fiber permit without blocking.
+        /// <returns>true if a permit was acquired; false if at capacity.</returns>
+        member _.TryAcquire() = sem.Wait(0)
+
+        /// Releases a fiber permit. Guards against over-release after Reset.
+        member _.Release() =
+            try
+                sem.Release() |> ignore
+            with :? SemaphoreFullException ->
+                ()
+
+        /// Resets the semaphore to full capacity for a new Run cycle.
+        member _.Reset() =
+            while sem.Wait(0) do
+                ()
+
+            if maxFibers > 0 then
+                sem.Release maxFibers |> ignore
+
+    interface IDisposable with
+        member _.Dispose() = sem.Dispose()
+
+/// Creates the appropriate admission control based on configuration.
+module internal FiberAdmission =
+    /// Creates an IFiberAdmission instance from a WorkerConfig.
+    /// <param name="config">The worker configuration.</param>
+    /// <returns>An admission control instance.</returns>
+    let fromConfig (config: WorkerConfig) : IFiberAdmission =
+        match config.MaxFibers with
+        | None -> UnboundedAdmission.Instance
+        | Some maxFibers ->
+            if maxFibers <= 0 then
+                invalidArg "config" $"MaxFibers must be positive, got {maxFibers}."
+
+            new BoundedAdmission(maxFibers)

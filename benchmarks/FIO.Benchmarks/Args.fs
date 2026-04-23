@@ -196,7 +196,7 @@ let private buildWorkerConfig (ewc, ews, bwc) =
             validateAtLeast "ews" 1 ews
             validateAtLeast "bwc" 1 bwc
         ]
-    |> Result.map (fun () -> { EWC = ewc; EWS = ews; BWC = bwc })
+    |> Result.map (fun () -> { EWC = ewc; EWS = ews; BWC = bwc; MaxFibers = None })
 
 /// <summary>
 /// Builds the list of runtime selections from parsed arguments.

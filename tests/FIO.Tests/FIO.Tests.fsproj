@@ -40,6 +40,9 @@
         <!-- Framework -->
         <Compile Include="Framework/AppTests.fs" />
 
+        <!-- Runtime -->
+        <Compile Include="Runtime/AdmissionControlTests.fs" />
+
         <Compile Include="Program.fs" />
     </ItemGroup>
 

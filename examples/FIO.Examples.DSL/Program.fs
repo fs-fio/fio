@@ -24,7 +24,7 @@ let helloWorld1 () =
         | Failed error -> printfn $"Error: %A{error}"
         | Interrupted ex -> printfn $"Interrupted: %s{ex.Message}"
     }
-    |> (fun t -> t.GetAwaiter().GetResult())
+    |> fun t -> t.GetAwaiter().GetResult()
 
 /// <summary>
 /// Hello world with explicit type annotations showing FIO type signatures.
@@ -41,7 +41,7 @@ let helloWorld2 () =
         | Failed error -> printfn $"Error: %A{error}"
         | Interrupted ex -> printfn $"Interrupted: %s{ex.Message}"
     }
-    |> (fun t -> t.GetAwaiter().GetResult())
+    |> fun t -> t.GetAwaiter().GetResult()
 
 /// <summary>
 /// Demonstrates FIO.fail for effect failure with typed errors.
@@ -58,7 +58,7 @@ let helloWorld3 () =
         | Failed error -> printfn $"Error: %s{error}"
         | Interrupted ex -> printfn $"Interrupted: %s{ex.Message}"
     }
-    |> (fun t -> t.GetAwaiter().GetResult())
+    |> fun t -> t.GetAwaiter().GetResult()
 
 /// <summary>
 /// Simplified hello world using UnsafePrintResult for quick debugging.
