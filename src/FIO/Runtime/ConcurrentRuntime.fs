@@ -373,6 +373,17 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
         activeBlockingEventChan.Clear()
         admission.Reset()
 
+    /// Submits an effect for evaluation and returns a Fiber handle.
+    /// <param name="eff">The effect to interpret.</param>
+    /// <returns>A fiber whose task completes with the effect's result.</returns>
+    /// <remarks>
+    /// Run is intended for sequential invocation on a given runtime instance.
+    /// If a prior fiber on this runtime is still running, Run blocks the calling
+    /// thread until that fiber completes. Workers run on dedicated LongRunning
+    /// threads, so this blocking does not starve the runtime itself, but
+    /// calling Run concurrently from thread-pool threads is not recommended.
+    /// Concurrency within a single Run is provided by fibers.
+    /// </remarks>
     override _.Run<'R, 'E>(eff: FIO<'R, 'E>) : Fiber<'R, 'E> =
         lock runLock (fun () ->
             match this.Monitor.State with
@@ -382,7 +393,7 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
 
                 match currentFiber with
                 | Some fiberContext when not (fiberContext.IsTerminal()) ->
-                    fiberContext.Task |> Async.AwaitTask |> Async.RunSynchronously |> ignore
+                    fiberContext.Task.GetAwaiter().GetResult() |> ignore
                 | _ -> ()
 
                 match currentFiber with
