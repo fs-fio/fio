@@ -6,10 +6,6 @@
         <WarningsAsErrors>true</WarningsAsErrors>
     </PropertyGroup>
 
-    <PropertyGroup>
-        <ParallelCompilation>true</ParallelCompilation>
-        <Deterministic>false</Deterministic>
-    </PropertyGroup>
 
     <ItemGroup>
         <Compile Include="Program.fs" />

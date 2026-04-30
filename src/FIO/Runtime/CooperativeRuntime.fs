@@ -392,15 +392,7 @@ and CooperativeRuntime(config: WorkerConfig) as this =
                             | HandleForkEffect(eff, fiber, fiberContext) ->
                                 if admission.TryAcquire() then
                                     fiberContext.SetOnTerminal(fun () -> admission.Release())
-
-                                    let registration =
-                                        currentFiberContext.CancellationToken.Register(fun () ->
-                                            fiberContext.Interrupt(
-                                                ParentInterrupted currentFiberContext.Id,
-                                                "Parent fiber was interrupted."
-                                            ))
-
-                                    fiberContext.AddRegistration registration
+                                    let _registration = setupForkRegistration currentFiberContext fiberContext
                                     let workItem = WorkItemPool.Rent(eff, fiberContext, ContStackPool.Rent())
                                     do! activeWorkItemChan.AddAsync workItem
                                     processSuccess &state onSuccessComplete fiber
@@ -409,15 +401,7 @@ and CooperativeRuntime(config: WorkerConfig) as this =
                             | HandleForkTask(taskFactory, onError, fiber, fiberContext) ->
                                 if admission.TryAcquire() then
                                     fiberContext.SetOnTerminal(fun () -> admission.Release())
-
-                                    let registration =
-                                        currentFiberContext.CancellationToken.Register(fun () ->
-                                            fiberContext.Interrupt(
-                                                ParentInterrupted currentFiberContext.Id,
-                                                "Parent fiber was interrupted."
-                                            ))
-
-                                    fiberContext.AddRegistration registration
+                                    let registration = setupForkRegistration currentFiberContext fiberContext
 
                                     do!
                                         Task.Run(fun () ->

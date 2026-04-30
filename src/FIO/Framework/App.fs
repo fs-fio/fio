@@ -3,19 +3,11 @@ module FIO.App
 
 open FIO.DSL
 open FIO.Runtime
+open FIO.AppConfig
 open FIO.Runtime.Default
 
 open System
-open System.Threading
 open System.Threading.Tasks
-
-/// Avoids conflicts with FIO.Console.
-type private SysConsole = System.Console
-
-let private printColored color (msg: string) =
-    SysConsole.ForegroundColor <- color
-    SysConsole.WriteLine msg
-    SysConsole.ResetColor()
 
 /// Base class for FIO applications with lifecycle management and shutdown hooks.
 /// Override `effect` to define the main application logic.
@@ -26,12 +18,8 @@ let private printColored color (msg: string) =
 type FIOApp<'R, 'E>() as this =
 
     let id = Guid.NewGuid()
-
-    /// Lazily initialized runtime.
+    let mutable handle: FIOAppHandle<'R, 'E> option = None
     let lazyRuntime = lazy this.runtime
-
-    let mutable shutdownRequested = 0
-    let mutable runningFiber: Fiber<'R, 'E> option = None
 
     /// Application name. Default: the concrete type name.
     /// <returns>The application name.</returns>
@@ -203,130 +191,42 @@ type FIOApp<'R, 'E>() as this =
 
     /// Gets whether the application is currently running.
     /// <returns>True if the application is currently executing.</returns>
-    member _.IsRunning = Option.isSome (Volatile.Read(&runningFiber))
+    member _.IsRunning =
+        match handle with
+        | Some h -> h.IsRunning()
+        | None -> false
 
     /// Requests graceful shutdown of the application.
     /// Safe to call from any thread. No-op if not running or already shutting down.
-    member this.Stop() =
-        match Volatile.Read(&runningFiber) with
-        | Some fiber when Interlocked.CompareExchange(&shutdownRequested, 1, 0) = 0 ->
-            this.onShutdownRequested ()
-            fiber.Context.Interrupt(ExplicitInterrupt, "Application shutdown requested programmatically.")
-        | _ -> ()
+    member _.Stop() =
+        match handle with
+        | Some h -> h.Stop()
+        | None -> ()
 
-    /// Runs shutdown cleanup hooks.
-    member private this.RunShutdown(runtime: FIORuntime) =
-        task {
-            let mutable shutdownFiberOpt = None
-            let mutable timedOut = false
-
-            try
-                let fiber = runtime.Run(this.onShutdown ())
-                shutdownFiberOpt <- Some fiber
-                let shutdownTask = fiber.Task()
-                let! shutdownResult = shutdownTask.WaitAsync this.onShutdownTimeout
-
-                this.onShutdownComplete shutdownResult
-            with
-            | :? TimeoutException as ex ->
-                timedOut <- true
-                this.onShutdownFailed ex
-            | ex -> this.onShutdownFailed ex
-
-            if timedOut then
-                match shutdownFiberOpt with
-                | Some fiber ->
-                    fiber.Context.Interrupt(ExplicitInterrupt, "Shutdown hook exceeded timeout.")
-
-                    try
-                        let! _ = fiber.Task().WaitAsync(TimeSpan.FromSeconds 2.0)
-                        ()
-                    with :? TimeoutException ->
-                        ()
-                | None -> ()
-
-            match shutdownFiberOpt with
-            | Some fiber -> (fiber :> IDisposable).Dispose()
-            | None -> ()
-        }
-
-    /// Executes the effect with lifecycle management and shutdown hooks.
-    member private this.RunEffect() =
-        task {
-            let mutable registeredHandler: ConsoleCancelEventHandler option = None
-
-            try
-                try
-                    if this.showBanner then
-                        SysConsole.WriteLine this.banner
-
-                    this.onStart ()
-
-                    let runtime = lazyRuntime.Value
-                    this.onRuntimeInitialized runtime
-
-                    let fiber = runtime.Run this.effect
-                    Volatile.Write(&runningFiber, Some fiber)
-
-                    try
-                        this.onFiberRunning ()
-
-                        let handler =
-                            ConsoleCancelEventHandler(fun _ eventArgs ->
-                                // Second Ctrl+C: eventArgs.Cancel is not set,
-                                // allowing hard process termination.
-                                if Interlocked.CompareExchange(&shutdownRequested, 1, 0) = 0 then
-                                    eventArgs.Cancel <- true
-                                    this.onShutdownRequested ()
-
-                                    fiber.Context.Interrupt(
-                                        ExplicitInterrupt,
-                                        "Application shutdown requested from console."
-                                    ))
-
-                        SysConsole.CancelKeyPress.AddHandler handler
-                        registeredHandler <- Some handler
-
-                        let! exitCode =
-                            task {
-                                match! fiber.Task() with
-                                | Succeeded res ->
-                                    this.onSuccess res
-                                    return this.exitCodeSuccess res
-                                | Failed err ->
-                                    this.onError err
-                                    return this.exitCodeError err
-                                | Interrupted ex ->
-                                    this.onInterrupted ex
-                                    return this.exitCodeInterrupted ex
-                            }
-
-                        do! this.RunShutdown runtime
-                        return exitCode
-                    finally
-                        (fiber :> IDisposable).Dispose()
-                with ex ->
-                    this.onFatalError ex
-
-                    if lazyRuntime.IsValueCreated then
-                        try
-                            do! this.RunShutdown lazyRuntime.Value
-                        with _ ->
-                            ()
-
-                    return this.exitCodeFatalError ex
-            finally
-                Volatile.Write(&runningFiber, None)
-                shutdownRequested <- 0
-
-                match registeredHandler with
-                | Some handler -> SysConsole.CancelKeyPress.RemoveHandler handler
-                | None -> ()
-
-                if lazyRuntime.IsValueCreated then
-                    match box lazyRuntime.Value with
-                    | :? IDisposable as d -> d.Dispose()
-                    | _ -> ()
+    /// Builds a FIOAppConfig from the overridable members.
+    member internal this.ToConfig() : FIOAppConfig<'R, 'E> =
+        { FIOAppConfig.create this.effect with
+            Runtime = fun () -> this.runtime
+            Name = this.name
+            Version = this.version
+            ShowBanner = this.showBanner
+            Banner = fun _ _ -> this.banner
+            OnStart = this.onStart
+            OnRuntimeInitialized = this.onRuntimeInitialized
+            OnFiberRunning = this.onFiberRunning
+            OnSuccess = this.onSuccess
+            OnError = this.onError
+            OnInterrupted = this.onInterrupted
+            OnFatalError = this.onFatalError
+            OnShutdownRequested = this.onShutdownRequested
+            OnShutdownComplete = this.onShutdownComplete
+            OnShutdownFailed = this.onShutdownFailed
+            OnShutdown = this.onShutdown
+            OnShutdownTimeout = this.onShutdownTimeout
+            ExitCodeSuccess = this.exitCodeSuccess
+            ExitCodeError = this.exitCodeError
+            ExitCodeFatalError = this.exitCodeFatalError
+            ExitCodeInterrupted = this.exitCodeInterrupted
         }
 
     /// Runs the application synchronously and returns the exit code.
@@ -336,6 +236,9 @@ type FIOApp<'R, 'E>() as this =
 
     /// Runs the application asynchronously and returns the exit code.
     /// <returns>A Task that completes with the exit code.</returns>
-    member this.RunAsync() : Task<int> = this.RunEffect()
+    member this.RunAsync() : Task<int> =
+        let h = FIOApp.start (this.ToConfig())
+        handle <- Some h
+        h.ExitCode
 
     override this.ToString() = $"{this.name} ({id})"

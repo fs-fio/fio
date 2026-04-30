@@ -228,3 +228,17 @@ let inline handleSharedCase
         ValueSome(HandleForkTask(taskFactory, onError, fiber, fiberContext))
     | JoinFiber fiberContext -> ValueSome(HandleJoinFiber fiberContext)
     | AwaitTask(task, onError) -> ValueSome(HandleAwaitTask(task, onError))
+
+/// Sets up parent-child interruption propagation for a forked fiber.
+/// Registers a cancellation callback that interrupts the child when the parent is interrupted,
+/// and adds the registration to the child context for lifecycle management.
+/// <param name="parentContext">The parent fiber's context.</param>
+/// <param name="childContext">The child fiber's context.</param>
+/// <returns>The cancellation registration, for callers that need explicit disposal (e.g., ForkTask).</returns>
+let inline setupForkRegistration (parentContext: FiberContext) (childContext: FiberContext) =
+    let registration =
+        parentContext.CancellationToken.Register(fun () ->
+            childContext.Interrupt(ParentInterrupted parentContext.Id, "Parent fiber was interrupted."))
+
+    childContext.AddRegistration registration
+    registration

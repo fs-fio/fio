@@ -23,10 +23,6 @@
         <PackageReadmeFile>README.md</PackageReadmeFile>
     </PropertyGroup>
 
-    <PropertyGroup>
-        <ParallelCompilation>true</ParallelCompilation>
-        <Deterministic>false</Deterministic>
-    </PropertyGroup>
 
     <ItemGroup>
         <Compile Include="Types.fs" />

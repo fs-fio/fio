@@ -8,10 +8,6 @@
         <GenerateProgramFile>false</GenerateProgramFile>
     </PropertyGroup>
 
-    <PropertyGroup>
-        <ParallelCompilation>true</ParallelCompilation>
-        <Deterministic>false</Deterministic>
-    </PropertyGroup>
 
     <ItemGroup>
         <!-- Utils -->
@@ -39,6 +35,7 @@
 
         <!-- Framework -->
         <Compile Include="Framework/AppTests.fs" />
+        <Compile Include="Framework/AppConfigTests.fs" />
 
         <!-- Runtime -->
         <Compile Include="Runtime/AdmissionControlTests.fs" />

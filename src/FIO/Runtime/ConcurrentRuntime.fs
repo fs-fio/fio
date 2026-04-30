@@ -60,7 +60,11 @@ and private EvaluationWorker(config: EvaluationWorkerConfig, workerId: int) =
                                 do! processWorkItem workItem
                             with exn ->
                                 try
-                                    workItem.FiberContext.Complete(Error(exn :> obj))
+                                    do!
+                                        workItem.FiberContext.CompleteAndReschedule(
+                                            Error(exn :> obj),
+                                            config.ActiveWorkItemChan
+                                        )
                                 with _ ->
                                     ()
 
@@ -88,6 +92,14 @@ and private BlockingWorker(config: BlockingWorkerConfig, workerId: int) =
                     let hasBlockedWorkItems = blockingChan.BlockingWorkItemCount > 0
                     keepProcessing <- rescheduled && hasPendingMessages && hasBlockedWorkItems
             finally
+                // Lost-signal race guard
+                // While this worker held signalProcessing=1, concurrent senders may have
+                // called TryBeginSignalProcessing and failed, meaning their new messages
+                // were never signaled to the blocking worker. Releasing the lock first
+                // (EndSignalProcessing), then re-checking, closes this window: if messages
+                // and blocked items still exist, we re-acquire the lock and re-enqueue so
+                // the blocking worker processes them. Without this re-check, those messages
+                // would be stranded and blocked receivers would never be rescheduled.
                 blockingChan.EndSignalProcessing()
 
             if
@@ -252,15 +264,7 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
                             | HandleForkEffect(eff, fiber, fiberContext) ->
                                 if admission.TryAcquire() then
                                     fiberContext.SetOnTerminal(fun () -> admission.Release())
-
-                                    let registration =
-                                        currentFiberContext.CancellationToken.Register(fun () ->
-                                            fiberContext.Interrupt(
-                                                ParentInterrupted currentFiberContext.Id,
-                                                "Parent fiber was interrupted."
-                                            ))
-
-                                    fiberContext.AddRegistration registration
+                                    let _registration = setupForkRegistration currentFiberContext fiberContext
                                     let workItem = WorkItemPool.Rent(eff, fiberContext, ContStackPool.Rent())
                                     do! activeWorkItemChan.AddAsync workItem
                                     processSuccess &state onSuccessComplete fiber
@@ -269,15 +273,7 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
                             | HandleForkTask(taskFactory, onError, fiber, fiberContext) ->
                                 if admission.TryAcquire() then
                                     fiberContext.SetOnTerminal(fun () -> admission.Release())
-
-                                    let registration =
-                                        currentFiberContext.CancellationToken.Register(fun () ->
-                                            fiberContext.Interrupt(
-                                                ParentInterrupted currentFiberContext.Id,
-                                                "Parent fiber was interrupted."
-                                            ))
-
-                                    fiberContext.AddRegistration registration
+                                    let registration = setupForkRegistration currentFiberContext fiberContext
 
                                     do!
                                         Task.Run(fun () ->

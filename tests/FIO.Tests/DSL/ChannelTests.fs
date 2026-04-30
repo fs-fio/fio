@@ -351,4 +351,45 @@ let channelTests =
                 let result = runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result messages "FIFO order should be preserved for 1000 messages"
+
+            // Stress test targeting the signal protocol re-check in ConcurrentRuntime's
+            // processBlockingChannel. Many blocked receivers + many
+            // concurrent senders maximises the chance of TryBeginSignalProcessing failures
+            // that rely on the finally-block re-check to avoid lost signals.
+            testCase "Stress - concurrent senders with many blocked receivers (signal protocol)"
+            <| fun () ->
+                let receiverCount = 50
+                let iterations = 20
+
+                for _ in 1..iterations do
+                    use runtime = new ConcurrentRuntime()
+
+                    let eff =
+                        fio {
+                            let chan = Channel<int>()
+
+                            let! receiverFibers =
+                                [ 1..receiverCount ]
+                                |> List.map (fun _ -> chan.Receive().Fork())
+                                |> FIO.collectAll
+
+                            let! senderFibers =
+                                [ 1..receiverCount ]
+                                |> List.map (fun i -> chan.Send(i).Unit().Fork())
+                                |> FIO.collectAll
+
+                            for sf in senderFibers do
+                                do! sf.Join()
+
+                            let! results = receiverFibers |> List.map (fun rf -> rf.Join()) |> FIO.collectAll
+
+                            return results |> List.sort
+                        }
+
+                    let result = runtime.Run(eff).UnsafeSuccess()
+
+                    Expect.equal
+                        result
+                        [ 1..receiverCount ]
+                        "All blocked receivers must be rescheduled (no lost signals)"
         ]

@@ -50,14 +50,7 @@ type DirectRuntime() =
                                 let! res = chan.ReceiveAsync()
                                 processSuccess &state onSuccessComplete res
                             | HandleForkEffect(eff, fiber, fiberContext) ->
-                                let registration =
-                                    currentFiberContext.CancellationToken.Register(fun () ->
-                                        fiberContext.Interrupt(
-                                            ParentInterrupted currentFiberContext.Id,
-                                            "Parent fiber was interrupted."
-                                        ))
-
-                                fiberContext.AddRegistration registration
+                                let registration = setupForkRegistration currentFiberContext fiberContext
 
                                 Task.Run(fun () ->
                                     task {
@@ -75,14 +68,7 @@ type DirectRuntime() =
 
                                 processSuccess &state onSuccessComplete fiber
                             | HandleForkTask(taskFactory, onError, fiber, fiberContext) ->
-                                let registration =
-                                    currentFiberContext.CancellationToken.Register(fun () ->
-                                        fiberContext.Interrupt(
-                                            ParentInterrupted currentFiberContext.Id,
-                                            "Parent fiber was interrupted."
-                                        ))
-
-                                fiberContext.AddRegistration registration
+                                let registration = setupForkRegistration currentFiberContext fiberContext
 
                                 Task.Run(fun () ->
                                     task {

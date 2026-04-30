@@ -21,10 +21,6 @@
         <InternalsVisibleTo Include="FIO.Tests" />
     </ItemGroup>
 
-    <PropertyGroup>
-        <ParallelCompilation>true</ParallelCompilation>
-        <Deterministic>false</Deterministic>
-    </PropertyGroup>
 
     <ItemGroup>
         <Compile Include="DSL\Utilities.fs" />
@@ -50,6 +46,7 @@
         <Compile Include="Runtime\CooperativeRuntime.fs" />
         <Compile Include="Runtime\ConcurrentRuntime.fs" />
         <Compile Include="Runtime\DefaultRuntime.fs" />
+        <Compile Include="Framework\AppConfig.fs" />
         <Compile Include="Framework\App.fs" />
     </ItemGroup>
 

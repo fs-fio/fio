@@ -484,11 +484,24 @@ and [<Sealed>] Channel<'R>
                 return false
         }
 
-    /// Attempts to transition the channel to "signal processing" state.
+    /// Attempts to atomically acquire the signal-processing lock for this channel.
+    /// <remarks>
+    /// Part of the CAS-based mutual-exclusion protocol that ensures exactly one blocking
+    /// worker processes a channel at a time. Callers that fail (return false) rely on the
+    /// active processor's finally-block re-check after EndSignalProcessing to avoid lost
+    /// signals.
+    /// </remarks>
+    /// <returns>True if this caller acquired the lock; false if another processor is active.</returns>
     member internal _.TryBeginSignalProcessing() =
         Interlocked.CompareExchange(&signalProcessing, 1, 0) = 0
 
-    /// Ends signal processing for the channel.
+    /// Releases the signal-processing lock, allowing new signals to be processed.
+    /// <remarks>
+    /// After calling this, the caller MUST re-check for pending messages and blocked work
+    /// items, re-acquiring via TryBeginSignalProcessing if needed. This re-check closes
+    /// the race window where senders failed TryBeginSignalProcessing while this processor
+    /// was active and their messages would otherwise never be delivered.
+    /// </remarks>
     member internal _.EndSignalProcessing() = Volatile.Write(&signalProcessing, 0)
 
     /// Gets the count of blocking work items.
