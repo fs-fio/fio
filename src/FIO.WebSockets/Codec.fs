@@ -207,7 +207,7 @@ module Codec =
     /// <typeparam name="T">The value type to encode and decode.</typeparam>
     /// <param name="encode">A function that encodes a value into a WebSocket frame effect.</param>
     /// <param name="decode">A function that decodes a WebSocket frame into a value effect.</param>
-    /// <returns>A codec backed by the supplied encode and decode functions.</returns>
+    /// <returns>A codec that uses the supplied encode and decode functions.</returns>
     let create (encode: 'T -> FIO<WebSocketFrame, WsError>) (decode: WebSocketFrame -> FIO<'T, WsError>) =
         { Encode = encode; Decode = decode }
 

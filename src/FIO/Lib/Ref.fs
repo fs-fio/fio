@@ -1,4 +1,4 @@
-/// <summary>Provides atomic references for thread-safe mutable state in FIO programs.</summary>
+/// <summary>Provides atomic references for mutable state in FIO programs.</summary>
 [<AutoOpen>]
 module FIO.Ref
 

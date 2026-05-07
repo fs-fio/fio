@@ -121,11 +121,11 @@ module Middleware =
 
                 handlerEffect.Race(timeoutEffect))
 
-    /// <summary>Creates CORS middleware that adds cross-origin headers and handles preflight OPTIONS requests.</summary>
+    /// <summary>Creates CORS middleware that adds cross-origin headers and responds to preflight OPTIONS requests.</summary>
     /// <param name="allowedOrigins">The list of allowed origins (use "*" for all).</param>
     /// <param name="allowedMethods">The list of allowed HTTP methods.</param>
     /// <param name="allowedHeaders">The list of allowed headers.</param>
-    /// <returns>Middleware that handles CORS headers and preflight responses.</returns>
+    /// <returns>Middleware that adds CORS headers and produces preflight responses.</returns>
     let cors
         (allowedOrigins: string list)
         (allowedMethods: string list)
