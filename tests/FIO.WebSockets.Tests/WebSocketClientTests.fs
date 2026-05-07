@@ -1,3 +1,4 @@
+/// <summary>Provides tests for WebSocket client connection and communication.</summary>
 module FIO.WebSockets.Tests.WebSocketClientTests
 
 open FIO.WebSockets.Tests.Utilities

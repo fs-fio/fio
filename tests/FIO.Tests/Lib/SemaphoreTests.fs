@@ -1,3 +1,4 @@
+/// <summary>Provides property-based tests for semaphore concurrency control.</summary>
 module FIO.Tests.SemaphoreTests
 
 open FIO.Tests.Utilities.FsCheckProperties

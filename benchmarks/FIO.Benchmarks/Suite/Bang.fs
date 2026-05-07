@@ -5,9 +5,7 @@
 (* (https://dl.acm.org/doi/10.1145/2364489.2364495I) *)
 (*****************************************************)
 
-/// <summary>
-/// Bang benchmark measuring many-to-one message passing scalability.
-/// </summary>
+/// <summary>Provides the Bang benchmark measuring many-to-one message passing scalability.</summary>
 [<RequireQualifiedAccess>]
 module private FIO.Benchmarks.Suite.Bang
 
@@ -19,22 +17,18 @@ open FIO.Benchmarks.Tools.Timer
 
 open System
 
-/// <summary>
-/// Actor with a single communication channel.
-/// </summary>
+/// <summary>Represents an actor with a single communication channel.</summary>
 type private Actor =
     {
-        /// <summary>Channel for sending/receiving messages.</summary>
+        /// <summary>Represents the channel for sending and receiving messages.</summary>
         Chan: Channel<int>
 #if DEBUG
-        /// <summary>Actor name for debugging.</summary>
+        /// <summary>Represents the actor name for debugging.</summary>
         Name: string
 #endif
     }
 
-/// <summary>
-/// Sending actor effect that sends messages to the receiving actor.
-/// </summary>
+/// <summary>Builds the sending actor effect that sends messages to the receiving actor.</summary>
 /// <param name="actor">Sending actor instance.</param>
 /// <param name="roundCount">Number of messages to send.</param>
 /// <param name="msg">Message value to send.</param>
@@ -52,9 +46,7 @@ let private sendingActorEff (actor, roundCount, msg, timerChan: Channel<TimerMes
 #endif
     }
 
-/// <summary>
-/// Receiving actor effect that receives all messages from sending actors.
-/// </summary>
+/// <summary>Builds the receiving actor effect that receives all messages from sending actors.</summary>
 /// <param name="actor">Receiving actor instance.</param>
 /// <param name="roundCount">Total number of messages to receive.</param>
 /// <param name="timerChan">Channel for timer control messages.</param>
@@ -74,9 +66,7 @@ let private receivingActorEff (actor, roundCount, timerChan: Channel<TimerMessag
         do! timerChan.Send(Stop).Unit()
     }
 
-/// <summary>
-/// Composes the receiving actor and all sending actors to run concurrently.
-/// </summary>
+/// <summary>Combines the receiving actor and all sending actors to run concurrently.</summary>
 /// <param name="receivingActor">The single receiving actor.</param>
 /// <param name="sendingActors">List of sending actors.</param>
 /// <param name="actorCount">Number of sending actors.</param>
@@ -94,9 +84,7 @@ let private bangEff (receivingActor, sendingActors: Actor list, actorCount, roun
         (fun acc (i, actor) -> sendingActorEff (actor, roundCount, msg + i, timerChan, startChan) <&&> acc)
         receiverEff
 
-/// <summary>
-/// Creates sending actors that all share the receiving actor's channel.
-/// </summary>
+/// <summary>Creates sending actors that all share the receiving actor's channel.</summary>
 /// <param name="receiveActorChan">Channel of the receiving actor.</param>
 /// <param name="actorCount">Number of sending actors to create.</param>
 /// <returns>List of sending actors.</returns>
@@ -111,11 +99,9 @@ let private createSendingActors (receiveActorChan, actorCount) =
             })
         [ 1..actorCount ]
 
-/// <summary>
-/// Creates and runs the bang benchmark, returning execution time in milliseconds.
-/// </summary>
+/// <summary>Builds the bang benchmark effect, returning execution time in milliseconds.</summary>
 /// <param name="config">Bang benchmark configuration.</param>
-/// <returns>Execution time in milliseconds.</returns>
+/// <returns>An effect that produces the execution time in milliseconds.</returns>
 let benchmark config : FIO<int64, exn> =
     fio {
         let! actorCount, roundCount =

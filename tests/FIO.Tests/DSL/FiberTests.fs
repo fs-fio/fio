@@ -1,3 +1,4 @@
+/// <summary>Provides property-based tests for fiber fork, join, and interruption semantics.</summary>
 module FIO.Tests.FiberTests
 
 open FIO.Tests.Utilities.FsCheckProperties

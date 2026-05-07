@@ -1,4 +1,4 @@
-﻿namespace FIO.Runtime
+namespace FIO.Runtime
 
 open FIO.DSL
 
@@ -8,61 +8,61 @@ open System.Globalization
 open System.Threading.Tasks
 open System.Collections.Generic
 
-/// Classifies a worker for fault severity assessment.
+/// <summary>Represents the kind of a worker for fault severity assessment.</summary>
 [<Struct>]
 type WorkerKind =
-    /// Worker that evaluates FIO effects.
+    /// <summary>Represents a worker that interprets FIO effects.</summary>
     | Evaluation
-    /// Worker that handles blocked fibers.
+    /// <summary>Represents a worker that handles fibers blocked on channels or other fibers.</summary>
     | Blocking
 
-/// Describes a worker fault event.
+/// <summary>Represents a worker fault event reported by the runtime's health monitor.</summary>
 [<Struct; NoComparison; NoEquality>]
 type WorkerFaultEvent =
     {
-        /// Human-readable worker identifier.
+        /// <summary>Represents the human-readable worker identifier.</summary>
         WorkerName: string
-        /// Whether this is an evaluation or blocking worker.
+        /// <summary>Represents the worker's role at the time of the fault.</summary>
         WorkerKind: WorkerKind
-        /// Cumulative fault count for this worker.
+        /// <summary>Represents the cumulative number of faults observed for this worker.</summary>
         FaultCount: int
-        /// The exception that caused the fault.
+        /// <summary>Represents the exception that caused the fault.</summary>
         Exception: exn
-        /// When the fault occurred.
+        /// <summary>Represents the time at which the fault was observed.</summary>
         Timestamp: DateTimeOffset
-        /// Whether the worker will attempt to restart.
+        /// <summary>Represents whether the worker will attempt to restart after this fault.</summary>
         WillRestart: bool
     }
 
-/// Runtime health state.
+/// <summary>Represents the overall health state of a worker-based runtime.</summary>
 [<Struct>]
 type RuntimeHealthState =
-    /// All workers running normally.
+    /// <summary>Represents a runtime in which all workers are running normally.</summary>
     | Healthy
-    /// Some evaluation workers faulted; throughput reduced but no deadlocks.
+    /// <summary>Represents a runtime with one or more faulted evaluation workers but still capable of progress, carrying the count of faulted workers.</summary>
     | Degraded of faultedWorkers: int
-    /// Critical worker failure; runtime cannot make progress.
+    /// <summary>Represents a runtime that cannot make further progress, carrying a human-readable reason.</summary>
     | Faulted of reason: string
 
-/// Configures the worker restart policy.
+/// <summary>Represents the restart policy applied to faulted workers.</summary>
 type WorkerRestartPolicy =
     {
-        /// Maximum total faults per worker before permanent shutdown.
+        /// <summary>Represents the maximum total number of faults a single worker may incur before permanent shutdown.</summary>
         MaxFaultsPerWorker: int
-        /// Sliding window duration for rapid-fault detection.
+        /// <summary>Represents the sliding-window duration used to detect rapid faults.</summary>
         FaultWindow: TimeSpan
-        /// Maximum faults within the window before permanent shutdown.
+        /// <summary>Represents the maximum number of faults permitted within <c>FaultWindow</c> before permanent shutdown.</summary>
         MaxFaultsInWindow: int
-        /// Initial backoff delay after first fault.
+        /// <summary>Represents the initial backoff delay applied after the first fault.</summary>
         InitialBackoff: TimeSpan
-        /// Maximum backoff delay.
+        /// <summary>Represents the maximum backoff delay between restart attempts.</summary>
         MaxBackoff: TimeSpan
-        /// Backoff multiplier per consecutive fault.
+        /// <summary>Represents the multiplier applied to the backoff delay on each consecutive fault.</summary>
         BackoffMultiplier: float
     }
 
-    /// Default restart policy.
-    /// <returns>Policy with 5 max faults, 60s window, 3 max in window, 100ms initial backoff, 5s max backoff.</returns>
+    /// <summary>Returns the default restart policy.</summary>
+    /// <returns>A policy permitting up to 5 faults per worker, 3 within a 60-second window, with backoff growing from 100&#160;ms to 5&#160;s.</returns>
     static member Default =
         {
             MaxFaultsPerWorker = 5
@@ -73,30 +73,36 @@ type WorkerRestartPolicy =
             BackoffMultiplier = 2.0
         }
 
-/// Thrown when Run() is called on a permanently faulted runtime.
+/// <summary>Represents the exception raised when <c>Run</c> is invoked on a permanently faulted runtime.</summary>
+/// <param name="message">The diagnostic message describing the fault.</param>
 type RuntimeFaultedException(message: string) =
     inherit InvalidOperationException(message)
 
-/// Tracks worker health across a runtime instance.
-/// <remarks>Thread-safe: multiple workers may report faults concurrently.</remarks>
+/// <summary>Represents a health monitor that tracks worker fault counts and overall runtime health state.</summary>
+/// <param name="ewCount">The total number of evaluation workers being monitored.</param>
 type internal WorkerHealthMonitor(ewCount: int) =
+    /// <summary>Represents the encoded health state: 0 = healthy, 1 = degraded, 2 = faulted.</summary>
     let mutable state = 0
+    /// <summary>Represents the number of evaluation workers that have permanently faulted.</summary>
     let mutable faultedEWCount = 0
+    /// <summary>Represents the human-readable reason when the runtime enters the faulted state.</summary>
     let mutable faultReason = ""
+    /// <summary>Represents the registered fault-notification callbacks.</summary>
     let onFaultCallbacks = ResizeArray<Action<WorkerFaultEvent>>()
+    /// <summary>Represents the synchronization guard for the callback list.</summary>
     let callbackLock = obj ()
 
-    /// Gets the current runtime health state.
-    /// <returns>The current health state of the runtime.</returns>
+    /// <summary>Returns the current health state of the runtime derived from tracked faults.</summary>
+    /// <returns>A <c>RuntimeHealthState</c> value indicating healthy, degraded, or faulted.</returns>
     member _.State =
         match Volatile.Read &state with
         | 0 -> Healthy
         | 1 -> Degraded(Volatile.Read &faultedEWCount)
         | _ -> Faulted(Volatile.Read &faultReason)
 
-    /// Reports a permanently faulted worker.
-    /// <param name="kind">The kind of worker that faulted.</param>
-    /// <param name="reason">Description of the fault.</param>
+    /// <summary>Transitions the health state to degraded or faulted after a worker is permanently shut down.</summary>
+    /// <param name="kind">The kind of the permanently faulted worker.</param>
+    /// <param name="reason">A human-readable description of the fault.</param>
     member _.ReportPermanentFault(kind: WorkerKind, reason: string) =
         match kind with
         | Evaluation ->
@@ -111,7 +117,7 @@ type internal WorkerHealthMonitor(ewCount: int) =
             Volatile.Write(&faultReason, $"BlockingWorker permanently faulted: {reason}")
             Volatile.Write(&state, 2)
 
-    /// Reports a worker fault event to registered callbacks.
+    /// <summary>Builds a diagnostic log entry and invokes all registered fault-notification callbacks for the given event.</summary>
     /// <param name="event'">The fault event to report.</param>
     member _.NotifyFault(event': WorkerFaultEvent) =
         Console.Error.WriteLine
@@ -125,55 +131,63 @@ type internal WorkerHealthMonitor(ewCount: int) =
             with _ ->
                 ()
 
-    /// Registers a callback to be invoked when any worker faults.
-    /// <param name="callback">The callback to register.</param>
+    /// <summary>Creates a fault-notification subscription that invokes the given callback on each worker fault.</summary>
+    /// <param name="callback">The callback to invoke when a worker fault is observed.</param>
     member _.OnFault(callback: Action<WorkerFaultEvent>) =
         lock callbackLock (fun () -> onFaultCallbacks.Add callback)
 
-/// Base class for worker-based FIO runtimes.
+/// <summary>Represents the abstract base for worker-based FIO runtimes that share evaluation, scheduling, and blocking-worker infrastructure.</summary>
 [<AbstractClass>]
 type FIOWorkerRuntime internal (config: WorkerConfig) as this =
     inherit FIORuntime()
 
+    /// <summary>Builds a validated worker-based runtime, raising an exception if the configuration is invalid.</summary>
     let validateWorkerConfiguration () =
         if config.EWC <= 0 || config.EWS <= 0 || config.BWC <= 0 then
             invalidArg "config" $"Invalid worker configuration! %s{this.ToString()}"
 
     do validateWorkerConfiguration ()
 
+    /// <summary>Represents the health monitor for this runtime's workers.</summary>
     let monitor = WorkerHealthMonitor(config.EWC)
 
+    /// <summary>Returns the worker configuration this runtime was constructed with.</summary>
+    /// <returns>The configuration carrying evaluation/blocking worker counts and per-work-item step budget.</returns>
     member _.WorkerConfig = config
 
-    /// Gets the health monitor for this runtime.
+    /// <summary>Returns the health monitor used by this runtime's workers.</summary>
+    /// <returns>The <c>WorkerHealthMonitor</c> instance tracking worker faults.</returns>
     member internal _.Monitor = monitor
 
-    /// Gets the current health state of the runtime.
-    /// <returns>The current health state.</returns>
+    /// <summary>Returns the current health state of this runtime.</summary>
+    /// <returns>A <c>RuntimeHealthState</c> indicating whether the runtime is healthy, degraded, or faulted.</returns>
     member _.HealthState = monitor.State
 
-    /// Registers a callback to be invoked when any worker faults.
-    /// <param name="callback">The callback to register.</param>
+    /// <summary>Creates a fault-notification subscription that invokes the given callback on each worker fault.</summary>
+    /// <param name="callback">A function from the fault event to its handling side effect; called once per fault.</param>
     member _.OnWorkerFault(callback: Action<WorkerFaultEvent>) = monitor.OnFault callback
 
+    /// <summary>Returns a string describing this runtime's worker configuration.</summary>
+    /// <returns>A formatted string with the evaluation worker count, step budget, and blocking worker count.</returns>
     override _.ConfigString =
         let ci = CultureInfo "en-US"
         $"""EWC: %s{config.EWC.ToString("N0", ci)} EWS: %s{config.EWS.ToString("N0", ci)} BWC: %s{config.BWC.ToString("N0", ci)}"""
 
+    /// <summary>Returns a string combining the runtime name with its worker configuration.</summary>
+    /// <returns>A formatted string of the form "Name (ConfigString)".</returns>
     override this.ToString() = $"{this.Name} ({this.ConfigString})"
 
-/// Shared worker lifecycle management for worker-based runtimes.
+/// <summary>Represents lifecycle functions for starting and restarting workers with fault tolerance and exponential backoff.</summary>
 module internal WorkerLifecycle =
 
-    /// Starts a worker with automatic restart-on-fault, exponential backoff,
-    /// and health monitoring.
-    /// <param name="monitor">Health monitor for fault reporting.</param>
-    /// <param name="policy">Restart policy governing backoff and fault limits.</param>
-    /// <param name="workerName">Human-readable worker name for diagnostics.</param>
-    /// <param name="workerKind">Whether this is an evaluation or blocking worker.</param>
-    /// <param name="onRestart">Called before backoff on restart; use to clear internal state.</param>
-    /// <param name="innerLoop">The worker's main loop; should run until cancellation or channel closure.</param>
-    /// <returns>A struct tuple of the CancellationTokenSource (for disposal) and the worker Task.</returns>
+    /// <summary>Creates a long-running worker task that restarts on faults according to the given policy.</summary>
+    /// <param name="monitor">The health monitor that tracks worker faults.</param>
+    /// <param name="policy">The restart policy controlling fault limits and backoff.</param>
+    /// <param name="workerName">The human-readable name for diagnostic logging.</param>
+    /// <param name="workerKind">The kind of worker being started.</param>
+    /// <param name="onRestart">A callback invoked before each restart attempt.</param>
+    /// <param name="innerLoop">The worker's main loop, which receives a cancellation token and runs until cancelled or faulted.</param>
+    /// <returns>A struct tuple of the cancellation token source controlling the worker and the worker's background task.</returns>
     let startWorker
         (monitor: WorkerHealthMonitor)
         (policy: WorkerRestartPolicy)

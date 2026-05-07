@@ -1,31 +1,25 @@
-﻿/// <summary>
-/// Chart generation functions using Plotly.NET for benchmark visualization.
-/// </summary>
+﻿/// <summary>Provides chart creation functions using Plotly.NET for benchmark visualization.</summary>
 module internal FIO.Benchmarks.Plots.Charts
 
 open Plotly.NET
 open Plotly.NET.TraceObjects
 open Plotly.NET.LayoutObjects
 
-/// <summary>
-/// Default layout styling for all charts.
-/// </summary>
+/// <summary>Returns the default layout styling for all charts.</summary>
+/// <returns>The default chart layout.</returns>
 let private defaultLayout =
     Layout.init (PlotBGColor = Color.fromHex "#F8F8F8", PaperBGColor = Color.fromHex "#FFFFFF")
 
-/// <summary>
-/// Index of the execution time column in CSV headers.
-/// </summary>
+/// <summary>Returns the index of the execution time column in CSV headers.</summary>
+/// <returns>The zero-based column index.</returns>
 let private executionTimeHeaderIndex = 1
 
-/// <summary>
-/// Generates a box plot comparing execution times across runtimes.
-/// </summary>
-/// <param name="data">List of file metadata and benchmark data pairs.</param>
-/// <param name="width">Chart width in pixels.</param>
-/// <param name="height">Chart height in pixels.</param>
-/// <param name="color">Color for the box plot markers.</param>
-/// <returns>Combined box plot chart.</returns>
+/// <summary>Creates a box plot comparing execution times across runtimes.</summary>
+/// <param name="data">The list of file metadata and benchmark data pairs.</param>
+/// <param name="width">The chart width in pixels.</param>
+/// <param name="height">The chart height in pixels.</param>
+/// <param name="color">The color for the box plot markers.</param>
+/// <returns>A combined box plot chart.</returns>
 let boxPlot (data: (FileMetadata * BenchmarkData) list) (width: int) (height: int) color =
 
     let createChart (data: FileMetadata * BenchmarkData) =
@@ -49,14 +43,12 @@ let boxPlot (data: (FileMetadata * BenchmarkData) list) (width: int) (height: in
 
     Chart.combine <| List.map createChart data
 
-/// <summary>
-/// Generates a line plot showing execution time trends across actor counts.
-/// </summary>
-/// <param name="data">Nested list of file metadata and benchmark data grouped by runtime.</param>
-/// <param name="width">Chart width in pixels.</param>
-/// <param name="height">Chart height in pixels.</param>
-/// <param name="colors">List of colors for each line.</param>
-/// <returns>Combined line plot chart.</returns>
+/// <summary>Creates a line plot showing execution time trends across actor counts.</summary>
+/// <param name="data">The nested list of file metadata and benchmark data grouped by runtime.</param>
+/// <param name="width">The chart width in pixels.</param>
+/// <param name="height">The chart height in pixels.</param>
+/// <param name="colors">The list of colors for each line.</param>
+/// <returns>A combined line plot chart.</returns>
 let linePlot (data: (FileMetadata * BenchmarkData) list list) (width: int) (height: int) colors =
 
     let createChart (data: (FileMetadata * BenchmarkData) list) color dash =

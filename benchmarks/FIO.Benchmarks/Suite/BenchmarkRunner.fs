@@ -1,6 +1,4 @@
-/// <summary>
-/// Orchestrates benchmark execution, collecting timing and memory statistics.
-/// </summary>
+/// <summary>Provides benchmark execution orchestration with timing and statistics collection.</summary>
 module internal FIO.Benchmarks.Suite.BenchmarkRunner
 
 open FIO.DSL
@@ -9,20 +7,16 @@ open FIO.Runtime
 open System
 open System.Diagnostics
 
-/// <summary>
-/// Controls the verbosity level of benchmark output during execution.
-/// </summary>
+/// <summary>Represents the verbosity level of benchmark output during execution.</summary>
 type private OutputMode =
-    /// <summary>Ultra-minimal output, suppressing progress updates.</summary>
+    /// <summary>Represents ultra-minimal output, suppressing progress updates.</summary>
     | Quiet
-    /// <summary>Milestone-based progress output with summary statistics.</summary>
+    /// <summary>Represents milestone-based progress output with summary statistics.</summary>
     | Concise
-    /// <summary>Per-run output with full timing details.</summary>
+    /// <summary>Represents per-run output with full timing details.</summary>
     | Detailed
 
-/// <summary>
-/// Computes progress milestone checkpoints as a map from run number to completion percentage.
-/// </summary>
+/// <summary>Returns progress milestone checkpoints as a map from run number to completion percentage.</summary>
 /// <param name="totalRuns">Total number of benchmark runs.</param>
 /// <returns>Map from run number to percentage milestone.</returns>
 let private progressMilestones (totalRuns: int) =
@@ -32,15 +26,13 @@ let private progressMilestones (totalRuns: int) =
         run, pct)
     |> List.fold (fun milestones (run, pct) -> Map.add run pct milestones) Map.empty
 
-/// <summary>
-/// Executes a single benchmark configuration for the specified number of runs.
-/// </summary>
+/// <summary>Creates a benchmark execution task for the specified number of runs.</summary>
 /// <param name="runtime">Runtime instance to use.</param>
 /// <param name="totalRuns">Number of runs to execute.</param>
 /// <param name="warmupRuns">Number of warmup runs before measured runs.</param>
 /// <param name="outputMode">Verbosity mode for benchmark output.</param>
 /// <param name="config">Benchmark configuration.</param>
-/// <returns>Benchmark result with timing and memory statistics.</returns>
+/// <returns>Benchmark result with timing statistics.</returns>
 let private runBenchmark
     (runtime: FIORuntime, totalRuns: int, warmupRuns: int, outputMode: OutputMode, config: BenchmarkConfig)
     =
@@ -63,16 +55,12 @@ let private runBenchmark
         | Quiet -> true
         | _ -> false
 
-    /// <summary>
-    /// Calculates the arithmetic mean of a list of values.
-    /// </summary>
+    /// <summary>Returns the arithmetic mean of a list of values.</summary>
     /// <param name="onlyTimes">List of values to average.</param>
     /// <returns>Arithmetic mean.</returns>
     let average onlyTimes = onlyTimes |> List.averageBy float
 
-    /// <summary>
-    /// Calculates the population standard deviation of a list of values.
-    /// </summary>
+    /// <summary>Returns the population standard deviation of a list of values.</summary>
     /// <param name="onlyTimes">List of values.</param>
     /// <returns>Population standard deviation.</returns>
     let standardDeviation (onlyTimes: int64 list) =
@@ -86,9 +74,7 @@ let private runBenchmark
 
             sqrt variance
 
-    /// <summary>
-    /// Calculates the median of a list of values.
-    /// </summary>
+    /// <summary>Returns the median of a list of values.</summary>
     /// <param name="values">List of values to compute the median of.</param>
     /// <returns>Median value.</returns>
     let median (values: int64 list) =
@@ -103,9 +89,7 @@ let private runBenchmark
             else
                 float sorted.[mid]
 
-    /// <summary>
-    /// Calculates percentile using nearest-rank method.
-    /// </summary>
+    /// <summary>Returns the percentile value using nearest-rank method.</summary>
     /// <param name="p">Percentile to compute (0-100).</param>
     /// <param name="values">List of values to compute the percentile of.</param>
     /// <returns>Percentile value.</returns>
@@ -118,11 +102,9 @@ let private runBenchmark
             let index = rank |> max 0 |> min (sorted.Length - 1)
             float sorted.[index]
 
-    /// <summary>
-    /// Executes the benchmark effect repeatedly and collects metrics.
-    /// </summary>
+    /// <summary>Creates a benchmark execution task that repeats the effect and collects timing metrics.</summary>
     /// <param name="eff">Benchmark effect to execute.</param>
-    /// <param name="proc">Process handle for memory metric collection.</param>
+    /// <param name="proc">Process handle for refreshing system metrics between runs.</param>
     /// <returns>Tuple of runs and execution times.</returns>
     let rec executeBenchmark (eff: FIO<int64, exn>, proc: Process) =
         task {
@@ -221,15 +203,13 @@ let private runBenchmark
             }
     }
 
-/// <summary>
-/// Runs a single benchmark configuration for a specific runtime selection.
-/// </summary>
+/// <summary>Creates a benchmark execution task for a specific runtime selection.</summary>
 /// <param name="runtimeSelection">Runtime to create and use.</param>
 /// <param name="totalRuns">Number of measured runs to execute.</param>
 /// <param name="warmupRuns">Number of warmup runs before measured runs.</param>
 /// <param name="outputMode">Verbosity mode for benchmark output.</param>
 /// <param name="config">Benchmark configuration to run.</param>
-/// <returns>Benchmark result with timing and memory statistics.</returns>
+/// <returns>Benchmark result with timing statistics.</returns>
 let private runBenchmarkForSelection
     (
         runtimeSelection: RuntimeSelection,
@@ -250,10 +230,9 @@ let private runBenchmarkForSelection
             | _ -> ()
     }
 
-/// <summary>
-/// Runs all configured benchmarks with optional actor/round increments.
-/// </summary>
+/// <summary>Creates a benchmark execution task for all configured benchmarks with optional increments.</summary>
 /// <param name="args">Benchmark arguments including runtime and configurations.</param>
+/// <returns>A task that completes when all benchmarks have finished.</returns>
 let internal run args =
     task {
         let actorInc, actorIncTimes = args.ActorIncrement

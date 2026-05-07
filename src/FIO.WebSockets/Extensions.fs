@@ -5,17 +5,17 @@ open FIO.DSL
 open System.Text.Json
 open System.Threading
 
-/// Extension methods for JSON serialization and other conveniences over WebSockets.
+/// <summary>Builds convenience extension methods for JSON and raw-frame WebSocket operations.</summary>
 [<AutoOpen>]
 module WebSocketExtensions =
 
     type WebSocket with
 
-        /// Sends a value as JSON over the WebSocket.
-        /// <param name="value">The value to send.</param>
-        /// <param name="options">Optional JSON serializer options.</param>
-        /// <param name="ct">Optional cancellation token.</param>
-        /// <returns>Effect that sends the JSON value.</returns>
+        /// <summary>Creates an effect that serializes a value as JSON and sends it as a text frame.</summary>
+        /// <param name="value">The value to serialize and send.</param>
+        /// <param name="options">Optional JSON serializer options; uses defaults when omitted.</param>
+        /// <param name="ct">Optional cancellation token; uses <c>CancellationToken.None</c> when omitted.</param>
+        /// <returns>An effect that completes when the JSON text frame has been sent.</returns>
         member this.SendJson<'T>(value: 'T, ?options: JsonSerializerOptions, ?ct: CancellationToken) =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
@@ -27,11 +27,11 @@ module WebSocketExtensions =
                 do! this.SendText(jsonString, ct)
             }
 
-        /// Receives and deserializes a JSON value from the WebSocket.
-        /// <typeparam name="T">The type to deserialize to.</typeparam>
-        /// <param name="options">Optional JSON serializer options.</param>
-        /// <param name="ct">Optional cancellation token.</param>
-        /// <returns>The deserialized value.</returns>
+        /// <summary>Creates an effect that receives a frame and deserializes it as JSON.</summary>
+        /// <typeparam name="T">The target type for deserialization.</typeparam>
+        /// <param name="options">Optional JSON serializer options; uses defaults when omitted.</param>
+        /// <param name="ct">Optional cancellation token; uses <c>CancellationToken.None</c> when omitted.</param>
+        /// <returns>An effect that produces the deserialized value, or fails if the connection is closed or the frame cannot be parsed.</returns>
         member this.ReceiveJson<'T>(?options: JsonSerializerOptions, ?ct: CancellationToken) =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
@@ -58,13 +58,13 @@ module WebSocketExtensions =
                         )
             }
 
-        /// Sends a string as a text frame (convenience method).
+        /// <summary>Creates an effect that sends a string as a text frame.</summary>
         /// <param name="text">The string to send.</param>
-        /// <returns>Effect that sends the text frame.</returns>
+        /// <returns>An effect that completes when the text frame has been sent.</returns>
         member this.SendString(text: string) = this.SendText text
 
-        /// Receives a text frame as a string (convenience method).
-        /// <returns>The received text string.</returns>
+        /// <summary>Creates an effect that receives a text frame and returns its string content.</summary>
+        /// <returns>An effect that produces the received text string, or fails if a non-text frame or close is received.</returns>
         member this.ReceiveString() =
             fio {
                 match! this.ReceiveMessage() with
@@ -82,13 +82,13 @@ module WebSocketExtensions =
                         )
             }
 
-        /// Sends binary data (convenience method).
-        /// <param name="data">The binary data to send.</param>
-        /// <returns>Effect that sends the binary frame.</returns>
+        /// <summary>Creates an effect that sends a byte array as a binary frame.</summary>
+        /// <param name="data">The byte array to send.</param>
+        /// <returns>An effect that completes when the binary frame has been sent.</returns>
         member this.SendBytes(data: byte[]) = this.SendBinary data
 
-        /// Receives binary data (convenience method).
-        /// <returns>The received binary data.</returns>
+        /// <summary>Creates an effect that receives a binary frame and returns its byte content.</summary>
+        /// <returns>An effect that produces the received byte array, or fails if a non-binary frame or close is received.</returns>
         member this.ReceiveBytes() =
             fio {
                 match! this.ReceiveMessage() with

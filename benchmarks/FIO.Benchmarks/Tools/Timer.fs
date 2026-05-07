@@ -1,6 +1,4 @@
-/// <summary>
-/// Timer utilities for measuring benchmark execution time.
-/// </summary>
+/// <summary>Provides timer utilities for measuring benchmark execution time.</summary>
 module internal FIO.Benchmarks.Tools.Timer
 
 open FIO.DSL
@@ -11,20 +9,16 @@ open FIO.Console
 open System
 open System.Diagnostics
 
-/// <summary>
-/// Messages for controlling the timer's start/stop behavior and channel communication.
-/// </summary>
+/// <summary>Represents a timer control message for start/stop behavior and channel communication.</summary>
 type internal TimerMessage<'R> =
-    /// <summary>Signal to start timing.</summary>
+    /// <summary>Represents a signal to start timing.</summary>
     | Start
-    /// <summary>Signal to stop timing.</summary>
+    /// <summary>Represents a signal to stop timing.</summary>
     | Stop
-    /// <summary>Channel for sending messages to benchmark actors.</summary>
+    /// <summary>Represents a channel for sending messages to benchmark actors.</summary>
     | MsgChannel of Channel<'R>
 
-/// <summary>
-/// Waits for the specified number of Start messages before starting the stopwatch.
-/// </summary>
+/// <summary>Builds the loop effect that awaits the specified number of Start messages before starting the stopwatch.</summary>
 /// <param name="startCount">Number of Start messages to wait for.</param>
 /// <param name="timerChan">Channel for receiving timer messages.</param>
 /// <param name="stopwatch">Stopwatch instance to start.</param>
@@ -60,9 +54,7 @@ let private startLoop (startCount, timerChan: Channel<TimerMessage<int>>, stopwa
 #endif
     }
 
-/// <summary>
-/// Sends the specified number of messages to the message channel.
-/// </summary>
+/// <summary>Builds the loop effect that sends the specified number of messages to the message channel.</summary>
 /// <param name="msgCount">Number of messages to send.</param>
 /// <param name="msg">Initial message value.</param>
 /// <param name="msgChan">Channel to send messages to.</param>
@@ -93,9 +85,7 @@ let private msgLoop (msgCount, msg, msgChan: Channel<int>) : FIO<unit, exn> =
             currentMsg <- currentMsg + 1
     }
 
-/// <summary>
-/// Waits for the specified number of Stop messages before stopping the stopwatch.
-/// </summary>
+/// <summary>Builds the loop effect that awaits the specified number of Stop messages before stopping the stopwatch.</summary>
 /// <param name="stopCount">Number of Stop messages to wait for.</param>
 /// <param name="timerChan">Channel for receiving timer messages.</param>
 /// <param name="stopwatch">Stopwatch instance to stop.</param>
@@ -131,9 +121,7 @@ let private stopLoop (stopCount, timerChan: Channel<TimerMessage<int>>, stopwatc
 #endif
     }
 
-/// <summary>
-/// Timer effect that coordinates benchmark timing via start/stop message counting.
-/// </summary>
+/// <summary>Builds the timer effect that coordinates benchmark timing via start/stop message counting.</summary>
 /// <param name="startCount">Number of Start messages to wait for before timing.</param>
 /// <param name="msgCount">Number of messages to send to actors.</param>
 /// <param name="stopCount">Number of Stop messages to wait for before stopping.</param>

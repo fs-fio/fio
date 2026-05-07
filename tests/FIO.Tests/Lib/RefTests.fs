@@ -1,3 +1,4 @@
+/// <summary>Provides property-based tests for atomic reference operations.</summary>
 module FIO.Tests.RefTests
 
 open FIO.Tests.Utilities.FsCheckProperties

@@ -1,136 +1,139 @@
-/// Provides factory functions for creating FIO effects.
+/// <summary>Provides factory functions for creating FIO effects.</summary>
 [<AutoOpen>]
 module FIO.DSL.Factories
 
 open System
 open System.Threading.Tasks
 
-/// Factory functions for creating FIO effects.
-/// Functions accepting `onError: exn -> 'E` use it to map exceptions to the effect's error type.
+/// <summary>Provides factory functions for creating FIO effects, accessed as <c>FIO.succeed</c>, <c>FIO.fail</c>, and so on.</summary>
 [<RequireQualifiedAccess>]
 module FIO =
 
-    /// Succeeds immediately with unit.
-    /// <returns>An effect that succeeds with unit.</returns>
+    /// <summary>Lifts unit into an effect that completes successfully with no value.</summary>
+    /// <returns>An effect that completes immediately with unit on the success channel.</returns>
     let unit<'E> () : FIO<unit, 'E> = Success()
 
-    /// Succeeds with the given value.
-    /// <param name="res">The value to succeed with.</param>
-    /// <returns>An effect that succeeds with the given value.</returns>
+    /// <summary>Lifts a value into an effect that completes with that value as its success result.</summary>
+    /// <param name="res">The value to wrap as a successful result.</param>
+    /// <returns>An effect that completes immediately with <paramref name="res"/> on the success channel.</returns>
     let succeed<'R, 'E> (res: 'R) : FIO<'R, 'E> = Success res
 
-    /// Fails with the given error.
-    /// <param name="err">The error to fail with.</param>
-    /// <returns>An effect that fails with the given error.</returns>
+    /// <summary>Lifts a typed error into an effect that fails with that error.</summary>
+    /// <param name="err">The error value to fail with.</param>
+    /// <returns>An effect that fails immediately with <paramref name="err"/> on the error channel.</returns>
     let fail<'R, 'E> (err: 'E) : FIO<'R, 'E> = Failure err
 
-    /// Interrupts the current fiber.
+    /// <summary>Creates an effect that interrupts the current fiber when interpreted.</summary>
     /// <param name="cause">The reason for the interruption.</param>
-    /// <param name="msg">A descriptive message for the interruption.</param>
-    /// <returns>An effect that interrupts the current fiber when interpreted.</returns>
+    /// <param name="msg">A human-readable description of the interruption.</param>
+    /// <returns>An effect that interrupts the current fiber when evaluated.</returns>
     let interrupt<'R, 'E> (cause: InterruptionCause, msg: string) : FIO<'R, 'E> = InterruptSelf(cause, msg)
 
-    /// Converts a side-effecting function into an effect.
-    /// <param name="func">Function to execute when the effect is interpreted.</param>
-    /// <param name="onError">Maps exceptions to the error type.</param>
-    /// <returns>An effect that executes the function when interpreted.</returns>
+    /// <summary>Lifts a side-effecting thunk into an effect that runs the thunk when interpreted.</summary>
+    /// <param name="func">A thunk that produces the success value when invoked at evaluation time.</param>
+    /// <param name="onError">A function that maps any exception thrown by <paramref name="func"/> to the typed error.</param>
+    /// <returns>An effect that invokes <paramref name="func"/> when evaluated and either succeeds with its result or fails through <paramref name="onError"/>.</returns>
     let attempt<'R, 'E> (func: unit -> 'R, onError: exn -> 'E) : FIO<'R, 'E> = FIO.Action(func, onError)
 
-    /// Converts a Result into an effect.
-    /// <param name="res">The Result value to convert.</param>
-    /// <returns>An effect that succeeds with Ok or fails with Error.</returns>
+    /// <summary>Lifts a <c>Result</c> into an effect, succeeding for <c>Ok</c> and failing for <c>Error</c>.</summary>
+    /// <param name="res">The result value to convert.</param>
+    /// <returns>An effect that completes with the <c>Ok</c> value or fails with the <c>Error</c> value.</returns>
     let inline fromResult<'R, 'E> (res: Result<'R, 'E>) : FIO<'R, 'E> =
         match res with
         | Ok res -> succeed res
         | Error err -> fail err
 
-    /// Converts an Option into an effect, failing with onNone if None.
-    /// <param name="opt">The Option value to convert.</param>
-    /// <param name="onNone">Produces an error when the option is None.</param>
-    /// <returns>An effect that succeeds with Some or fails with the result of onNone.</returns>
+    /// <summary>Lifts an <c>Option</c> into an effect, failing through a supplied function when the option is <c>None</c>.</summary>
+    /// <param name="opt">The option value to convert.</param>
+    /// <param name="onNone">A function producing the typed error when <paramref name="opt"/> is <c>None</c>.</param>
+    /// <returns>An effect that completes with the <c>Some</c> value or fails with the result of <paramref name="onNone"/>.</returns>
     let inline fromOption<'R, 'E> (opt: Option<'R>, onNone: unit -> 'E) : FIO<'R, 'E> =
         match opt with
         | Some res -> succeed res
         | None -> fail (onNone ())
 
-    /// Converts a Choice into an effect.
-    /// <param name="choice">The Choice value to convert.</param>
-    /// <returns>An effect that succeeds with Choice1Of2 or fails with Choice2Of2.</returns>
+    /// <summary>Lifts a <c>Choice</c> into an effect, succeeding for <c>Choice1Of2</c> and failing for <c>Choice2Of2</c>.</summary>
+    /// <param name="choice">The choice value to convert.</param>
+    /// <returns>An effect that completes with <c>Choice1Of2</c> or fails with <c>Choice2Of2</c>.</returns>
     let inline fromChoice<'R, 'E> (choice: Choice<'R, 'E>) : FIO<'R, 'E> =
         match choice with
         | Choice1Of2 res -> succeed res
         | Choice2Of2 err -> fail err
 
-    /// Awaits a Task, returning unit on completion.
-    /// <param name="task">The Task to await.</param>
-    /// <param name="onError">Maps exceptions to the error type.</param>
-    /// <returns>An effect that completes with unit when the task finishes.</returns>
+    /// <summary>Builds an effect that awaits a non-generic <c>Task</c> and completes with unit.</summary>
+    /// <param name="task">The task to await.</param>
+    /// <param name="onError">A function that maps an exception thrown by the task to the typed error.</param>
+    /// <returns>An effect that completes with unit when the task finishes successfully or fails through <paramref name="onError"/>.</returns>
     let awaitTask<'E> (task: Task, onError: exn -> 'E) : FIO<unit, 'E> = AwaitTask(wrapVoidTask task, onError)
 
-    /// Awaits a Task and returns its result.
-    /// <param name="task">The Task to await.</param>
-    /// <param name="onError">Maps exceptions to the error type.</param>
-    /// <returns>An effect that completes with the task's result.</returns>
+    /// <summary>Builds an effect that awaits a generic <c>Task</c> and completes with its result.</summary>
+    /// <param name="task">The task to await.</param>
+    /// <param name="onError">A function that maps an exception thrown by the task to the typed error.</param>
+    /// <returns>An effect that completes with the task's result or fails through <paramref name="onError"/>.</returns>
     let awaitGenericTask<'R, 'E> (task: Task<'R>, onError: exn -> 'E) : FIO<'R, 'E> =
         AwaitTask(upcastTask task, onError)
 
-    /// Awaits an Async computation and returns its result.
-    /// <param name="async">The Async computation to await.</param>
-    /// <param name="onError">Maps exceptions to the error type.</param>
-    /// <returns>An effect that completes with the async computation's result.</returns>
-    let inline awaitAsync<'R, 'E> (async: Async<'R>, onError: exn -> 'E) : FIO<'R, 'E> =
-        awaitGenericTask (Async.StartAsTask async, onError)
-
-    /// Forks a lazily-evaluated Task into a Fiber.
-    /// <param name="taskFactory">Factory function that creates the Task to fork.</param>
-    /// <param name="onError">Maps exceptions to the error type.</param>
-    /// <returns>An effect that produces a Fiber running the task.</returns>
-    let fromTask<'E> (taskFactory: unit -> Task, onError: exn -> 'E) : FIO<Fiber<unit, 'E>, 'E> =
-        let fiber = new Fiber<unit, 'E>()
-        ForkTask((fun () -> wrapVoidTask (taskFactory ())), onError, fiber, fiber.Context)
-
-    /// Forks a lazily-evaluated generic Task into a Fiber.
-    /// <param name="taskFactory">Factory function that creates the Task to fork.</param>
-    /// <param name="onError">Maps exceptions to the error type.</param>
-    /// <returns>An effect that produces a Fiber running the task.</returns>
-    let fromGenericTask<'R, 'E> (taskFactory: unit -> Task<'R>, onError: exn -> 'E) : FIO<Fiber<'R, 'E>, 'E> =
-        let fiber = new Fiber<'R, 'E>()
-        ForkTask((fun () -> upcastTask (taskFactory ())), onError, fiber, fiber.Context)
-
-    /// Defers effect construction until execution.
-    /// <param name="eff">Factory function that produces the effect to execute.</param>
-    /// <returns>An effect whose construction is deferred until interpretation.</returns>
+    /// <summary>Builds an effect whose construction is deferred until the effect is interpreted.</summary>
+    /// <param name="eff">A factory function producing the effect to evaluate.</param>
+    /// <returns>An effect that calls <paramref name="eff"/> at evaluation time and runs the effect it produces.</returns>
+    /// <remarks>Use to wrap construction-time side effects so they only run when the resulting effect is interpreted.</remarks>
     let suspend<'R, 'E> (eff: unit -> FIO<'R, 'E>) : FIO<'R, 'E> = (unit ()).FlatMap(fun () -> eff ())
 
-    /// Delays execution for the specified duration.
-    /// <param name="duration">The time span to delay.</param>
-    /// <param name="onError">Maps exceptions to the error type.</param>
-    /// <returns>An effect that completes with unit after the specified duration.</returns>
+    /// <summary>Builds an effect that awaits an <c>Async</c> computation and completes with its result.</summary>
+    /// <param name="async">The async workflow to await.</param>
+    /// <param name="onError">A function that maps an exception thrown by the async workflow to the typed error.</param>
+    /// <returns>An effect that starts the async workflow at evaluation time and completes with its result.</returns>
+    let inline awaitAsync<'R, 'E> (async: Async<'R>, onError: exn -> 'E) : FIO<'R, 'E> =
+        suspend (fun () -> awaitGenericTask (Async.StartAsTask async, onError))
+
+    /// <summary>Creates a new fiber that runs a lazily-evaluated non-generic <c>Task</c> concurrently with the caller.</summary>
+    /// <param name="taskFactory">A factory function that creates the task to fork; called at evaluation time.</param>
+    /// <param name="onError">A function that maps an exception thrown by the task to the typed error.</param>
+    /// <returns>An effect that completes with a <c>Fiber</c> handle to the running task.</returns>
+    /// <remarks>Fiber allocation is deferred until the effect is interpreted.</remarks>
+    let fromTask<'E> (taskFactory: unit -> Task, onError: exn -> 'E) : FIO<Fiber<unit, 'E>, 'E> =
+        suspend (fun () ->
+            let fiber = new Fiber<unit, 'E>()
+            ForkTask((fun () -> wrapVoidTask (taskFactory ())), onError, fiber, fiber.Context))
+
+    /// <summary>Creates a new fiber that runs a lazily-evaluated generic <c>Task</c> concurrently with the caller.</summary>
+    /// <param name="taskFactory">A factory function that creates the task to fork; called at evaluation time.</param>
+    /// <param name="onError">A function that maps an exception thrown by the task to the typed error.</param>
+    /// <returns>An effect that completes with a <c>Fiber</c> handle to the running task.</returns>
+    /// <remarks>Fiber allocation is deferred until the effect is interpreted.</remarks>
+    let fromGenericTask<'R, 'E> (taskFactory: unit -> Task<'R>, onError: exn -> 'E) : FIO<Fiber<'R, 'E>, 'E> =
+        suspend (fun () ->
+            let fiber = new Fiber<'R, 'E>()
+            ForkTask((fun () -> upcastTask (taskFactory ())), onError, fiber, fiber.Context))
+
+    /// <summary>Builds an effect that completes with unit after the specified delay.</summary>
+    /// <param name="duration">The amount of time to wait before completing.</param>
+    /// <param name="onError">A function that maps an exception thrown by the underlying delay to the typed error.</param>
+    /// <returns>An effect that completes with unit once <paramref name="duration"/> has elapsed.</returns>
     let sleep<'E> (duration: TimeSpan, onError: exn -> 'E) : FIO<unit, 'E> =
         suspend (fun () -> awaitTask (Task.Delay duration, onError))
 
-    /// Creates an effect that never completes.
-    /// <remarks>Blocks forever by waiting on an empty channel. Must be interrupted to terminate.</remarks>
-    /// <returns>An effect that never completes.</returns>
+    /// <summary>Creates an effect that never completes on its own.</summary>
+    /// <returns>An effect that suspends the fiber indefinitely; the fiber must be interrupted to terminate.</returns>
     let never<'R, 'E> () : FIO<'R, 'E> =
         suspend (fun () ->
             let chan = new Channel<'R>()
             chan.Receive())
 
-    /// Acquires a resource, uses it, and guarantees release.
-    /// <remarks>Release runs on success, failure, and interruption via Ensuring.</remarks>
-    /// <param name="acquire">The effect that acquires the resource.</param>
-    /// <param name="release">Produces the effect to release the resource.</param>
-    /// <param name="useResource">Produces the effect to use the resource.</param>
-    /// <returns>An effect that acquires, uses, and releases the resource.</returns>
+    /// <summary>Builds a resource-managed effect that acquires, uses, and releases a resource with cleanup guaranteed on every outcome.</summary>
+    /// <param name="acquire">An effect that produces the resource.</param>
+    /// <param name="release">A function from the acquired resource to a cleanup effect that runs on success, failure, and interruption.</param>
+    /// <param name="useResource">A function from the acquired resource to the use-effect whose result is propagated to the caller.</param>
+    /// <returns>An effect that completes with the use-effect's result and always runs the cleanup effect afterwards.</returns>
+    /// <remarks>The cleanup is wired through <c>Ensuring</c>, so it cannot be skipped by failure or interruption of the use-effect.</remarks>
     let inline acquireRelease<'A, 'R, 'E>
         (acquire: FIO<'A, 'E>, release: 'A -> FIO<unit, 'E>, useResource: 'A -> FIO<'R, 'E>)
         : FIO<'R, 'E> =
         acquire.FlatMap(fun resource -> (useResource resource).Ensuring(release resource))
 
-    /// Sequences effects, collecting results into a list.
-    /// <param name="effSeq">The sequence of effects to execute.</param>
-    /// <returns>An effect that produces a list of all results in order.</returns>
+    /// <summary>Combines a sequence of effects into one that runs them sequentially and collects their results in order.</summary>
+    /// <param name="effSeq">The effects to run in order; an empty sequence yields an empty result list.</param>
+    /// <returns>An effect that completes with the list of results in source order, or fails on the first error encountered.</returns>
     let rec collectAll<'R, 'E> (effSeq: seq<FIO<'R, 'E>>) : FIO<'R list, 'E> =
         suspend (fun () ->
             let effArray = Seq.toArray effSeq
@@ -151,10 +154,10 @@ module FIO =
 
                 loop 0)
 
-    /// Executes effects in parallel, collecting results into a list.
-    /// <remarks>All forked fibers are interrupted if any effect fails (fail-fast semantics).</remarks>
-    /// <param name="effSeq">The sequence of effects to execute in parallel.</param>
-    /// <returns>An effect that produces a list of all results in order.</returns>
+    /// <summary>Combines a sequence of effects into one that runs them concurrently and collects their results in order.</summary>
+    /// <param name="effSeq">The effects to run in parallel; an empty sequence yields an empty result list without forking.</param>
+    /// <returns>An effect that completes with the list of results in the order their effects appeared in <paramref name="effSeq"/>, or fails with the first error observed.</returns>
+    /// <remarks>Fail-fast: when any effect fails, the remaining sibling fibers are interrupted with <c>ExplicitInterrupt</c>.</remarks>
     let collectAllPar<'R, 'E> (effSeq: seq<FIO<'R, 'E>>) : FIO<'R list, 'E> =
         suspend (fun () ->
             let effArray = Seq.toArray effSeq
@@ -195,16 +198,16 @@ module FIO =
 
                         loop 0))
 
-    /// Maps each item to an effect and sequences them, collecting results.
-    /// <param name="items">The sequence of items to process.</param>
-    /// <param name="f">Function that maps each item to an effect.</param>
-    /// <returns>An effect that produces a list of all results in order.</returns>
+    /// <summary>Transforms a sequence of items into a sequential effect that runs the supplied function on each and collects the results.</summary>
+    /// <param name="items">The items to process in order.</param>
+    /// <param name="f">A function from each item to the effect that processes it.</param>
+    /// <returns>An effect that completes with the list of per-item results in source order, or fails on the first error encountered.</returns>
     let forEach<'A, 'R, 'E> (items: seq<'A>, f: 'A -> FIO<'R, 'E>) : FIO<'R list, 'E> = items |> Seq.map f |> collectAll
 
-    /// Maps each item to an effect and executes them in parallel, collecting results.
-    /// <remarks>All forked fibers are interrupted if any effect fails (fail-fast semantics).</remarks>
-    /// <param name="items">The sequence of items to process in parallel.</param>
-    /// <param name="f">Function that maps each item to an effect.</param>
-    /// <returns>An effect that produces a list of all results in order.</returns>
+    /// <summary>Transforms a sequence of items into a parallel effect that runs the supplied function on each and collects the results.</summary>
+    /// <param name="items">The items to process concurrently.</param>
+    /// <param name="f">A function from each item to the effect that processes it.</param>
+    /// <returns>An effect that completes with the list of per-item results in source order, or fails with the first error observed.</returns>
+    /// <remarks>Fail-fast: when any per-item effect fails, the remaining sibling fibers are interrupted with <c>ExplicitInterrupt</c>.</remarks>
     let forEachPar<'A, 'R, 'E> (items: seq<'A>, f: 'A -> FIO<'R, 'E>) : FIO<'R list, 'E> =
         items |> Seq.map f |> collectAllPar

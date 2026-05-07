@@ -9,18 +9,18 @@ open System.Threading
 open System.Net.WebSockets
 open System.Threading.Tasks
 
-/// A functional, effectful, and type-safe abstraction over a WebSocket connection.
+/// <summary>Represents a type-safe, effectful abstraction over a WebSocket connection.</summary>
 type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConfig) =
 
-    /// Semaphore ensuring thread-safe send operations.
+    /// <summary>Represents the semaphore serializing concurrent send operations.</summary>
     let sendLock = new SemaphoreSlim(1, 1)
-    /// Semaphore ensuring thread-safe receive operations.
+    /// <summary>Represents the semaphore serializing concurrent receive operations.</summary>
     let receiveLock = new SemaphoreSlim(1, 1)
 
-    /// Logs an error and suppresses it for cleanup operations.
-    /// <param name="context">The context description for the error.</param>
-    /// <param name="err">The error to log.</param>
-    /// <returns>Effect that logs the error and succeeds with unit.</returns>
+    /// <summary>Transforms a WebSocket error into a logged-and-suppressed unit effect for use in cleanup paths.</summary>
+    /// <param name="context">A description of the operation being cleaned up.</param>
+    /// <param name="err">The WebSocket error to log.</param>
+    /// <returns>An effect that logs the error to standard error and succeeds with unit.</returns>
     let logAndSuppress (context: string) (err: WsError) =
         fio {
             let str = err.ToString()
@@ -28,27 +28,27 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
             return ()
         }
 
-    /// Wraps a function as an FIO effect with WebSocket error handling.
-    /// <param name="func">The function to wrap.</param>
-    /// <returns>Effect returning the function's result.</returns>
+    /// <summary>Lifts a synchronous function into a WebSocket effect, mapping exceptions to <c>WsError</c>.</summary>
+    /// <param name="func">The synchronous function to execute.</param>
+    /// <returns>An effect that produces the function's result or fails with a <c>WsError</c>.</returns>
     let fromFunc (func: unit -> 'T) =
         FIO.attempt (func, WsError.fromException)
 
-    /// Wraps a Task as an FIO effect with WebSocket error handling.
-    /// <param name="task">The Task to await.</param>
-    /// <returns>Effect that completes when the Task finishes.</returns>
+    /// <summary>Lifts a non-generic .NET Task into a WebSocket effect, mapping exceptions to <c>WsError</c>.</summary>
+    /// <param name="task">The task to await.</param>
+    /// <returns>An effect that completes when the task finishes or fails with a <c>WsError</c>.</returns>
     let awaitTask (task: Task) =
         FIO.awaitTask (task, WsError.fromException)
 
-    /// Wraps a generic Task as an FIO effect with WebSocket error handling.
-    /// <param name="task">The Task to await.</param>
-    /// <returns>Effect returning the Task's result.</returns>
+    /// <summary>Lifts a generic .NET Task into a WebSocket effect, mapping exceptions to <c>WsError</c>.</summary>
+    /// <param name="task">The task to await.</param>
+    /// <returns>An effect that produces the task's result or fails with a <c>WsError</c>.</returns>
     let awaitTaskT (task: Task<'T>) =
         FIO.awaitGenericTask (task, WsError.fromException)
 
-    /// Receives a complete message from the WebSocket.
-    /// <param name="ct">The cancellation token.</param>
-    /// <returns>Effect returning the received message.</returns>
+    /// <summary>Creates an effect that receives a complete message from the connection.</summary>
+    /// <param name="ct">The cancellation token to observe during the receive operation.</param>
+    /// <returns>An effect that produces the received <c>WebSocketMessage</c>.</returns>
     member _.ReceiveMessage(ct: CancellationToken) =
         fio {
             let! state = fromFunc <| fun () -> socket.State
@@ -145,15 +145,15 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
             return! computation.Ensuring finalizer
         }
 
-    /// Receives a complete message from the WebSocket.
-    /// <returns>Effect returning the received message.</returns>
+    /// <summary>Creates an effect that receives a complete message from the connection using no cancellation token.</summary>
+    /// <returns>An effect that produces the received <c>WebSocketMessage</c>.</returns>
     member this.ReceiveMessage() =
         this.ReceiveMessage CancellationToken.None
 
-    /// Sends a WebSocket frame.
-    /// <param name="frame">The frame to send.</param>
-    /// <param name="ct">Optional cancellation token.</param>
-    /// <returns>Effect that sends the frame.</returns>
+    /// <summary>Creates an effect that sends a frame over the connection.</summary>
+    /// <param name="frame">The WebSocket frame to send.</param>
+    /// <param name="ct">The cancellation token to observe during the send operation.</param>
+    /// <returns>An effect that completes when the frame has been sent.</returns>
     member _.SendFrame(frame: WebSocketFrame, ct: CancellationToken) =
         fio {
             let! state = fromFunc <| fun () -> socket.State
@@ -231,58 +231,58 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
             return! computation.Ensuring finalizer
         }
 
-    /// Sends a WebSocket frame.
-    /// <param name="frame">The frame to send.</param>
-    /// <returns>Effect that sends the frame.</returns>
+    /// <summary>Creates an effect that sends a frame over the connection using no cancellation token.</summary>
+    /// <param name="frame">The WebSocket frame to send.</param>
+    /// <returns>An effect that completes when the frame has been sent.</returns>
     member this.SendFrame(frame: WebSocketFrame) =
         this.SendFrame(frame, CancellationToken.None)
 
-    /// Sends a text frame.
-    /// <param name="text">The text to send.</param>
-    /// <param name="ct">Optional cancellation token.</param>
-    /// <returns>Effect that sends the text frame.</returns>
+    /// <summary>Creates an effect that sends a text frame over the connection.</summary>
+    /// <param name="text">The UTF-8 string to send.</param>
+    /// <param name="ct">The cancellation token to observe during the send operation.</param>
+    /// <returns>An effect that completes when the text frame has been sent.</returns>
     member this.SendText(text: string, ct: CancellationToken) = this.SendFrame(Text text, ct)
 
-    /// Sends a text frame.
-    /// <param name="text">The text to send.</param>
-    /// <returns>Effect that sends the text frame.</returns>
+    /// <summary>Creates an effect that sends a text frame over the connection using no cancellation token.</summary>
+    /// <param name="text">The UTF-8 string to send.</param>
+    /// <returns>An effect that completes when the text frame has been sent.</returns>
     member this.SendText(text: string) =
         this.SendText(text, CancellationToken.None)
 
-    /// Sends a binary frame.
-    /// <param name="data">The binary data to send.</param>
-    /// <param name="ct">Optional cancellation token.</param>
-    /// <returns>Effect that sends the binary frame.</returns>
+    /// <summary>Creates an effect that sends a binary frame over the connection.</summary>
+    /// <param name="data">The byte array to send.</param>
+    /// <param name="ct">The cancellation token to observe during the send operation.</param>
+    /// <returns>An effect that completes when the binary frame has been sent.</returns>
     member this.SendBinary(data: byte[], ct: CancellationToken) = this.SendFrame(Binary data, ct)
 
-    /// Sends a binary frame.
-    /// <param name="data">The binary data to send.</param>
-    /// <returns>Effect that sends the binary frame.</returns>
+    /// <summary>Creates an effect that sends a binary frame over the connection using no cancellation token.</summary>
+    /// <param name="data">The byte array to send.</param>
+    /// <returns>An effect that completes when the binary frame has been sent.</returns>
     member this.SendBinary(data: byte[]) =
         this.SendBinary(data, CancellationToken.None)
 
-    /// Sends a value using a codec.
-    /// <param name="codec">The codec to use for encoding.</param>
-    /// <param name="value">The value to send.</param>
-    /// <param name="ct">Optional cancellation token.</param>
-    /// <returns>Effect that sends the encoded value.</returns>
+    /// <summary>Creates an effect that encodes a value with the specified codec and sends it over the connection.</summary>
+    /// <param name="codec">The codec to use for encoding the value into a frame.</param>
+    /// <param name="value">The value to encode and send.</param>
+    /// <param name="ct">The cancellation token to observe during the send operation.</param>
+    /// <returns>An effect that completes when the encoded value has been sent.</returns>
     member this.Send<'T>(codec: WebSocketCodec<'T>, value: 'T, ct: CancellationToken) =
         fio {
             let! frameResult = codec.Encode(value).CatchAll(fun err -> FIO.fail err)
             do! this.SendFrame(frameResult, ct)
         }
 
-    /// Sends a value using a codec.
-    /// <param name="codec">The codec to use for encoding.</param>
-    /// <param name="value">The value to send.</param>
-    /// <returns>Effect that sends the encoded value.</returns>
+    /// <summary>Creates an effect that encodes a value with the specified codec and sends it over the connection using no cancellation token.</summary>
+    /// <param name="codec">The codec to use for encoding the value into a frame.</param>
+    /// <param name="value">The value to encode and send.</param>
+    /// <returns>An effect that completes when the encoded value has been sent.</returns>
     member this.Send<'T>(codec: WebSocketCodec<'T>, value: 'T) =
         this.Send(codec, value, CancellationToken.None)
 
-    /// Receives and decodes a value using a codec.
-    /// <param name="codec">The codec to use for decoding.</param>
-    /// <param name="ct">Optional cancellation token.</param>
-    /// <returns>Effect returning the decoded value.</returns>
+    /// <summary>Creates an effect that receives a frame and decodes it using the specified codec.</summary>
+    /// <param name="codec">The codec to use for decoding the received frame.</param>
+    /// <param name="ct">The cancellation token to observe during the receive operation.</param>
+    /// <returns>An effect that produces the decoded value, or fails if the connection is closed.</returns>
     member this.Receive<'T>(codec: WebSocketCodec<'T>, ct: CancellationToken) =
         fio {
             match! this.ReceiveMessage ct with
@@ -294,17 +294,17 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
                     )
         }
 
-    /// Receives and decodes a value using a codec.
-    /// <param name="codec">The codec to use for decoding.</param>
-    /// <returns>Effect returning the decoded value.</returns>
+    /// <summary>Creates an effect that receives a frame and decodes it using the specified codec with no cancellation token.</summary>
+    /// <param name="codec">The codec to use for decoding the received frame.</param>
+    /// <returns>An effect that produces the decoded value, or fails if the connection is closed.</returns>
     member this.Receive<'T>(codec: WebSocketCodec<'T>) =
         this.Receive(codec, CancellationToken.None)
 
-    /// Closes the WebSocket connection with the specified status and description.
-    /// <param name="closeStatus">The WebSocket close status.</param>
-    /// <param name="statusDescription">A description for the close status.</param>
-    /// <param name="ct">Optional cancellation token.</param>
-    /// <returns>Effect that closes the connection.</returns>
+    /// <summary>Creates an effect that gracefully closes the connection with the specified status and description.</summary>
+    /// <param name="closeStatus">The status code for the close handshake.</param>
+    /// <param name="statusDescription">A human-readable description of the close reason.</param>
+    /// <param name="ct">The cancellation token to observe during the close operation.</param>
+    /// <returns>An effect that completes when the close handshake finishes.</returns>
     member _.Close(closeStatus: WebSocketCloseStatus, statusDescription: string, ct: CancellationToken) =
         fio {
             let! sendLockTask = fromFunc <| fun () -> sendLock.WaitAsync ct
@@ -332,28 +332,28 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
             return! closeOp.Ensuring finalizer
         }
 
-    /// Closes the WebSocket connection with the specified status and description.
-    /// <param name="closeStatus">The WebSocket close status.</param>
-    /// <param name="statusDescription">A description for the close status.</param>
-    /// <returns>Effect that closes the connection.</returns>
+    /// <summary>Creates an effect that gracefully closes the connection with the specified status and description using no cancellation token.</summary>
+    /// <param name="closeStatus">The status code for the close handshake.</param>
+    /// <param name="statusDescription">A human-readable description of the close reason.</param>
+    /// <returns>An effect that completes when the close handshake finishes.</returns>
     member this.Close(closeStatus: WebSocketCloseStatus, statusDescription: string) =
         this.Close(closeStatus, statusDescription, CancellationToken.None)
 
-    /// Closes the WebSocket connection with normal closure.
-    /// <param name="ct">Optional cancellation token.</param>
-    /// <returns>Effect that closes the connection.</returns>
+    /// <summary>Creates an effect that gracefully closes the connection with normal closure status.</summary>
+    /// <param name="ct">The cancellation token to observe during the close operation.</param>
+    /// <returns>An effect that completes when the close handshake finishes.</returns>
     member this.Close(ct: CancellationToken) : FIO<unit, WsError> =
         this.Close(WebSocketCloseStatus.NormalClosure, "Normal closure", ct)
 
-    /// Closes the WebSocket connection with normal closure.
-    /// <returns>Effect that closes the connection.</returns>
+    /// <summary>Creates an effect that gracefully closes the connection with normal closure status and no cancellation token.</summary>
+    /// <returns>An effect that completes when the close handshake finishes.</returns>
     member this.Close() = this.Close CancellationToken.None
 
-    /// Closes the outgoing side of the WebSocket connection.
-    /// <param name="closeStatus">The WebSocket close status.</param>
-    /// <param name="statusDescription">A description for the close status.</param>
-    /// <param name="ct">Optional cancellation token.</param>
-    /// <returns>Effect that closes the outgoing side.</returns>
+    /// <summary>Creates an effect that closes the outgoing side of the connection with the specified status and description.</summary>
+    /// <param name="closeStatus">The status code for the outgoing close.</param>
+    /// <param name="statusDescription">A human-readable description of the close reason.</param>
+    /// <param name="ct">The cancellation token to observe during the close operation.</param>
+    /// <returns>An effect that completes when the outgoing side has been closed.</returns>
     member _.CloseOutput(closeStatus: WebSocketCloseStatus, statusDescription: string, ct: CancellationToken) =
         fio {
             let! sendLockTask = fromFunc <| fun () -> sendLock.WaitAsync ct
@@ -374,47 +374,46 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
             return! closeOp.Ensuring finalizer
         }
 
-    /// Closes the outgoing side of the WebSocket connection.
-    /// <param name="closeStatus">The WebSocket close status.</param>
-    /// <param name="statusDescription">A description for the close status.</param>
-    /// <returns>Effect that closes the outgoing side.</returns>
+    /// <summary>Creates an effect that closes the outgoing side of the connection with the specified status and description using no cancellation token.</summary>
+    /// <param name="closeStatus">The status code for the outgoing close.</param>
+    /// <param name="statusDescription">A human-readable description of the close reason.</param>
+    /// <returns>An effect that completes when the outgoing side has been closed.</returns>
     member this.CloseOutput(closeStatus: WebSocketCloseStatus, statusDescription: string) =
         this.CloseOutput(closeStatus, statusDescription, CancellationToken.None)
 
-    /// Closes the outgoing side with normal closure.
-    /// <returns>Effect that closes the outgoing side.</returns>
+    /// <summary>Creates an effect that closes the outgoing side of the connection with normal closure status.</summary>
+    /// <returns>An effect that completes when the outgoing side has been closed.</returns>
     member this.CloseOutput() =
         this.CloseOutput(WebSocketCloseStatus.NormalClosure, "Normal closure", CancellationToken.None)
 
-    /// Aborts the WebSocket connection immediately.
-    /// <returns>Effect that aborts the connection.</returns>
+    /// <summary>Creates an effect that aborts the connection immediately without a close handshake.</summary>
+    /// <returns>An effect that completes when the connection has been aborted.</returns>
     member _.Abort() =
         fio { do! fromFunc <| fun () -> socket.Abort() }
 
-    /// Gets the current state of the WebSocket connection.
-    /// <returns>Effect returning the WebSocket state.</returns>
+    /// <summary>Returns an effect that produces the current connection state.</summary>
+    /// <returns>An effect that produces the current <c>WebSocketState</c>.</returns>
     member _.State() =
         fio { return! fromFunc <| fun () -> socket.State }
 
-    /// Gets the close status if the connection is closed.
-    /// <returns>Effect returning the close status, or None.</returns>
+    /// <summary>Returns an effect that produces the close status if the connection has been closed.</summary>
+    /// <returns>An effect that produces <c>Some status</c> when closed, or <c>None</c> when still open.</returns>
     member _.CloseStatus() =
         fio { return! fromFunc <| fun () -> Option.ofNullable socket.CloseStatus }
 
-    /// Gets the close status description if the connection is closed.
-    /// <returns>Effect returning the close status description.</returns>
+    /// <summary>Returns an effect that produces the close status description if the connection has been closed.</summary>
+    /// <returns>An effect that produces the description string associated with the close status.</returns>
     member _.CloseStatusDescription() =
         fio { return! fromFunc <| fun () -> socket.CloseStatusDescription }
 
-    /// Gets the negotiated subprotocol, if any.
-    /// <returns>Effect returning the negotiated subprotocol.</returns>
+    /// <summary>Returns an effect that produces the negotiated subprotocol, if any.</summary>
+    /// <returns>An effect that produces the subprotocol string, or null when none was negotiated.</returns>
     member _.Subprotocol() =
         fio { return! fromFunc <| fun () -> socket.SubProtocol }
 
-    /// Disposes the underlying WebSocket and releases all resources.
-    /// This is a synchronous FIO effect wrapper for cleanup.
-    /// Note: Prefer using Close() in FIO code for proper async cleanup.
-    /// <returns>Effect that disposes all resources.</returns>
+    /// <summary>Creates an effect that releases all resources associated with the connection.</summary>
+    /// <returns>An effect that completes when all resources have been released.</returns>
+    /// <remarks>Prefer <c>Close</c> in effect-based code for a graceful shutdown with a close handshake.</remarks>
     member _.Dispose() =
         fio {
             do! fromFunc(fun () -> socket.Dispose()).CatchAll(logAndSuppress "socket disposal")

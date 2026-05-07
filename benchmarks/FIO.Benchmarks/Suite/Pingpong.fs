@@ -5,9 +5,7 @@
 (* (http://soft.vub.ac.be/AGERE14/papers/ageresplash2014_submission_19.pdf) *)
 (****************************************************************************)
 
-/// <summary>
-/// Pingpong benchmark measuring message delivery overhead between two actors.
-/// </summary>
+/// <summary>Provides the Pingpong benchmark measuring message delivery overhead between two actors.</summary>
 [<RequireQualifiedAccess>]
 module private FIO.Benchmarks.Suite.Pingpong
 
@@ -19,24 +17,20 @@ open FIO.Benchmarks.Tools.Timer
 
 open System
 
-/// <summary>
-/// Actor with send and receive channels for ping-pong communication.
-/// </summary>
+/// <summary>Represents an actor with send and receive channels for ping-pong communication.</summary>
 type private Actor =
     {
-        /// <summary>Channel for sending messages.</summary>
+        /// <summary>Represents the channel for sending messages.</summary>
         SendChan: Channel<int>
-        /// <summary>Channel for receiving messages.</summary>
+        /// <summary>Represents the channel for receiving messages.</summary>
         ReceiveChan: Channel<int>
 #if DEBUG
-        /// <summary>Actor name for debugging.</summary>
+        /// <summary>Represents the actor name for debugging.</summary>
         Name: string
 #endif
     }
 
-/// <summary>
-/// Pinger actor effect that initiates ping-pong exchanges.
-/// </summary>
+/// <summary>Builds the pinger actor effect that initiates ping-pong exchanges.</summary>
 /// <param name="pinger">Pinger actor instance.</param>
 /// <param name="ping">Initial ping value.</param>
 /// <param name="roundCount">Number of ping-pong rounds.</param>
@@ -62,9 +56,7 @@ let private pingerEff (pinger, ping, roundCount, startChan: Channel<int>, timerC
         do! timerChan.Send(Stop).Unit()
     }
 
-/// <summary>
-/// Ponger actor effect that responds to pings with pongs.
-/// </summary>
+/// <summary>Builds the ponger actor effect that responds to pings with pongs.</summary>
 /// <param name="ponger">Ponger actor instance.</param>
 /// <param name="roundCount">Number of ping-pong rounds.</param>
 /// <param name="startChan">Channel for synchronizing start.</param>
@@ -84,11 +76,9 @@ let private pongerEff (ponger, roundCount, startChan: Channel<int>) =
             ()
     }
 
-/// <summary>
-/// Creates and runs the pingpong benchmark, returning execution time in milliseconds.
-/// </summary>
+/// <summary>Builds the pingpong benchmark effect, returning execution time in milliseconds.</summary>
 /// <param name="config">Pingpong benchmark configuration.</param>
-/// <returns>Execution time in milliseconds.</returns>
+/// <returns>An effect that produces the execution time in milliseconds.</returns>
 let benchmark config : FIO<int64, exn> =
     fio {
         let! roundCount =

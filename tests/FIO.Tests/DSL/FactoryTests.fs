@@ -1,3 +1,4 @@
+/// <summary>Provides property-based tests for FIO effect factory functions such as attempt, fromResult, fromOption, and sleep.</summary>
 module FIO.Tests.FactoryTests
 
 open FIO.Tests.Utilities.FsCheckProperties
@@ -376,6 +377,19 @@ let factoryTests =
 
                 Expect.stringContains result.Message "async exn failed" "FIO.awaitAsyncExn should propagate exception")
 
+            testCase "awaitAsync - does not start async at construction time" (fun () ->
+                let mutable started = false
+
+                let asyncComp =
+                    async {
+                        started <- true
+                        return 42
+                    }
+
+                let _eff = FIO.awaitAsync (asyncComp, id)
+
+                Expect.isFalse started "Async should not be started at effect construction time")
+
             testAllRuntimes "fromTask - forks task into fiber" (fun runtime ->
                 let mutable executed = false
 
@@ -396,6 +410,32 @@ let factoryTests =
                 let wasExecuted, _ = runtime.Run(eff).UnsafeSuccess()
 
                 Expect.isTrue wasExecuted "FIO.fromTask should execute the task")
+
+            testCase "fromTask - does not allocate fiber at construction time" (fun () ->
+                let mutable taskStarted = false
+
+                let _eff =
+                    FIO.fromTask (
+                        (fun () ->
+                            taskStarted <- true
+                            Task.CompletedTask),
+                        id
+                    )
+
+                Expect.isFalse taskStarted "Task should not be started at effect construction time")
+
+            testCase "fromGenericTask - does not allocate fiber at construction time" (fun () ->
+                let mutable taskStarted = false
+
+                let _eff =
+                    FIO.fromGenericTask (
+                        (fun () ->
+                            taskStarted <- true
+                            Task.FromResult 42),
+                        id
+                    )
+
+                Expect.isFalse taskStarted "Task should not be started at effect construction time")
 
             testAllRuntimes "fromTask - propagates faulted task as error" (fun runtime ->
                 let eff =

@@ -1,6 +1,4 @@
-/// <summary>
-/// FIO.Sockets example demonstrating TCP socket client/server communication.
-/// </summary>
+/// <summary>Provides a TCP socket example demonstrating an echo server and interactive client using FIO.Sockets for bidirectional communication.</summary>
 module private FIO.Examples.Sockets
 
 open FIO.DSL
@@ -8,15 +6,14 @@ open FIO.App
 open FIO.Console
 open FIO.Sockets
 
-/// <summary>
-/// TCP socket demo app with echo server and interactive client.
-/// </summary>
+/// <summary>Represents a TCP socket application that runs an echo server and an interactive client concurrently using the <c>&lt;&amp;&amp;&gt;</c> parallel operator.</summary>
+/// <remarks>The server accepts connections and echoes received messages; the client reads user input from the console and sends it to the server. Typing "quit" gracefully disconnects both sides.</remarks>
 type private SocketApp(host, port) =
     inherit FIOApp<unit, SocketError>()
 
-    /// <summary>
-    /// Echo server that accepts connections and echoes received messages.
-    /// </summary>
+    /// <summary>Builds an echo server effect that listens for TCP connections, reads string messages from each client, and sends them back prefixed with "Echo: ".</summary>
+    /// <returns>An effect that binds to the configured host and port and loops over incoming messages until the client sends "quit".</returns>
+    /// <remarks>Uses <c>ServerSocket.serve</c> with a <c>ServerSocketConfig</c> to accept connections, demonstrating FIO.Sockets connection handling and recursive message loops.</remarks>
     let server () =
 
         let handleClient (socket: Socket) =
@@ -48,9 +45,9 @@ type private SocketApp(host, port) =
             do! ServerSocket.serve (config, handleClient)
         }
 
-    /// <summary>
-    /// Interactive client that reads user input and sends it to the server.
-    /// </summary>
+    /// <summary>Builds an interactive client effect that connects to the server, reads user input from the console, and displays the server's echoed responses.</summary>
+    /// <returns>An effect that establishes a TCP connection and enters a send/receive loop until the user types "quit".</returns>
+    /// <remarks>Uses <c>SocketClient.withConnection</c> to manage the connection lifecycle, ensuring the socket is properly closed when the loop terminates.</remarks>
     let client () =
         fio {
             let! config = SocketConfig.create (host, port)

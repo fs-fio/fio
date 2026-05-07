@@ -1,93 +1,99 @@
-/// Computation expression builder for FIO effects.
+/// <summary>Provides the computation expression builder for FIO effects.</summary>
 [<AutoOpen>]
 module FIO.DSL.CE
 
 open System
 
-/// The computation expression builder for FIO effects, enabling fio { ... } syntax.
+/// <summary>Represents the computation expression builder backing the <c>fio { ... }</c> syntax for composing FIO effects.</summary>
 [<Sealed>]
 type FIOBuilder internal () =
 
-    /// Enables let! bindings.
-    /// <param name="eff">The effect to bind.</param>
-    /// <param name="cont">Continuation to apply to the result.</param>
-    /// <returns>An effect chaining the binding and continuation.</returns>
+    /// <summary>Combines an effect with a continuation invoked on its successful result, supporting <c>let!</c> bindings.</summary>
+    /// <typeparam name="'R1">The success result type produced by the continuation.</typeparam>
+    /// <param name="eff">The effect whose success value is bound.</param>
+    /// <param name="cont">A function from the success value of <paramref name="eff"/> to the next effect to run.</param>
+    /// <returns>An effect that runs <paramref name="eff"/> and then runs the effect produced by <paramref name="cont"/>.</returns>
     member inline _.Bind<'R, 'R1, 'E>(eff: FIO<'R, 'E>, cont: 'R -> FIO<'R1, 'E>) : FIO<'R1, 'E> = eff.FlatMap cont
 
-    /// Enables let! ... return patterns.
-    /// <param name="eff">The effect to bind.</param>
-    /// <param name="cont">Mapping function to apply to the result.</param>
-    /// <returns>An effect whose result is the mapped value.</returns>
+    /// <summary>Transforms the success value of an effect with a pure function, supporting <c>let! ... return</c> patterns.</summary>
+    /// <typeparam name="'R1">The success result type produced by the mapper.</typeparam>
+    /// <param name="eff">The effect whose success value is transformed.</param>
+    /// <param name="cont">A pure function from the success value of <paramref name="eff"/> to the new success value.</param>
+    /// <returns>An effect that completes with <paramref name="cont"/> applied to <paramref name="eff"/>'s success value.</returns>
     member inline _.BindReturn<'R, 'R1, 'E>(eff: FIO<'R, 'E>, cont: 'R -> 'R1) : FIO<'R1, 'E> = eff.Map cont
 
-    /// Enables return expressions.
-    /// <param name="res">The value to wrap in a successful effect.</param>
-    /// <returns>An effect that succeeds with the given value.</returns>
+    /// <summary>Lifts a value into a successful effect, supporting <c>return</c> expressions.</summary>
+    /// <param name="res">The value to wrap as a successful result.</param>
+    /// <returns>An effect that completes immediately with <paramref name="res"/>.</returns>
     member inline _.Return<'R, 'E>(res: 'R) : FIO<'R, 'E> = FIO.succeed res
 
-    /// Enables return! expressions.
-    /// <param name="eff">The effect to return directly.</param>
-    /// <returns>The given effect unchanged.</returns>
+    /// <summary>Returns the given effect unchanged, supporting <c>return!</c> expressions.</summary>
+    /// <param name="eff">The effect to return as the result of the computation expression.</param>
+    /// <returns>The effect <paramref name="eff"/>.</returns>
     member inline _.ReturnFrom<'R, 'E>(eff: FIO<'R, 'E>) : FIO<'R, 'E> = eff
 
-    /// Enables return! as the final expression.
+    /// <summary>Returns the given effect unchanged, supporting <c>return!</c> as the final expression of a computation.</summary>
     /// <param name="eff">The effect to return as the final result.</param>
-    /// <returns>The given effect unchanged.</returns>
+    /// <returns>The effect <paramref name="eff"/>.</returns>
     member inline _.ReturnFromFinal<'R, 'E>(eff: FIO<'R, 'E>) : FIO<'R, 'E> = eff
 
-    /// Enables yield expressions.
-    /// <param name="res">The value to wrap in a successful effect.</param>
-    /// <returns>An effect that succeeds with the given value.</returns>
+    /// <summary>Lifts a value into a successful effect, supporting <c>yield</c> expressions.</summary>
+    /// <param name="res">The value to wrap as a successful result.</param>
+    /// <returns>An effect that completes immediately with <paramref name="res"/>.</returns>
     member inline _.Yield<'R, 'E>(res: 'R) : FIO<'R, 'E> = FIO.succeed res
 
-    /// Enables yield! expressions.
-    /// <param name="eff">The effect to yield directly.</param>
-    /// <returns>The given effect unchanged.</returns>
+    /// <summary>Returns the given effect unchanged, supporting <c>yield!</c> expressions.</summary>
+    /// <param name="eff">The effect to yield as the result of the computation expression.</param>
+    /// <returns>The effect <paramref name="eff"/>.</returns>
     member inline _.YieldFrom<'R, 'E>(eff: FIO<'R, 'E>) : FIO<'R, 'E> = eff
 
-    /// Enables yield! as the final expression.
+    /// <summary>Returns the given effect unchanged, supporting <c>yield!</c> as the final expression of a computation.</summary>
     /// <param name="eff">The effect to yield as the final result.</param>
-    /// <returns>The given effect unchanged.</returns>
+    /// <returns>The effect <paramref name="eff"/>.</returns>
     member inline _.YieldFromFinal<'R, 'E>(eff: FIO<'R, 'E>) : FIO<'R, 'E> = eff
 
-    /// Returns a unit effect for empty computation expressions.
-    /// <returns>An effect that succeeds with unit.</returns>
+    /// <summary>Lifts unit into a successful effect, supplying the default value for empty computation expressions.</summary>
+    /// <returns>An effect that completes successfully with unit.</returns>
     member inline _.Zero<'E>() : FIO<unit, 'E> = FIO.succeed ()
 
-    /// Sequences two effects, returning the second result.
-    /// <param name="eff">The left effect to evaluate first.</param>
-    /// <param name="eff'">The right effect to evaluate second.</param>
-    /// <returns>An effect that evaluates both sequentially and returns the second result.</returns>
+    /// <summary>Combines two effects sequentially and returns the second effect's result, supporting statement sequencing inside the builder.</summary>
+    /// <typeparam name="'R1">The success result type of the second effect; propagated.</typeparam>
+    /// <param name="eff">The effect to evaluate first; its result is discarded.</param>
+    /// <param name="eff'">The effect to evaluate second; its result is propagated.</param>
+    /// <returns>An effect that runs both in order and completes with the second result.</returns>
     member inline _.Combine<'R, 'R1, 'E>(eff: FIO<'R, 'E>, eff': FIO<'R1, 'E>) : FIO<'R1, 'E> = eff.ZipRight eff'
 
-    /// Finalizes the computation expression.
-    /// <param name="eff">The effect to finalize.</param>
-    /// <returns>The given effect unchanged.</returns>
+    /// <summary>Returns the assembled effect produced by the computation expression unchanged.</summary>
+    /// <param name="eff">The effect to return as the final result of the builder.</param>
+    /// <returns>The effect <paramref name="eff"/>.</returns>
     member inline _.Run<'R, 'E>(eff: FIO<'R, 'E>) : FIO<'R, 'E> = eff
 
-    /// Defers effect construction until execution.
-    /// <param name="cont">The function that produces the deferred effect.</param>
-    /// <returns>An effect that suspends the given function until evaluation.</returns>
+    /// <summary>Builds an effect whose construction is deferred until the resulting effect is interpreted.</summary>
+    /// <typeparam name="'R1">The success result type of the deferred effect.</typeparam>
+    /// <param name="cont">A factory function producing the deferred effect at evaluation time.</param>
+    /// <returns>An effect that calls <paramref name="cont"/> at evaluation time and runs the effect it produces.</returns>
     member inline _.Delay<'R1, 'E>(cont: unit -> FIO<'R1, 'E>) : FIO<'R1, 'E> = FIO.unit().FlatMap cont
 
-    /// Enables try...with error handling.
+    /// <summary>Combines an effect with an error handler, supporting <c>try ... with</c> blocks.</summary>
+    /// <typeparam name="'E1">The error type of the recovered effect.</typeparam>
     /// <param name="eff">The effect to attempt.</param>
-    /// <param name="handler">Error handler applied when the effect fails.</param>
-    /// <returns>An effect that catches errors from the first effect using the handler.</returns>
+    /// <param name="handler">A function from the typed error to the recovery effect.</param>
+    /// <returns>An effect that completes with <paramref name="eff"/>'s success value, or with the recovery effect's outcome on failure.</returns>
     member inline _.TryWith<'R, 'E, 'E1>(eff: FIO<'R, 'E>, handler: 'E -> FIO<'R, 'E1>) : FIO<'R, 'E1> =
         eff.CatchAll handler
 
-    /// Enables try...finally guarantees.
+    /// <summary>Combines an effect with a finalizer that runs on every outcome, supporting <c>try ... finally</c> blocks.</summary>
     /// <param name="eff">The effect to evaluate.</param>
-    /// <param name="finalizer">Cleanup function that runs on success, failure, and interruption.</param>
-    /// <returns>An effect that ensures the finalizer runs after the main effect completes.</returns>
+    /// <param name="finalizer">A factory producing the cleanup effect that runs after <paramref name="eff"/> on success, failure, and interruption.</param>
+    /// <returns>An effect that completes with <paramref name="eff"/>'s outcome and always runs the cleanup effect afterwards.</returns>
     member inline _.TryFinally<'R, 'E>(eff: FIO<'R, 'E>, finalizer: unit -> FIO<unit, 'E>) : FIO<'R, 'E> =
         eff.Ensuring(FIO.suspend finalizer)
 
-    /// Enables for...do iteration over sequences.
-    /// <param name="sequence">The sequence to iterate over.</param>
-    /// <param name="body">The effect-producing function applied to each element.</param>
-    /// <returns>An effect that evaluates the body for each element sequentially.</returns>
+    /// <summary>Combines a sequence with a per-element body, supporting <c>for ... do</c> iteration.</summary>
+    /// <typeparam name="'T">The element type of the sequence.</typeparam>
+    /// <param name="sequence">The sequence to iterate.</param>
+    /// <param name="body">A function from each element to the effect that processes it.</param>
+    /// <returns>An effect that runs <paramref name="body"/> for each element in order and completes with unit.</returns>
     member inline _.For<'T, 'E>(sequence: seq<'T>, body: 'T -> FIO<unit, 'E>) : FIO<unit, 'E> =
         FIO.suspend (fun () ->
             let enumerator = sequence.GetEnumerator()
@@ -113,10 +119,10 @@ type FIOBuilder internal () =
                 enumerator.Dispose()
                 reraise ())
 
-    /// Enables while...do loops.
-    /// <param name="guard">Condition function evaluated before each iteration.</param>
-    /// <param name="body">The effect to execute on each iteration.</param>
-    /// <returns>An effect that loops while the guard returns true.</returns>
+    /// <summary>Combines a guard predicate with a body effect, supporting <c>while ... do</c> loops.</summary>
+    /// <param name="guard">A predicate evaluated before each iteration; the loop continues while it returns <c>true</c>.</param>
+    /// <param name="body">The effect to evaluate on each iteration.</param>
+    /// <returns>An effect that repeatedly runs <paramref name="body"/> until <paramref name="guard"/> returns <c>false</c>.</returns>
     member inline _.While<'R, 'E>(guard: unit -> bool, body: FIO<'R, 'E>) : FIO<unit, 'E> =
         let rec loop () =
             if guard () then
@@ -126,10 +132,12 @@ type FIOBuilder internal () =
 
         FIO.suspend loop
 
-    /// Enables use bindings with IDisposable resources.
-    /// <param name="resource">The disposable resource to manage.</param>
-    /// <param name="body">The effect-producing function that uses the resource.</param>
-    /// <returns>An effect that uses the resource and guarantees disposal.</returns>
+    /// <summary>Builds a resource-managed effect that disposes the resource after use, supporting <c>use</c> bindings.</summary>
+    /// <typeparam name="'T">The disposable resource type.</typeparam>
+    /// <typeparam name="'R">The success result type of the body effect.</typeparam>
+    /// <param name="resource">The disposable resource to manage; <c>null</c> is treated as already disposed.</param>
+    /// <param name="body">A function from the resource to the effect that uses it.</param>
+    /// <returns>An effect that runs <paramref name="body"/> and disposes <paramref name="resource"/> on every outcome.</returns>
     member inline _.Using<'T, 'R, 'E when 'T :> IDisposable>(resource: 'T, body: 'T -> FIO<'R, 'E>) : FIO<'R, 'E> =
         let dispose =
             FIO.suspend (fun () ->
@@ -140,51 +148,62 @@ type FIOBuilder internal () =
 
         (body resource).Ensuring dispose
 
-    /// Enables pattern matching in computation expressions.
+    /// <summary>Combines a value with a pattern-matching function that produces an effect, supporting pattern matching inside the builder.</summary>
+    /// <typeparam name="'T">The type of the matched value.</typeparam>
     /// <param name="value">The value to match against.</param>
-    /// <param name="cases">The pattern matching function producing an effect.</param>
-    /// <returns>An effect produced by applying the value to the cases function.</returns>
+    /// <param name="cases">A function from the value to the effect produced by the matched arm.</param>
+    /// <returns>The effect produced by applying <paramref name="cases"/> to <paramref name="value"/>.</returns>
     member inline _.Match<'R, 'E, 'T>(value: 'T, cases: 'T -> FIO<'R, 'E>) : FIO<'R, 'E> = cases value
 
-    /// Enables and! patterns with 2 sources.
-    /// <param name="eff">The first effect.</param>
-    /// <param name="eff'">The second effect.</param>
-    /// <returns>An effect that executes both in parallel and returns a tuple of their results.</returns>
-    /// <remarks>Both effects run concurrently in fiber runtimes.</remarks>
+    /// <summary>Combines two effects in parallel and returns both results as a tuple, supporting <c>and!</c> bindings with two sources.</summary>
+    /// <typeparam name="'R1">The success result type of the second effect.</typeparam>
+    /// <param name="eff">The first effect to fork.</param>
+    /// <param name="eff'">The second effect to fork.</param>
+    /// <returns>An effect that runs both concurrently and completes with a pair of their results.</returns>
+    /// <remarks>Both effects run on separate fibers in fiber runtimes.</remarks>
     member inline _.MergeSources<'R, 'R1, 'E>(eff: FIO<'R, 'E>, eff': FIO<'R1, 'E>) : FIO<'R * 'R1, 'E> =
         eff.ZipPar eff'
 
-    /// Enables and! patterns with 3 sources.
-    /// <param name="eff">The first effect.</param>
-    /// <param name="eff'">The second effect.</param>
-    /// <param name="eff''">The third effect.</param>
-    /// <returns>An effect that executes all three in parallel and returns a triple of their results.</returns>
-    /// <remarks>All effects run concurrently in fiber runtimes.</remarks>
+    /// <summary>Combines three effects in parallel and returns all three results as a tuple, supporting <c>and!</c> bindings with three sources.</summary>
+    /// <typeparam name="'R1">The success result type of the second effect.</typeparam>
+    /// <typeparam name="'R2">The success result type of the third effect.</typeparam>
+    /// <param name="eff">The first effect to fork.</param>
+    /// <param name="eff'">The second effect to fork.</param>
+    /// <param name="eff''">The third effect to fork.</param>
+    /// <returns>An effect that runs all three concurrently and completes with a triple of their results.</returns>
+    /// <remarks>All effects run on separate fibers in fiber runtimes.</remarks>
     member inline _.MergeSources3<'R, 'R1, 'R2, 'E>
         (eff: FIO<'R, 'E>, eff': FIO<'R1, 'E>, eff'': FIO<'R2, 'E>)
         : FIO<'R * 'R1 * 'R2, 'E> =
         eff.ZipPar(eff').ZipPar(eff'').Map(fun ((r, r1), r2) -> r, r1, r2)
 
-    /// Enables and! patterns with 4 sources.
-    /// <param name="eff">The first effect.</param>
-    /// <param name="eff'">The second effect.</param>
-    /// <param name="eff''">The third effect.</param>
-    /// <param name="eff'''">The fourth effect.</param>
-    /// <returns>An effect that executes all four in parallel and returns a quadruple of their results.</returns>
-    /// <remarks>All effects run concurrently in fiber runtimes.</remarks>
+    /// <summary>Combines four effects in parallel and returns all four results as a tuple, supporting <c>and!</c> bindings with four sources.</summary>
+    /// <typeparam name="'R1">The success result type of the second effect.</typeparam>
+    /// <typeparam name="'R2">The success result type of the third effect.</typeparam>
+    /// <typeparam name="'R3">The success result type of the fourth effect.</typeparam>
+    /// <param name="eff">The first effect to fork.</param>
+    /// <param name="eff'">The second effect to fork.</param>
+    /// <param name="eff''">The third effect to fork.</param>
+    /// <param name="eff'''">The fourth effect to fork.</param>
+    /// <returns>An effect that runs all four concurrently and completes with a quadruple of their results.</returns>
+    /// <remarks>All effects run on separate fibers in fiber runtimes.</remarks>
     member inline _.MergeSources4<'R, 'R1, 'R2, 'R3, 'E>
         (eff: FIO<'R, 'E>, eff': FIO<'R1, 'E>, eff'': FIO<'R2, 'E>, eff''': FIO<'R3, 'E>)
         : FIO<'R * 'R1 * 'R2 * 'R3, 'E> =
         eff.ZipPar(eff').ZipPar(eff'').ZipPar(eff''').Map(fun (((r, r1), r2), r3) -> r, r1, r2, r3)
 
-    /// Enables and! patterns with 5 sources.
-    /// <param name="eff">The first effect.</param>
-    /// <param name="eff'">The second effect.</param>
-    /// <param name="eff''">The third effect.</param>
-    /// <param name="eff'''">The fourth effect.</param>
-    /// <param name="eff''''">The fifth effect.</param>
-    /// <returns>An effect that executes all five in parallel and returns a quintuple of their results.</returns>
-    /// <remarks>All effects run concurrently in fiber runtimes.</remarks>
+    /// <summary>Combines five effects in parallel and returns all five results as a tuple, supporting <c>and!</c> bindings with five sources.</summary>
+    /// <typeparam name="'R1">The success result type of the second effect.</typeparam>
+    /// <typeparam name="'R2">The success result type of the third effect.</typeparam>
+    /// <typeparam name="'R3">The success result type of the fourth effect.</typeparam>
+    /// <typeparam name="'R4">The success result type of the fifth effect.</typeparam>
+    /// <param name="eff">The first effect to fork.</param>
+    /// <param name="eff'">The second effect to fork.</param>
+    /// <param name="eff''">The third effect to fork.</param>
+    /// <param name="eff'''">The fourth effect to fork.</param>
+    /// <param name="eff''''">The fifth effect to fork.</param>
+    /// <returns>An effect that runs all five concurrently and completes with a quintuple of their results.</returns>
+    /// <remarks>All effects run on separate fibers in fiber runtimes.</remarks>
     member inline _.MergeSources5<'R, 'R1, 'R2, 'R3, 'R4, 'E>
         (eff: FIO<'R, 'E>, eff': FIO<'R1, 'E>, eff'': FIO<'R2, 'E>, eff''': FIO<'R3, 'E>, eff'''': FIO<'R4, 'E>)
         : FIO<'R * 'R1 * 'R2 * 'R3 * 'R4, 'E> =
@@ -195,5 +214,5 @@ type FIOBuilder internal () =
             .ZipPar(eff'''')
             .Map(fun ((((r, r1), r2), r3), r4) -> r, r1, r2, r3, r4)
 
-/// The FIO computation expression builder instance.
+/// <summary>Returns the shared builder instance for the <c>fio { ... }</c> computation expression.</summary>
 let fio = FIOBuilder()

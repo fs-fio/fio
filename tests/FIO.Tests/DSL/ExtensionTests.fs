@@ -1,3 +1,4 @@
+/// <summary>Provides property-based tests for FIO extension methods including Map, FlatMap, Zip, CatchAll, and Ensuring.</summary>
 module FIO.Tests.ExtensionTests
 
 open FIO.Tests.Utilities.FsCheckProperties

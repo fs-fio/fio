@@ -5,9 +5,7 @@
 (* (http://soft.vub.ac.be/AGERE14/papers/ageresplash2014_submission_19.pdf) *)
 (****************************************************************************)
 
-/// <summary>
-/// Threadring benchmark measuring message passing and context switching in a ring topology.
-/// </summary>
+/// <summary>Provides the Threadring benchmark measuring message passing and context switching in a ring topology.</summary>
 [<RequireQualifiedAccess>]
 module private FIO.Benchmarks.Suite.Threadring
 
@@ -19,24 +17,20 @@ open FIO.Benchmarks.Tools.Timer
 
 open System
 
-/// <summary>
-/// Actor in the ring with send and receive channels to adjacent actors.
-/// </summary>
+/// <summary>Represents an actor in the ring with send and receive channels to adjacent actors.</summary>
 type private Actor =
     {
-        /// <summary>Channel for sending messages to the next actor.</summary>
+        /// <summary>Represents the channel for sending messages to the next actor.</summary>
         SendChan: Channel<int>
-        /// <summary>Channel for receiving messages from the previous actor.</summary>
+        /// <summary>Represents the channel for receiving messages from the previous actor.</summary>
         ReceiveChan: Channel<int>
 #if DEBUG
-        /// <summary>Actor name for debugging.</summary>
+        /// <summary>Represents the actor name for debugging.</summary>
         Name: string
 #endif
     }
 
-/// <summary>
-/// Actor effect that receives a message, increments it, and forwards to the next actor.
-/// </summary>
+/// <summary>Builds the actor effect that receives a message, increments it, and forwards to the next actor.</summary>
 /// <param name="actor">Actor instance with channels.</param>
 /// <param name="isLastActor">Whether this is the last actor in the ring.</param>
 /// <param name="roundCount">Number of rounds to execute.</param>
@@ -61,9 +55,7 @@ let private actorEff (actor, isLastActor, roundCount, timerChan: Channel<TimerMe
         do! timerChan.Send(Stop).Unit()
     }
 
-/// <summary>
-/// Composes all actor effects in the ring to run concurrently.
-/// </summary>
+/// <summary>Combines all actor effects in the ring to run concurrently.</summary>
 /// <param name="actors">List of actors in the ring.</param>
 /// <param name="roundCount">Number of rounds to execute.</param>
 /// <param name="timerChan">Channel for timer control messages.</param>
@@ -83,9 +75,7 @@ let private threadringEff (actors: Actor list, roundCount: int, timerChan: Chann
                 headEff
     }
 
-/// <summary>
-/// Recursively creates actors with circular channel references forming a ring.
-/// </summary>
+/// <summary>Creates actors with circular channel references forming a ring.</summary>
 /// <param name="chans">Remaining channels to assign.</param>
 /// <param name="allChans">Complete list of channels for circular reference.</param>
 /// <param name="index">Current actor index.</param>
@@ -110,11 +100,9 @@ let rec private createActors (chans, allChans: Channel<int> list, index, acc) =
 
         createActors (chans', allChans, index + 1, acc @ [ actor ])
 
-/// <summary>
-/// Creates and runs the threadring benchmark, returning execution time in milliseconds.
-/// </summary>
+/// <summary>Builds the threadring benchmark effect, returning execution time in milliseconds.</summary>
 /// <param name="config">Threadring benchmark configuration.</param>
-/// <returns>Execution time in milliseconds.</returns>
+/// <returns>An effect that produces the execution time in milliseconds.</returns>
 let benchmark config : FIO<int64, exn> =
     fio {
         let! actorCount, roundCount =

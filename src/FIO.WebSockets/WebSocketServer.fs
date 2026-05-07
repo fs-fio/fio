@@ -5,13 +5,13 @@ open FIO.DSL
 open System
 open System.Net
 
-/// Server operations for accepting WebSocket connections.
+/// <summary>Builds effects for accepting incoming WebSocket connections on a server.</summary>
 [<RequireQualifiedAccess>]
 module WebSocketServer =
 
-    /// Starts a WebSocket server listening on the specified URL prefix.
+    /// <summary>Creates an effect that starts a WebSocket server listening on the specified URL prefix.</summary>
     /// <param name="url">The URL prefix to listen on.</param>
-    /// <returns>The HTTP listener for the server.</returns>
+    /// <returns>An effect that produces the running HTTP listener.</returns>
     let start (url: string) =
         fio {
             let! listener = FIO.attempt ((fun () -> new HttpListener()), WsError.fromException)
@@ -20,28 +20,28 @@ module WebSocketServer =
             return listener
         }
 
-    /// Starts a server with default configuration.
+    /// <summary>Creates an effect that starts a WebSocket server with default configuration on the specified URL prefix.</summary>
     /// <param name="url">The URL prefix to listen on.</param>
-    /// <returns>The HTTP listener for the server.</returns>
+    /// <returns>An effect that produces the running HTTP listener.</returns>
     let startDefault (url: string) = start url
 
-    /// Closes the server.
-    /// <param name="listener">The HTTP listener to close.</param>
-    /// <returns>Effect that stops the server.</returns>
+    /// <summary>Creates an effect that stops the server gracefully.</summary>
+    /// <param name="listener">The HTTP listener to stop.</param>
+    /// <returns>An effect that completes when the server has stopped.</returns>
     let close (listener: HttpListener) =
         FIO.attempt ((fun () -> listener.Stop()), WsError.fromException)
 
-    /// Aborts the server immediately.
+    /// <summary>Creates an effect that aborts the server immediately without waiting for pending requests.</summary>
     /// <param name="listener">The HTTP listener to abort.</param>
-    /// <returns>Effect that aborts the server.</returns>
+    /// <returns>An effect that completes when the server has been aborted.</returns>
     let abort (listener: HttpListener) =
         FIO.attempt ((fun () -> listener.Abort()), WsError.fromException)
 
-    /// Accepts a single incoming WebSocket connection.
-    /// <param name="listener">The HTTP listener.</param>
-    /// <param name="config">WebSocket configuration options.</param>
-    /// <param name="subProtocol">Optional subprotocol to negotiate.</param>
-    /// <returns>The accepted WebSocket connection.</returns>
+    /// <summary>Creates an effect that accepts a single incoming WebSocket connection.</summary>
+    /// <param name="listener">The HTTP listener to accept connections from.</param>
+    /// <param name="config">The configuration options for the accepted connection.</param>
+    /// <param name="subProtocol">An optional subprotocol to negotiate during the handshake.</param>
+    /// <returns>An effect that produces the accepted <c>WebSocket</c>, or fails if the request is not a WebSocket upgrade.</returns>
     let accept (listener: HttpListener) (config: WebSocketConfig) (subProtocol: string option) =
         fio {
             let! listenerCtxTask =
@@ -66,18 +66,17 @@ module WebSocketServer =
                 return! FIO.fail (WsError.fromException <| Exception "Not a WebSocket request")
         }
 
-    /// Accepts a connection with default subprotocol.
-    /// <param name="listener">The HTTP listener.</param>
-    /// <param name="config">WebSocket configuration options.</param>
-    /// <returns>The accepted WebSocket connection.</returns>
+    /// <summary>Creates an effect that accepts a single incoming WebSocket connection with no subprotocol negotiation.</summary>
+    /// <param name="listener">The HTTP listener to accept connections from.</param>
+    /// <param name="config">The configuration options for the accepted connection.</param>
+    /// <returns>An effect that produces the accepted <c>WebSocket</c>.</returns>
     let acceptDefault (listener: HttpListener) (config: WebSocketConfig) = accept listener config None
 
-    /// Continuously accepts connections and handles them with the provided handler.
-    /// Each connection is forked into its own fiber for concurrent handling.
-    /// <param name="listener">The HTTP listener.</param>
-    /// <param name="config">WebSocket configuration options.</param>
-    /// <param name="handler">Handler function for each connection.</param>
-    /// <returns>Effect that accepts connections until interrupted.</returns>
+    /// <summary>Creates an effect that continuously accepts connections and forks a handler fiber for each one.</summary>
+    /// <param name="listener">The HTTP listener to accept connections from.</param>
+    /// <param name="config">The configuration options for each accepted connection.</param>
+    /// <param name="handler">A function from an accepted WebSocket to the effect that handles the connection.</param>
+    /// <returns>An effect that loops indefinitely until interrupted.</returns>
     let acceptLoop (listener: HttpListener) (config: WebSocketConfig) (handler: WebSocket -> FIO<unit, WsError>) =
         let rec loop () =
             fio {
@@ -88,12 +87,11 @@ module WebSocketServer =
 
         loop ()
 
-    /// Runs a complete WebSocket server with the given handler.
-    /// Starts listening, accepts connections in a loop, and handles them concurrently.
+    /// <summary>Builds a resource-managed effect that starts a server, accepts connections in a loop, and stops the server on every outcome.</summary>
     /// <param name="url">The URL prefix to listen on.</param>
-    /// <param name="config">WebSocket configuration options.</param>
-    /// <param name="handler">Handler function for each connection.</param>
-    /// <returns>Effect that runs the server until interrupted.</returns>
+    /// <param name="config">The configuration options for each accepted connection.</param>
+    /// <param name="handler">A function from an accepted WebSocket to the effect that handles the connection.</param>
+    /// <returns>An effect that runs the server until interrupted, then stops the listener.</returns>
     let serve (url: string) (config: WebSocketConfig) (handler: WebSocket -> FIO<unit, WsError>) =
         FIO.acquireRelease (
             start url,
@@ -101,15 +99,15 @@ module WebSocketServer =
             fun listener -> acceptLoop listener config handler
         )
 
-    /// Runs a codec-based request/response server.
-    /// <typeparam name="Req">The request type.</typeparam>
-    /// <typeparam name="Resp">The response type.</typeparam>
+    /// <summary>Builds a resource-managed server that decodes each request with a codec, passes it to a handler, and encodes the response back.</summary>
+    /// <typeparam name="Req">The request type decoded from incoming frames.</typeparam>
+    /// <typeparam name="Resp">The response type encoded into outgoing frames.</typeparam>
     /// <param name="url">The URL prefix to listen on.</param>
-    /// <param name="config">WebSocket configuration options.</param>
-    /// <param name="requestCodec">Codec for decoding requests.</param>
-    /// <param name="responseCodec">Codec for encoding responses.</param>
-    /// <param name="handler">Handler function that processes requests and returns responses.</param>
-    /// <returns>Effect that runs the codec-based server until interrupted.</returns>
+    /// <param name="config">The configuration options for each accepted connection.</param>
+    /// <param name="requestCodec">The codec for decoding incoming request frames.</param>
+    /// <param name="responseCodec">The codec for encoding outgoing response frames.</param>
+    /// <param name="handler">A function from a decoded request to the response effect.</param>
+    /// <returns>An effect that runs the codec-based server until interrupted.</returns>
     let serveWith<'Req, 'Resp>
         (url: string)
         (config: WebSocketConfig)

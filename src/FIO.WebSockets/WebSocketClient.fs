@@ -5,15 +5,14 @@ open FIO.DSL
 open System
 open System.Threading
 
-/// Client operations for establishing WebSocket connections.
+/// <summary>Builds effects for establishing outgoing WebSocket connections.</summary>
 [<RequireQualifiedAccess>]
 module WebSocketClient =
 
-    /// Internal: Logs an error and suppresses it.
-    /// Used for cleanup operations where errors should not propagate.
-    /// <param name="context">The context description for the error.</param>
-    /// <param name="err">The error to log.</param>
-    /// <returns>Effect that logs the error and succeeds.</returns>
+    /// <summary>Transforms a WebSocket error into a logged-and-suppressed unit effect for use in client cleanup paths.</summary>
+    /// <param name="context">A description of the operation being cleaned up.</param>
+    /// <param name="err">The WebSocket error to log.</param>
+    /// <returns>An effect that logs the error to standard error and succeeds with unit.</returns>
     let private logAndSuppress (context: string) (err: WsError) =
         fio {
             let str = err.ToString()
@@ -27,11 +26,11 @@ module WebSocketClient =
             return ()
         }
 
-    /// Connects to a WebSocket server at the specified URI.
-    /// <param name="uri">The WebSocket server URI.</param>
-    /// <param name="config">WebSocket configuration options.</param>
-    /// <param name="ct">Optional cancellation token.</param>
-    /// <returns>The connected WebSocket.</returns>
+    /// <summary>Creates an effect that connects to a WebSocket server at the specified URI.</summary>
+    /// <param name="uri">The URI of the WebSocket server to connect to.</param>
+    /// <param name="config">The configuration options for the connection.</param>
+    /// <param name="ct">The cancellation token to observe during the connection attempt.</param>
+    /// <returns>An effect that produces a connected <c>WebSocket</c>.</returns>
     let connect (uri: Uri) (config: WebSocketConfig) (ct: CancellationToken) =
         fio {
             let! clientSocket =
@@ -44,40 +43,40 @@ module WebSocketClient =
             return new WebSocket(clientSocket, config)
         }
 
-    /// Connects to a WebSocket server at the specified URI with default config.
-    /// <param name="uri">The WebSocket server URI.</param>
-    /// <returns>The connected WebSocket.</returns>
+    /// <summary>Creates an effect that connects to a WebSocket server at the specified URI with default configuration.</summary>
+    /// <param name="uri">The URI of the WebSocket server to connect to.</param>
+    /// <returns>An effect that produces a connected <c>WebSocket</c>.</returns>
     let connectWith (uri: Uri) =
         connect uri WebSocketConfig.defaultConfig CancellationToken.None
 
-    /// Connects to a WebSocket server from a URL string.
-    /// <param name="url">The WebSocket server URL.</param>
-    /// <param name="config">WebSocket configuration options.</param>
-    /// <param name="ct">Optional cancellation token.</param>
-    /// <returns>The connected WebSocket.</returns>
+    /// <summary>Creates an effect that connects to a WebSocket server from a URL string.</summary>
+    /// <param name="url">The URL string of the WebSocket server to connect to.</param>
+    /// <param name="config">The configuration options for the connection.</param>
+    /// <param name="ct">The cancellation token to observe during the connection attempt.</param>
+    /// <returns>An effect that produces a connected <c>WebSocket</c>.</returns>
     let connectString (url: string) (config: WebSocketConfig) (ct: CancellationToken) =
         fio {
             let! uri = FIO.attempt ((fun () -> Uri url), WsError.fromException)
             return! connect uri config ct
         }
 
-    /// Connects to a WebSocket server from a URL string with default config.
-    /// <param name="url">The WebSocket server URL.</param>
-    /// <returns>The connected WebSocket.</returns>
+    /// <summary>Creates an effect that connects to a WebSocket server from a URL string with default configuration.</summary>
+    /// <param name="url">The URL string of the WebSocket server to connect to.</param>
+    /// <returns>An effect that produces a connected <c>WebSocket</c>.</returns>
     let connectStringWith (url: string) =
         connectString url WebSocketConfig.defaultConfig CancellationToken.None
 
-    /// Connects with default error handling.
-    /// <param name="url">The WebSocket server URL.</param>
-    /// <returns>The connected WebSocket.</returns>
+    /// <summary>Creates an effect that connects to a WebSocket server from a URL string with default configuration.</summary>
+    /// <param name="url">The URL string of the WebSocket server to connect to.</param>
+    /// <returns>An effect that produces a connected <c>WebSocket</c>.</returns>
     let connectDefault (url: string) = connectStringWith url
 
-    /// Executes an action with a WebSocket connection using AcquireRelease pattern.
-    /// <typeparam name="R">The result type of the action.</typeparam>
-    /// <param name="uri">The WebSocket server URI.</param>
-    /// <param name="config">WebSocket configuration options.</param>
-    /// <param name="action">The action to execute with the connection.</param>
-    /// <returns>The result of the action.</returns>
+    /// <summary>Builds a resource-managed effect that connects, runs an action, and closes the connection on every outcome.</summary>
+    /// <typeparam name="R">The result type produced by the action.</typeparam>
+    /// <param name="uri">The URI of the WebSocket server to connect to.</param>
+    /// <param name="config">The configuration options for the connection.</param>
+    /// <param name="action">A function from the connected WebSocket to the effect to run.</param>
+    /// <returns>An effect that produces the action's result and always closes the connection afterwards.</returns>
     let withConnection<'R> (uri: Uri) (config: WebSocketConfig) (action: WebSocket -> FIO<'R, WsError>) =
         FIO.acquireRelease (
             connect uri config CancellationToken.None,
@@ -88,11 +87,11 @@ module WebSocketClient =
             action
         )
 
-    /// Executes an action with a WebSocket connection (default config).
-    /// <typeparam name="R">The result type of the action.</typeparam>
-    /// <param name="url">The WebSocket server URL.</param>
-    /// <param name="action">The action to execute with the connection.</param>
-    /// <returns>The result of the action.</returns>
+    /// <summary>Builds a resource-managed effect that connects to a URL string, runs an action, and closes the connection on every outcome.</summary>
+    /// <typeparam name="R">The result type produced by the action.</typeparam>
+    /// <param name="url">The URL string of the WebSocket server to connect to.</param>
+    /// <param name="action">A function from the connected WebSocket to the effect to run.</param>
+    /// <returns>An effect that produces the action's result and always closes the connection afterwards.</returns>
     let withConnectionString<'R> (url: string) (action: WebSocket -> FIO<'R, WsError>) =
         fio {
             let! uri = FIO.attempt ((fun () -> Uri url), WsError.fromException)

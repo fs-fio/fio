@@ -1,3 +1,4 @@
+/// <summary>Provides tests for HTTP route registration and request dispatch.</summary>
 module FIO.Http.Tests.RoutesTests
 
 open FIO.Http.Tests.Utilities

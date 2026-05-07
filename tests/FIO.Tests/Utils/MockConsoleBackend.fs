@@ -1,3 +1,4 @@
+/// <summary>Provides a mock console backend for deterministic testing of console I/O effects.</summary>
 module FIO.Tests.MockConsoleBackend
 
 open FIO.Console
@@ -7,10 +8,7 @@ open System.IO
 open System.Text
 open System.Collections.Generic
 
-/// <summary>
-/// Mock console backend for testing. Captures all output and allows
-/// injecting input for deterministic testing.
-/// </summary>
+/// <summary>Represents a mock console backend that captures all output and allows injecting input for deterministic testing.</summary>
 type MockConsoleBackend() =
     let mutable stdoutBuffer = StringBuilder()
     let mutable stderrBuffer = StringBuilder()
@@ -40,7 +38,6 @@ type MockConsoleBackend() =
             raise ex
         | None -> ()
 
-    // Custom TextWriter that writes to our StringBuilder
     let stdoutWriter =
         { new StringWriter(stdoutBuffer) with
             member _.Encoding = Encoding.UTF8
@@ -51,63 +48,67 @@ type MockConsoleBackend() =
             member _.Encoding = Encoding.UTF8
         }
 
-    /// <summary>Gets all text written to stdout.</summary>
+    /// <summary>Returns all text written to stdout.</summary>
+    /// <returns>The accumulated stdout content as a string.</returns>
     member _.StdOut = stdoutBuffer.ToString()
 
-    /// <summary>Gets all text written to stderr.</summary>
+    /// <summary>Returns all text written to stderr.</summary>
+    /// <returns>The accumulated stderr content as a string.</returns>
     member _.StdErr = stderrBuffer.ToString()
 
-    /// <summary>Gets the number of times Clear was called.</summary>
+    /// <summary>Returns the number of times Clear was called.</summary>
+    /// <returns>The clear invocation count.</returns>
     member _.ClearCount = clearCount
 
-    /// <summary>Gets the number of times Beep was called.</summary>
+    /// <summary>Returns the number of times Beep was called.</summary>
+    /// <returns>The beep invocation count.</returns>
     member _.BeepCount = beepCount
 
-    /// <summary>When set, the next backend call will throw this exception and reset to None.</summary>
+    /// <summary>Returns or sets the exception to throw on the next backend call, resetting to None after throwing.</summary>
     member _.ShouldThrow
         with get () = shouldThrow
         and set v = shouldThrow <- v
 
-    /// <summary>Gets or sets whether stdin is redirected.</summary>
+    /// <summary>Returns or sets whether stdin is reported as redirected.</summary>
     member _.IsInputRedirected
         with get () = isInputRedirected
         and set v = isInputRedirected <- v
 
-    /// <summary>Gets or sets whether stdout is redirected.</summary>
+    /// <summary>Returns or sets whether stdout is reported as redirected.</summary>
     member _.IsOutputRedirected
         with get () = isOutputRedirected
         and set v = isOutputRedirected <- v
 
-    /// <summary>Gets or sets whether stderr is redirected.</summary>
+    /// <summary>Returns or sets whether stderr is reported as redirected.</summary>
     member _.IsErrorRedirected
         with get () = isErrorRedirected
         and set v = isErrorRedirected <- v
 
-    /// <summary>Queues an input line to be returned by ReadLine.</summary>
+    /// <summary>Transforms the input queue by appending a line to be returned by ReadLine.</summary>
     /// <param name="line">The line of text to queue.</param>
     member _.QueueInputLine(line: string) = stdinQueue.Enqueue line
 
-    /// <summary>Queues multiple input lines to be returned by ReadLine.</summary>
+    /// <summary>Transforms the input queue by appending multiple lines to be returned by ReadLine.</summary>
     /// <param name="lines">The lines of text to queue.</param>
     member this.QueueInputLines(lines: string seq) =
         for line in lines do
             this.QueueInputLine line
 
-    /// <summary>Queues a key press to be returned by ReadKey.</summary>
+    /// <summary>Transforms the key queue by appending a key press to be returned by ReadKey.</summary>
     /// <param name="key">The ConsoleKeyInfo to queue.</param>
     member _.QueueKey(key: ConsoleKeyInfo) = keyQueue.Enqueue key
 
-    /// <summary>Queues a simple character key press.</summary>
+    /// <summary>Transforms the key queue by appending a simple character key press.</summary>
     /// <param name="c">The character to queue as a key press.</param>
     member this.QueueCharKey(c: char) =
         this.QueueKey(ConsoleKeyInfo(c, enum<ConsoleKey> (int (Char.ToUpper c)), false, false, false))
 
-    /// <summary>Queues a special key press (Enter, Backspace, Escape, etc.).</summary>
+    /// <summary>Transforms the key queue by appending a special key press (Enter, Backspace, Escape, etc.).</summary>
     /// <param name="key">The ConsoleKey to queue.</param>
     member this.QueueSpecialKey(key: ConsoleKey) =
         this.QueueKey(ConsoleKeyInfo('\000', key, false, false, false))
 
-    /// <summary>Queues multiple character keys followed by Enter.</summary>
+    /// <summary>Transforms the key queue by appending each character as a key press followed by Enter.</summary>
     /// <param name="s">The string to queue as individual key presses.</param>
     member this.QueueString(s: string) =
         for c in s do
@@ -115,7 +116,7 @@ type MockConsoleBackend() =
 
         this.QueueSpecialKey ConsoleKey.Enter
 
-    /// <summary>Resets all captured state to initial values.</summary>
+    /// <summary>Transforms all captured state back to initial values, clearing buffers, queues, and counters.</summary>
     member _.Reset() =
         stdoutBuffer.Clear() |> ignore
         stderrBuffer.Clear() |> ignore
@@ -134,14 +135,14 @@ type MockConsoleBackend() =
         isOutputRedirected <- false
         isErrorRedirected <- false
 
-    /// <summary>Sets window dimensions for testing.</summary>
+    /// <summary>Transforms the reported window dimensions to the specified size.</summary>
     /// <param name="width">The window width in columns.</param>
     /// <param name="height">The window height in rows.</param>
     member _.SetWindowSize(width: int, height: int) =
         windowWidth <- width
         windowHeight <- height
 
-    /// <summary>Sets buffer dimensions for testing.</summary>
+    /// <summary>Transforms the reported buffer dimensions to the specified size.</summary>
     /// <param name="width">The buffer width in columns.</param>
     /// <param name="height">The buffer height in rows.</param>
     member _.SetBufferSize(width: int, height: int) =

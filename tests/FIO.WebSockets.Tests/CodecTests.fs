@@ -1,3 +1,4 @@
+/// <summary>Provides tests for WebSocket codec encode and decode operations.</summary>
 module FIO.WebSockets.Tests.CodecTests
 
 open FIO.WebSockets.Tests.Utilities

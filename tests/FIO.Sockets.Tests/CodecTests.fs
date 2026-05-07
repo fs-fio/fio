@@ -1,3 +1,4 @@
+/// <summary>Provides tests for socket codec encode and decode operations.</summary>
 module FIO.Sockets.Tests.CodecTests
 
 open FIO.Sockets.Tests.Utilities

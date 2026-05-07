@@ -1,3 +1,4 @@
+/// <summary>Provides property-based tests for Fiber module helper functions.</summary>
 module FIO.Tests.FiberModuleTests
 
 open FIO.Tests.Utilities.FsCheckProperties

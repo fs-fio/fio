@@ -1,3 +1,4 @@
+/// <summary>Provides tests for FIOApp lifecycle hooks, shutdown behavior, and exit code handling.</summary>
 module FIO.Tests.AppTests
 
 open FIO.App
@@ -9,6 +10,7 @@ open System.Threading
 
 open Expecto
 
+/// <summary>Represents a test harness app that logs all lifecycle hooks and supports custom shutdown behavior.</summary>
 type private TestApp
     (eff: FIO<int, string>, log: ResizeArray<string>, ?onShutdown: FIO<unit, string>, ?shutdownTimeout: TimeSpan) =
     inherit FIOApp<int, string>()
@@ -33,17 +35,20 @@ type private TestApp
 
     override _.onShutdownFailed _ = log.Add "onShutdownFailed"
 
+/// <summary>Represents a test harness app with no lifecycle hook overrides beyond the required effect.</summary>
 type private MinimalApp(eff: FIO<int, string>) =
     inherit FIOApp<int, string>()
 
     override _.effect = eff
 
+/// <summary>Represents a test harness app that overrides the default application name.</summary>
 type private CustomNameApp() =
     inherit FIOApp<int, string>()
 
     override _.effect = FIO.succeed 42
     override _.name = "MyCustomApp"
 
+/// <summary>Represents a test harness app that overrides exit codes for each outcome.</summary>
 type private CustomExitCodeApp(eff: FIO<int, string>, log: ResizeArray<string>) =
     inherit FIOApp<int, string>()
 
@@ -68,6 +73,7 @@ type private CustomExitCodeApp(eff: FIO<int, string>, log: ResizeArray<string>) 
 
     override _.onShutdownFailed _ = log.Add "onShutdownFailed"
 
+/// <summary>Represents a test harness app that triggers a fatal error during runtime initialization.</summary>
 type private FatalErrorApp(log: ResizeArray<string>) =
     inherit FIOApp<int, string>()
 

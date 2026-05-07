@@ -1,3 +1,4 @@
+/// <summary>Provides tests for socket extension methods.</summary>
 module FIO.Sockets.Tests.ExtensionsTests
 
 open FIO.Sockets.Tests.Utilities

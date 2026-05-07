@@ -1,34 +1,31 @@
-/// <summary>
-/// Entry point for the FIO benchmark plotting application.
-/// </summary>
+/// <summary>Provides the entry point for the FIO benchmark plotting application.</summary>
 module private FIO.Benchmarks.Plots.Program
 
 open FIO.Benchmarks.Plots
 
-/// <summary>Exit code returned on successful execution.</summary>
+/// <summary>Returns the exit code for successful execution.</summary>
+/// <returns>The success exit code (0).</returns>
 [<Literal>]
 let private SuccessExitCode = 0
 
-/// <summary>Exit code returned when a runtime error occurs during plot generation.</summary>
+/// <summary>Returns the exit code for runtime errors during plot generation.</summary>
+/// <returns>The runtime error exit code (1).</returns>
 [<Literal>]
 let private RuntimeErrorExitCode = 1
 
-/// <summary>Exit code returned when command-line arguments are invalid.</summary>
+/// <summary>Returns the exit code for invalid command-line arguments.</summary>
+/// <returns>The invalid arguments exit code (2).</returns>
 [<Literal>]
 let private InvalidArgsExitCode = 2
 
-/// <summary>
-/// Generates and displays the plot for the given arguments.
-/// </summary>
-/// <param name="plotArgs">Parsed plot arguments.</param>
+/// <summary>Creates and displays the plot for the given arguments.</summary>
+/// <param name="plotArgs">The parsed plot arguments.</param>
 let private showPlot plotArgs = PlotArgs.show plotArgs
 
-/// <summary>
-/// Parses command-line arguments and generates the plot using a custom executor function.
-/// </summary>
-/// <param name="execute">Function to execute with parsed plot arguments.</param>
-/// <param name="args">Command-line arguments to parse.</param>
-/// <returns>Exit code indicating success or failure.</returns>
+/// <summary>Returns an exit code after parsing command-line arguments and executing the plot generation with a custom executor.</summary>
+/// <param name="execute">The function to execute with parsed plot arguments.</param>
+/// <param name="args">The command-line arguments to parse.</param>
+/// <returns>An exit code indicating success or failure.</returns>
 let internal runWithArgsUsing execute args =
     match Args.parse args with
     | Args.HelpRequested usage ->
@@ -46,17 +43,13 @@ let internal runWithArgsUsing execute args =
             eprintfn "%s" (ex.ToString())
             RuntimeErrorExitCode
 
-/// <summary>
-/// Parses command-line arguments and generates the plot.
-/// </summary>
-/// <param name="args">Command-line arguments to parse.</param>
-/// <returns>Exit code indicating success or failure.</returns>
+/// <summary>Returns an exit code after parsing command-line arguments and executing the plot generation.</summary>
+/// <param name="args">The command-line arguments to parse.</param>
+/// <returns>An exit code indicating success or failure.</returns>
 let internal runWithArgs args = runWithArgsUsing showPlot args
 
-/// <summary>
-/// Application entry point. Parses arguments and generates the specified plot type.
-/// </summary>
-/// <param name="args">Command-line arguments.</param>
-/// <returns>Exit code (0 for success).</returns>
+/// <summary>Returns an exit code after parsing arguments and creating the specified plot type.</summary>
+/// <param name="args">The command-line arguments.</param>
+/// <returns>An exit code indicating success or failure.</returns>
 [<EntryPoint>]
 let main args = runWithArgs args

@@ -3,26 +3,26 @@ namespace FIO.WebSockets
 open System
 open System.Net.WebSockets
 
-/// Configuration options for WebSocket connections.
+/// <summary>Represents configuration options for a WebSocket connection.</summary>
 type WebSocketConfig =
     {
-        /// Size of the buffer used for receiving messages.
+        /// <summary>Represents the buffer size in bytes used for receiving messages.</summary>
         ReceiveBufferSize: int
-        /// Size of the buffer used for sending messages.
+        /// <summary>Represents the buffer size in bytes used for sending messages.</summary>
         SendBufferSize: int
-        /// Maximum allowed message size in bytes.
+        /// <summary>Represents the maximum allowed message size in bytes.</summary>
         MaxMessageSize: int64
-        /// Timeout for send operations in milliseconds.
+        /// <summary>Represents the timeout for send operations in milliseconds.</summary>
         SendTimeout: int
-        /// Timeout for receive operations in milliseconds.
+        /// <summary>Represents the timeout for receive operations in milliseconds.</summary>
         ReceiveTimeout: int
     }
 
-/// Builder functions for WebSocketConfig.
+/// <summary>Builds configuration values for WebSocket connections.</summary>
 module WebSocketConfig =
 
-    /// Default WebSocket configuration.
-    /// <returns>The default WebSocket configuration.</returns>
+    /// <summary>Returns the default WebSocket configuration.</summary>
+    /// <returns>A configuration with default buffer sizes, message limits, and timeouts.</returns>
     let defaultConfig =
         {
             ReceiveBufferSize = 4096
@@ -32,76 +32,76 @@ module WebSocketConfig =
             ReceiveTimeout = 30_000 // 30 seconds
         }
 
-    /// Sets the receive buffer size.
-    /// <param name="size">The buffer size in bytes.</param>
-    /// <param name="config">The configuration to modify.</param>
-    /// <returns>A new configuration with the updated receive buffer size.</returns>
+    /// <summary>Returns a new configuration with the specified receive buffer size.</summary>
+    /// <param name="size">The buffer size in bytes for receiving messages.</param>
+    /// <param name="config">The base configuration to derive from.</param>
+    /// <returns>A new configuration with the receive buffer size set to <paramref name="size"/>.</returns>
     let withReceiveBufferSize (size: int, config: WebSocketConfig) =
         { config with ReceiveBufferSize = size }
 
-    /// Sets the send buffer size.
-    /// <param name="size">The buffer size in bytes.</param>
-    /// <param name="config">The configuration to modify.</param>
-    /// <returns>A new configuration with the updated send buffer size.</returns>
+    /// <summary>Returns a new configuration with the specified send buffer size.</summary>
+    /// <param name="size">The buffer size in bytes for sending messages.</param>
+    /// <param name="config">The base configuration to derive from.</param>
+    /// <returns>A new configuration with the send buffer size set to <paramref name="size"/>.</returns>
     let withSendBufferSize (size: int, config: WebSocketConfig) = { config with SendBufferSize = size }
 
-    /// Sets the maximum message size.
+    /// <summary>Returns a new configuration with the specified maximum message size.</summary>
     /// <param name="size">The maximum message size in bytes.</param>
-    /// <param name="config">The configuration to modify.</param>
-    /// <returns>A new configuration with the updated maximum message size.</returns>
+    /// <param name="config">The base configuration to derive from.</param>
+    /// <returns>A new configuration with the maximum message size set to <paramref name="size"/>.</returns>
     let withMaxMessageSize (size: int64, config: WebSocketConfig) = { config with MaxMessageSize = size }
 
-    /// Sets the send timeout in milliseconds.
-    /// <param name="timeout">The timeout in milliseconds.</param>
-    /// <param name="config">The configuration to modify.</param>
-    /// <returns>A new configuration with the updated send timeout.</returns>
+    /// <summary>Returns a new configuration with the specified send timeout.</summary>
+    /// <param name="timeout">The send timeout in milliseconds.</param>
+    /// <param name="config">The base configuration to derive from.</param>
+    /// <returns>A new configuration with the send timeout set to <paramref name="timeout"/>.</returns>
     let withSendTimeout (timeout: int, config: WebSocketConfig) = { config with SendTimeout = timeout }
 
-    /// Sets the receive timeout in milliseconds.
-    /// <param name="timeout">The timeout in milliseconds.</param>
-    /// <param name="config">The configuration to modify.</param>
-    /// <returns>A new configuration with the updated receive timeout.</returns>
+    /// <summary>Returns a new configuration with the specified receive timeout.</summary>
+    /// <param name="timeout">The receive timeout in milliseconds.</param>
+    /// <param name="config">The base configuration to derive from.</param>
+    /// <returns>A new configuration with the receive timeout set to <paramref name="timeout"/>.</returns>
     let withReceiveTimeout (timeout: int, config: WebSocketConfig) =
         { config with ReceiveTimeout = timeout }
 
-/// Represents WebSocket frame types that can be sent and received.
+/// <summary>Represents a WebSocket frame that can be sent or received.</summary>
 type WebSocketFrame =
-    /// Text frame containing UTF-8 encoded string data.
+    /// <summary>Represents a text frame containing UTF-8 encoded string data.</summary>
     | Text of string
-    /// Binary frame containing raw byte data.
+    /// <summary>Represents a binary frame containing raw byte data.</summary>
     | Binary of byte[]
-    /// Close frame with status code and reason.
+    /// <summary>Represents a close frame with a status code and reason description.</summary>
     | Close of WebSocketCloseStatus * string
 
-/// Messages received from a WebSocket connection.
+/// <summary>Represents a message received from a WebSocket connection.</summary>
 type WebSocketMessage =
-    /// A WebSocket frame was received.
+    /// <summary>Represents a successfully received WebSocket frame.</summary>
     | Frame of WebSocketFrame
-    /// The connection was closed with optional status and description.
+    /// <summary>Represents a connection-closed notification with optional status and description.</summary>
     | ConnectionClosed of WebSocketCloseStatus option * string
 
-/// Error types that can occur during WebSocket operations.
+/// <summary>Represents an error that can occur during a WebSocket operation.</summary>
 type WsError =
-    /// Failed to establish connection.
+    /// <summary>Represents a failure to establish a connection.</summary>
     | ConnectionFailed of string
-    /// Failed to send message.
+    /// <summary>Represents a failure to send a message.</summary>
     | SendFailed of string
-    /// Failed to receive message.
+    /// <summary>Represents a failure to receive a message.</summary>
     | ReceiveFailed of string
-    /// Message exceeds maximum allowed size.
+    /// <summary>Represents a message that exceeds the maximum allowed size.</summary>
     | MessageTooLarge of actual: int64 * max: int64
-    /// Operation timed out.
+    /// <summary>Represents an operation that timed out.</summary>
     | TimeoutError of string
-    /// Connection pool is exhausted.
+    /// <summary>Represents a connection pool that has no available connections.</summary>
     | PoolExhausted of string
-    /// Codec encoding/decoding error.
+    /// <summary>Represents an encoding or decoding error in a codec.</summary>
     | CodecError of string
-    /// Connection is closed.
+    /// <summary>Represents an operation attempted on a closed connection.</summary>
     | Closed of string
-    /// General error.
+    /// <summary>Represents a general WebSocket error.</summary>
     | GeneralError of string
 
-    /// Gets a human-readable error message.
+    /// <summary>Returns a human-readable description of the error.</summary>
     /// <returns>A formatted string describing the error.</returns>
     override this.ToString() : string =
         match this with
@@ -115,10 +115,10 @@ type WsError =
         | Closed msg -> $"Connection closed: {msg}"
         | GeneralError msg -> $"WebSocket error: {msg}"
 
-/// Module functions for working with WsError.
+/// <summary>Creates WsError values from exceptions and vice versa.</summary>
 module WsError =
 
-    /// Converts a WebSocketError from an exception.
+    /// <summary>Creates a WsError from an exception, mapping known exception types to specific error cases.</summary>
     /// <param name="exn">The exception to convert.</param>
     /// <returns>A WsError representing the exception.</returns>
     let fromException (exn: exn) =
@@ -127,7 +127,7 @@ module WsError =
         | :? WebSocketException as e -> GeneralError e.Message
         | _ -> GeneralError exn.Message
 
-    /// Converts a WsError to an exception.
+    /// <summary>Creates an exception from a WsError, mapping each error case to an appropriate exception type.</summary>
     /// <param name="err">The error to convert.</param>
     /// <returns>An exception representing the error.</returns>
     let toException (err: WsError) =
@@ -142,26 +142,26 @@ module WsError =
         | Closed msg -> Exception $"Connection closed: {msg}"
         | GeneralError msg -> WebSocketException msg
 
-/// Configuration options for WebSocket connection pools.
+/// <summary>Represents configuration options for a WebSocket connection pool.</summary>
 type WebSocketPoolConfig =
     {
-        /// Minimum number of connections to maintain in the pool.
+        /// <summary>Represents the minimum number of connections to maintain in the pool.</summary>
         MinPoolSize: int
-        /// Maximum number of connections allowed in the pool.
+        /// <summary>Represents the maximum number of connections allowed in the pool.</summary>
         MaxPoolSize: int
-        /// Maximum lifetime of a connection in seconds (0 = infinite).
+        /// <summary>Represents the maximum lifetime of a connection in seconds, where zero means infinite.</summary>
         ConnectionLifetime: int
-        /// Command timeout in seconds.
+        /// <summary>Represents the command timeout in seconds.</summary>
         CommandTimeout: int
     }
 
-/// Builder functions for WebSocketPoolConfig.
+/// <summary>Builds configuration values for WebSocket connection pools.</summary>
 module WebSocketPoolConfig =
 
-    /// Creates a default pool configuration.
-    /// <param name="minSize">The minimum pool size.</param>
-    /// <param name="maxSize">The maximum pool size.</param>
-    /// <returns>A new pool configuration.</returns>
+    /// <summary>Creates a pool configuration with the specified size bounds and default timeouts.</summary>
+    /// <param name="minSize">The minimum number of connections to maintain.</param>
+    /// <param name="maxSize">The maximum number of connections allowed.</param>
+    /// <returns>A pool configuration with the specified size bounds.</returns>
     let create (minSize: int, maxSize: int) =
         {
             MinPoolSize = minSize
@@ -170,32 +170,32 @@ module WebSocketPoolConfig =
             CommandTimeout = 30
         }
 
-    /// Default pool configuration (min=5, max=20).
-    /// <returns>The default pool configuration.</returns>
+    /// <summary>Returns the default pool configuration with minimum size 5 and maximum size 20.</summary>
+    /// <returns>A pool configuration with default size bounds and timeouts.</returns>
     let defaultConfig = create (5, 20)
 
-    /// Sets the minimum pool size.
-    /// <param name="size">The minimum pool size.</param>
-    /// <param name="config">The configuration to modify.</param>
-    /// <returns>A new configuration with the updated minimum pool size.</returns>
+    /// <summary>Returns a new configuration with the specified minimum pool size.</summary>
+    /// <param name="size">The minimum number of connections to maintain.</param>
+    /// <param name="config">The base configuration to derive from.</param>
+    /// <returns>A new configuration with the minimum pool size set to <paramref name="size"/>.</returns>
     let withMinPoolSize (size: int, config: WebSocketPoolConfig) = { config with MinPoolSize = size }
 
-    /// Sets the maximum pool size.
-    /// <param name="size">The maximum pool size.</param>
-    /// <param name="config">The configuration to modify.</param>
-    /// <returns>A new configuration with the updated maximum pool size.</returns>
+    /// <summary>Returns a new configuration with the specified maximum pool size.</summary>
+    /// <param name="size">The maximum number of connections allowed.</param>
+    /// <param name="config">The base configuration to derive from.</param>
+    /// <returns>A new configuration with the maximum pool size set to <paramref name="size"/>.</returns>
     let withMaxPoolSize (size: int, config: WebSocketPoolConfig) = { config with MaxPoolSize = size }
 
-    /// Sets the connection lifetime in seconds.
-    /// <param name="lifetime">The connection lifetime in seconds.</param>
-    /// <param name="config">The configuration to modify.</param>
-    /// <returns>A new configuration with the updated connection lifetime.</returns>
+    /// <summary>Returns a new configuration with the specified connection lifetime.</summary>
+    /// <param name="lifetime">The maximum connection lifetime in seconds.</param>
+    /// <param name="config">The base configuration to derive from.</param>
+    /// <returns>A new configuration with the connection lifetime set to <paramref name="lifetime"/>.</returns>
     let withConnectionLifetime (lifetime: int, config: WebSocketPoolConfig) =
         { config with ConnectionLifetime = lifetime }
 
-    /// Sets the command timeout in seconds.
+    /// <summary>Returns a new configuration with the specified command timeout.</summary>
     /// <param name="timeout">The command timeout in seconds.</param>
-    /// <param name="config">The configuration to modify.</param>
-    /// <returns>A new configuration with the updated command timeout.</returns>
+    /// <param name="config">The base configuration to derive from.</param>
+    /// <returns>A new configuration with the command timeout set to <paramref name="timeout"/>.</returns>
     let withCommandTimeout (timeout: int, config: WebSocketPoolConfig) =
         { config with CommandTimeout = timeout }

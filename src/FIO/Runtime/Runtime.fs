@@ -1,4 +1,4 @@
-﻿namespace FIO.Runtime
+namespace FIO.Runtime
 
 open FIO.DSL
 
@@ -6,21 +6,22 @@ open System
 open System.Threading
 open System.Collections.Generic
 
-/// Shared defaults for worker-based runtimes.
+/// <summary>Represents default configuration constants for worker-based FIO runtimes.</summary>
 module internal WorkerRuntimeDefaults =
-    /// Number of processors reserved for the system, excluded from worker allocation.
+    /// <summary>Returns the number of processors reserved for the host process and OS.</summary>
     let ProcessorReserve = 1
 
-    /// Minimum number of evaluation workers regardless of processor count.
+    /// <summary>Returns the minimum number of evaluation workers regardless of processor count.</summary>
     let MinimumEvaluationWorkerCount = 2
 
-    /// Default number of evaluation steps per work item before rescheduling.
+    /// <summary>Returns the default number of evaluation steps each worker runs per work item before rescheduling.</summary>
     let EvaluationWorkerSteps = 200
 
-    /// Default number of blocking workers.
+    /// <summary>Returns the default number of blocking workers.</summary>
     let BlockingWorkerCount = 1
 
-    /// Computes the evaluation worker count based on available processors.
+    /// <summary>Returns the evaluation worker count derived from the available processor count minus the processor reserve.</summary>
+    /// <returns>The computed worker count, clamped to at least <c>MinimumEvaluationWorkerCount</c>.</returns>
     let ComputeEvaluationWorkerCount () =
         let availableWorkers = Environment.ProcessorCount - ProcessorReserve
 
@@ -29,17 +30,20 @@ module internal WorkerRuntimeDefaults =
         else
             MinimumEvaluationWorkerCount
 
-/// Object pool for continuation stacks. Thread-local to avoid synchronization.
+/// <summary>Represents a per-thread pool of continuation stacks that reduces allocation pressure.</summary>
 type internal ContStackPool private () =
+    /// <summary>Returns the initial capacity allocated for each new continuation stack.</summary>
     static let DefaultStackCapacity = 32
+    /// <summary>Returns the maximum number of stacks retained per thread.</summary>
     static let MaxPoolSize = 256
+    /// <summary>Returns the maximum depth a stack may have and still be returned to the pool.</summary>
     static let MaxReturnedStackDepth = 4096
 
     [<ThreadStatic; DefaultValue>]
     static val mutable private pool: Stack<Stack<ContStackFrame>>
 
-    /// Rents a continuation stack from the pool or creates a new one.
-    /// <returns>A continuation stack from the pool or newly created.</returns>
+    /// <summary>Returns a cleared continuation stack, reusing a pooled instance when available.</summary>
+    /// <returns>A ready-to-use continuation stack.</returns>
     static member inline Rent() =
         if isNull ContStackPool.pool then
             ContStackPool.pool <- Stack<_>()
@@ -51,8 +55,8 @@ type internal ContStackPool private () =
         else
             Stack<ContStackFrame> DefaultStackCapacity
 
-    /// Returns a continuation stack to the pool for reuse.
-    /// <param name="stack">The stack to return to the pool.</param>
+    /// <summary>Returns the given continuation stack to the pool for later reuse if pool and stack limits allow.</summary>
+    /// <param name="stack">The continuation stack to return.</param>
     static member inline Return(stack: Stack<ContStackFrame>) =
         if isNull ContStackPool.pool then
             ContStackPool.pool <- Stack<_>()
@@ -61,18 +65,19 @@ type internal ContStackPool private () =
             stack.Clear()
             ContStackPool.pool.Push stack
 
-/// Object pool for WorkItems. Thread-local to avoid synchronization.
+/// <summary>Represents a per-thread pool of work items that reduces allocation pressure.</summary>
 type internal WorkItemPool private () =
+    /// <summary>Returns the maximum number of work items retained per thread.</summary>
     static let MaxPoolSize = 512
 
     [<ThreadStatic; DefaultValue>]
     static val mutable private pool: Stack<WorkItem>
 
-    /// Rents a WorkItem from the pool or creates a new one.
+    /// <summary>Returns a work item initialized with the given effect, fiber context, and continuation stack, reusing a pooled instance when available.</summary>
     /// <param name="eff">The effect to evaluate.</param>
-    /// <param name="fiberContext">The fiber context for execution.</param>
-    /// <param name="stack">The continuation stack.</param>
-    /// <returns>A work item from the pool or newly created.</returns>
+    /// <param name="fiberContext">The fiber context owning this work item.</param>
+    /// <param name="stack">The continuation stack for this work item.</param>
+    /// <returns>A ready-to-use work item.</returns>
     static member inline Rent(eff: FIO<obj, obj>, fiberContext: FiberContext, stack: ContStack) : WorkItem =
         if isNull WorkItemPool.pool then
             WorkItemPool.pool <- Stack<WorkItem>()
@@ -92,8 +97,8 @@ type internal WorkItemPool private () =
                 InterruptionSuppressed = 0
             }
 
-    /// Returns a WorkItem to the pool for reuse.
-    /// <param name="workItem">The work item to return to the pool.</param>
+    /// <summary>Returns the given work item to the pool for later reuse if pool capacity allows.</summary>
+    /// <param name="workItem">The work item to return.</param>
     static member inline Return(workItem: WorkItem) =
         if isNull WorkItemPool.pool then
             WorkItemPool.pool <- Stack<WorkItem>()
@@ -105,46 +110,50 @@ type internal WorkItemPool private () =
             workItem.InterruptionSuppressed <- 0
             WorkItemPool.pool.Push workItem
 
-/// Runtime for interpreting FIO effects.
+/// <summary>Represents the abstract base for FIO runtimes that interpret effects into running fibers.</summary>
 [<AbstractClass>]
 type FIORuntime internal () =
-    /// Gets the name of this runtime.
+    /// <summary>Returns the human-readable name of this runtime.</summary>
     /// <returns>The runtime's name.</returns>
     abstract member Name: string
 
-    /// Gets a string describing this runtime's configuration.
-    /// <returns>A description of the runtime configuration.</returns>
+    /// <summary>Returns a string describing this runtime's full configuration.</summary>
+    /// <returns>A description of the runtime including its configuration parameters; the default returns <c>Name</c>.</returns>
     abstract member ConfigString: string
 
-    override this.ConfigString = this.Name
+    default this.ConfigString = this.Name
 
-    /// Runs an FIO effect and returns a fiber representing its execution.
-    /// <param name="eff">The effect to execute.</param>
-    /// <returns>A fiber representing the execution.</returns>
+    /// <summary>Creates a new fiber that interprets the given effect under this runtime.</summary>
+    /// <typeparam name="'R">The success result type produced by the effect.</typeparam>
+    /// <typeparam name="'E">The typed error type the effect may fail with.</typeparam>
+    /// <param name="eff">The effect to evaluate.</param>
+    /// <returns>A fiber that runs <paramref name="eff"/> and exposes its terminal state.</returns>
     abstract member Run<'R, 'E> : FIO<'R, 'E> -> Fiber<'R, 'E>
 
-    /// Returns a lowercase, file-friendly string representation of the runtime.
-    /// <returns>A lowercase file-friendly runtime name.</returns>
+    /// <summary>Returns a lowercase, file-friendly form of this runtime's description.</summary>
+    /// <returns>A string suitable for embedding in filenames, derived from <c>ConfigString</c>.</returns>
     member this.ToFileString() =
         this.ToString().ToLowerInvariant().Replace("(", "").Replace(")", "").Replace(":", "").Replace(' ', '-')
 
+    /// <summary>Returns a string representation of this runtime including its configuration.</summary>
+    /// <returns>The value of <c>ConfigString</c>.</returns>
     override this.ToString() = this.ConfigString
 
-/// Configuration for a worker runtime.
+/// <summary>Represents the configuration of a worker-based FIO runtime.</summary>
 type WorkerConfig =
     {
-        /// Evaluation worker count.
+        /// <summary>Represents the number of evaluation workers that interpret runnable fibers.</summary>
         EWC: int
-        /// Evaluation worker steps per work item before rescheduling.
+        /// <summary>Represents the number of evaluation steps each worker runs on a single work item before rescheduling.</summary>
         EWS: int
-        /// Blocking worker count.
+        /// <summary>Represents the number of blocking workers that handle fibers waiting on channels or other fibers.</summary>
         BWC: int
-        /// Maximum number of concurrently active fibers. None = unbounded (default).
+        /// <summary>Represents the maximum number of concurrently active fibers; <c>None</c> means unbounded.</summary>
         MaxFibers: int option
     }
 
-    /// Default worker configuration based on system resources.
-    /// <returns>Default configuration with system-appropriate processor allocation.</returns>
+    /// <summary>Returns a default worker configuration sized to the available processors.</summary>
+    /// <returns>A configuration with <c>EWC</c> derived from the processor count and standard defaults for the remaining fields.</returns>
     static member Default =
         {
             EWC = WorkerRuntimeDefaults.ComputeEvaluationWorkerCount()
@@ -153,53 +162,57 @@ type WorkerConfig =
             MaxFibers = None
         }
 
-/// Fiber admission control abstraction for backpressure.
-/// <remarks>Thread-safe. Implementations must be safe for concurrent TryAcquire/Release calls.</remarks>
+/// <summary>Represents an admission control strategy that decides whether a new fiber may be started.</summary>
 type internal IFiberAdmission =
-    /// Attempts to acquire a permit without blocking.
-    /// <returns>true if a permit was acquired; false if at capacity.</returns>
+    /// <summary>Returns whether a permit was acquired, allowing a new fiber to be started.</summary>
+    /// <returns><c>true</c> if a permit was acquired; <c>false</c> if the fiber limit has been reached.</returns>
     abstract TryAcquire: unit -> bool
-    /// Releases a permit, indicating a fiber has terminated.
+    /// <summary>Releases a previously acquired permit, allowing another fiber to start.</summary>
     abstract Release: unit -> unit
-    /// Resets admission state to full capacity.
+    /// <summary>Resets the admission controller to its initial state with all permits available.</summary>
     abstract Reset: unit -> unit
 
-/// No-op admission control — always admits. Used when MaxFibers is None.
+/// <summary>Represents an admission controller that permits an unlimited number of concurrent fibers.</summary>
 [<Sealed>]
 type internal UnboundedAdmission private () =
+    /// <summary>Returns the singleton instance of the unbounded admission controller.</summary>
     static let instance = UnboundedAdmission()
 
-    /// Gets the singleton instance.
+    /// <summary>Returns the singleton <c>UnboundedAdmission</c> as an <c>IFiberAdmission</c>.</summary>
+    /// <returns>The shared unbounded admission instance.</returns>
     static member Instance = instance :> IFiberAdmission
 
+    /// <summary>Provides the unbounded admission control implementation.</summary>
     interface IFiberAdmission with
+        /// <summary>Returns whether a permit was acquired, always succeeding for unbounded admission.</summary>
+        /// <returns><c>true</c> unconditionally.</returns>
         member _.TryAcquire() = true
+        /// <summary>Transforms the admission state by releasing a permit; has no effect for unbounded admission.</summary>
         member _.Release() = ()
+        /// <summary>Transforms the admission state by resetting all permits; has no effect for unbounded admission.</summary>
         member _.Reset() = ()
 
-/// Bounded admission control — limits concurrent active fibers using a semaphore.
-/// <param name="maxFibers">Maximum number of concurrently active fibers.</param>
-/// <remarks>
-/// Uses SemaphoreSlim for non-blocking TryAcquire via Wait(0).
-/// Release guards against SemaphoreFullException from stale fibers after Reset.
-/// </remarks>
+/// <summary>Represents an admission controller that limits the number of concurrent fibers to a fixed maximum.</summary>
+/// <param name="maxFibers">The maximum number of fibers that may run concurrently.</param>
 [<Sealed>]
 type internal BoundedAdmission(maxFibers: int) =
+    /// <summary>Represents the semaphore that tracks available fiber permits.</summary>
     let sem = new SemaphoreSlim(maxFibers, maxFibers)
 
+    /// <summary>Provides the bounded admission control implementation.</summary>
     interface IFiberAdmission with
-        /// Attempts to acquire a fiber permit without blocking.
-        /// <returns>true if a permit was acquired; false if at capacity.</returns>
+        /// <summary>Returns whether a permit was acquired without blocking.</summary>
+        /// <returns><c>true</c> if a permit was available and acquired; <c>false</c> if the fiber limit has been reached.</returns>
         member _.TryAcquire() = sem.Wait(0)
 
-        /// Releases a fiber permit. Guards against over-release after Reset.
+        /// <summary>Transforms the admission state by releasing one previously acquired permit.</summary>
         member _.Release() =
             try
                 sem.Release() |> ignore
             with :? SemaphoreFullException ->
                 ()
 
-        /// Resets the semaphore to full capacity for a new Run cycle.
+        /// <summary>Transforms the admission state by draining and restoring all permits to the initial count.</summary>
         member _.Reset() =
             while sem.Wait(0) do
                 ()
@@ -207,14 +220,16 @@ type internal BoundedAdmission(maxFibers: int) =
             if maxFibers > 0 then
                 sem.Release maxFibers |> ignore
 
+    /// <summary>Provides resource cleanup for the bounded admission controller.</summary>
     interface IDisposable with
+        /// <summary>Transforms the admission controller by releasing its underlying resources.</summary>
         member _.Dispose() = sem.Dispose()
 
-/// Creates the appropriate admission control based on configuration.
+/// <summary>Represents factory functions for creating fiber admission controllers from a worker configuration.</summary>
 module internal FiberAdmission =
-    /// Creates an IFiberAdmission instance from a WorkerConfig.
-    /// <param name="config">The worker configuration.</param>
-    /// <returns>An admission control instance.</returns>
+    /// <summary>Creates an <c>IFiberAdmission</c> matching the <c>MaxFibers</c> setting in the given configuration.</summary>
+    /// <param name="config">The worker configuration whose <c>MaxFibers</c> field determines the admission strategy.</param>
+    /// <returns>An unbounded admission when <c>MaxFibers</c> is <c>None</c>, or a bounded admission capped at the specified count.</returns>
     let fromConfig (config: WorkerConfig) : IFiberAdmission =
         match config.MaxFibers with
         | None -> UnboundedAdmission.Instance

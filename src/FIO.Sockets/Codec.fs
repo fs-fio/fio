@@ -6,30 +6,29 @@ open System
 open System.Text
 open System.Text.Json
 
-/// Codec for encoding and decoding messages to/from bytes.
+/// <summary>Represents a codec for encoding and decoding messages to and from bytes.</summary>
+/// <typeparam name="'T">The message type to encode and decode.</typeparam>
 type SocketCodec<'T> =
     {
-        /// Encodes a value to bytes.
-        /// <returns>An FIO effect producing the encoded byte array.</returns>
+        /// <summary>Represents the encoding function from a value to bytes.</summary>
         Encode: 'T -> FIO<byte[], SocketError>
-        /// Decodes bytes to a value.
-        /// <returns>An FIO effect producing the decoded value.</returns>
+        /// <summary>Represents the decoding function from bytes to a value.</summary>
         Decode: byte[] -> FIO<'T, SocketError>
     }
 
-/// Codec builders and common codecs.
+/// <summary>Creates codecs for encoding and decoding socket messages.</summary>
 module Codec =
 
-    /// Identity codec for byte arrays (no encoding/decoding).
-    /// <returns>The identity byte array codec.</returns>
+    /// <summary>Returns the identity codec for byte arrays that passes data through unchanged.</summary>
+    /// <returns>A codec that succeeds immediately with the input bytes on both encode and decode.</returns>
     let bytes: SocketCodec<byte[]> =
         {
             Encode = fun bytes -> FIO.succeed bytes
             Decode = fun bytes -> FIO.succeed bytes
         }
 
-    /// UTF-8 string codec.
-    /// <returns>The UTF-8 string codec.</returns>
+    /// <summary>Returns the UTF-8 string codec.</summary>
+    /// <returns>A codec that encodes strings to UTF-8 bytes and decodes UTF-8 bytes to strings.</returns>
     let string: SocketCodec<string> =
         {
             Encode =
@@ -46,8 +45,8 @@ module Codec =
                     )
         }
 
-    /// Line-delimited string codec (adds/removes newline).
-    /// <returns>The line-delimited string codec.</returns>
+    /// <summary>Returns the line-delimited string codec that appends a newline on encode and trims it on decode.</summary>
+    /// <returns>A codec that frames strings with newline delimiters using UTF-8 encoding.</returns>
     let line: SocketCodec<string> =
         {
             Encode =
@@ -64,9 +63,9 @@ module Codec =
                     }
         }
 
-    /// JSON codec with custom options.
-    /// <param name="options">JSON serializer options.</param>
-    /// <returns>The JSON codec.</returns>
+    /// <summary>Creates a JSON codec using the specified serializer options.</summary>
+    /// <param name="options">The JSON serializer options to use for encoding and decoding.</param>
+    /// <returns>A codec that serializes values to JSON bytes and deserializes JSON bytes to values.</returns>
     let jsonWithOptions<'T> (options: JsonSerializerOptions) =
         {
             Encode =
@@ -87,13 +86,13 @@ module Codec =
                     )
         }
 
-    /// JSON codec with default options.
-    /// <returns>The JSON codec with default options.</returns>
+    /// <summary>Returns the JSON codec using default serializer options.</summary>
+    /// <returns>A codec that serializes values to JSON bytes and deserializes JSON bytes to values.</returns>
     let json<'T> = jsonWithOptions<'T> (JsonSerializerOptions())
 
-    /// Line-delimited JSON codec.
-    /// <param name="options">Optional JSON serializer options.</param>
-    /// <returns>The line-delimited JSON codec.</returns>
+    /// <summary>Creates a line-delimited JSON codec that appends a newline after each JSON value.</summary>
+    /// <param name="options">Optional JSON serializer options; defaults are used when None.</param>
+    /// <returns>A codec that serializes values to newline-terminated JSON bytes and deserializes them back.</returns>
     let jsonLine<'T> options =
         let opts = defaultArg options (JsonSerializerOptions())
 
@@ -116,11 +115,11 @@ module Codec =
                     )
         }
 
-    /// Maps a codec to a different type using bidirectional functions.
-    /// <param name="f">Function to convert from 'A to 'B.</param>
-    /// <param name="g">Function to convert from 'B to 'A.</param>
-    /// <param name="codec">The source codec.</param>
-    /// <returns>The mapped codec.</returns>
+    /// <summary>Transforms a codec to a different type using bidirectional conversion functions.</summary>
+    /// <param name="f">A function that converts a decoded value from the source type to the target type.</param>
+    /// <param name="g">A function that converts a value from the target type back to the source type for encoding.</param>
+    /// <param name="codec">The source codec to transform.</param>
+    /// <returns>A codec that encodes via <paramref name="g"/> then the source codec, and decodes via the source codec then <paramref name="f"/>.</returns>
     let map (f: 'A -> 'B) (g: 'B -> 'A) (codec: SocketCodec<'A>) =
         {
             Encode = fun b -> codec.Encode(g b)
@@ -132,10 +131,10 @@ module Codec =
                     }
         }
 
-    /// Composes two codecs to handle pairs using length-prefixed framing.
-    /// <param name="codec1">Codec for the first element.</param>
-    /// <param name="codec2">Codec for the second element.</param>
-    /// <returns>The composed codec for pairs.</returns>
+    /// <summary>Combines two codecs into one that encodes and decodes pairs using length-prefixed framing.</summary>
+    /// <param name="codec1">The codec for the first element of the pair.</param>
+    /// <param name="codec2">The codec for the second element of the pair.</param>
+    /// <returns>A codec that encodes pairs as length-prefixed concatenated payloads and decodes them back into tuples.</returns>
     let compose (codec1: SocketCodec<'A>) (codec2: SocketCodec<'B>) =
         {
             Encode =
@@ -188,9 +187,9 @@ module Codec =
                     }
         }
 
-    /// Length-prefixed framing codec (4-byte length header).
-    /// <param name="innerCodec">The codec to wrap with length-prefixing.</param>
-    /// <returns>The length-prefixed codec.</returns>
+    /// <summary>Transforms a codec by adding a four-byte length prefix to each encoded payload.</summary>
+    /// <param name="innerCodec">The codec to wrap with length-prefixed framing.</param>
+    /// <returns>A codec that prepends a four-byte length header on encode and strips it on decode.</returns>
     let lengthPrefixed<'T> (innerCodec: SocketCodec<'T>) =
         {
             Encode =
@@ -222,17 +221,17 @@ module Codec =
                     }
         }
 
-    /// Creates a codec from encode/decode functions.
-    /// <param name="encode">Encoding function.</param>
-    /// <param name="decode">Decoding function.</param>
-    /// <returns>The created codec.</returns>
+    /// <summary>Creates a codec from effectful encode and decode functions.</summary>
+    /// <param name="encode">A function that encodes a value into a byte array effect.</param>
+    /// <param name="decode">A function that decodes a byte array into a value effect.</param>
+    /// <returns>A codec wrapping the given encode and decode functions.</returns>
     let create (encode: 'T -> FIO<byte[], SocketError>) (decode: byte[] -> FIO<'T, SocketError>) =
         { Encode = encode; Decode = decode }
 
-    /// Creates a codec from pure (non-FIO) encode/decode functions.
-    /// <param name="encode">Pure encoding function.</param>
-    /// <param name="decode">Pure decoding function.</param>
-    /// <returns>The created codec.</returns>
+    /// <summary>Creates a codec from pure encode and decode functions, wrapping exceptions as CodecError.</summary>
+    /// <param name="encode">A pure function that encodes a value into a byte array.</param>
+    /// <param name="decode">A pure function that decodes a byte array into a value.</param>
+    /// <returns>A codec that lifts the pure functions into effects with automatic error handling.</returns>
     let createPure (encode: 'T -> byte[]) (decode: byte[] -> 'T) =
         {
             Encode = fun value -> FIO.attempt ((fun () -> encode value), fun exn -> CodecError("Encoding failed", exn))

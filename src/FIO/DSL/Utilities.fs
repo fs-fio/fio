@@ -1,4 +1,4 @@
-﻿/// Internal type casting and conversion utilities.
+/// <summary>Provides private utility modules for the FIO DSL.</summary>
 [<AutoOpen>]
 module private FIO.DSL.Utilities
 
@@ -6,17 +6,24 @@ open System
 open System.Threading
 open System.Threading.Tasks
 
-/// Internal type upcasting utilities.
+/// <summary>Provides type-casting helpers that erase generic type parameters to <c>obj</c> for internal effect representation.</summary>
 [<AutoOpen>]
 module internal Casting =
 
-    /// Upcasts an error mapping function to work with obj types.
+    /// <summary>Transforms a typed error handler into one that returns <c>obj</c>.</summary>
+    /// <param name="onError">The typed error handler to upcast.</param>
+    /// <returns>An error handler whose return type is erased to <c>obj</c>.</returns>
     let inline upcastOnError (onError: exn -> 'E) : (exn -> obj) = fun (ex: exn) -> onError ex :> obj
 
-    /// Upcasts a function's return type to obj.
+    /// <summary>Transforms a typed thunk into one that returns <c>obj</c>.</summary>
+    /// <param name="func">The typed thunk to upcast.</param>
+    /// <returns>A thunk whose return type is erased to <c>obj</c>.</returns>
     let inline upcastFunc (func: unit -> 'R) : unit -> obj = fun () -> func () :> obj
 
-    /// Wraps a Task as a Task<obj>, boxing the result via boxResult on completion.
+    /// <summary>Transforms a completed or pending <c>Task</c> into a <c>Task&lt;obj&gt;</c> using the supplied boxing function.</summary>
+    /// <param name="boxResult">A function that boxes the completed task's result into <c>obj</c>.</param>
+    /// <param name="task">The task to wrap.</param>
+    /// <returns>A <c>Task&lt;obj&gt;</c> that mirrors the original task's outcome with the result boxed.</returns>
     let inline private wrapTaskCore (boxResult: unit -> obj) (task: Task) : Task<obj> =
         if task.IsCompletedSuccessfully then
             Task.FromResult(boxResult ())
@@ -44,9 +51,13 @@ module internal Casting =
 
             tcs.Task
 
-    /// Upcasts a generic Task's result type to obj.
+    /// <summary>Transforms a generic <c>Task&lt;'R&gt;</c> into a <c>Task&lt;obj&gt;</c> by boxing its result.</summary>
+    /// <param name="genericTask">The typed task to upcast.</param>
+    /// <returns>A <c>Task&lt;obj&gt;</c> that completes with the boxed result of the original task.</returns>
     let inline upcastTask (genericTask: Task<'R>) : Task<obj> =
         wrapTaskCore (fun () -> box genericTask.Result) (genericTask :> Task)
 
-    /// Wraps a void Task as a Task&lt;obj&gt; returning boxed unit.
+    /// <summary>Transforms a non-generic <c>Task</c> into a <c>Task&lt;obj&gt;</c> that completes with boxed unit.</summary>
+    /// <param name="task">The void task to wrap.</param>
+    /// <returns>A <c>Task&lt;obj&gt;</c> that completes with boxed unit when the original task finishes.</returns>
     let inline wrapVoidTask (task: Task) : Task<obj> = wrapTaskCore (fun () -> box ()) task

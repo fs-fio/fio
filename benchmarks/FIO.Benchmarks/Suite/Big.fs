@@ -5,9 +5,7 @@
 (* (http://soft.vub.ac.be/AGERE14/papers/ageresplash2014_submission_19.pdf) *)
 (****************************************************************************)
 
-/// <summary>
-/// Big benchmark measuring mailbox contention with many-to-many message passing.
-/// </summary>
+/// <summary>Provides the Big benchmark measuring mailbox contention with many-to-many message passing.</summary>
 [<RequireQualifiedAccess>]
 module private FIO.Benchmarks.Suite.Big
 
@@ -19,35 +17,29 @@ open FIO.Benchmarks.Tools.Timer
 
 open System
 
-/// <summary>
-/// Message type for ping-pong communication between actors.
-/// </summary>
+/// <summary>Represents a message for ping-pong communication between actors.</summary>
 type private Message =
-    /// <summary>Ping message with value and reply channel.</summary>
+    /// <summary>Represents a ping message with value and reply channel.</summary>
     | Ping of int * Channel<Message>
-    /// <summary>Pong response message with value.</summary>
+    /// <summary>Represents a pong response message with value.</summary>
     | Pong of int
 
-/// <summary>
-/// Actor with separate ping/pong receive channels and a list of channels to send to.
-/// </summary>
+/// <summary>Represents an actor with separate ping/pong receive channels and a list of channels to send to.</summary>
 type private Actor =
     {
-        /// <summary>Channel for receiving ping messages.</summary>
+        /// <summary>Represents the channel for receiving ping messages.</summary>
         PingReceiveChan: Channel<Message>
-        /// <summary>Channel for receiving pong messages.</summary>
+        /// <summary>Represents the channel for receiving pong messages.</summary>
         PongReceiveChan: Channel<Message>
-        /// <summary>List of channels to send pings to.</summary>
+        /// <summary>Represents the list of channels to send pings to.</summary>
         SendingChans: Channel<Message> list
 #if DEBUG
-        /// <summary>Actor name for debugging.</summary>
+        /// <summary>Represents the actor name for debugging.</summary>
         Name: string
 #endif
     }
 
-/// <summary>
-/// Sends pings to all other actors in the network.
-/// </summary>
+/// <summary>Builds the effect that sends pings to all other actors in the network.</summary>
 /// <param name="actor">Actor sending the pings.</param>
 /// <param name="roundCount">Remaining rounds.</param>
 /// <param name="ping">Ping value to send.</param>
@@ -65,9 +57,7 @@ let rec private sendPingsEff (actor, roundCount, ping, chans: Channel<Message> l
         return! receivePingsEff (actor, roundCount, actor.SendingChans.Length, ping, timerChan)
     }
 
-/// <summary>
-/// Receives pings from all other actors and responds with pongs.
-/// </summary>
+/// <summary>Builds the effect that receives pings from all other actors and responds with pongs.</summary>
 /// <param name="actor">Actor receiving the pings.</param>
 /// <param name="rounds">Remaining rounds.</param>
 /// <param name="receiveCount">Number of pings to receive.</param>
@@ -95,9 +85,7 @@ and private receivePingsEff (actor, rounds, receiveCount, msg, timerChan) : FIO<
         return! receivePongsEff (actor, rounds, actor.SendingChans.Length, msg, timerChan)
     }
 
-/// <summary>
-/// Receives pongs from all other actors, then starts next round or stops.
-/// </summary>
+/// <summary>Builds the effect that receives pongs from all other actors, then starts the next round or stops.</summary>
 /// <param name="actor">Actor receiving the pongs.</param>
 /// <param name="roundCount">Remaining rounds.</param>
 /// <param name="receiveCount">Number of pongs to receive.</param>
@@ -122,9 +110,7 @@ and private receivePongsEff
             return! sendPingsEff (actor, roundCount - 1, msg, actor.SendingChans, timerChan)
     }
 
-/// <summary>
-/// Actor effect that waits for start signal, then begins the ping-pong cycle.
-/// </summary>
+/// <summary>Builds the actor effect that waits for the start signal, then begins the ping-pong cycle.</summary>
 /// <param name="actor">Actor instance.</param>
 /// <param name="msg">Initial message value.</param>
 /// <param name="roundCount">Number of rounds to execute.</param>
@@ -139,9 +125,7 @@ let private actorEff
         return! sendPingsEff (actor, roundCount - 1, msg, actor.SendingChans, timerChan)
     }
 
-/// <summary>
-/// Creates actors with only receive channels (no send channels yet).
-/// </summary>
+/// <summary>Creates actors with receive channels only.</summary>
 /// <param name="actorCount">Number of actors to create.</param>
 /// <param name="acc">Accumulated actors.</param>
 /// <returns>List of actors with receive channels only.</returns>
@@ -162,9 +146,7 @@ let rec private receivingActors (actorCount, acc) =
 
         receivingActors (count - 1, acc @ [ actor ])
 
-/// <summary>
-/// Assigns send channels to each actor pointing to all other actors.
-/// </summary>
+/// <summary>Creates actors with send channels pointing to all other actors.</summary>
 /// <param name="receivingActors">Remaining actors to process.</param>
 /// <param name="prevReceivingActors">Previously processed actors.</param>
 /// <param name="acc">Accumulated actors with send channels.</param>
@@ -189,18 +171,14 @@ let rec private createActorsHelper (receivingActors, prevReceivingActors, acc) =
 
         createActorsHelper (acs, prevReceivingActors @ [ ac ], actor :: acc)
 
-/// <summary>
-/// Creates a fully connected network of actors.
-/// </summary>
+/// <summary>Creates a fully connected network of actors.</summary>
 /// <param name="actorCount">Number of actors to create.</param>
 /// <returns>List of fully connected actors.</returns>
 let private createActors actorCount =
     let receivingActors = receivingActors (actorCount, [])
     createActorsHelper (receivingActors, [], [])
 
-/// <summary>
-/// Composes all actor effects to run concurrently.
-/// </summary>
+/// <summary>Combines all actor effects to run concurrently.</summary>
 /// <param name="actors">List of actors in the network.</param>
 /// <param name="roundCount">Number of rounds to execute.</param>
 /// <param name="msg">Initial message value.</param>
@@ -215,11 +193,9 @@ let private bigEff (actors: Actor list, roundCount, msg, timerChan, startChan) :
         (fun acc (i, actor) -> actorEff (actor, msg + (i + 1) * 10, roundCount, timerChan, startChan) <&&> acc)
         headEff
 
-/// <summary>
-/// Creates and runs the big benchmark, returning execution time in milliseconds.
-/// </summary>
+/// <summary>Builds the big benchmark effect, returning execution time in milliseconds.</summary>
 /// <param name="config">Big benchmark configuration.</param>
-/// <returns>Execution time in milliseconds.</returns>
+/// <returns>An effect that produces the execution time in milliseconds.</returns>
 let benchmark config : FIO<int64, exn> =
     fio {
         let! actorCount, roundCount =

@@ -1,3 +1,4 @@
+/// <summary>Provides tests for HTTP middleware pipeline composition and execution.</summary>
 module FIO.Http.Tests.MiddlewareTests
 
 open FIO.Http.Tests.Utilities

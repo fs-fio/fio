@@ -4,13 +4,13 @@ open FIO.DSL
 
 open System.Net
 
-/// Client operations for establishing TCP socket connections.
+/// <summary>Creates TCP client connections and scoped connection effects.</summary>
 [<RequireQualifiedAccess>]
 module SocketClient =
 
-    /// Connects to a remote host and returns a Socket.
-    /// <param name="config">Socket configuration including host and port.</param>
-    /// <returns>The connected socket.</returns>
+    /// <summary>Creates an effect that establishes a TCP connection to a remote host.</summary>
+    /// <param name="config">The socket configuration specifying host, port, and connection options.</param>
+    /// <returns>An effect that produces a connected Socket, or fails with ConnectionFailed if the connection cannot be established.</returns>
     let connect (config: SocketConfig) =
         fio {
             let! netSocket =
@@ -37,46 +37,46 @@ module SocketClient =
             return new Socket(netSocket, config)
         }
 
-    /// Connects to a remote host using host and port.
+    /// <summary>Creates an effect that establishes a TCP connection using the given host and port with default settings.</summary>
     /// <param name="host">The remote host to connect to.</param>
     /// <param name="port">The remote port to connect to.</param>
-    /// <returns>The connected socket.</returns>
+    /// <returns>An effect that produces a connected Socket.</returns>
     let connectWith (host: string) (port: int) =
         fio {
             let! config = SocketConfig.create (host, port)
             return! connect config
         }
 
-    /// Executes an action with a socket connection, automatically closing it.
-    /// <param name="config">Socket configuration.</param>
-    /// <param name="action">Action to execute with the socket.</param>
-    /// <returns>The result of the action.</returns>
+    /// <summary>Builds a resource-scoped effect that connects, runs an action, and closes the connection on every outcome.</summary>
+    /// <param name="config">The socket configuration specifying host, port, and connection options.</param>
+    /// <param name="action">A function from the connected socket to the effect to run; the connection is closed after this effect completes.</param>
+    /// <returns>An effect that produces the action's result and guarantees connection cleanup.</returns>
     let withConnection (config: SocketConfig) (action: Socket -> FIO<'R, SocketError>) =
         FIO.acquireRelease (connect config, (fun socket -> socket.Close().CatchAll(fun _ -> FIO.unit ())), action)
 
-    /// Executes an action with a socket connection using host and port.
+    /// <summary>Builds a resource-scoped effect that connects to the given host and port, runs an action, and closes the connection on every outcome.</summary>
     /// <param name="host">The remote host to connect to.</param>
     /// <param name="port">The remote port to connect to.</param>
-    /// <param name="action">Action to execute with the socket.</param>
-    /// <returns>The result of the action.</returns>
+    /// <param name="action">A function from the connected socket to the effect to run; the connection is closed after this effect completes.</param>
+    /// <returns>An effect that produces the action's result and guarantees connection cleanup.</returns>
     let withConnectionTo (host: string) (port: int) (action: Socket -> FIO<'R, SocketError>) =
         fio {
             let! config = SocketConfig.create (host, port)
             return! withConnection config action
         }
 
-    /// Sends a value with a codec (convenience wrapper with auto-connection).
-    /// <param name="codec">The codec to use for encoding.</param>
-    /// <param name="value">The value to send.</param>
-    /// <param name="config">Socket configuration.</param>
-    /// <returns>Effect that sends the value.</returns>
+    /// <summary>Creates an effect that connects, sends a codec-encoded value, and closes the connection.</summary>
+    /// <param name="codec">The codec to use for encoding the value to bytes.</param>
+    /// <param name="value">The value to encode and send.</param>
+    /// <param name="config">The socket configuration specifying host, port, and connection options.</param>
+    /// <returns>An effect that completes when the value has been sent and the connection closed.</returns>
     let sendWith<'T> (codec: SocketCodec<'T>) (value: 'T) (config: SocketConfig) =
         withConnection config (fun socket -> socket.Send(codec, value))
 
-    /// Receives a value with a codec (convenience wrapper with auto-connection).
-    /// <param name="codec">The codec to use for decoding.</param>
-    /// <param name="maxBytes">Maximum number of bytes to receive.</param>
-    /// <param name="config">Socket configuration.</param>
-    /// <returns>The decoded value.</returns>
+    /// <summary>Creates an effect that connects, receives and decodes a value, and closes the connection.</summary>
+    /// <param name="codec">The codec to use for decoding bytes to a value.</param>
+    /// <param name="maxBytes">The maximum number of bytes to receive.</param>
+    /// <param name="config">The socket configuration specifying host, port, and connection options.</param>
+    /// <returns>An effect that produces the decoded value and guarantees connection cleanup.</returns>
     let receiveWith<'T> (codec: SocketCodec<'T>) (maxBytes: int) (config: SocketConfig) =
         withConnection config (fun socket -> socket.Receive(codec, maxBytes))

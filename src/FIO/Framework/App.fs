@@ -1,4 +1,4 @@
-/// FIOApp base class for running FIO effects with overridable members.
+/// <summary>Provides the abstract <c>FIOApp</c> base class for running FIO effects with overridable lifecycle members.</summary>
 module FIO.App
 
 open FIO.DSL
@@ -9,25 +9,26 @@ open FIO.Runtime.Default
 open System
 open System.Threading.Tasks
 
-/// Base class for FIO applications with lifecycle management and shutdown hooks.
-/// Override `effect` to define the main application logic.
-/// All other members have sensible defaults and can be selectively overridden.
-/// <typeparam name="'R">The success result type.</typeparam>
-/// <typeparam name="'E">The error type.</typeparam>
+/// <summary>Represents the abstract base for FIO applications, exposing overridable members for the main effect, runtime selection, lifecycle callbacks, and exit-code mappings.</summary>
+/// <typeparam name="'R">The success result type produced by the application's main effect.</typeparam>
+/// <typeparam name="'E">The typed error type the application's main effect may fail with.</typeparam>
 [<AbstractClass>]
 type FIOApp<'R, 'E>() as this =
 
+    /// <summary>Represents the unique identifier for this application instance.</summary>
     let id = Guid.NewGuid()
+    /// <summary>Represents the mutable handle to the currently running application, if any.</summary>
     let mutable handle: FIOAppHandle<'R, 'E> option = None
+    /// <summary>Represents the lazily initialized runtime instance for this application.</summary>
     let lazyRuntime = lazy this.runtime
 
-    /// Application name. Default: the concrete type name.
-    /// <returns>The application name.</returns>
+    /// <summary>Returns the application name displayed in banners and diagnostics.</summary>
+    /// <returns>The application name; the default is the concrete type name.</returns>
     abstract member name: string
     default this.name = this.GetType().Name
 
-    /// Application version string. Default: the assembly version.
-    /// <returns>The version string.</returns>
+    /// <summary>Returns the application version string displayed in banners and diagnostics.</summary>
+    /// <returns>The version string; the default is the assembly version or <c>"0.0.0"</c> when unavailable.</returns>
     abstract member version: string
 
     default this.version =
@@ -35,91 +36,90 @@ type FIOApp<'R, 'E>() as this =
         let version = asm.GetName().Version
         if isNull version then "0.0.0" else version.ToString()
 
-    /// Whether to display a startup banner. Default: false.
-    /// <returns>True if the banner should be displayed.</returns>
+    /// <summary>Returns whether the startup banner is printed before evaluating the effect.</summary>
+    /// <returns><c>true</c> when the banner should be displayed; the default is <c>false</c>.</returns>
     abstract member showBanner: bool
     default _.showBanner = false
 
-    /// Banner text displayed on startup when `showBanner` is true.
-    /// Default: auto-generated box from `name` and `version`.
-    /// <returns>The banner text.</returns>
+    /// <summary>Returns the banner text printed at startup when <c>showBanner</c> is <c>true</c>.</summary>
+    /// <returns>The banner text; the default is an auto-generated box built from <c>name</c> and <c>version</c>.</returns>
     abstract member banner: string
 
     default this.banner =
         let separator = String.replicate (this.name.Length + this.version.Length + 6) "─"
         $"┌{separator}┐\n│  {this.name} v{this.version}  │\n└{separator}┘"
 
-    /// Whether lifecycle handlers print verbose messages. Default: false.
-    /// <returns>True if verbose output is enabled.</returns>
+    /// <summary>Returns whether lifecycle callbacks emit verbose progress messages.</summary>
+    /// <returns><c>true</c> when verbose output is enabled; the default is <c>false</c>.</returns>
     abstract member verbose: bool
     default _.verbose = false
 
-    /// The main effect to execute. Must be overridden.
-    /// <returns>The main FIO effect to execute.</returns>
+    /// <summary>Returns the main effect this application evaluates.</summary>
+    /// <returns>The effect to run; this member must be overridden by concrete subclasses.</returns>
     abstract member effect: FIO<'R, 'E>
 
-    /// The runtime for executing effects. Default: DefaultRuntime.
-    /// <returns>The runtime instance for executing effects.</returns>
+    /// <summary>Returns the runtime used to evaluate effects.</summary>
+    /// <returns>The runtime instance; the default is a fresh <c>DefaultRuntime</c>.</returns>
     abstract member runtime: FIORuntime
     default _.runtime = new DefaultRuntime()
 
-    /// Cleanup effect run after the main effect completes. Default: no-op.
-    /// <returns>The cleanup effect to run on shutdown.</returns>
+    /// <summary>Returns the cleanup effect that runs after the main effect terminates.</summary>
+    /// <returns>The cleanup effect; the default is a no-op.</returns>
     abstract member onShutdown: unit -> FIO<unit, 'E>
     default _.onShutdown() = FIO.unit ()
 
-    /// Maximum time to wait for the shutdown hook. Default: 10 seconds.
-    /// <returns>The shutdown timeout duration.</returns>
+    /// <summary>Returns the maximum time the shutdown hook is allowed to run before it is interrupted.</summary>
+    /// <returns>The shutdown timeout; the default is 10 seconds.</returns>
     abstract member onShutdownTimeout: TimeSpan
     default _.onShutdownTimeout = TimeSpan.FromSeconds 10.0
 
-    /// Called when the application starts. Default: prints "starting" when verbose.
+    /// <summary>Builds the side effect performed when the application begins starting up.</summary>
     abstract member onStart: unit -> unit
 
     default this.onStart() =
         if this.verbose then
             printColored ConsoleColor.DarkMagenta "starting"
 
-    /// Called after the runtime is initialized. Default: prints runtime name when verbose.
-    /// <param name="runtime">The initialized runtime instance.</param>
+    /// <summary>Builds the side effect performed once the runtime has been constructed.</summary>
+    /// <param name="runtime">The runtime that was just initialized.</param>
     abstract member onRuntimeInitialized: FIORuntime -> unit
 
     default this.onRuntimeInitialized runtime =
         if this.verbose then
             printColored ConsoleColor.DarkMagenta $"runtime: {runtime.Name}"
 
-    /// Called when the main fiber starts running. Default: prints "running" when verbose.
+    /// <summary>Builds the side effect performed once the main fiber has been scheduled.</summary>
     abstract member onFiberRunning: unit -> unit
 
     default this.onFiberRunning() =
         if this.verbose then
             printColored ConsoleColor.DarkMagenta "running"
 
-    /// Called when the main effect succeeds. Default: prints result when verbose.
-    /// <param name="res">The success result.</param>
+    /// <summary>Builds the side effect performed when the main effect completes successfully.</summary>
+    /// <param name="res">The success value produced by the main effect.</param>
     abstract member onSuccess: 'R -> unit
 
     default this.onSuccess res =
         if this.verbose then
             printColored ConsoleColor.DarkGreen $"success: %A{res}"
 
-    /// Called when the main effect fails. Default: prints error when verbose.
-    /// <param name="err">The error value.</param>
+    /// <summary>Builds the side effect performed when the main effect fails with a typed error.</summary>
+    /// <param name="err">The typed error produced by the main effect.</param>
     abstract member onError: 'E -> unit
 
     default this.onError err =
         if this.verbose then
             printColored ConsoleColor.DarkRed $"error: %A{err}"
 
-    /// Called when the main fiber is interrupted. Default: prints message when verbose.
-    /// <param name="ex">The interruption exception.</param>
+    /// <summary>Builds the side effect performed when the main fiber is interrupted before completion.</summary>
+    /// <param name="ex">The interruption exception describing the cause.</param>
     abstract member onInterrupted: FiberInterruptedException -> unit
 
     default this.onInterrupted(ex: FiberInterruptedException) =
         if this.verbose then
             printColored ConsoleColor.DarkYellow $"interrupted: %s{ex.Message}"
 
-    /// Called on unhandled exceptions. Default: prints message when verbose.
+    /// <summary>Builds the side effect performed when an unhandled exception occurs outside the managed effect.</summary>
     /// <param name="ex">The unhandled exception.</param>
     abstract member onFatalError: exn -> unit
 
@@ -127,15 +127,15 @@ type FIOApp<'R, 'E>() as this =
         if this.verbose then
             printColored ConsoleColor.Red $"fatal: %s{ex.Message}"
 
-    /// Called when Ctrl+C is pressed. Default: prints "shutdown" when verbose.
+    /// <summary>Builds the side effect performed when shutdown is requested via Ctrl+C or programmatic stop.</summary>
     abstract member onShutdownRequested: unit -> unit
 
     default this.onShutdownRequested() =
         if this.verbose then
             printColored ConsoleColor.DarkCyan "shutdown"
 
-    /// Called when the shutdown hook fiber completes. Default: prints result when verbose.
-    /// <param name="result">The fiber result from the shutdown hook.</param>
+    /// <summary>Builds the side effect performed once the shutdown hook fiber reaches a terminal state.</summary>
+    /// <param name="result">The terminal state of the shutdown hook fiber.</param>
     abstract member onShutdownComplete: FiberResult<unit, 'E> -> unit
 
     default this.onShutdownComplete result =
@@ -145,8 +145,8 @@ type FIOApp<'R, 'E>() as this =
             | Failed err -> printColored ConsoleColor.DarkRed $"cleanup error: %A{err}"
             | Interrupted ex -> printColored ConsoleColor.DarkYellow $"cleanup interrupted: %s{ex.Message}"
 
-    /// Called when the shutdown hook throws or times out. Default: prints message when verbose.
-    /// <param name="ex">The exception from the shutdown hook.</param>
+    /// <summary>Builds the side effect performed when the shutdown hook throws or exceeds its timeout.</summary>
+    /// <param name="ex">The exception observed during shutdown.</param>
     abstract member onShutdownFailed: exn -> unit
 
     default this.onShutdownFailed ex =
@@ -156,54 +156,53 @@ type FIOApp<'R, 'E>() as this =
                 printColored ConsoleColor.DarkCyan $"cleanup timeout ({this.onShutdownTimeout.TotalSeconds}s)"
             | _ -> printColored ConsoleColor.Red $"cleanup failed: %s{ex.Message}"
 
-    /// Exit code on success. Default: 0.
-    /// <param name="res">The success result.</param>
-    /// <returns>The exit code for a successful execution.</returns>
+    /// <summary>Transforms a successful result into the process exit code reported on success.</summary>
+    /// <param name="res">The success value produced by the main effect.</param>
+    /// <returns>The exit code; the default is <c>0</c>.</returns>
     abstract member exitCodeSuccess: 'R -> int
     default _.exitCodeSuccess _ = 0
 
-    /// Exit code on error. Default: 1.
-    /// <param name="err">The error value.</param>
-    /// <returns>The exit code for a failed execution.</returns>
+    /// <summary>Transforms a typed error into the process exit code reported on failure.</summary>
+    /// <param name="err">The typed error produced by the main effect.</param>
+    /// <returns>The exit code; the default is <c>1</c>.</returns>
     abstract member exitCodeError: 'E -> int
     default _.exitCodeError _ = 1
 
-    /// Exit code on fatal error. Default: 2.
-    /// <param name="ex">The fatal exception.</param>
-    /// <returns>The exit code for a fatal error.</returns>
+    /// <summary>Transforms a fatal exception into the process exit code reported on unhandled errors.</summary>
+    /// <param name="ex">The unhandled exception.</param>
+    /// <returns>The exit code; the default is <c>2</c>.</returns>
     abstract member exitCodeFatalError: exn -> int
     default _.exitCodeFatalError _ = 2
 
-    /// Exit code on interruption. Default: 130.
+    /// <summary>Transforms an interruption exception into the process exit code reported on interruption.</summary>
     /// <param name="ex">The interruption exception.</param>
-    /// <returns>The exit code for an interrupted execution.</returns>
+    /// <returns>The exit code; the default is <c>130</c>, matching the conventional SIGINT exit status.</returns>
     abstract member exitCodeInterrupted: FiberInterruptedException -> int
     default _.exitCodeInterrupted _ = 130
 
-    /// Gets the unique identifier for this application instance.
-    /// <returns>The unique identifier for this application instance.</returns>
+    /// <summary>Returns the unique identifier assigned to this application instance.</summary>
+    /// <returns>A <c>Guid</c> distinguishing this application from other instances created in this process.</returns>
     member _.Id = id
 
-    /// Gets the runtime instance used by this application.
-    /// Unlike the overridable `runtime` member, this always returns the same cached instance.
-    /// <returns>The cached runtime instance.</returns>
+    /// <summary>Returns the cached runtime instance used by this application.</summary>
+    /// <returns>The runtime that was constructed on the first access; the same instance is returned thereafter.</returns>
     member _.Runtime = lazyRuntime.Value
 
-    /// Gets whether the application is currently running.
-    /// <returns>True if the application is currently executing.</returns>
+    /// <summary>Returns whether this application is currently running.</summary>
+    /// <returns><c>true</c> while the application's main fiber has not yet terminated; <c>false</c> before <c>Run</c> has been invoked or after the run completes.</returns>
     member _.IsRunning =
         match handle with
         | Some h -> h.IsRunning()
         | None -> false
 
-    /// Requests graceful shutdown of the application.
-    /// Safe to call from any thread. No-op if not running or already shutting down.
+    /// <summary>Creates a graceful shutdown request for this application; safe to call from any thread and idempotent when not running or already stopping.</summary>
     member _.Stop() =
         match handle with
         | Some h -> h.Stop()
         | None -> ()
 
-    /// Builds a FIOAppConfig from the overridable members.
+    /// <summary>Creates an <c>FIOAppConfig</c> record from this application's overridable members.</summary>
+    /// <returns>A configuration record suitable for passing to <c>FIOApp.start</c> or <c>FIOApp.run</c>.</returns>
     member internal this.ToConfig() : FIOAppConfig<'R, 'E> =
         { FIOAppConfig.create this.effect with
             Runtime = fun () -> this.runtime
@@ -229,16 +228,17 @@ type FIOApp<'R, 'E>() as this =
             ExitCodeInterrupted = this.exitCodeInterrupted
         }
 
-    /// Runs the application synchronously and returns the exit code.
-    /// <returns>The application exit code.</returns>
+    /// <summary>Returns the exit code produced by synchronously evaluating the application.</summary>
+    /// <returns>The exit code reported by the configured handlers.</returns>
     member this.Run() =
         this.RunAsync().GetAwaiter().GetResult()
 
-    /// Runs the application asynchronously and returns the exit code.
-    /// <returns>A Task that completes with the exit code.</returns>
+    /// <summary>Builds a task that runs the application asynchronously and completes with its exit code.</summary>
+    /// <returns>A task that completes with the exit code reported by the configured handlers.</returns>
     member this.RunAsync() : Task<int> =
         let h = FIOApp.start (this.ToConfig())
         handle <- Some h
         h.ExitCode
 
+    /// <summary>Returns a string containing the application name and unique identifier.</summary>
     override this.ToString() = $"{this.name} ({id})"

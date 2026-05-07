@@ -1,3 +1,4 @@
+/// <summary>Provides property-based tests for the fio computation expression including let!, do!, return, and control flow.</summary>
 module FIO.Tests.CETests
 
 open FIO.Tests.Utilities.FsCheckProperties

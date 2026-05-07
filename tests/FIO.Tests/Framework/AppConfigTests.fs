@@ -1,3 +1,4 @@
+/// <summary>Provides tests for FIOApp configuration defaults and overridable members.</summary>
 module FIO.Tests.AppConfigTests
 
 open FIO.AppConfig

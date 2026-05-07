@@ -1,3 +1,4 @@
+/// <summary>Provides tests for core WebSocket send, receive, and lifecycle operations.</summary>
 module FIO.WebSockets.Tests.WebSocketTests
 
 open FIO.WebSockets.Tests.Utilities

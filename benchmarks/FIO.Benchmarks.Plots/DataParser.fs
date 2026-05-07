@@ -7,76 +7,68 @@ open System.IO
 open System.Globalization
 open System.Text.RegularExpressions
 
-/// <summary>
-/// Runtime worker configuration metadata (EWC, EWS, BWC parameters).
-/// </summary>
+/// <summary>Represents runtime worker configuration metadata for benchmark runtimes.</summary>
 type WorkerMetadata =
     {
-        /// <summary>Effect worker count.</summary>
+        /// <summary>Represents the evaluation worker count.</summary>
         EWC: int
-        /// <summary>Effect worker sleep duration.</summary>
+        /// <summary>Represents the evaluation worker sleep duration.</summary>
         EWS: int
-        /// <summary>Blocked worker count.</summary>
+        /// <summary>Represents the blocking worker count.</summary>
         BWC: int
     }
 
+    /// <summary>Returns a formatted string displaying the worker configuration parameters.</summary>
+    /// <returns>A string containing the EWC, EWS, and BWC values.</returns>
     override this.ToString() =
         let ci = CultureInfo "en-US"
         $"""EWC: %s{this.EWC.ToString("N0", ci)} EWS: %s{this.EWS.ToString("N0", ci)} BWC: %s{this.BWC.ToString("N0", ci)}"""
 
-/// <summary>
-/// Metadata extracted from benchmark CSV filenames.
-/// </summary>
+/// <summary>Represents metadata extracted from benchmark CSV filenames.</summary>
 type FileMetadata =
     {
-        /// <summary>Name of the benchmark.</summary>
+        /// <summary>Represents the benchmark name.</summary>
         BenchmarkName: string
-        /// <summary>Number of actors in the benchmark.</summary>
+        /// <summary>Represents the number of actors in the benchmark.</summary>
         ActorCount: int
-        /// <summary>Number of rounds in the benchmark.</summary>
+        /// <summary>Represents the number of rounds in the benchmark.</summary>
         RoundCount: int
-        /// <summary>Number of benchmark runs.</summary>
+        /// <summary>Represents the number of benchmark runs.</summary>
         Runs: int
-        /// <summary>Name of the runtime used.</summary>
+        /// <summary>Represents the runtime name.</summary>
         RuntimeName: string
-        /// <summary>Optional worker configuration metadata.</summary>
+        /// <summary>Represents the optional worker configuration metadata.</summary>
         WorkerMetadata: WorkerMetadata option
     }
 
+    /// <summary>Returns a display string containing the runtime name and optional worker configuration.</summary>
+    /// <returns>A string with the runtime name, including worker metadata when present.</returns>
     override this.ToString() =
         match this.WorkerMetadata with
         | Some metadata -> $"%s{this.RuntimeName} (%s{metadata.ToString()})"
         | None -> this.RuntimeName
 
-/// <summary>
-/// Helper functions for FileMetadata parsing and formatting.
-/// </summary>
+/// <summary>Provides parsing and formatting functions for file metadata.</summary>
 module internal FileMetadata =
 
-    /// <summary>
-    /// Generates a chart title from file metadata.
-    /// </summary>
-    /// <param name="fm">File metadata to generate title from.</param>
-    /// <returns>Formatted chart title string.</returns>
+    /// <summary>Creates a chart title from file metadata.</summary>
+    /// <param name="fm">The file metadata to format as a title.</param>
+    /// <returns>A formatted chart title string including benchmark name, actor count, and round count.</returns>
     let title (fm: FileMetadata) =
         let ci = CultureInfo "en-US"
         $"""%s{fm.BenchmarkName} (Actor Count: %s{fm.ActorCount.ToString("N0", ci)} Round Count: %s{fm.RoundCount.ToString("N0", ci)})"""
 
-    /// <summary>
-    /// Capitalizes the first character of a string.
-    /// </summary>
-    /// <param name="s">String to capitalize.</param>
-    /// <returns>String with the first character uppercased.</returns>
+    /// <summary>Transforms a string by capitalizing its first character.</summary>
+    /// <param name="s">The string to capitalize.</param>
+    /// <returns>The string with its first character uppercased, or the original string if empty.</returns>
     let private capitalizeFirst s =
         match s with
         | "" -> s
         | _ -> s[0] |> Char.ToUpper |> string |> (fun first -> first + s[1..])
 
-    /// <summary>
-    /// Parses file metadata from a CSV file path.
-    /// </summary>
-    /// <param name="path">File path to parse metadata from.</param>
-    /// <returns>Parsed file metadata.</returns>
+    /// <summary>Returns file metadata extracted from a CSV file path by parsing the directory structure.</summary>
+    /// <param name="path">The file path to extract metadata from.</param>
+    /// <returns>The file metadata containing benchmark name, actor count, round count, runtime name, and optional worker configuration.</returns>
     let parse (path: string) =
         let fullPath = Path.GetFullPath path
         let runtimeDirectory = DirectoryInfo(Path.GetDirectoryName fullPath)
@@ -140,34 +132,29 @@ module internal FileMetadata =
             WorkerMetadata = workerMetadata
         }
 
-/// <summary>
-/// Parsed benchmark data from a CSV file including execution times and memory usage.
-/// </summary>
+/// <summary>Represents benchmark data from a CSV file including execution times and statistics.</summary>
 type BenchmarkData =
     {
-        /// <summary>CSV column headers.</summary>
+        /// <summary>Represents the CSV column headers.</summary>
         Headers: string list
-        /// <summary>List of run numbers.</summary>
+        /// <summary>Represents the list of run numbers.</summary>
         Runs: int64 list
-        /// <summary>Execution times in milliseconds.</summary>
+        /// <summary>Represents the execution times in milliseconds.</summary>
         ExecutionTimes: int64 list
-        /// <summary>Average execution time in milliseconds.</summary>
+        /// <summary>Represents the average execution time in milliseconds.</summary>
         AvgExecutionTime: float
-        /// <summary>Median execution time in milliseconds.</summary>
+        /// <summary>Represents the median execution time in milliseconds.</summary>
         MedianExecutionTime: float
-        /// <summary>95th percentile execution time in milliseconds.</summary>
+        /// <summary>Represents the 95th percentile execution time in milliseconds.</summary>
         P95ExecutionTime: float
-        /// <summary>Standard deviation of execution times.</summary>
+        /// <summary>Represents the standard deviation of execution times.</summary>
         StdExecutionTime: float
     }
 
-/// <summary>
-/// Helper functions for parsing BenchmarkData from CSV files.
-/// </summary>
+/// <summary>Provides parsing functions for benchmark data from CSV files.</summary>
 module internal BenchmarkData =
-    /// <summary>
-    /// Expected CSV column headers for benchmark data files.
-    /// </summary>
+    /// <summary>Returns the expected CSV column headers for benchmark data files.</summary>
+    /// <returns>The list of expected header strings.</returns>
     let private expectedHeaders =
         [
             "Run"
@@ -180,27 +167,21 @@ module internal BenchmarkData =
             "Std. Execution Time (ms)"
         ]
 
-    /// <summary>
-    /// Parses a string as a 64-bit integer using invariant culture.
-    /// </summary>
-    /// <param name="raw">String to parse.</param>
-    /// <returns>Parsed 64-bit integer value.</returns>
+    /// <summary>Returns a 64-bit integer from a string using invariant culture.</summary>
+    /// <param name="raw">The string to convert.</param>
+    /// <returns>The parsed 64-bit integer value.</returns>
     let private parseInt64 (raw: string) =
         Int64.Parse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture)
 
-    /// <summary>
-    /// Parses a string as a floating-point number using invariant culture.
-    /// </summary>
-    /// <param name="raw">String to parse.</param>
-    /// <returns>Parsed floating-point value.</returns>
+    /// <summary>Returns a floating-point number from a string using invariant culture.</summary>
+    /// <param name="raw">The string to convert.</param>
+    /// <returns>The parsed floating-point value.</returns>
     let private parseFloat (raw: string) =
         Double.Parse(raw, NumberStyles.Float ||| NumberStyles.AllowThousands, CultureInfo.InvariantCulture)
 
-    /// <summary>
-    /// Parses benchmark data from a CSV file.
-    /// </summary>
-    /// <param name="path">Path to the CSV file.</param>
-    /// <returns>Parsed benchmark data.</returns>
+    /// <summary>Returns benchmark data extracted from a CSV file.</summary>
+    /// <param name="path">The path to the CSV file to load.</param>
+    /// <returns>The benchmark data containing execution times and statistics.</returns>
     let parse (path: string) =
         let csvFile = CsvFile.Load path
 
@@ -241,16 +222,12 @@ module internal BenchmarkData =
             StdExecutionTime = stdExecutionTimes[0]
         }
 
-/// <summary>
-/// Utilities for loading all CSV benchmark results from a directory.
-/// </summary>
+/// <summary>Provides functions for loading all CSV benchmark results from a directory.</summary>
 module internal CsvResults =
 
-    /// <summary>
-    /// Gets all benchmark results from subdirectories, grouped by benchmark type.
-    /// </summary>
-    /// <param name="rootDir">Root directory containing benchmark subdirectories.</param>
-    /// <returns>List of benchmark data grouped by benchmark type.</returns>
+    /// <summary>Returns all benchmark results from subdirectories, grouped by benchmark type.</summary>
+    /// <param name="rootDir">The root directory containing benchmark subdirectories.</param>
+    /// <returns>A list of benchmark data pairs grouped by benchmark type.</returns>
     let getAll rootDir =
         if not <| Directory.Exists rootDir then
             invalidArg rootDir "Directory does not exist!"

@@ -9,21 +9,22 @@ open Microsoft.Extensions.Logging
 open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Hosting
 
-/// Configuration for the HTTP server.
+/// <summary>Represents the configuration for an HTTP server.</summary>
 type ServerConfig =
     {
-        /// The host address to bind to.
+        /// <summary>Represents the host address to bind the server to.</summary>
         Host: string
-        /// The port to listen on.
+        /// <summary>Represents the port number to listen on.</summary>
         Port: int
-        /// Maximum request body size in bytes. Default is 30MB (30 * 1024 * 1024).
+        /// <summary>Represents the maximum request body size in bytes.</summary>
         MaxRequestBodySize: int64
     }
 
-/// Functions for creating server configurations.
+/// <summary>Provides functions for creating server configurations.</summary>
 module ServerConfig =
 
-    /// Default server configuration (127.0.0.1:8080, 30MB max body size).
+    /// <summary>Returns the default server configuration bound to 127.0.0.1:8080 with a 30 MB body size limit.</summary>
+    /// <returns>A server configuration with default host, port, and body size settings.</returns>
     let defaultConfig =
         {
             Host = "127.0.0.1"
@@ -31,7 +32,7 @@ module ServerConfig =
             MaxRequestBodySize = 30L * 1024L * 1024L // 30MB
         }
 
-    /// Creates a server configuration.
+    /// <summary>Creates a server configuration with the given host and port.</summary>
     /// <param name="host">The host address to bind to.</param>
     /// <param name="port">The port to listen on.</param>
     /// <returns>A server configuration with the specified host and port.</returns>
@@ -42,27 +43,31 @@ module ServerConfig =
             MaxRequestBodySize = 30L * 1024L * 1024L // 30MB default
         }
 
-    /// Sets the maximum request body size.
+    /// <summary>Creates a server configuration with the specified maximum request body size.</summary>
     /// <param name="maxSize">Maximum body size in bytes.</param>
     /// <param name="config">The server configuration to update.</param>
     /// <returns>The updated server configuration.</returns>
     let withMaxBodySize maxSize config =
         { config with MaxRequestBodySize = maxSize }
 
-/// Represents a running FIO HTTP server.
+/// <summary>Represents a running FIO HTTP server.</summary>
 type FIOServer =
     private
         {
+            /// <summary>Represents the server configuration.</summary>
             Config: ServerConfig
+            /// <summary>Represents the registered route table.</summary>
             Routes: Routes<exn>
+            /// <summary>Represents the FIO runtime used for effect evaluation.</summary>
             Runtime: DefaultRuntime
+            /// <summary>Represents the running Kestrel web host instance.</summary>
             Host: IHost option
         }
 
-/// Functions for creating and managing FIO HTTP servers.
+/// <summary>Provides functions for creating and running FIO HTTP servers.</summary>
 module Server =
 
-    /// Creates a new FIO HTTP server with a provided runtime.
+    /// <summary>Creates a new FIO HTTP server with the given runtime.</summary>
     /// <param name="config">The server configuration.</param>
     /// <param name="routes">The routes to handle requests.</param>
     /// <param name="runtime">The FIO runtime to use for executing effects.</param>
@@ -79,14 +84,14 @@ module Server =
             id
         )
 
-    /// Creates a new FIO HTTP server with default runtime.
+    /// <summary>Creates a new FIO HTTP server with the default runtime.</summary>
     /// <param name="config">The server configuration.</param>
     /// <param name="routes">The routes to handle requests.</param>
     /// <returns>An effect that produces a new FIO HTTP server.</returns>
     let create (config: ServerConfig) (routes: Routes<exn>) : FIO<FIOServer, exn> =
         createWithRuntime config routes (new DefaultRuntime())
 
-    /// Starts the HTTP server.
+    /// <summary>Builds an effect that starts the HTTP server and begins accepting requests.</summary>
     /// <param name="server">The server to start.</param>
     /// <returns>An effect that produces the started server.</returns>
     let start (server: FIOServer) : FIO<FIOServer, exn> =
@@ -117,7 +122,7 @@ module Server =
             return { server with Host = Some app }
         }
 
-    /// Stops the HTTP server and disposes resources.
+    /// <summary>Builds an effect that stops the HTTP server and releases its resources.</summary>
     /// <param name="server">The server to stop.</param>
     /// <returns>An effect that produces the stopped server.</returns>
     let stop (server: FIOServer) : FIO<FIOServer, exn> =
@@ -134,7 +139,7 @@ module Server =
                 return server
         }
 
-    /// Waits for the server to shut down.
+    /// <summary>Builds an effect that blocks until the HTTP server shuts down.</summary>
     /// <param name="server">The running server to wait on.</param>
     /// <returns>An effect that completes when the server shuts down.</returns>
     let run (server: FIOServer) : FIO<unit, exn> =
@@ -144,7 +149,7 @@ module Server =
             | None -> return! FIO.fail (exn "FIO HTTP Server not started. Call Server.start first.")
         }
 
-    /// Creates and starts a server in one operation with a provided runtime.
+    /// <summary>Creates and starts an HTTP server in one operation with the given runtime.</summary>
     /// <param name="config">The server configuration.</param>
     /// <param name="routes">The routes to handle requests.</param>
     /// <param name="runtime">The FIO runtime to use for executing effects.</param>
@@ -160,14 +165,14 @@ module Server =
             return startedServer
         }
 
-    /// Creates and starts a server in one operation with default runtime.
+    /// <summary>Creates and starts an HTTP server in one operation with the default runtime.</summary>
     /// <param name="config">The server configuration.</param>
     /// <param name="routes">The routes to handle requests.</param>
     /// <returns>An effect that produces the started server.</returns>
     let startServer (config: ServerConfig) (routes: Routes<exn>) : FIO<FIOServer, exn> =
         startServerWithRuntime config routes (new DefaultRuntime())
 
-    /// Creates, starts, and runs a server until shutdown (blocking) with a provided runtime.
+    /// <summary>Builds an effect that creates, starts, and runs an HTTP server until shutdown with the given runtime.</summary>
     /// <param name="config">The server configuration.</param>
     /// <param name="routes">The routes to handle requests.</param>
     /// <param name="runtime">The FIO runtime to use for executing effects.</param>
@@ -178,30 +183,38 @@ module Server =
             do! run server
         }
 
-    /// Creates, starts, and runs a server until shutdown (blocking) with default runtime.
+    /// <summary>Builds an effect that creates, starts, and runs an HTTP server until shutdown with the default runtime.</summary>
     /// <param name="config">The server configuration.</param>
     /// <param name="routes">The routes to handle requests.</param>
     /// <returns>An effect that runs the server until shutdown.</returns>
     let runServer (config: ServerConfig) (routes: Routes<exn>) : FIO<unit, exn> =
         runServerWithRuntime config routes (new DefaultRuntime())
 
-/// Fluent builder functions for server configuration.
+/// <summary>Provides fluent builder functions for server configuration.</summary>
 module ServerBuilder =
 
-    /// Sets the host address for the server.
+    /// <summary>Creates an updated configuration with the specified host address.</summary>
     /// <param name="host">The host address to bind to.</param>
+    /// <param name="config">The server configuration.</param>
+    /// <param name="routes">The registered route table.</param>
     /// <returns>The updated configuration and routes tuple.</returns>
     let host (host: string) ((config, routes): ServerConfig * Routes<exn>) = { config with Host = host }, routes
 
-    /// Sets the port for the server.
+    /// <summary>Creates an updated configuration with the specified port.</summary>
     /// <param name="port">The port number to listen on.</param>
+    /// <param name="config">The server configuration.</param>
+    /// <param name="routes">The registered route table.</param>
     /// <returns>The updated configuration and routes tuple.</returns>
     let port (port: int) (config, routes) = { config with Port = port }, routes
 
-    /// Starts the server immediately.
+    /// <summary>Builds an effect that starts the server with the current configuration.</summary>
+    /// <param name="config">The server configuration.</param>
+    /// <param name="routes">The registered route table.</param>
     /// <returns>An effect that produces the started server.</returns>
     let startNow (config, routes) = Server.startServer config routes
 
-    /// Starts and runs the server until shutdown.
+    /// <summary>Builds an effect that starts and runs the server until shutdown.</summary>
+    /// <param name="config">The server configuration.</param>
+    /// <param name="routes">The registered route table.</param>
     /// <returns>An effect that runs the server until shutdown.</returns>
     let runNow (config, routes) = Server.runServer config routes

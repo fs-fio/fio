@@ -1,6 +1,4 @@
-/// <summary>
-/// FIOApp framework examples demonstrating various app patterns and features.
-/// </summary>
+/// <summary>Provides FIOApp framework examples demonstrating app lifecycle, error handling, channel messaging, concurrency, Task interop, runtime configuration, and shutdown hooks.</summary>
 module private FIO.Examples.App
 
 open FIO.DSL
@@ -14,9 +12,8 @@ open System
 open System.IO
 open System.Globalization
 
-/// <summary>
-/// Simple welcome app demonstrating console I/O with FIOApp.
-/// </summary>
+/// <summary>Represents a basic FIOApp that reads the user's name from the console and prints a personalized greeting.</summary>
+/// <remarks>Demonstrates the simplest FIOApp pattern: override effect with a fio CE that performs console I/O and returns unit.</remarks>
 type WelcomeApp() =
     inherit FIOApp<unit, exn>()
 
@@ -27,9 +24,8 @@ type WelcomeApp() =
             do! Console.printLine ($"Hello, %s{name}! Welcome to FIO! 🪻💜", id)
         }
 
-/// <summary>
-/// Demonstrates parsing user input with error handling using FIOApp.
-/// </summary>
+/// <summary>Represents an FIOApp that parses user input into an integer, returning a success message or failing with an IOException for invalid input.</summary>
+/// <remarks>Demonstrates FIO.attempt for wrapping side-effecting .NET code and returning typed errors through FIO.fail when parsing fails.</remarks>
 type EnterNumberApp() =
     inherit FIOApp<string, exn>()
 
@@ -43,9 +39,8 @@ type EnterNumberApp() =
             | false, _ -> return! FIO.fail (IOException "You entered an invalid number!")
         }
 
-/// <summary>
-/// Demonstrates try-with error handling in computation expressions.
-/// </summary>
+/// <summary>Represents an FIOApp that uses try-with inside a fio CE to catch a typed integer error and re-raise it, demonstrating error interception in computation expressions.</summary>
+/// <remarks>Shows how try-with in the fio CE corresponds to CatchAll — the with branch receives the typed error value, not a .NET exception.</remarks>
 type TryWithApp() =
     inherit FIOApp<string, int>()
 
@@ -58,9 +53,8 @@ type TryWithApp() =
                 return! FIO.fail errorCode
         }
 
-/// <summary>
-/// Demonstrates try-finally for cleanup operations.
-/// </summary>
+/// <summary>Represents an FIOApp that uses try-finally inside a fio CE to guarantee a cleanup effect runs regardless of whether the main effect succeeds or fails.</summary>
+/// <remarks>Shows how try-finally in the fio CE corresponds to Ensuring — the finally block runs on success, failure, and interruption.</remarks>
 type TryFinallyApp() =
     inherit FIOApp<string, int>()
 
@@ -73,9 +67,8 @@ type TryFinallyApp() =
                 Console.printLine ("Running finalizer, always executes", (fun _ -> -2))
         }
 
-/// <summary>
-/// Combines try-with and try-finally for complete error handling.
-/// </summary>
+/// <summary>Represents an FIOApp that nests try-with inside try-finally, demonstrating how error recovery and guaranteed cleanup compose together in the fio CE.</summary>
+/// <remarks>The inner try-with catches and re-raises the error while the outer try-finally ensures the cleanup effect always executes.</remarks>
 type TryWithFinallyApp() =
     inherit FIOApp<string, int>()
 
@@ -91,9 +84,8 @@ type TryWithFinallyApp() =
                 Console.printLine ("Running finalizer, always executes", (fun _ -> -2))
         }
 
-/// <summary>
-/// Demonstrates for loops in computation expressions.
-/// </summary>
+/// <summary>Represents an FIOApp that iterates over a range using a for loop inside the fio CE, printing whether each number is even or odd.</summary>
+/// <remarks>Demonstrates that the fio CE supports for loops, sequencing an effectful body for each element in the range.</remarks>
 type ForApp() =
     inherit FIOApp<unit, exn>()
 
@@ -105,9 +97,8 @@ type ForApp() =
                 | false -> do! Console.printLine ($"%i{number} is odd!", id)
         }
 
-/// <summary>
-/// Interactive number guessing game using while loops and random numbers.
-/// </summary>
+/// <summary>Represents an interactive FIOApp that generates a random target number and loops until the user guesses it correctly, providing higher/lower feedback.</summary>
+/// <remarks>Demonstrates while loops, mutable state, Random.nextIntRange, and input parsing inside a fio CE for an interactive game loop.</remarks>
 type GuessNumberApp() =
     inherit FIOApp<int, exn>()
 
@@ -135,15 +126,15 @@ type GuessNumberApp() =
             return guess
         }
 
-/// <summary>
-/// Ping-pong message passing using operators and channels.
-/// </summary>
+/// <summary>Represents an FIOApp that exchanges ping-pong messages between two fibers using channels and the &gt;&gt;= bind operator for composition.</summary>
+/// <remarks>Demonstrates Channel-based message passing: one fiber sends on chan1 and receives on chan2, while the other does the reverse, running concurrently via &lt;&amp;&amp;&gt;.</remarks>
 type PingPongApp() =
     inherit FIOApp<unit, exn>()
 
-    /// <summary>
-    /// Pinger sends a message and waits for a reply using operators.
-    /// </summary>
+    /// <summary>Builds an effect that sends a ping message on chan1, then receives the reply on chan2, using the &gt;&gt;= bind operator for sequential composition.</summary>
+    /// <param name="chan1">The channel to send the ping message on.</param>
+    /// <param name="chan2">The channel to receive the pong reply from.</param>
+    /// <returns>An effect that completes after the ping-pong exchange is printed to the console.</returns>
     let pinger (chan1: Channel<string>) (chan2: Channel<string>) =
         chan1.Send "ping"
         >>= fun ping ->
@@ -152,9 +143,10 @@ type PingPongApp() =
                 chan2.Receive()
                 >>= fun pong -> Console.printLine ($"pinger received: %s{pong}", id) >>= fun _ -> FIO.unit ()
 
-    /// <summary>
-    /// Ponger receives a message and sends a reply using operators.
-    /// </summary>
+    /// <summary>Builds an effect that receives a ping message from chan1, then sends a pong reply on chan2, using the &gt;&gt;= bind operator for sequential composition.</summary>
+    /// <param name="chan1">The channel to receive the ping message from.</param>
+    /// <param name="chan2">The channel to send the pong reply on.</param>
+    /// <returns>An effect that completes after the ping-pong exchange is printed to the console.</returns>
     let ponger (chan1: Channel<string>) (chan2: Channel<string>) =
         chan1.Receive()
         >>= fun ping ->
@@ -168,15 +160,15 @@ type PingPongApp() =
         let chan2 = Channel<string>()
         pinger chan1 chan2 <&&> ponger chan1 chan2
 
-/// <summary>
-/// Ping-pong using computation expression syntax.
-/// </summary>
+/// <summary>Represents an FIOApp that exchanges ping-pong messages between two fibers using channels and fio computation expression syntax.</summary>
+/// <remarks>Functionally identical to PingPongApp but uses the fio CE with let! and do! instead of &gt;&gt;= operators, showing the more readable CE style for channel messaging.</remarks>
 type PingPongCEApp() =
     inherit FIOApp<unit, exn>()
 
-    /// <summary>
-    /// Pinger sends a message and waits for a reply using computation expression.
-    /// </summary>
+    /// <summary>Builds an effect that sends a ping on chan1 and awaits the pong reply on chan2, using fio CE syntax with let! and do!.</summary>
+    /// <param name="chan1">The channel to send the ping message on.</param>
+    /// <param name="chan2">The channel to receive the pong reply from.</param>
+    /// <returns>An effect that completes after printing the sent and received messages.</returns>
     let pinger (chan1: Channel<string>) (chan2: Channel<string>) =
         fio {
             let! ping = chan1.Send "ping"
@@ -185,9 +177,10 @@ type PingPongCEApp() =
             do! Console.printLine ($"pinger received: %s{pong}", id)
         }
 
-    /// <summary>
-    /// Ponger receives a message and sends a reply using computation expression.
-    /// </summary>
+    /// <summary>Builds an effect that receives a ping from chan1 and sends a pong reply on chan2, using fio CE syntax with let! and do!.</summary>
+    /// <param name="chan1">The channel to receive the ping message from.</param>
+    /// <param name="chan2">The channel to send the pong reply on.</param>
+    /// <returns>An effect that completes after printing the received and sent messages.</returns>
     let ponger (chan1: Channel<string>) (chan2: Channel<string>) =
         fio {
             let! ping = chan1.Receive()
@@ -203,24 +196,22 @@ type PingPongCEApp() =
             do! pinger chan1 chan2 <&&> ponger chan1 chan2
         }
 
-/// <summary>
-/// Message type for typed ping-pong communication.
-/// </summary>
+/// <summary>Represents a typed message exchanged between pinger and ponger fibers over channels.</summary>
 type Message =
-    /// <summary>Ping message sent by the pinger.</summary>
+    /// <summary>Represents a ping request sent by the pinger fiber.</summary>
     | PingMsg
-    /// <summary>Pong message sent by the ponger.</summary>
+    /// <summary>Represents a pong reply sent by the ponger fiber.</summary>
     | PongMsg
 
-/// <summary>
-/// Ping-pong with pattern matching on message types.
-/// </summary>
+/// <summary>Represents an FIOApp that exchanges typed Message values over channels and uses pattern matching to validate that the correct message type was received.</summary>
+/// <remarks>Demonstrates match! in the fio CE for pattern matching on channel-received values, and FIO.fail for protocol violations when an unexpected message type arrives.</remarks>
 type PingPongMatchApp() =
     inherit FIOApp<unit, string>()
 
-    /// <summary>
-    /// Pinger sends a PingMsg and validates the reply with pattern matching.
-    /// </summary>
+    /// <summary>Builds an effect that sends a PingMsg on chan1 and validates the reply from chan2 with pattern matching, failing if a PingMsg is received instead of PongMsg.</summary>
+    /// <param name="chan1">The channel to send the PingMsg on.</param>
+    /// <param name="chan2">The channel to receive and validate the reply from.</param>
+    /// <returns>An effect that completes after the exchange or fails with a protocol-violation string error.</returns>
     let pinger (chan1: Channel<Message>) (chan2: Channel<Message>) =
         fio {
             let! ping = chan1.Send PingMsg
@@ -231,9 +222,10 @@ type PingPongMatchApp() =
             | PingMsg -> return! FIO.fail $"pinger received %A{PingMsg} when %A{PongMsg} was expected!"
         }
 
-    /// <summary>
-    /// Ponger receives a PingMsg and replies with a random message type.
-    /// </summary>
+    /// <summary>Builds an effect that receives a PingMsg from chan1, validates it with pattern matching, and replies on chan2 with a randomly chosen message type.</summary>
+    /// <param name="chan1">The channel to receive and validate the ping message from.</param>
+    /// <param name="chan2">The channel to send the reply message on.</param>
+    /// <returns>An effect that completes after replying or fails with a protocol-violation string error.</returns>
     let ponger (chan1: Channel<Message>) (chan2: Channel<Message>) =
         fio {
             match! chan1.Receive() with
@@ -257,83 +249,72 @@ type PingPongMatchApp() =
             do! pinger chan1 chan2 <&&> ponger chan1 chan2
         }
 
-/// <summary>
-/// Custom error types for demonstrating typed error handling.
-/// </summary>
+/// <summary>Represents a typed error hierarchy for demonstrating error type unification across multiple data sources.</summary>
 type Error =
-    /// <summary>Database operation error.</summary>
+    /// <summary>Represents a database operation failure carrying a boolean status flag.</summary>
     | DbError of bool
-    /// <summary>Web service operation error.</summary>
+    /// <summary>Represents a web service failure carrying an integer status code.</summary>
     | WsError of int
-    /// <summary>General error with message.</summary>
+    /// <summary>Represents a general failure carrying a descriptive error message string.</summary>
     | GeneralError of string
 
-/// <summary>
-/// Demonstrates typed error handling with CatchAll and error type unification.
-/// </summary>
+/// <summary>Represents an FIOApp that composes a database read and web service call with unified error types, falling back to defaults on failure using CatchAll.</summary>
+/// <remarks>Demonstrates typed error unification: each data source has its own error type (bool, int), and CatchAll wraps each into the shared Error DU before combining with &lt;*&gt;.</remarks>
 type ErrorHandlingApp() =
     inherit FIOApp<string * char, Error>()
 
-    /// <summary>
-    /// Simulates a database read that randomly succeeds or fails.
-    /// </summary>
+    /// <summary>Builds an effect that simulates a database read, randomly succeeding with "data" or failing with a boolean error.</summary>
+    /// <returns>An effect that produces a string on success or fails with a bool error value.</returns>
     let readFromDatabase: FIO<string, bool> =
         fio {
             let! rand = FIO.attempt ((fun () -> Random().Next(0, 2)), fun _ -> true)
             if rand = 0 then return "data" else return! FIO.fail false
         }
 
-    /// <summary>
-    /// Simulates a web service call that randomly succeeds or fails.
-    /// </summary>
+    /// <summary>Builds an effect that simulates a web service call, randomly succeeding with 'S' or failing with an integer status code.</summary>
+    /// <returns>An effect that produces a char on success or fails with an int error value.</returns>
     let awaitWebservice: FIO<char, int> =
         fio {
             let! rand = FIO.attempt ((fun () -> Random().Next(0, 2)), fun _ -> -1)
             if rand = 1 then return 'S' else return! FIO.fail 404
         }
 
-    /// <summary>
-    /// Database result with error type unified to Error.
-    /// </summary>
+    /// <summary>Builds an effect that wraps the database read result, unifying its bool error into the shared Error DU via CatchAll.</summary>
+    /// <returns>An effect that produces a string on success or fails with an Error value.</returns>
     let databaseResult: FIO<string, Error> =
         fio { return! readFromDatabase.CatchAll(fun error -> FIO.fail (DbError error)) }
 
-    /// <summary>
-    /// Web service result with error type unified to Error.
-    /// </summary>
+    /// <summary>Builds an effect that wraps the web service result, unifying its int error into the shared Error DU via CatchAll.</summary>
+    /// <returns>An effect that produces a char on success or fails with an Error value.</returns>
     let webserviceResult: FIO<char, Error> =
         fio { return! awaitWebservice.CatchAll(fun error -> FIO.fail (WsError error)) }
 
     override _.effect =
         fio { return! (databaseResult <*> webserviceResult).CatchAll(fun _ -> FIO.succeed ("default", 'D')) }
 
-/// <summary>
-/// Demonstrates retry logic with error handling callbacks.
-/// </summary>
+/// <summary>Represents an FIOApp that retries failing database and web service effects with configurable retry counts and per-retry logging callbacks before falling back to defaults.</summary>
+/// <remarks>Demonstrates Retry for automatic retries with a callback that logs each attempt, combined with CatchAll for error type unification and final fallback.</remarks>
 type ErrorHandlingWithRetryApp() =
     inherit FIOApp<string * char, Error>()
 
-    /// <summary>
-    /// Simulates a database read that randomly succeeds or fails.
-    /// </summary>
+    /// <summary>Builds an effect that simulates a database read with random success or failure, used as the base effect for retry demonstration.</summary>
+    /// <returns>An effect that produces a string on success or fails with a bool error value.</returns>
     let readFromDatabase: FIO<string, bool> =
         fio {
             let! rand = FIO.attempt ((fun () -> Random().Next(0, 2)), fun _ -> true)
             if rand = 0 then return "data" else return! FIO.fail false
         }
 
-    /// <summary>
-    /// Simulates a web service call that randomly succeeds or fails.
-    /// </summary>
+    /// <summary>Builds an effect that simulates a web service call with random success or failure, used as the base effect for retry demonstration.</summary>
+    /// <returns>An effect that produces a char on success or fails with an int error value.</returns>
     let awaitWebservice: FIO<char, int> =
         fio {
             let! rand = FIO.attempt ((fun () -> Random().Next(0, 2)), fun _ -> -1)
             if rand = 1 then return 'S' else return! FIO.fail 404
         }
 
-    /// <summary>
-    /// Database result with retry logic and error type unification.
-    /// </summary>
+    /// <summary>Builds an effect that retries the database read up to four times with per-retry logging, then unifies the error type into the shared Error DU.</summary>
+    /// <returns>An effect that produces a string on success or fails with an Error value after exhausting retries.</returns>
     let databaseResult: FIO<string, Error> =
         fio {
             let onEachRetry (err, retry, maxRetries) =
@@ -347,9 +328,8 @@ type ErrorHandlingWithRetryApp() =
             return! readFromDatabase.Retry(4, onEachRetry).CatchAll(fun error -> FIO.fail (DbError error))
         }
 
-    /// <summary>
-    /// Web service result with retry logic and error type unification.
-    /// </summary>
+    /// <summary>Builds an effect that retries the web service call up to four times with per-retry logging, then unifies the error type into the shared Error DU.</summary>
+    /// <returns>An effect that produces a char on success or fails with an Error value after exhausting retries.</returns>
     let webserviceResult: FIO<char, Error> =
         fio {
             let onEachRetry (err, retry, maxRetries) =
@@ -366,15 +346,13 @@ type ErrorHandlingWithRetryApp() =
     override _.effect =
         fio { return! (databaseResult <*> webserviceResult).CatchAll(fun _ -> FIO.succeed ("default", 'D')) }
 
-/// <summary>
-/// Demonstrates async/task interop with FIO.awaitAsync.
-/// </summary>
+/// <summary>Represents an FIOApp that wraps F# Async computations into FIO effects using FIO.awaitAsync, demonstrating Task/Async interop with typed error handling.</summary>
+/// <remarks>Shows how to bridge existing async code into the FIO effect system: FIO.awaitAsync lifts an Async into an FIO, and CatchAll converts thrown exceptions into the typed Error DU.</remarks>
 type AsyncErrorHandlingApp() =
     inherit FIOApp<string * int, Error>()
 
-    /// <summary>
-    /// Async task simulating a database read.
-    /// </summary>
+    /// <summary>Creates an F# Async computation that simulates a database read, randomly returning data or raising an exception.</summary>
+    /// <returns>An Async that produces a string on success or raises an Exception on failure.</returns>
     let databaseReadTask: Async<string> =
         async {
             do printfn $"Reading from database..."
@@ -386,9 +364,8 @@ type AsyncErrorHandlingApp() =
                 return "error data"
         }
 
-    /// <summary>
-    /// Async task simulating a web service call.
-    /// </summary>
+    /// <summary>Creates an F# Async computation that simulates a web service call, randomly returning a status code or raising an exception.</summary>
+    /// <returns>An Async that produces an int status code on success or raises an Exception on failure.</returns>
     let webserviceAwaitTask: Async<int> =
         async {
             do printfn $"Awaiting webservice..."
@@ -400,29 +377,27 @@ type AsyncErrorHandlingApp() =
                 return 400
         }
 
-    /// <summary>
-    /// Database result with error type unified to Error via CatchAll.
-    /// </summary>
+    /// <summary>Builds an effect that lifts the database Async into FIO and unifies its exception into the Error DU via CatchAll.</summary>
+    /// <returns>An effect that produces a string on success or fails with an Error value.</returns>
     let databaseResult: FIO<string, Error> =
         FIO.awaitAsync(databaseReadTask, id).CatchAll(fun ex -> FIO.fail (GeneralError ex.Message))
 
-    /// <summary>
-    /// Web service result with error type unified to Error via CatchAll.
-    /// </summary>
+    /// <summary>Builds an effect that lifts the web service Async into FIO and unifies its exception into the Error DU via CatchAll.</summary>
+    /// <returns>An effect that produces an int status code on success or fails with an Error value.</returns>
     let webserviceResult: FIO<int, Error> =
         FIO.awaitAsync(webserviceAwaitTask, id).CatchAll(fun ex -> FIO.fail (GeneralError ex.Message))
 
     override _.effect = fio { return! databaseResult <&> webserviceResult }
 
-/// <summary>
-/// Stress test with 1 million concurrent fibers using channels.
-/// </summary>
+/// <summary>Represents an FIOApp stress test that spawns one million concurrent sender fibers communicating with a single receiver fiber through a shared channel.</summary>
+/// <remarks>Demonstrates FIO's lightweight fiber scalability: each sender writes a random integer to the channel, and the receiver consumes all messages sequentially.</remarks>
 type HighlyConcurrentApp() =
     inherit FIOApp<unit, exn>()
 
-    /// <summary>
-    /// Sender fiber that sends a random message to the channel.
-    /// </summary>
+    /// <summary>Builds an effect that generates a random integer and sends it on the channel, printing the sent value to the console.</summary>
+    /// <param name="chan">The channel to send the random message on.</param>
+    /// <param name="id">The numeric identifier of this sender fiber for display purposes.</param>
+    /// <returns>An effect that completes after sending one message and printing a confirmation.</returns>
     let sender (chan: Channel<int>) id =
         fio {
             let! msg = Random.nextIntRange (100, 501)
@@ -430,9 +405,11 @@ type HighlyConcurrentApp() =
             do! Console.printLine ($"Sender[%i{id}] sent: %i{msg}", Operators.id)
         }
 
-    /// <summary>
-    /// Receiver fiber that consumes messages from the channel.
-    /// </summary>
+    /// <summary>Builds a recursive effect that receives messages from the channel one at a time until all expected messages have arrived.</summary>
+    /// <param name="chan">The channel to receive messages from.</param>
+    /// <param name="count">The number of remaining messages to receive before completion.</param>
+    /// <param name="max">The total number of fibers, used for the completion summary message.</param>
+    /// <returns>An effect that completes after receiving all expected messages.</returns>
     let rec receiver (chan: Channel<int>) count (max: int) =
         fio {
             if count = 0 then
@@ -444,9 +421,11 @@ type HighlyConcurrentApp() =
                 return! receiver chan (count - 1) max
         }
 
-    /// <summary>
-    /// Recursively creates sender fibers running in parallel.
-    /// </summary>
+    /// <summary>Builds a recursive effect that composes sender fibers in parallel using &lt;&amp;&amp;&gt;, accumulating them into a single combined effect.</summary>
+    /// <param name="chan">The channel that each created sender fiber will write to.</param>
+    /// <param name="count">The number of remaining sender fibers to create.</param>
+    /// <param name="acc">The accumulated effect combining all previously created senders with the receiver.</param>
+    /// <returns>An effect that runs all sender fibers and the receiver concurrently.</returns>
     let rec create chan count acc =
         fio {
             if count = 0 then
@@ -464,15 +443,14 @@ type HighlyConcurrentApp() =
             return! create chan (fiberCount - 1) acc
         }
 
-/// <summary>
-/// Demonstrates FIO.fromGenericTask for wrapping .NET Tasks as fibers.
-/// </summary>
+/// <summary>Represents an FIOApp that wraps .NET Tasks as FIO fibers using FIO.fromGenericTask, demonstrating how to run Task-based computations within the fiber runtime.</summary>
+/// <remarks>Uses FIO.fromGenericTask to fork each Fibonacci computation as a managed fiber, then joins all three concurrently with &lt;&amp;&amp;&gt;.</remarks>
 type FiberFromTaskApp() =
     inherit FIOApp<unit, exn>()
 
-    /// <summary>
-    /// Computes a Fibonacci number inside a .NET Task forked as a fiber.
-    /// </summary>
+    /// <summary>Builds an effect that computes a Fibonacci number inside a .NET Task, wrapped as a forkable FIO fiber via FIO.fromGenericTask.</summary>
+    /// <param name="n">The Fibonacci index to compute.</param>
+    /// <returns>An effect that forks the Task and produces a Fiber that can be joined to await completion.</returns>
     let fibonacci n =
         FIO.fromGenericTask (
             (fun () ->
@@ -513,15 +491,14 @@ type FiberFromTaskApp() =
             do! await fiber35 <&&> await fiber40 <&&> await fiber45
         }
 
-/// <summary>
-/// Demonstrates FIO.fromGenericTask with result values from Tasks.
-/// </summary>
+/// <summary>Represents an FIOApp that wraps .NET Tasks returning string results as FIO fibers, demonstrating how to retrieve typed results from Task-based computations.</summary>
+/// <remarks>Similar to FiberFromTaskApp but the Tasks return result strings, showing how FIO.fromGenericTask preserves the Task's return type through the fiber.</remarks>
 type FiberFromGenericTaskApp() =
     inherit FIOApp<unit, exn>()
 
-    /// <summary>
-    /// Computes a Fibonacci number inside a .NET Task returning a result string.
-    /// </summary>
+    /// <summary>Builds an effect that computes a Fibonacci number inside a .NET Task returning a formatted result string, wrapped as a forkable FIO fiber.</summary>
+    /// <param name="n">The Fibonacci index to compute.</param>
+    /// <returns>An effect that forks the Task and produces a Fiber whose join result is the formatted Fibonacci string.</returns>
     let fibonacci n =
         FIO.fromGenericTask (
             (fun () ->
@@ -561,9 +538,8 @@ type FiberFromGenericTaskApp() =
             do! awaitAndPrint fiber35 <&&> awaitAndPrint fiber40 <&&> awaitAndPrint fiber45
         }
 
-/// <summary>
-/// Demonstrates passing command-line arguments to FIOApp.
-/// </summary>
+/// <summary>Represents an FIOApp that accepts command-line arguments via its constructor and prints each argument with its index.</summary>
+/// <remarks>Demonstrates how to pass external configuration into an FIOApp by accepting parameters in the constructor and referencing them in the effect.</remarks>
 type CommandLineArgsApp(args: string array) =
     inherit FIOApp<unit, exn>()
 
@@ -579,15 +555,14 @@ type CommandLineArgsApp(args: string array) =
                     do! Console.printLine ($"  Arg[%d{i}]: %s{args[i]}", id)
         }
 
-/// <summary>
-/// Demonstrates custom ConcurrentRuntime configuration.
-/// </summary>
+/// <summary>Represents an FIOApp that overrides the runtime property to supply a custom ConcurrentRuntime with tuned worker configuration parameters.</summary>
+/// <remarks>Demonstrates runtime customization: EWC controls evaluation worker count, EWS sets steps per work item before rescheduling, and BWC sets blocking worker count.</remarks>
 type CustomRuntimeApp() =
     inherit FIOApp<unit, exn>()
 
     override _.runtime =
         new ConcurrentRuntime {
-            EWC = Environment.ProcessorCount * 2
+            EWC = System.Environment.ProcessorCount * 2
             EWS = 500
             BWC = 2
             MaxFibers = None
@@ -596,14 +571,13 @@ type CustomRuntimeApp() =
     override _.effect =
         fio {
             do! Console.printLine ("Running with custom ConcurrentRuntime configuration:", id)
-            do! Console.printLine ($"- Evaluation Workers: %d{Environment.ProcessorCount * 2}", id)
+            do! Console.printLine ($"- Evaluation Workers: %d{System.Environment.ProcessorCount * 2}", id)
             do! Console.printLine ("- Evaluation Steps: 500", id)
             do! Console.printLine ("- Blocking Workers: 2", id)
         }
 
-/// <summary>
-/// Demonstrates shutdown hooks for cleanup on Ctrl+C.
-/// </summary>
+/// <summary>Represents an FIOApp that registers a shutdown hook via onShutdown, demonstrating cleanup behavior when the app is interrupted with Ctrl+C.</summary>
+/// <remarks>The onShutdown effect runs when the process receives a termination signal, with onShutdownTimeout limiting how long cleanup may take before forced exit.</remarks>
 type ShutdownApp() =
     inherit FIOApp<unit, exn>()
 
@@ -629,9 +603,8 @@ type ShutdownApp() =
             do! Console.printLine ("Completed normally (no Ctrl+C)", id)
         }
 
-/// <summary>
-/// Demonstrates custom exit codes based on effect results.
-/// </summary>
+/// <summary>Represents an FIOApp that overrides exitCodeSuccess and exitCodeError to map effect outcomes to custom process exit codes.</summary>
+/// <remarks>Demonstrates exit code customization: the effect returns an int on success or fails with an int, and the overridden members translate each outcome to the process exit code.</remarks>
 type CustomExitCodeApp() =
     inherit FIOApp<int, int>()
 
@@ -654,9 +627,8 @@ type CustomExitCodeApp() =
             | _ -> return! FIO.fail 99
         }
 
-/// <summary>
-/// Demonstrates Environment module for system information and env vars.
-/// </summary>
+/// <summary>Represents an FIOApp that queries system information and environment variables using the Environment module effects.</summary>
+/// <remarks>Demonstrates Environment.processorCount, Environment.machineName, Environment.getOption, Environment.getOrDefault, Environment.getIntOrDefault, and Environment.getBoolOrDefault for typed environment access.</remarks>
 type EnvironmentApp() =
     inherit FIOApp<unit, exn>()
 
@@ -665,10 +637,15 @@ type EnvironmentApp() =
             do! Console.printLine ("Environment Module Examples:", id)
             do! Console.printLine ("", id)
 
-            // Pure values (no effects)
-            do! Console.printLine ($"  ProcessorCount: {Environment.ProcessorCount}", id)
-            do! Console.printLine ($"  Is64BitProcess: {Environment.Is64BitProcess}", id)
-            do! Console.printLine ($"  Is64BitOperatingSystem: {Environment.Is64BitOperatingSystem}", id)
+            // System info effects
+            let! processorCount = Environment.processorCount ()
+            do! Console.printLine ($"  ProcessorCount: {processorCount}", id)
+
+            let! is64Proc = Environment.is64BitProcess ()
+            do! Console.printLine ($"  Is64BitProcess: {is64Proc}", id)
+
+            let! is64Os = Environment.is64BitOperatingSystem ()
+            do! Console.printLine ($"  Is64BitOperatingSystem: {is64Os}", id)
             do! Console.printLine ("", id)
 
             // System info effects
@@ -714,9 +691,8 @@ type EnvironmentApp() =
             do! Console.printLine ($"  DEBUG (or default): {debug}", id)
         }
 
-/// <summary>
-/// Demonstrates automatic startup banner display.
-/// </summary>
+/// <summary>Represents an FIOApp that enables the automatic startup banner by setting showBanner to true and providing name and version properties.</summary>
+/// <remarks>Demonstrates the built-in banner feature: when showBanner is true, FIOApp prints a formatted banner with the app name and version before running the effect.</remarks>
 type BannerApp() as this =
     inherit FIOApp<unit, exn>()
 
@@ -732,9 +708,8 @@ type BannerApp() as this =
             do! Console.printLine ($"App version: {this.version}", id)
         }
 
-/// <summary>
-/// Demonstrates custom banner override.
-/// </summary>
+/// <summary>Represents an FIOApp that overrides the banner property with a custom ASCII art string, demonstrating fully customized startup banner display.</summary>
+/// <remarks>Shows that the banner property can be overridden with any string content, giving full control over the startup display while still using the showBanner toggle.</remarks>
 type CustomBannerApp() =
     inherit FIOApp<unit, exn>()
 
@@ -754,9 +729,7 @@ type CustomBannerApp() =
     override _.effect =
         fio { do! Console.printLine ("This app uses a custom banner defined by overriding the 'banner' property.", id) }
 
-/// <summary>
-/// List of all app examples for sequential execution.
-/// </summary>
+/// <summary>Provides the registry of all FIOApp example names paired with their runner functions for sequential interactive execution.</summary>
 let examples =
     [
         nameof WelcomeApp, fun () -> WelcomeApp().Run()

@@ -1,3 +1,4 @@
+/// <summary>Provides property-based tests for channel send and receive operations.</summary>
 module FIO.Tests.ChannelTests
 
 open FIO.Tests.Utilities.FsCheckProperties

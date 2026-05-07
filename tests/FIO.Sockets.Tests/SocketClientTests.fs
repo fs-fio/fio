@@ -1,3 +1,4 @@
+/// <summary>Provides tests for socket client connection and communication.</summary>
 module FIO.Sockets.Tests.SocketClientTests
 
 open FIO.Sockets.Tests.Utilities

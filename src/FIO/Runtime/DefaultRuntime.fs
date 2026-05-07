@@ -1,4 +1,4 @@
 namespace FIO.Runtime.Default
 
-/// The default and recommended runtime (alias for ConcurrentRuntime).
+/// <summary>Represents the default FIO runtime, aliasing the recommended <c>ConcurrentRuntime</c>.</summary>
 type DefaultRuntime = FIO.Runtime.Concurrent.ConcurrentRuntime

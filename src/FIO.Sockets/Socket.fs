@@ -6,19 +6,18 @@ open System
 open System.Net
 open System.Buffers
 
-/// A functional, effectful, and type-safe abstraction over a TCP socket connection.
+/// <summary>Represents a TCP socket connection with effectful send and receive operations.</summary>
 type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
 
-    /// Network stream for reading/writing over the socket.
+    /// <summary>Represents the network stream wrapping the underlying socket for stream-based I/O.</summary>
     let stream = new Sockets.NetworkStream(netSocket, ownsSocket = false)
-    /// Tracks disposal state to prevent double-disposal.
+    /// <summary>Represents whether this socket has been disposed.</summary>
     let mutable disposed = false
 
-    /// Internal: Logs an error and suppresses it.
-    /// Used for cleanup operations where errors should not propagate.
-    /// <param name="context">The context description for the error.</param>
-    /// <param name="err">The error to log.</param>
-    /// <returns>Effect that logs the error and succeeds with unit.</returns>
+    /// <summary>Transforms a socket error into a logged-and-suppressed unit effect for use in cleanup paths.</summary>
+    /// <param name="context">A description of the operation being cleaned up.</param>
+    /// <param name="err">The socket error to log.</param>
+    /// <returns>An effect that logs the error to standard error and succeeds with unit.</returns>
     let logAndSuppress (context: string) (err: SocketError) =
         fio {
             let str = err.ToString()
@@ -26,27 +25,27 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
             return ()
         }
 
-    /// Wraps a function as an FIO effect with socket error handling.
-    /// <param name="func">The function to wrap.</param>
-    /// <returns>Effect returning the function's result.</returns>
+    /// <summary>Lifts a synchronous function into a socket effect, mapping exceptions to <c>SocketError</c>.</summary>
+    /// <param name="func">The synchronous function to execute.</param>
+    /// <returns>An effect that produces the function's result or fails with a <c>GeneralError</c>.</returns>
     let fromFunc (func: unit -> 'T) =
         FIO.attempt (func, SocketError.fromException)
 
-    /// Awaits a Task as an FIO effect with socket error handling.
-    /// <param name="task">The Task to await.</param>
-    /// <returns>Effect that completes when the Task finishes.</returns>
+    /// <summary>Lifts a non-generic .NET Task into a socket effect, mapping exceptions to <c>SocketError</c>.</summary>
+    /// <param name="task">The task to await.</param>
+    /// <returns>An effect that completes when the task finishes or fails with a <c>GeneralError</c>.</returns>
     let awaitTask (task: Threading.Tasks.Task) =
         FIO.awaitTask (task, SocketError.fromException)
 
-    /// Awaits a generic Task as an FIO effect with socket error handling.
-    /// <param name="task">The Task to await.</param>
-    /// <returns>Effect returning the Task's result.</returns>
+    /// <summary>Lifts a generic .NET Task into a socket effect, mapping exceptions to <c>SocketError</c>.</summary>
+    /// <param name="task">The task to await.</param>
+    /// <returns>An effect that produces the task's result or fails with a <c>GeneralError</c>.</returns>
     let awaitTaskT (task: Threading.Tasks.Task<'T>) =
         FIO.awaitGenericTask (task, SocketError.fromException)
 
-    /// Sends raw bytes over the socket.
+    /// <summary>Creates an effect that sends raw bytes over the connection.</summary>
     /// <param name="buffer">The byte array to send.</param>
-    /// <returns>Effect that sends the bytes.</returns>
+    /// <returns>An effect that completes when the bytes have been sent, or fails if the connection is closed.</returns>
     member _.SendBytes(buffer: byte[]) =
         fio {
             if not netSocket.Connected then
@@ -56,9 +55,9 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
             do! awaitTask (stream.FlushAsync())
         }
 
-    /// Receives up to maxBytes from the socket.
-    /// <param name="maxBytes">Maximum number of bytes to receive.</param>
-    /// <returns>The buffer and the actual number of bytes read.</returns>
+    /// <summary>Creates an effect that receives up to a specified number of bytes from the connection.</summary>
+    /// <param name="maxBytes">The maximum number of bytes to receive; must be positive.</param>
+    /// <returns>An effect that produces a tuple of the received byte array and the actual number of bytes read, or fails if the connection is closed.</returns>
     member _.ReceiveBytes(maxBytes: int) =
         fio {
             if maxBytes <= 0 then
@@ -84,9 +83,9 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
             return! readAndCopy.Ensuring(fromFunc (fun () -> ArrayPool<byte>.Shared.Return pooledBuffer))
         }
 
-    /// Receives exactly the specified number of bytes.
-    /// <param name="numBytes">Exact number of bytes to receive.</param>
-    /// <returns>The byte array containing exactly the requested number of bytes.</returns>
+    /// <summary>Creates an effect that receives exactly the specified number of bytes from the connection.</summary>
+    /// <param name="numBytes">The exact number of bytes to receive; must be positive.</param>
+    /// <returns>An effect that produces a byte array of exactly the requested length, or fails if the connection closes before all bytes arrive.</returns>
     member _.ReceiveExactly(numBytes: int) =
         fio {
             if numBytes <= 0 then
@@ -116,20 +115,20 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
             return! readLoop.Ensuring(fromFunc (fun () -> ArrayPool<byte>.Shared.Return pooledBuffer))
         }
 
-    /// Sends data using a codec.
-    /// <param name="codec">The codec to use for encoding.</param>
-    /// <param name="value">The value to send.</param>
-    /// <returns>Effect that sends the encoded value.</returns>
+    /// <summary>Creates an effect that encodes a value with the given codec and sends it over the connection.</summary>
+    /// <param name="codec">The codec to use for encoding the value to bytes.</param>
+    /// <param name="value">The value to encode and send.</param>
+    /// <returns>An effect that completes when the encoded value has been sent.</returns>
     member this.Send<'T>(codec: SocketCodec<'T>, value: 'T) =
         fio {
             let! bytes = codec.Encode value
             do! this.SendBytes bytes
         }
 
-    /// Receives data using a codec.
-    /// <param name="codec">The codec to use for decoding.</param>
-    /// <param name="maxBytes">Maximum number of bytes to receive.</param>
-    /// <returns>The decoded value.</returns>
+    /// <summary>Creates an effect that receives bytes from the connection and decodes them with the given codec.</summary>
+    /// <param name="codec">The codec to use for decoding bytes to a value.</param>
+    /// <param name="maxBytes">The maximum number of bytes to receive.</param>
+    /// <returns>An effect that produces the decoded value.</returns>
     member this.Receive<'T>(codec: SocketCodec<'T>, maxBytes: int) =
         fio {
             let! bytes, bytesRead = this.ReceiveBytes maxBytes
@@ -137,50 +136,49 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
             return! codec.Decode actualBytes
         }
 
-    /// Sends a string (UTF-8).
+    /// <summary>Creates an effect that sends a UTF-8 encoded string over the connection.</summary>
     /// <param name="str">The string to send.</param>
-    /// <returns>Effect that sends the string.</returns>
+    /// <returns>An effect that completes when the string has been sent.</returns>
     member this.SendString(str: string) = this.Send(Codec.string, str)
 
-    /// Receives a string (UTF-8).
-    /// <param name="maxBytes">Maximum number of bytes to receive.</param>
-    /// <returns>The received string.</returns>
+    /// <summary>Creates an effect that receives bytes and decodes them as a UTF-8 string.</summary>
+    /// <param name="maxBytes">The maximum number of bytes to receive.</param>
+    /// <returns>An effect that produces the received string.</returns>
     member this.ReceiveString(maxBytes: int) = this.Receive(Codec.string, maxBytes)
 
-    /// Sends a line-delimited string.
+    /// <summary>Creates an effect that sends a string with a trailing newline over the connection.</summary>
     /// <param name="line">The line to send.</param>
-    /// <returns>Effect that sends the line.</returns>
+    /// <returns>An effect that completes when the line has been sent.</returns>
     member this.SendLine(line: string) = this.Send(Codec.line, line)
 
-    /// Receives a line-delimited string.
-    /// <param name="maxBytes">Maximum number of bytes to receive.</param>
-    /// <returns>The received line.</returns>
+    /// <summary>Creates an effect that receives bytes and decodes them as a line-delimited string.</summary>
+    /// <param name="maxBytes">The maximum number of bytes to receive.</param>
+    /// <returns>An effect that produces the received line with trailing newline characters removed.</returns>
     member this.ReceiveLine(maxBytes: int) = this.Receive(Codec.line, maxBytes)
 
-    /// Sends JSON.
-    /// <param name="value">The value to send as JSON.</param>
-    /// <returns>Effect that sends the JSON value.</returns>
+    /// <summary>Creates an effect that serializes a value to JSON and sends it over the connection.</summary>
+    /// <param name="value">The value to serialize and send.</param>
+    /// <returns>An effect that completes when the JSON-encoded value has been sent.</returns>
     member this.SendJson<'T>(value: 'T) = this.Send(Codec.json, value)
 
-    /// Receives JSON.
-    /// <param name="maxBytes">Maximum number of bytes to receive.</param>
-    /// <returns>The deserialized JSON value.</returns>
+    /// <summary>Creates an effect that receives bytes and deserializes them from JSON.</summary>
+    /// <param name="maxBytes">The maximum number of bytes to receive.</param>
+    /// <returns>An effect that produces the deserialized value.</returns>
     member this.ReceiveJson<'T>(maxBytes: int) = this.Receive<'T>(Codec.json, maxBytes)
 
-    /// Sends line-delimited JSON.
-    /// <param name="value">The value to send as JSON.</param>
-    /// <returns>Effect that sends the JSON line.</returns>
+    /// <summary>Creates an effect that serializes a value to newline-terminated JSON and sends it over the connection.</summary>
+    /// <param name="value">The value to serialize and send.</param>
+    /// <returns>An effect that completes when the JSON line has been sent.</returns>
     member this.SendJsonLine<'T>(value: 'T) = this.Send(Codec.jsonLine None, value)
 
-    /// Receives line-delimited JSON.
-    /// <param name="maxBytes">Maximum number of bytes to receive.</param>
-    /// <returns>The deserialized JSON value.</returns>
+    /// <summary>Creates an effect that receives bytes and deserializes them from newline-terminated JSON.</summary>
+    /// <param name="maxBytes">The maximum number of bytes to receive.</param>
+    /// <returns>An effect that produces the deserialized value.</returns>
     member this.ReceiveJsonLine<'T>(maxBytes: int) =
         this.Receive<'T>(Codec.jsonLine None, maxBytes)
 
-    /// Closes and disposes socket resources according to configured linger options.
-    /// This is the preferred method for closing sockets in FIO code.
-    /// <returns>Effect that closes the socket.</returns>
+    /// <summary>Creates an effect that closes the connection and releases associated resources.</summary>
+    /// <returns>An effect that shuts down and closes the connection, suppressing any cleanup errors.</returns>
     member _.Close() =
         fio {
             do!
@@ -202,28 +200,27 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
                     .CatchAll(logAndSuppress "socket close")
         }
 
-    /// Checks if the socket is connected.
-    /// <returns>True if the socket is connected, false otherwise.</returns>
+    /// <summary>Returns whether the connection is currently active.</summary>
+    /// <returns><c>true</c> if the connection is active; <c>false</c> otherwise.</returns>
     member _.IsConnected() = netSocket.Connected
 
-    /// Gets the remote endpoint of the socket.
-    /// <returns>The remote endpoint.</returns>
+    /// <summary>Returns the remote endpoint of the connection.</summary>
+    /// <returns>An effect that produces the remote endpoint address.</returns>
     member _.GetRemoteEndPoint() =
         fromFunc (fun () -> netSocket.RemoteEndPoint)
 
-    /// Gets the local endpoint of the socket.
-    /// <returns>The local endpoint.</returns>
+    /// <summary>Returns the local endpoint of the connection.</summary>
+    /// <returns>An effect that produces the local endpoint address.</returns>
     member _.GetLocalEndPoint() =
         fromFunc (fun () -> netSocket.LocalEndPoint)
 
-    /// Gets the socket configuration.
-    /// <returns>The socket configuration.</returns>
+    /// <summary>Returns the configuration used to establish the connection.</summary>
+    /// <returns>The SocketConfig associated with this connection.</returns>
     member _.GetConfig() = config
 
-    /// Disposes the underlying socket and releases all resources.
-    /// This is a synchronous FIO effect wrapper for cleanup.
-    /// Note: Prefer using Close() in FIO code for async cleanup with proper error handling.
-    /// <returns>Effect that disposes the socket.</returns>
+    /// <summary>Creates an effect that releases all resources associated with the connection.</summary>
+    /// <returns>An effect that disposes the connection resources.</returns>
+    /// <remarks>Prefer Close() for effectful cleanup with proper error handling.</remarks>
     member _.Dispose() =
         fio {
             do!
@@ -235,8 +232,8 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
                         eprintfn $"[Socket] Error during synchronous dispose: {exn.Message}")
         }
 
-    /// Releases resources based on disposal pattern.
-    /// <param name="disposing">True if called from Dispose, false if from finalizer.</param>
+    /// <summary>Builds the synchronous dispose logic, releasing the stream and socket resources.</summary>
+    /// <param name="disposing">Whether this call originates from an explicit <c>Dispose</c> rather than a finalizer.</param>
     member private _.Dispose(disposing: bool) =
         if not disposed then
             disposed <- true
@@ -248,7 +245,9 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
                 with exn ->
                     eprintfn $"[Socket] Error during dispose: {exn.Message}"
 
+    /// <summary>Provides resource cleanup for the socket.</summary>
     interface IDisposable with
+        /// <summary>Transforms the socket by releasing its stream and network resources and suppressing finalization.</summary>
         member this.Dispose() =
             this.Dispose true
             GC.SuppressFinalize this

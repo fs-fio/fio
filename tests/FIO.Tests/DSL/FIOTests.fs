@@ -1,3 +1,4 @@
+/// <summary>Provides property-based tests for core FIO effects including succeed, fail, action, and stack safety.</summary>
 module FIO.Tests.FIOTests
 
 open FIO.Tests.Utilities.FsCheckProperties

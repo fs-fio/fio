@@ -1,3 +1,4 @@
+/// <summary>Provides property-based tests for environment variable effects.</summary>
 module FIO.Tests.EnvironmentTests
 
 open FIO.Tests.Utilities.FsCheckProperties
@@ -21,26 +22,37 @@ let environmentTests =
         "Environment"
         [
 
-            testPropertyWithConfig fsCheckConfig "NewLine - matches System.Environment.NewLine"
-            <| fun (_: FIORuntime) ->
-                Expect.equal Environment.NewLine System.Environment.NewLine "Should match System.Environment.NewLine"
+            testPropertyWithConfig fsCheckConfig "newLine - matches System.Environment.NewLine"
+            <| fun (runtime: FIORuntime) ->
+                let result = runtime.Run(Environment.newLine ()).UnsafeSuccess()
+                Expect.equal result System.Environment.NewLine "Should match System.Environment.NewLine"
 
-            testPropertyWithConfig fsCheckConfig "ProcessorCount - returns positive value"
-            <| fun (_: FIORuntime) -> Expect.isGreaterThan Environment.ProcessorCount 0 "Processor count should be > 0"
+            testPropertyWithConfig fsCheckConfig "processorCount - returns positive value"
+            <| fun (runtime: FIORuntime) ->
+                let result = runtime.Run(Environment.processorCount ()).UnsafeSuccess()
+                Expect.isGreaterThan result 0 "Processor count should be > 0"
 
-            testPropertyWithConfig fsCheckConfig "Is64BitProcess - matches System.Environment"
-            <| fun (_: FIORuntime) ->
+            testPropertyWithConfig fsCheckConfig "is64BitProcess - matches System.Environment"
+            <| fun (runtime: FIORuntime) ->
+                let result = runtime.Run(Environment.is64BitProcess ()).UnsafeSuccess()
+                Expect.equal result System.Environment.Is64BitProcess "Should match System.Environment.Is64BitProcess"
+
+            testPropertyWithConfig fsCheckConfig "is64BitOperatingSystem - matches System.Environment"
+            <| fun (runtime: FIORuntime) ->
+                let result = runtime.Run(Environment.is64BitOperatingSystem ()).UnsafeSuccess()
+
                 Expect.equal
-                    Environment.Is64BitProcess
-                    System.Environment.Is64BitProcess
-                    "Should match System.Environment.Is64BitProcess"
-
-            testPropertyWithConfig fsCheckConfig "Is64BitOperatingSystem - matches System.Environment"
-            <| fun (_: FIORuntime) ->
-                Expect.equal
-                    Environment.Is64BitOperatingSystem
+                    result
                     System.Environment.Is64BitOperatingSystem
                     "Should match System.Environment.Is64BitOperatingSystem"
+
+            testCase "newLine - is lazy (not evaluated at construction time)" (fun () ->
+                let _eff = Environment.newLine<exn> ()
+                Expect.isTrue true "Effect construction should not throw")
+
+            testCase "processorCount - is lazy (not evaluated at construction time)" (fun () ->
+                let _eff = Environment.processorCount<exn> ()
+                Expect.isTrue true "Effect construction should not throw")
 
             testPropertyWithConfig fsCheckConfig "getOption - returns Some for existing variable"
             <| fun (runtime: FIORuntime) ->

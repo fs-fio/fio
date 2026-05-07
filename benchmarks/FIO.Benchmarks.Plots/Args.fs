@@ -1,6 +1,4 @@
-/// <summary>
-/// Command-line argument parsing for plot generation.
-/// </summary>
+/// <summary>Provides command-line argument parsing for plot generation.</summary>
 module internal FIO.Benchmarks.Plots.Args
 
 open Argu
@@ -8,28 +6,26 @@ open Argu
 open System
 open System.IO
 
-/// <summary>
-/// Default folder name for box plot data files.
-/// </summary>
+/// <summary>Returns the default folder name for box plot data files.</summary>
+/// <returns>The default box plot folder name.</returns>
 let defaultBoxPlotFolder = "boxplot_data"
 
-/// <summary>
-/// Default folder name for line plot data files.
-/// </summary>
+/// <summary>Returns the default folder name for line plot data files.</summary>
+/// <returns>The default line plot folder name.</returns>
 let defaultLinePlotFolder = "lineplot_data"
 
-/// <summary>
-/// Discriminated union representing supported command-line arguments.
-/// </summary>
+/// <summary>Represents the supported command-line arguments.</summary>
 type private Arguments =
-    /// <summary>Generate box plot visualization.</summary>
+    /// <summary>Represents the box plot visualization option.</summary>
     | [<Unique; AltCommandLine("-b")>] BoxPlot
-    /// <summary>Generate line plot visualization.</summary>
+    /// <summary>Represents the line plot visualization option.</summary>
     | [<Unique; AltCommandLine("-l")>] LinePlot
-    /// <summary>Path to load benchmark data files from.</summary>
+    /// <summary>Represents the path to load benchmark data files from.</summary>
     | [<Unique; AltCommandLine("-p")>] LoadPath of absolutePath: string
 
     interface IArgParserTemplate with
+        /// <summary>Returns the usage description for this argument.</summary>
+        /// <returns>The usage text string.</returns>
         member this.Usage =
             match this with
             | BoxPlot -> "generate box plot"
@@ -37,41 +33,32 @@ type private Arguments =
             | LoadPath _ ->
                 "specify absolute path to load benchmark data files from (default uses benchmark subfolder in current directory)"
 
-/// <summary>
-/// Parse outcome for plotting CLI parsing.
-/// </summary>
+/// <summary>Represents the outcome of CLI argument parsing.</summary>
 type internal ParseOutcome =
-    /// <summary>Successfully parsed plot arguments.</summary>
+    /// <summary>Represents a successful parse with validated plot arguments.</summary>
     | Parsed of PlotArgs
-    /// <summary>Help was requested, contains usage text to display.</summary>
+    /// <summary>Represents a help request containing usage text to display.</summary>
     | HelpRequested of usageText: string
-    /// <summary>Invalid arguments were provided, contains error and usage text.</summary>
+    /// <summary>Represents invalid arguments containing error and usage text.</summary>
     | InvalidArgs of errorText: string * usageText: string
 
-/// <summary>
-/// Argu parser instance for plot command-line arguments.
-/// </summary>
+/// <summary>Returns the argument parser for plot command-line arguments.</summary>
+/// <returns>The configured argument parser.</returns>
 let private parser =
     ArgumentParser.Create<Arguments>(programName = "FIO.Benchmarks.Plots")
 
-/// <summary>
-/// Returns the usage text for the plot CLI.
-/// </summary>
-/// <returns>Formatted usage text string.</returns>
+/// <summary>Returns the usage text for the plot CLI.</summary>
+/// <returns>A formatted usage text string.</returns>
 let internal usageText () = parser.PrintUsage()
 
-/// <summary>
-/// Creates an InvalidArgs parse outcome with the current usage text.
-/// </summary>
-/// <param name="errorText">Error message describing the validation failure.</param>
-/// <returns>InvalidArgs parse outcome.</returns>
+/// <summary>Creates an invalid-args parse outcome with the current usage text.</summary>
+/// <param name="errorText">The error message describing the validation failure.</param>
+/// <returns>An invalid-args parse outcome.</returns>
 let private invalid errorText = InvalidArgs(errorText, usageText ())
 
-/// <summary>
-/// Extracts a concise error summary from an Argu parse exception message.
-/// </summary>
-/// <param name="message">Raw exception message from Argu.</param>
-/// <returns>First line of the error summary, or a default message.</returns>
+/// <summary>Returns a concise error summary from an Argu parse exception message.</summary>
+/// <param name="message">The raw exception message from Argu.</param>
+/// <returns>The first line of the error summary, or a default message.</returns>
 let private parseErrorSummary (message: string) =
     if String.IsNullOrWhiteSpace message then
         "Invalid command line arguments."
@@ -90,11 +77,9 @@ let private parseErrorSummary (message: string) =
             rawSummary.Split([| '\r'; '\n' |], StringSplitOptions.RemoveEmptyEntries)
             |> Array.head
 
-/// <summary>
-/// Builds and validates PlotArgs from parsed command-line results.
-/// </summary>
-/// <param name="results">Parsed command-line arguments.</param>
-/// <returns>Ok with validated PlotArgs, or Error with validation message.</returns>
+/// <summary>Builds and validates plot arguments from parsed command-line results.</summary>
+/// <param name="results">The parsed command-line arguments.</param>
+/// <returns>Ok with validated plot arguments, or Error with a validation message.</returns>
 let private buildPlotArgs (results: ParseResults<Arguments>) : Result<PlotArgs, string> =
     let boxPlotSelected = results.Contains BoxPlot
     let linePlotSelected = results.Contains LinePlot
@@ -125,11 +110,9 @@ let private buildPlotArgs (results: ParseResults<Arguments>) : Result<PlotArgs, 
         | Error err -> Error err
         | Ok absolutePath -> Ok { PlotType = plotType; LoadPath = absolutePath }
 
-/// <summary>
-/// Parses command-line arguments into a PlotArgs configuration.
-/// </summary>
-/// <param name="args">Command-line arguments to parse.</param>
-/// <returns>Parsed plot arguments configuration or parse outcome.</returns>
+/// <summary>Returns a parse outcome from command-line arguments.</summary>
+/// <param name="args">The command-line arguments to parse.</param>
+/// <returns>A parse outcome indicating success, help request, or invalid arguments.</returns>
 let parse args =
     try
         let results = parser.Parse(args, raiseOnUsage = false)

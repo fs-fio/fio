@@ -1,19 +1,13 @@
-/// <summary>
-/// Entry point for the FIO benchmarks application.
-/// </summary>
+/// <summary>Provides the entry point for the FIO benchmarks application.</summary>
 module private FIO.Benchmarks.Program
 
 open System
 open System.Threading
 
-/// <summary>
-/// Configures .NET ThreadPool settings for optimal benchmark performance.
-/// </summary>
+/// <summary>Provides .NET ThreadPool configuration for optimal benchmark performance.</summary>
 module private ThreadPoolConfig =
 
-    /// <summary>
-    /// Sets min/max worker and I/O threads based on processor count.
-    /// </summary>
+    /// <summary>Transforms ThreadPool settings by configuring min/max worker and I/O threads based on processor count.</summary>
     let configure () =
         let cores = Environment.ProcessorCount
         let minWorkerThreads = cores * 2
@@ -26,28 +20,27 @@ module private ThreadPoolConfig =
 
 do ThreadPoolConfig.configure ()
 
-/// <summary>Exit code returned on successful execution.</summary>
+/// <summary>Returns the exit code for successful execution.</summary>
+/// <returns>The success exit code (0).</returns>
 [<Literal>]
 let private SuccessExitCode = 0
 
-/// <summary>Exit code returned when a runtime error occurs during benchmark execution.</summary>
+/// <summary>Returns the exit code for a runtime error during benchmark execution.</summary>
+/// <returns>The runtime error exit code (1).</returns>
 [<Literal>]
 let private RuntimeErrorExitCode = 1
 
-/// <summary>Exit code returned when command-line arguments are invalid.</summary>
+/// <summary>Returns the exit code for invalid command-line arguments.</summary>
+/// <returns>The invalid arguments exit code (2).</returns>
 [<Literal>]
 let private InvalidArgsExitCode = 2
 
-/// <summary>
-/// Executes the benchmark suite synchronously using the provided arguments.
-/// </summary>
+/// <summary>Transforms benchmark arguments by executing the benchmark suite synchronously.</summary>
 /// <param name="benchmarkArgs">Parsed benchmark arguments.</param>
 let private executeBenchmarkSuite benchmarkArgs =
     (Suite.BenchmarkRunner.run benchmarkArgs).GetAwaiter().GetResult()
 
-/// <summary>
-/// Parses command-line arguments and runs the benchmark using a custom executor function.
-/// </summary>
+/// <summary>Returns an exit code after parsing command-line arguments and executing via a custom executor function.</summary>
 /// <param name="execute">Function to execute with parsed benchmark arguments.</param>
 /// <param name="args">Command-line arguments to parse.</param>
 /// <returns>Exit code indicating success or failure.</returns>
@@ -68,17 +61,13 @@ let internal runWithArgsUsing execute args =
             eprintfn "%s" (ex.ToString())
             RuntimeErrorExitCode
 
-/// <summary>
-/// Parses command-line arguments and runs the benchmark suite.
-/// </summary>
+/// <summary>Returns an exit code after parsing command-line arguments and executing the benchmark suite.</summary>
 /// <param name="args">Command-line arguments to parse.</param>
 /// <returns>Exit code indicating success or failure.</returns>
 let internal runWithArgs args =
     runWithArgsUsing executeBenchmarkSuite args
 
-/// <summary>
-/// Application entry point. Parses arguments and runs the benchmark suite.
-/// </summary>
+/// <summary>Returns an exit code after parsing arguments and executing the benchmark suite.</summary>
 /// <param name="args">Command-line arguments.</param>
 /// <returns>Exit code (0 for success).</returns>
 [<EntryPoint>]

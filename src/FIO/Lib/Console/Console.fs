@@ -1,4 +1,4 @@
-/// Functional, effectful console I/O operations. All functions take an onError parameter to map exceptions to the error type.
+/// <summary>Provides functional, effectful console I/O operations; every function takes an <c>onError</c> mapping for exception-to-typed-error conversion.</summary>
 [<RequireQualifiedAccess>]
 module FIO.Console.Console
 
@@ -7,240 +7,244 @@ open FIO.DSL
 open System
 open System.Text
 
-/// Gets the current console backend instance.
+/// <summary>Returns the currently active console backend instance.</summary>
+/// <returns>The <c>IConsoleBackend</c> in use by this module.</returns>
 let inline private backend () = ConsoleBackend.get ()
 
-/// Creates an FIO effect from a console backend operation.
+/// <summary>Builds an effect that applies a function to the active console backend.</summary>
+/// <param name="f">A function that receives the backend and produces a result.</param>
+/// <param name="onError">A function that maps an exception thrown during execution to the typed error.</param>
+/// <returns>An effect that completes with the value returned by <paramref name="f"/>.</returns>
 let inline private eff (f: IConsoleBackend -> 'R) (onError: exn -> 'E) : FIO<'R, 'E> =
     FIO.attempt ((fun () -> f (backend ())), onError)
 
-/// Prints a formatted message to stdout without a newline.
-/// <param name="format">The formatted string to print.</param>
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that prints to stdout when interpreted.</returns>
+/// <summary>Creates an effect that prints a formatted message to standard output without a trailing newline.</summary>
+/// <param name="format">The format string to render.</param>
+/// <param name="onError">A function that maps an exception thrown during printing to the typed error.</param>
+/// <returns>An effect that completes with unit once the message has been written.</returns>
 let print<'E> (format: Printf.TextWriterFormat<unit>, onError: exn -> 'E) : FIO<unit, 'E> =
     eff (fun b -> fprintf b.Out format) onError
 
-/// Prints a formatted message to stderr without a newline.
-/// <param name="format">The formatted string to print.</param>
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that prints to stderr when interpreted.</returns>
+/// <summary>Creates an effect that prints a formatted message to standard error without a trailing newline.</summary>
+/// <param name="format">The format string to render.</param>
+/// <param name="onError">A function that maps an exception thrown during printing to the typed error.</param>
+/// <returns>An effect that completes with unit once the message has been written.</returns>
 let printError<'E> (format: Printf.TextWriterFormat<unit>, onError: exn -> 'E) : FIO<unit, 'E> =
     eff (fun b -> fprintf b.Error format) onError
 
-/// Prints a formatted message to stdout with a newline.
-/// <param name="format">The formatted string to print.</param>
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that prints a line to stdout when interpreted.</returns>
+/// <summary>Creates an effect that prints a formatted message to standard output followed by a newline.</summary>
+/// <param name="format">The format string to render.</param>
+/// <param name="onError">A function that maps an exception thrown during printing to the typed error.</param>
+/// <returns>An effect that completes with unit once the line has been written.</returns>
 let printLine<'E> (format: Printf.TextWriterFormat<unit>, onError: exn -> 'E) : FIO<unit, 'E> =
     eff (fun b -> fprintfn b.Out format) onError
 
-/// Prints a formatted message to stderr with a newline.
-/// <param name="format">The formatted string to print.</param>
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that prints a line to stderr when interpreted.</returns>
+/// <summary>Creates an effect that prints a formatted message to standard error followed by a newline.</summary>
+/// <param name="format">The format string to render.</param>
+/// <param name="onError">A function that maps an exception thrown during printing to the typed error.</param>
+/// <returns>An effect that completes with unit once the line has been written.</returns>
 let printErrorLine<'E> (format: Printf.TextWriterFormat<unit>, onError: exn -> 'E) : FIO<unit, 'E> =
     eff (fun b -> fprintfn b.Error format) onError
 
-/// Reads a line from stdin.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that produces the line read from stdin.</returns>
+/// <summary>Creates an effect that reads a single line from standard input.</summary>
+/// <param name="onError">A function that maps an exception thrown during reading to the typed error.</param>
+/// <returns>An effect that completes with the line read from standard input.</returns>
 let readLine<'E> (onError: exn -> 'E) : FIO<string, 'E> = eff (fun b -> b.ReadLine()) onError
 
-/// Reads a single key from stdin.
-/// <param name="intercept">Whether to hide the key from display.</param>
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that produces the key press information.</returns>
+/// <summary>Creates an effect that reads a single key press from the console.</summary>
+/// <param name="intercept">When <c>true</c>, the key is not echoed to the display.</param>
+/// <param name="onError">A function that maps an exception thrown during reading to the typed error.</param>
+/// <returns>An effect that completes with the key press information.</returns>
 let readKey<'E> (intercept: bool, onError: exn -> 'E) : FIO<ConsoleKeyInfo, 'E> =
     eff (fun b -> b.ReadKey intercept) onError
 
-/// Checks whether a key press is available in the input buffer.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that produces true if a key press is available.</returns>
+/// <summary>Returns whether a key press is currently available in the console input buffer.</summary>
+/// <param name="onError">A function that maps an exception thrown during the check to the typed error.</param>
+/// <returns>An effect that completes with <c>true</c> when a key press is buffered; <c>false</c> otherwise.</returns>
 let keyAvailable<'E> (onError: exn -> 'E) : FIO<bool, 'E> = eff (fun b -> b.KeyAvailable) onError
 
-/// Reads a single character from stdin as an int.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that produces the character code.</returns>
+/// <summary>Creates an effect that reads a single character from standard input as an integer code.</summary>
+/// <param name="onError">A function that maps an exception thrown during reading to the typed error.</param>
+/// <returns>An effect that completes with the character code, or <c>-1</c> when no more characters are available.</returns>
 let read<'E> (onError: exn -> 'E) : FIO<int, 'E> = eff (fun b -> b.Read()) onError
 
-/// Writes a message to stdout without a newline.
-/// <param name="message">The message string.</param>
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that writes to stdout when interpreted.</returns>
+/// <summary>Creates an effect that writes a string to standard output without a trailing newline.</summary>
+/// <param name="message">The text to write.</param>
+/// <param name="onError">A function that maps an exception thrown during writing to the typed error.</param>
+/// <returns>An effect that completes with unit once the message has been written.</returns>
 let write<'E> (message: string, onError: exn -> 'E) : FIO<unit, 'E> = eff (fun b -> b.Write message) onError
 
-/// Writes a message to stdout with a newline.
-/// <param name="message">The message string.</param>
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that writes a line to stdout when interpreted.</returns>
+/// <summary>Creates an effect that writes a string to standard output followed by a newline.</summary>
+/// <param name="message">The text to write.</param>
+/// <param name="onError">A function that maps an exception thrown during writing to the typed error.</param>
+/// <returns>An effect that completes with unit once the line has been written.</returns>
 let writeLine<'E> (message: string, onError: exn -> 'E) : FIO<unit, 'E> =
     eff (fun b -> b.WriteLine message) onError
 
-/// Writes a blank line to stdout.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that writes a blank line to stdout when interpreted.</returns>
+/// <summary>Creates an effect that writes a blank line to standard output.</summary>
+/// <param name="onError">A function that maps an exception thrown during writing to the typed error.</param>
+/// <returns>An effect that completes with unit once the blank line has been written.</returns>
 let newLine<'E> (onError: exn -> 'E) : FIO<unit, 'E> =
     eff (fun b -> b.WriteBlankLine()) onError
 
-/// Writes a message to stderr without a newline.
-/// <param name="message">The message string.</param>
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that writes to stderr when interpreted.</returns>
+/// <summary>Creates an effect that writes a string to standard error without a trailing newline.</summary>
+/// <param name="message">The text to write.</param>
+/// <param name="onError">A function that maps an exception thrown during writing to the typed error.</param>
+/// <returns>An effect that completes with unit once the message has been written.</returns>
 let writeError<'E> (message: string, onError: exn -> 'E) : FIO<unit, 'E> =
     eff (fun b -> b.ErrorWrite message) onError
 
-/// Writes a message to stderr with a newline.
-/// <param name="message">The message string.</param>
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that writes a line to stderr when interpreted.</returns>
+/// <summary>Creates an effect that writes a string to standard error followed by a newline.</summary>
+/// <param name="message">The text to write.</param>
+/// <param name="onError">A function that maps an exception thrown during writing to the typed error.</param>
+/// <returns>An effect that completes with unit once the line has been written.</returns>
 let writeErrorLine<'E> (message: string, onError: exn -> 'E) : FIO<unit, 'E> =
     eff (fun b -> b.ErrorWriteLine message) onError
 
-/// Clears the console screen.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that clears the console when interpreted.</returns>
+/// <summary>Creates an effect that clears the console screen.</summary>
+/// <param name="onError">A function that maps an exception thrown during the clear to the typed error.</param>
+/// <returns>An effect that completes with unit once the screen has been cleared.</returns>
 let clear<'E> (onError: exn -> 'E) : FIO<unit, 'E> = eff (fun b -> b.Clear()) onError
 
-/// Sets the cursor column position.
-/// <param name="left">The column position.</param>
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that sets the cursor column position when interpreted.</returns>
+/// <summary>Creates an effect that sets the cursor's column position.</summary>
+/// <param name="left">The column index to move the cursor to.</param>
+/// <param name="onError">A function that maps an exception thrown during the move to the typed error.</param>
+/// <returns>An effect that completes with unit once the cursor has been moved.</returns>
 let setCursorLeft<'E> (left: int, onError: exn -> 'E) : FIO<unit, 'E> =
     eff (fun b -> b.CursorLeft <- left) onError
 
-/// Sets the cursor row position.
-/// <param name="top">The row position.</param>
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that sets the cursor row position when interpreted.</returns>
+/// <summary>Creates an effect that sets the cursor's row position.</summary>
+/// <param name="top">The row index to move the cursor to.</param>
+/// <param name="onError">A function that maps an exception thrown during the move to the typed error.</param>
+/// <returns>An effect that completes with unit once the cursor has been moved.</returns>
 let setCursorTop<'E> (top: int, onError: exn -> 'E) : FIO<unit, 'E> =
     eff (fun b -> b.CursorTop <- top) onError
 
-/// Gets the cursor column position.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that produces the cursor column position.</returns>
+/// <summary>Returns the current cursor column position.</summary>
+/// <param name="onError">A function that maps an exception thrown during the read to the typed error.</param>
+/// <returns>An effect that completes with the cursor column index.</returns>
 let getCursorLeft<'E> (onError: exn -> 'E) : FIO<int, 'E> = eff (fun b -> b.CursorLeft) onError
 
-/// Gets the cursor row position.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that produces the cursor row position.</returns>
+/// <summary>Returns the current cursor row position.</summary>
+/// <param name="onError">A function that maps an exception thrown during the read to the typed error.</param>
+/// <returns>An effect that completes with the cursor row index.</returns>
 let getCursorTop<'E> (onError: exn -> 'E) : FIO<int, 'E> = eff (fun b -> b.CursorTop) onError
 
-/// Sounds the system bell.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that sounds the system bell when interpreted.</returns>
+/// <summary>Creates an effect that emits a system bell tone.</summary>
+/// <param name="onError">A function that maps an exception thrown during the beep to the typed error.</param>
+/// <returns>An effect that completes with unit after the beep has been emitted.</returns>
 let beep<'E> (onError: exn -> 'E) : FIO<unit, 'E> = eff (fun b -> b.Beep()) onError
 
-/// Gets the console foreground color.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that produces the current foreground color.</returns>
+/// <summary>Returns the current console foreground color.</summary>
+/// <param name="onError">A function that maps an exception thrown during the read to the typed error.</param>
+/// <returns>An effect that completes with the active foreground color.</returns>
 let getForegroundColor<'E> (onError: exn -> 'E) : FIO<ConsoleColor, 'E> =
     eff (fun b -> b.ForegroundColor) onError
 
-/// Sets the console foreground color.
-/// <param name="color">The console color to set.</param>
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that sets the foreground color when interpreted.</returns>
+/// <summary>Creates an effect that sets the console foreground color.</summary>
+/// <param name="color">The color to apply to subsequent output.</param>
+/// <param name="onError">A function that maps an exception thrown during the set to the typed error.</param>
+/// <returns>An effect that completes with unit once the color has been applied.</returns>
 let setForegroundColor<'E> (color: ConsoleColor, onError: exn -> 'E) : FIO<unit, 'E> =
     eff (fun b -> b.ForegroundColor <- color) onError
 
-/// Gets the console background color.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that produces the current background color.</returns>
+/// <summary>Returns the current console background color.</summary>
+/// <param name="onError">A function that maps an exception thrown during the read to the typed error.</param>
+/// <returns>An effect that completes with the active background color.</returns>
 let getBackgroundColor<'E> (onError: exn -> 'E) : FIO<ConsoleColor, 'E> =
     eff (fun b -> b.BackgroundColor) onError
 
-/// Sets the console background color.
-/// <param name="color">The console color to set.</param>
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that sets the background color when interpreted.</returns>
+/// <summary>Creates an effect that sets the console background color.</summary>
+/// <param name="color">The color to apply to subsequent output.</param>
+/// <param name="onError">A function that maps an exception thrown during the set to the typed error.</param>
+/// <returns>An effect that completes with unit once the color has been applied.</returns>
 let setBackgroundColor<'E> (color: ConsoleColor, onError: exn -> 'E) : FIO<unit, 'E> =
     eff (fun b -> b.BackgroundColor <- color) onError
 
-/// Gets the console window title.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that produces the console window title.</returns>
+/// <summary>Returns the current console window title.</summary>
+/// <param name="onError">A function that maps an exception thrown during the read to the typed error.</param>
+/// <returns>An effect that completes with the active window title.</returns>
 let getTitle<'E> (onError: exn -> 'E) : FIO<string, 'E> = eff (fun b -> b.Title) onError
 
-/// Sets the console window title.
-/// <param name="title">The title string.</param>
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that sets the console window title when interpreted.</returns>
+/// <summary>Creates an effect that sets the console window title.</summary>
+/// <param name="title">The new title text.</param>
+/// <param name="onError">A function that maps an exception thrown during the set to the typed error.</param>
+/// <returns>An effect that completes with unit once the title has been applied.</returns>
 let setTitle<'E> (title: string, onError: exn -> 'E) : FIO<unit, 'E> = eff (fun b -> b.Title <- title) onError
 
-/// Checks whether stdin is redirected.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that produces true if stdin is redirected.</returns>
+/// <summary>Returns whether standard input has been redirected from a file or pipe.</summary>
+/// <param name="onError">A function that maps an exception thrown during the read to the typed error.</param>
+/// <returns>An effect that completes with <c>true</c> when standard input is redirected; <c>false</c> otherwise.</returns>
 let isInputRedirected<'E> (onError: exn -> 'E) : FIO<bool, 'E> =
     eff (fun b -> b.IsInputRedirected) onError
 
-/// Checks whether stdout is redirected.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that produces true if stdout is redirected.</returns>
+/// <summary>Returns whether standard output has been redirected from a file or pipe.</summary>
+/// <param name="onError">A function that maps an exception thrown during the read to the typed error.</param>
+/// <returns>An effect that completes with <c>true</c> when standard output is redirected; <c>false</c> otherwise.</returns>
 let isOutputRedirected<'E> (onError: exn -> 'E) : FIO<bool, 'E> =
     eff (fun b -> b.IsOutputRedirected) onError
 
-/// Checks whether stderr is redirected.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that produces true if stderr is redirected.</returns>
+/// <summary>Returns whether standard error has been redirected from a file or pipe.</summary>
+/// <param name="onError">A function that maps an exception thrown during the read to the typed error.</param>
+/// <returns>An effect that completes with <c>true</c> when standard error is redirected; <c>false</c> otherwise.</returns>
 let isErrorRedirected<'E> (onError: exn -> 'E) : FIO<bool, 'E> =
     eff (fun b -> b.IsErrorRedirected) onError
 
-/// Resets the console colors to their defaults.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that resets console colors when interpreted.</returns>
+/// <summary>Creates an effect that resets the console foreground and background colors to their defaults.</summary>
+/// <param name="onError">A function that maps an exception thrown during the reset to the typed error.</param>
+/// <returns>An effect that completes with unit once the colors have been reset.</returns>
 let resetColor<'E> (onError: exn -> 'E) : FIO<unit, 'E> = eff (fun b -> b.ResetColor()) onError
 
-/// Sets the cursor position.
-/// <param name="left">The column position.</param>
-/// <param name="top">The row position.</param>
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that sets the cursor position when interpreted.</returns>
+/// <summary>Creates an effect that sets the cursor to the specified column and row.</summary>
+/// <param name="left">The column index.</param>
+/// <param name="top">The row index.</param>
+/// <param name="onError">A function that maps an exception thrown during the move to the typed error.</param>
+/// <returns>An effect that completes with unit once the cursor has been positioned.</returns>
 let setCursorPosition<'E> (left: int, top: int, onError: exn -> 'E) : FIO<unit, 'E> =
     eff (fun b -> b.SetCursorPosition(left, top)) onError
 
-/// Gets the cursor position as (column, row).
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that produces the cursor position as (column, row).</returns>
+/// <summary>Returns the current cursor position as a column-row pair.</summary>
+/// <param name="onError">A function that maps an exception thrown during the read to the typed error.</param>
+/// <returns>An effect that completes with the cursor position as <c>(left, top)</c>.</returns>
 let getCursorPosition<'E> (onError: exn -> 'E) : FIO<int * int, 'E> =
     eff (fun b -> b.GetCursorPosition()) onError
 
-/// Gets whether the cursor is visible.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that produces true if the cursor is visible.</returns>
+/// <summary>Returns whether the console cursor is currently visible.</summary>
+/// <param name="onError">A function that maps an exception thrown during the read to the typed error.</param>
+/// <returns>An effect that completes with <c>true</c> when the cursor is visible; <c>false</c> otherwise.</returns>
 let getCursorVisible<'E> (onError: exn -> 'E) : FIO<bool, 'E> = eff (fun b -> b.CursorVisible) onError
 
-/// Sets the cursor visibility.
+/// <summary>Creates an effect that sets the console cursor's visibility.</summary>
 /// <param name="visible">Whether the cursor should be visible.</param>
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that sets the cursor visibility when interpreted.</returns>
+/// <param name="onError">A function that maps an exception thrown during the set to the typed error.</param>
+/// <returns>An effect that completes with unit once visibility has been applied.</returns>
 let setCursorVisible<'E> (visible: bool, onError: exn -> 'E) : FIO<unit, 'E> =
     eff (fun b -> b.CursorVisible <- visible) onError
 
-/// Gets the console window width in columns.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that produces the window width in columns.</returns>
+/// <summary>Returns the console window width in columns.</summary>
+/// <param name="onError">A function that maps an exception thrown during the read to the typed error.</param>
+/// <returns>An effect that completes with the window width in columns.</returns>
 let getWindowWidth<'E> (onError: exn -> 'E) : FIO<int, 'E> = eff (fun b -> b.WindowWidth) onError
 
-/// Gets the console window height in rows.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that produces the window height in rows.</returns>
+/// <summary>Returns the console window height in rows.</summary>
+/// <param name="onError">A function that maps an exception thrown during the read to the typed error.</param>
+/// <returns>An effect that completes with the window height in rows.</returns>
 let getWindowHeight<'E> (onError: exn -> 'E) : FIO<int, 'E> = eff (fun b -> b.WindowHeight) onError
 
-/// Gets the console buffer width in columns.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that produces the buffer width in columns.</returns>
+/// <summary>Returns the console buffer width in columns.</summary>
+/// <param name="onError">A function that maps an exception thrown during the read to the typed error.</param>
+/// <returns>An effect that completes with the buffer width in columns.</returns>
 let getBufferWidth<'E> (onError: exn -> 'E) : FIO<int, 'E> = eff (fun b -> b.BufferWidth) onError
 
-/// Gets the console buffer height in rows.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that produces the buffer height in rows.</returns>
+/// <summary>Returns the console buffer height in rows.</summary>
+/// <param name="onError">A function that maps an exception thrown during the read to the typed error.</param>
+/// <returns>An effect that completes with the buffer height in rows.</returns>
 let getBufferHeight<'E> (onError: exn -> 'E) : FIO<int, 'E> = eff (fun b -> b.BufferHeight) onError
 
-/// Writes multiple lines to stdout with buffering.
-/// <param name="lines">The lines to write.</param>
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that writes all lines to stdout when interpreted.</returns>
+/// <summary>Creates an effect that writes multiple lines to standard output and flushes once at the end.</summary>
+/// <param name="lines">The sequence of lines to write.</param>
+/// <param name="onError">A function that maps an exception thrown during writing to the typed error.</param>
+/// <returns>An effect that completes with unit once every line has been written and the writer is flushed.</returns>
 let printLines<'E> (lines: string seq, onError: exn -> 'E) : FIO<unit, 'E> =
     FIO.attempt<unit, 'E> (
         (fun () ->
@@ -253,9 +257,10 @@ let printLines<'E> (lines: string seq, onError: exn -> 'E) : FIO<unit, 'E> =
         onError
     )
 
-/// Reads a password from stdin with masked input.
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that produces the password string.</returns>
+/// <summary>Creates an effect that reads a password from standard input with masked input.</summary>
+/// <param name="onError">A function that maps an exception thrown during reading to the typed error.</param>
+/// <returns>An effect that completes with the entered password as a string.</returns>
+/// <remarks>Each typed character is echoed as <c>*</c>; backspace deletes the most recent character.</remarks>
 let readPassword<'E> (onError: exn -> 'E) : FIO<string, 'E> =
     FIO.attempt<string, 'E> (
         (fun () ->
@@ -278,11 +283,12 @@ let readPassword<'E> (onError: exn -> 'E) : FIO<string, 'E> =
         onError
     )
 
-/// Runs an effect with a temporary foreground color, restoring the original afterwards.
-/// <param name="color">The console color to set.</param>
-/// <param name="action">The effect to run with the temporary color.</param>
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that runs the action with the temporary foreground color.</returns>
+/// <summary>Builds a resource-managed effect that runs an action under a temporary foreground color and restores the original afterwards.</summary>
+/// <typeparam name="'R">The success result type produced by <paramref name="action"/>.</typeparam>
+/// <param name="color">The temporary foreground color.</param>
+/// <param name="action">The effect to run while the temporary color is active.</param>
+/// <param name="onError">A function that maps an exception thrown during get, set, or restore to the typed error.</param>
+/// <returns>An effect that completes with <paramref name="action"/>'s result and always restores the original foreground color afterwards.</returns>
 let withForegroundColor<'R, 'E> (color: ConsoleColor, action: FIO<'R, 'E>, onError: exn -> 'E) : FIO<'R, 'E> =
     FIO.acquireRelease (
         getForegroundColor onError,
@@ -294,11 +300,12 @@ let withForegroundColor<'R, 'E> (color: ConsoleColor, action: FIO<'R, 'E>, onErr
             }
     )
 
-/// Runs an effect with a temporary background color, restoring the original afterwards.
-/// <param name="color">The console color to set.</param>
-/// <param name="action">The effect to run with the temporary color.</param>
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that runs the action with the temporary background color.</returns>
+/// <summary>Builds a resource-managed effect that runs an action under a temporary background color and restores the original afterwards.</summary>
+/// <typeparam name="'R">The success result type produced by <paramref name="action"/>.</typeparam>
+/// <param name="color">The temporary background color.</param>
+/// <param name="action">The effect to run while the temporary color is active.</param>
+/// <param name="onError">A function that maps an exception thrown during get, set, or restore to the typed error.</param>
+/// <returns>An effect that completes with <paramref name="action"/>'s result and always restores the original background color afterwards.</returns>
 let withBackgroundColor<'R, 'E> (color: ConsoleColor, action: FIO<'R, 'E>, onError: exn -> 'E) : FIO<'R, 'E> =
     FIO.acquireRelease (
         getBackgroundColor onError,
@@ -310,12 +317,13 @@ let withBackgroundColor<'R, 'E> (color: ConsoleColor, action: FIO<'R, 'E>, onErr
             }
     )
 
-/// Runs an effect with temporary foreground and background colors, restoring the originals afterwards.
-/// <param name="foreground">The foreground color to set.</param>
-/// <param name="background">The background color to set.</param>
-/// <param name="action">The effect to run with the temporary colors.</param>
-/// <param name="onError">Maps exceptions to the error type.</param>
-/// <returns>An effect that runs the action with the temporary colors.</returns>
+/// <summary>Builds a resource-managed effect that runs an action under temporary foreground and background colors and restores both afterwards.</summary>
+/// <typeparam name="'R">The success result type produced by <paramref name="action"/>.</typeparam>
+/// <param name="foreground">The temporary foreground color.</param>
+/// <param name="background">The temporary background color.</param>
+/// <param name="action">The effect to run while the temporary colors are active.</param>
+/// <param name="onError">A function that maps an exception thrown during get, set, or restore to the typed error.</param>
+/// <returns>An effect that completes with <paramref name="action"/>'s result and always restores both colors afterwards.</returns>
 let withColors<'R, 'E>
     (foreground: ConsoleColor, background: ConsoleColor, action: FIO<'R, 'E>, onError: exn -> 'E)
     : FIO<'R, 'E> =

@@ -1,3 +1,4 @@
+/// <summary>Provides tests for HTTP request handler execution and response generation.</summary>
 module FIO.Http.Tests.HandlerTests
 
 open FIO.Http.Tests.Utilities

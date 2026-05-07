@@ -1,4 +1,4 @@
-﻿/// Provides the concurrent (event-driven) runtime for interpreting FIO effects.
+/// <summary>Provides the concurrent (event-driven) runtime for interpreting FIO effects.</summary>
 module FIO.Runtime.Concurrent
 
 open FIO.DSL
@@ -8,39 +8,57 @@ open System
 open System.Threading
 open System.Threading.Tasks
 
-/// Evaluation worker configuration.
+/// <summary>Represents the configuration passed to each evaluation worker in the concurrent runtime.</summary>
 type private EvaluationWorkerConfig =
     {
+        /// <summary>Represents the owning concurrent runtime.</summary>
         Runtime: ConcurrentRuntime
+        /// <summary>Represents the shared channel from which runnable work items are taken.</summary>
         ActiveWorkItemChan: UnboundedChannel<WorkItem>
+        /// <summary>Represents the blocking worker to which channel-blocking events are dispatched.</summary>
         BlockingWorker: BlockingWorker
+        /// <summary>Represents the number of evaluation steps per work item before rescheduling.</summary>
         EWSteps: int
+        /// <summary>Represents the admission controller that limits concurrent fibers.</summary>
         Admission: IFiberAdmission
+        /// <summary>Represents the health monitor for fault tracking.</summary>
         Monitor: WorkerHealthMonitor
+        /// <summary>Represents the restart policy applied on worker faults.</summary>
         RestartPolicy: WorkerRestartPolicy
     }
 
-/// Blocking worker configuration.
+/// <summary>Represents the configuration passed to each blocking worker in the concurrent runtime.</summary>
 and private BlockingWorkerConfig =
     {
+        /// <summary>Represents the shared channel to which ready work items are dispatched.</summary>
         ActiveWorkItemChan: UnboundedChannel<WorkItem>
+        /// <summary>Represents the channel from which channel-blocking events are received.</summary>
         ActiveBlockingEventChan: UnboundedChannel<Channel<obj>>
+        /// <summary>Represents the health monitor for fault tracking.</summary>
         Monitor: WorkerHealthMonitor
+        /// <summary>Represents the restart policy applied on worker faults.</summary>
         RestartPolicy: WorkerRestartPolicy
     }
 
-/// Tracks deferred fiber completion.
+/// <summary>Represents the deferred completion action to apply after the interpreter loop finishes a work item.</summary>
 and private CompletionAction =
+    /// <summary>Represents that no completion is pending for this work item.</summary>
     | NoCompletion
+    /// <summary>Represents a pending success completion carrying the result value.</summary>
     | CompleteSuccess of obj
+    /// <summary>Represents a pending failure completion carrying the error value.</summary>
     | CompleteFailure of obj
 
-/// Worker that evaluates FIO effects.
+/// <summary>Represents an evaluation worker that takes runnable work items from a shared channel and interprets them on the concurrent runtime.</summary>
+/// <param name="config">The evaluation worker configuration.</param>
+/// <param name="workerId">The zero-based index identifying this worker.</param>
 and private EvaluationWorker(config: EvaluationWorkerConfig, workerId: int) =
 
+    /// <summary>Transforms a work item by interpreting its effect tree on the concurrent runtime.</summary>
     let processWorkItem (workItem: WorkItem) =
         config.Runtime.InterpretAsync(workItem, config.EWSteps, config.ActiveWorkItemChan, config.Admission)
 
+    /// <summary>Represents the cancellation source and background task for this evaluation worker.</summary>
     let struct (cts, _workerTask) =
         WorkerLifecycle.startWorker config.Monitor config.RestartPolicy $"EvaluationWorker-{workerId}" Evaluation ignore
         <| fun token ->
@@ -71,14 +89,22 @@ and private EvaluationWorker(config: EvaluationWorkerConfig, workerId: int) =
                                 raise exn
             }
 
+    /// <summary>Provides resource cleanup for the evaluation worker.</summary>
     interface IDisposable with
+
+        /// <summary>Transforms the worker by cancelling its background task and releasing resources.</summary>
         member _.Dispose() =
             cts.Cancel()
             cts.Dispose()
 
-/// Handles blocked effects via event-driven channel notifications for constant-time rescheduling.
+/// <summary>Represents a blocking worker that processes channel-blocking events by rescheduling blocked work items when their channels have pending messages.</summary>
+/// <param name="config">The blocking worker configuration.</param>
+/// <param name="workerId">The zero-based index identifying this worker.</param>
 and private BlockingWorker(config: BlockingWorkerConfig, workerId: int) =
 
+    /// <summary>Creates a task that reschedules blocked work items on the given channel until no more matches can be made.</summary>
+    /// <param name="blockingChan">The channel whose blocked work items are to be rescheduled.</param>
+    /// <returns>A task that completes when no further rescheduling is possible for this channel.</returns>
     let processBlockingChannel (blockingChan: Channel<obj>) =
         task {
             try
@@ -110,6 +136,7 @@ and private BlockingWorker(config: BlockingWorkerConfig, workerId: int) =
                 do! config.ActiveBlockingEventChan.AddAsync blockingChan
         }
 
+    /// <summary>Represents the cancellation source and background task for this blocking worker.</summary>
     let struct (cts, _workerTask) =
         WorkerLifecycle.startWorker config.Monitor config.RestartPolicy $"BlockingWorker-{workerId}" Blocking ignore
         <| fun token ->
@@ -126,25 +153,35 @@ and private BlockingWorker(config: BlockingWorkerConfig, workerId: int) =
                         do! processBlockingChannel blockingChanEvent
             }
 
+    /// <summary>Provides resource cleanup for the blocking worker.</summary>
     interface IDisposable with
+
+        /// <summary>Transforms the worker by cancelling its background task and releasing resources.</summary>
         member _.Dispose() =
             cts.Cancel()
             cts.Dispose()
 
-/// Runtime using custom fibers with event-driven, constant-time blocked fiber handling.
+/// <summary>Represents the FIO runtime that uses custom fibers with event-driven, constant-time blocked-fiber handling.</summary>
+/// <param name="config">The worker configuration controlling evaluation worker count, step budget, and blocking worker count.</param>
 and ConcurrentRuntime(config: WorkerConfig) as this =
     inherit FIOWorkerRuntime(config)
 
+    /// <summary>Represents the shared channel from which evaluation workers take runnable work items.</summary>
     let activeWorkItemChan = UnboundedChannel<WorkItem>()
 
+    /// <summary>Represents the channel through which channel-blocking events are dispatched to blocking workers.</summary>
     let activeBlockingEventChan = UnboundedChannel<Channel<obj>>()
 
+    /// <summary>Represents the admission controller that limits concurrent fibers.</summary>
     let admission = FiberAdmission.fromConfig config
 
+    /// <summary>Represents the fiber context of the most recently started root fiber.</summary>
     let mutable currentFiber: FiberContext option = None
 
+    /// <summary>Represents the lock that serializes calls to <c>Run</c>.</summary>
     let runLock = obj ()
 
+    /// <summary>Represents the blocking workers owned by this runtime.</summary>
     let blockingWorkers =
         List.init config.BWC
         <| fun i ->
@@ -158,6 +195,7 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
                 i
             )
 
+    /// <summary>Represents the evaluation workers owned by this runtime.</summary>
     let evaluationWorkers =
         List.init config.EWC
         <| fun i ->
@@ -176,9 +214,14 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
                 i
             )
 
+    /// <summary>Returns the human-readable name of this runtime.</summary>
+    /// <returns>The runtime's name.</returns>
     override _.Name = "ConcurrentRuntime"
 
+    /// <summary>Provides resource cleanup for the concurrent runtime.</summary>
     interface IDisposable with
+
+        /// <summary>Transforms the runtime by disposing all workers and the admission controller.</summary>
         member _.Dispose() =
             blockingWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
             evaluationWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
@@ -187,9 +230,15 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
             | :? IDisposable as d -> d.Dispose()
             | _ -> ()
 
+    /// <summary>Creates a concurrent runtime configured with default worker counts derived from the available processors.</summary>
     new() = new ConcurrentRuntime(WorkerConfig.Default)
 
-    /// Interprets an FIO effect with step-limited evaluation.
+    /// <summary>Transforms a work item by interpreting its effect tree for up to the given number of evaluation steps, rescheduling or blocking as needed.</summary>
+    /// <param name="workItem">The work item to evaluate.</param>
+    /// <param name="evalSteps">The maximum number of evaluation steps before rescheduling.</param>
+    /// <param name="activeWorkItemChan">The channel to which rescheduled work items are dispatched.</param>
+    /// <param name="admission">The admission controller for forked fibers.</param>
+    /// <returns>A task that completes when the work item has been fully evaluated, rescheduled, or blocked.</returns>
     [<TailCall>]
     member internal _.InterpretAsync
         (workItem: WorkItem, evalSteps: int, activeWorkItemChan: UnboundedChannel<WorkItem>, admission: IFiberAdmission)
@@ -364,22 +413,18 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
                 WorkItemPool.Return workItem
         }
 
+    /// <summary>Transforms the runtime by resetting all workers and internal state to their initial configuration.</summary>
     member private _.Reset() =
         activeWorkItemChan.Clear()
         activeBlockingEventChan.Clear()
         admission.Reset()
 
-    /// Submits an effect for evaluation and returns a Fiber handle.
+    /// <summary>Creates a new fiber that interprets the given effect on this runtime's worker pool.</summary>
+    /// <typeparam name="'R">The success result type produced by the effect.</typeparam>
+    /// <typeparam name="'E">The typed error type the effect may fail with.</typeparam>
     /// <param name="eff">The effect to interpret.</param>
-    /// <returns>A fiber whose task completes with the effect's result.</returns>
-    /// <remarks>
-    /// Run is intended for sequential invocation on a given runtime instance.
-    /// If a prior fiber on this runtime is still running, Run blocks the calling
-    /// thread until that fiber completes. Workers run on dedicated LongRunning
-    /// threads, so this blocking does not starve the runtime itself, but
-    /// calling Run concurrently from thread-pool threads is not recommended.
-    /// Concurrency within a single Run is provided by fibers.
-    /// </remarks>
+    /// <returns>A fiber that runs <paramref name="eff"/> and exposes its terminal state.</returns>
+    /// <remarks><c>Run</c> is intended for sequential invocation; if a prior fiber on this runtime is still running, the call blocks until it completes. Concurrency within a single <c>Run</c> is supplied by forked fibers.</remarks>
     override _.Run<'R, 'E>(eff: FIO<'R, 'E>) : Fiber<'R, 'E> =
         lock runLock (fun () ->
             match this.Monitor.State with
@@ -400,7 +445,6 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
                 let fiber = new Fiber<'R, 'E>()
                 currentFiber <- Some fiber.Context
 
-                // Acquire a permit for the root fiber.
                 admission.TryAcquire() |> ignore
                 fiber.Context.SetOnTerminal(fun () -> admission.Release())
 

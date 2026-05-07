@@ -1,3 +1,4 @@
+/// <summary>Provides property-based tests for promise synchronization primitives.</summary>
 module FIO.Tests.PromiseTests
 
 open FIO.Tests.Utilities.FsCheckProperties

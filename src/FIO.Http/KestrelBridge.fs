@@ -11,13 +11,11 @@ open System.Text.Json
 open System.Threading.Tasks
 open Microsoft.AspNetCore.Http
 
-/// Functions for converting between ASP.NET Core and FIO HTTP types.
+/// <summary>Provides functions for converting between ASP.NET Core and FIO HTTP types.</summary>
 module KestrelBridge =
 
-    /// Default JSON serializer options used for response serialization.
-    /// Uses camelCase naming policy for JavaScript/frontend compatibility.
-    /// This is a pre-configured, immutable instance for optimal performance.
-    /// <returns>The default JSON serializer options.</returns>
+    /// <summary>Returns pre-configured JSON serializer options with camelCase naming for response serialization.</summary>
+    /// <returns>The default JSON serialization options.</returns>
     let DefaultJsonOptions =
         let options =
             JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
@@ -26,7 +24,9 @@ module KestrelBridge =
         options.MakeReadOnly()
         options
 
-    /// Validates a path segment for security issues.
+    /// <summary>Returns whether the given path segment is safe from path-traversal and control-character attacks.</summary>
+    /// <param name="segment">The path segment to validate.</param>
+    /// <returns><c>true</c> if the segment contains no traversal patterns or malicious characters; <c>false</c> otherwise.</returns>
     let private isValidPathSegment (segment: string) : bool =
         not (
             segment.Contains ".."
@@ -35,7 +35,9 @@ module KestrelBridge =
             || segment.StartsWith '.'
         )
 
-    /// Validates a header name according to RFC 7230.
+    /// <summary>Returns whether the given string is a valid HTTP header name containing only alphanumeric characters, hyphens, and underscores.</summary>
+    /// <param name="name">The header name to validate.</param>
+    /// <returns><c>true</c> if the name is non-empty and contains only valid characters; <c>false</c> otherwise.</returns>
     let private isValidHeaderName (name: string) : bool =
         not (String.IsNullOrWhiteSpace name)
         && name
@@ -46,14 +48,16 @@ module KestrelBridge =
                || c = '-'
                || c = '_')
 
-    /// URL-decodes query parameter values.
+    /// <summary>Returns the URL-decoded form of a query parameter value, falling back to the original on decode failure.</summary>
+    /// <param name="value">The URL-encoded query parameter value.</param>
+    /// <returns>The decoded string, or the original value if decoding fails.</returns>
     let private decodeQueryValue (value: string) : string =
         try
             HttpUtility.UrlDecode value
         with _ ->
             value // If decode fails, return original
 
-    /// Converts an ASP.NET Core HttpContext to an FIO HttpRequest asynchronously.
+    /// <summary>Creates an FIO HTTP request by converting an ASP.NET Core HttpContext.</summary>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
     /// <param name="maxBodySize">Maximum allowed request body size in bytes.</param>
     /// <returns>A task returning Ok with the request or Error with a message.</returns>
@@ -186,8 +190,7 @@ module KestrelBridge =
                                 }
         }
 
-    /// Writes an FIO HttpResponse to an ASP.NET Core HttpContext.
-    /// Note: Stream bodies are automatically disposed after being written to the response.
+    /// <summary>Builds an ASP.NET Core response from an FIO HTTP response using the specified JSON options.</summary>
     /// <param name="jsonOptions">JSON serializer options for response serialization.</param>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
     /// <param name="response">The FIO HTTP response to write.</param>
@@ -254,8 +257,7 @@ module KestrelBridge =
                     stream.Dispose()
         }
 
-    /// Writes an FIO HttpResponse to an ASP.NET Core HttpContext.
-    /// Note: Stream bodies are automatically disposed after being written to the response.
+    /// <summary>Builds an ASP.NET Core response from an FIO HTTP response using optional JSON options.</summary>
     /// <param name="jsonOptions">Optional JSON serializer options. Uses DefaultJsonOptions if None.</param>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
     /// <param name="response">The FIO HTTP response to write.</param>
@@ -269,16 +271,16 @@ module KestrelBridge =
         | Some options -> writeResponseWithOptions options ctx response
         | None -> writeResponseWithOptions DefaultJsonOptions ctx response
 
-    /// Writes an FIO HttpResponse to an ASP.NET Core HttpContext using DefaultJsonOptions.
-    /// Note: Stream bodies are automatically disposed after being written to the response.
+    /// <summary>Builds an ASP.NET Core response from an FIO HTTP response using default JSON options.</summary>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
     /// <param name="response">The FIO HTTP response to write.</param>
     /// <returns>A task that completes when the response has been written.</returns>
     let writeResponse (ctx: HttpContext) (response: FIO.Http.HttpResponse) : Task = writeResponseWith None ctx response
 
-    /// Logs an error with request context for diagnostics.
-    /// <param name="errorType">The error category.</param>
-    /// <param name="error">The optional exception.</param>
+    /// <summary>Transforms the error output by logging the exception details to the console.</summary>
+    /// <param name="ctx">The ASP.NET Core HTTP context for the current request.</param>
+    /// <param name="errorType">A short label categorizing the error source.</param>
+    /// <param name="error">The optional exception whose message and stack trace are logged.</param>
     let private logError (ctx: HttpContext) (errorType: string) (error: exn option) : unit =
         let timestamp = System.DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss.fff")
         let method = ctx.Request.Method
@@ -294,13 +296,13 @@ module KestrelBridge =
         | Some ex when not (isNull ex.StackTrace) -> eprintfn $"  Stack trace: {ex.StackTrace}"
         | _ -> ()
 
-    /// Handles an incoming HTTP request using the FIO runtime, routes, and specific JSON options.
+    /// <summary>Builds a request-handling pipeline that converts, dispatches, and writes an HTTP response using the given JSON options.</summary>
     /// <param name="runtime">The FIO runtime to execute effects.</param>
     /// <param name="routes">The routes to dispatch to.</param>
     /// <param name="maxBodySize">Maximum allowed request body size in bytes.</param>
     /// <param name="jsonOptions">JSON serializer options for response serialization.</param>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
-    /// <returns>A task that completes when the request has been handled.</returns>
+    /// <returns>A task that completes when the request has been processed.</returns>
     let handleRequestWithOptions
         (runtime: FIO.Runtime.Default.DefaultRuntime)
         (routes: Routes<exn>)
@@ -345,13 +347,13 @@ module KestrelBridge =
                 do! ctx.Response.Body.WriteAsync(errorBytes, 0, errorBytes.Length)
         }
 
-    /// Handles an incoming HTTP request using the FIO runtime and routes with optional custom JSON options.
+    /// <summary>Builds a request-handling pipeline that converts, dispatches, and writes an HTTP response using optional JSON options.</summary>
     /// <param name="runtime">The FIO runtime to execute effects.</param>
     /// <param name="routes">The routes to dispatch to.</param>
     /// <param name="maxBodySize">Maximum allowed request body size in bytes.</param>
     /// <param name="jsonOptions">Optional JSON serializer options. Uses DefaultJsonOptions if None.</param>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
-    /// <returns>A task that completes when the request has been handled.</returns>
+    /// <returns>A task that completes when the request has been processed.</returns>
     let handleRequestWith
         (runtime: FIO.Runtime.Default.DefaultRuntime)
         (routes: Routes<exn>)
@@ -363,13 +365,12 @@ module KestrelBridge =
         | Some options -> handleRequestWithOptions runtime routes maxBodySize options ctx
         | None -> handleRequestWithOptions runtime routes maxBodySize DefaultJsonOptions ctx
 
-    /// Handles an incoming HTTP request using the FIO runtime and routes.
-    /// Uses DefaultJsonOptions for JSON serialization.
+    /// <summary>Builds a request-handling pipeline that converts, dispatches, and writes an HTTP response using default JSON options.</summary>
     /// <param name="runtime">The FIO runtime to execute effects.</param>
     /// <param name="routes">The routes to dispatch to.</param>
     /// <param name="maxBodySize">Maximum allowed request body size in bytes.</param>
     /// <param name="ctx">The ASP.NET Core HTTP context.</param>
-    /// <returns>A task that completes when the request has been handled.</returns>
+    /// <returns>A task that completes when the request has been processed.</returns>
     let handleRequest
         (runtime: FIO.Runtime.Default.DefaultRuntime)
         (routes: Routes<exn>)

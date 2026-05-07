@@ -1,3 +1,4 @@
+/// <summary>Provides property-based tests for clock effects.</summary>
 module FIO.Tests.ClockTests
 
 open FIO.Tests.Utilities.FsCheckProperties

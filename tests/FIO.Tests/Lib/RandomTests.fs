@@ -1,3 +1,4 @@
+/// <summary>Provides property-based tests for random number generation effects.</summary>
 module FIO.Tests.RandomTests
 
 open FIO.Tests.Utilities.FsCheckProperties

@@ -1,3 +1,4 @@
+/// <summary>Provides tests for console I/O effects using a mock backend for deterministic verification.</summary>
 module FIO.Tests.ConsoleTests
 
 open FIO.Tests.MockConsoleBackend
@@ -140,7 +141,7 @@ let consoleTests =
                     runtime.Run(Console.newLine id).UnsafeSuccess()
 
                     Expect.isTrue
-                        (mock.StdOut.Contains "\n" || mock.StdOut.Contains Environment.NewLine)
+                        (mock.StdOut.Contains "\n" || mock.StdOut.Contains System.Environment.NewLine)
                         "Should write newline")
 
                 testAllRuntimes "writeErrorExn - writes text to stderr" (fun mock runtime ->

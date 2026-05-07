@@ -1,4 +1,4 @@
-/// Record-of-functions configuration for running FIO applications.
+/// <summary>Provides a record-of-functions configuration model for running FIO applications.</summary>
 module FIO.AppConfig
 
 open FIO.DSL
@@ -9,127 +9,117 @@ open System
 open System.Threading
 open System.Threading.Tasks
 
-/// Avoids conflicts with FIO.Console.
 type private SysConsole = System.Console
 
+/// <summary>Builds a side effect that prints a colored message to the console and resets the color.</summary>
+/// <param name="color">The foreground color to apply to the message.</param>
+/// <param name="msg">The message to print.</param>
 let internal printColored color (msg: string) =
     SysConsole.ForegroundColor <- color
     SysConsole.WriteLine msg
     SysConsole.ResetColor()
 
-/// Configuration for running FIO applications with lifecycle management and shutdown hooks.
-/// Use `FIOAppConfig.create` or `FIOAppConfig.createVerbose` to construct with sensible defaults,
-/// then override individual fields using record update syntax.
-/// <typeparam name="'R">The success result type.</typeparam>
-/// <typeparam name="'E">The error type.</typeparam>
+/// <summary>Represents the configuration for running an FIO application, including the main effect, lifecycle callbacks, and exit-code mappings.</summary>
+/// <typeparam name="'R">The success result type produced by the main effect.</typeparam>
+/// <typeparam name="'E">The typed error type the main effect may fail with.</typeparam>
 type FIOAppConfig<'R, 'E> =
     {
-        /// The main effect to execute.
+        /// <summary>Represents the main effect to evaluate when the application runs.</summary>
         Effect: FIO<'R, 'E>
 
-        /// Factory function for the runtime. Called lazily once; the result is cached.
-        /// Default: creates a DefaultRuntime.
+        /// <summary>Represents the factory that produces the runtime for effect evaluation.</summary>
         Runtime: unit -> FIORuntime
 
-        /// Application name. Default: "FIOApp".
+        /// <summary>Represents the application name displayed in banners and diagnostics.</summary>
         Name: string
 
-        /// Application version string. Default: "0.0.0".
+        /// <summary>Represents the application version displayed in banners and diagnostics.</summary>
         Version: string
 
-        /// Whether to display a startup banner. Default: false.
+        /// <summary>Represents whether to print a startup banner before evaluating the effect.</summary>
         ShowBanner: bool
 
-        /// Banner text factory. Receives name and version, returns banner text.
-        /// Default: auto-generated box.
+        /// <summary>Represents the function that builds the banner text from the application name and version.</summary>
         Banner: string -> string -> string
 
-        /// Called when the application starts.
+        /// <summary>Represents the callback invoked once the application begins starting up.</summary>
         OnStart: unit -> unit
 
-        /// Called after the runtime is initialized.
-        /// <param name="runtime">The initialized runtime instance.</param>
+        /// <summary>Represents the callback invoked after the runtime has been constructed.</summary>
         OnRuntimeInitialized: FIORuntime -> unit
 
-        /// Called when the main fiber starts running.
+        /// <summary>Represents the callback invoked once the main fiber has been scheduled.</summary>
         OnFiberRunning: unit -> unit
 
-        /// Called when the main effect succeeds.
-        /// <param name="res">The success result.</param>
+        /// <summary>Represents the callback invoked when the main effect completes successfully.</summary>
         OnSuccess: 'R -> unit
 
-        /// Called when the main effect fails.
-        /// <param name="err">The error value.</param>
+        /// <summary>Represents the callback invoked when the main effect fails with a typed error.</summary>
         OnError: 'E -> unit
 
-        /// Called when the main fiber is interrupted.
-        /// <param name="ex">The interruption exception.</param>
+        /// <summary>Represents the callback invoked when the main fiber is interrupted before completion.</summary>
         OnInterrupted: FiberInterruptedException -> unit
 
-        /// Called on unhandled exceptions.
-        /// <param name="ex">The unhandled exception.</param>
+        /// <summary>Represents the callback invoked when an unhandled exception occurs outside the managed effect.</summary>
         OnFatalError: exn -> unit
 
-        /// Called when Ctrl+C or programmatic shutdown is requested.
+        /// <summary>Represents the callback invoked when shutdown is requested via Ctrl+C or programmatic stop.</summary>
         OnShutdownRequested: unit -> unit
 
-        /// Called when the shutdown hook fiber completes.
-        /// <param name="result">The fiber result from the shutdown hook.</param>
+        /// <summary>Represents the callback invoked once the shutdown hook fiber reaches a terminal state.</summary>
         OnShutdownComplete: FiberResult<unit, 'E> -> unit
 
-        /// Called when the shutdown hook throws or times out.
-        /// <param name="ex">The exception from the shutdown hook.</param>
+        /// <summary>Represents the callback invoked when the shutdown hook throws or exceeds its timeout.</summary>
         OnShutdownFailed: exn -> unit
 
-        /// Cleanup effect run after the main effect completes. Default: no-op.
+        /// <summary>Represents the cleanup effect to evaluate after the main effect terminates.</summary>
         OnShutdown: unit -> FIO<unit, 'E>
 
-        /// Maximum time to wait for the shutdown hook. Default: 10 seconds.
+        /// <summary>Represents the maximum time the shutdown hook is allowed to run before being interrupted.</summary>
         OnShutdownTimeout: TimeSpan
 
-        /// Exit code on success. Default: always 0.
-        /// <param name="res">The success result.</param>
+        /// <summary>Represents the function that maps a successful result to the process exit code.</summary>
         ExitCodeSuccess: 'R -> int
 
-        /// Exit code on error. Default: always 1.
-        /// <param name="err">The error value.</param>
+        /// <summary>Represents the function that maps a typed error to the process exit code.</summary>
         ExitCodeError: 'E -> int
 
-        /// Exit code on fatal error. Default: always 2.
-        /// <param name="ex">The fatal exception.</param>
+        /// <summary>Represents the function that maps a fatal exception to the process exit code.</summary>
         ExitCodeFatalError: exn -> int
 
-        /// Exit code on interruption. Default: always 130.
-        /// <param name="ex">The interruption exception.</param>
+        /// <summary>Represents the function that maps an interruption exception to the process exit code.</summary>
         ExitCodeInterrupted: FiberInterruptedException -> int
     }
 
-/// Handle for a running FIO application, supporting programmatic shutdown.
-/// <typeparam name="'R">The success result type.</typeparam>
-/// <typeparam name="'E">The error type.</typeparam>
+/// <summary>Represents a handle to a running FIO application that supports observing completion and requesting shutdown.</summary>
+/// <typeparam name="'R">The success result type produced by the application's main effect.</typeparam>
+/// <typeparam name="'E">The typed error type the application's main effect may fail with.</typeparam>
 type FIOAppHandle<'R, 'E> =
     {
-        /// Task that completes with the exit code when the application finishes.
+        /// <summary>Represents the task that completes with the application's exit code once it terminates.</summary>
         ExitCode: Task<int>
 
-        /// Requests graceful shutdown. Safe to call from any thread. No-op if already stopping.
+        /// <summary>Represents the function that requests graceful shutdown; safe to call from any thread and idempotent.</summary>
         Stop: unit -> unit
 
-        /// Whether the application is currently running.
+        /// <summary>Represents the predicate that returns whether the application is still running.</summary>
         IsRunning: unit -> bool
     }
 
-/// Functions for creating FIOAppConfig values with sensible defaults.
+/// <summary>Provides factory functions for creating <c>FIOAppConfig</c> values with sensible defaults.</summary>
 module FIOAppConfig =
 
+    /// <summary>Builds the default banner text from an application name and version.</summary>
+    /// <param name="name">The application name to display.</param>
+    /// <param name="version">The application version to display.</param>
+    /// <returns>A box-drawing banner string containing the name and version.</returns>
     let private defaultBanner (name: string) (version: string) =
         let separator = String.replicate (name.Length + version.Length + 6) "─"
         $"┌{separator}┐\n│  {name} v{version}  │\n└{separator}┘"
 
-    /// Creates a config with the given effect and silent defaults.
-    /// All lifecycle callbacks are no-ops. Override individual fields with record update syntax.
-    /// <param name="effect">The main FIO effect to execute.</param>
-    /// <returns>A config with default lifecycle handlers.</returns>
+    /// <summary>Creates an application configuration whose lifecycle callbacks are no-ops, suitable as a starting point for record-update overrides.</summary>
+    /// <param name="effect">The main effect the application will evaluate.</param>
+    /// <returns>A configuration carrying <paramref name="effect"/> and silent default callbacks.</returns>
     let create (effect: FIO<'R, 'E>) : FIOAppConfig<'R, 'E> =
         {
             Effect = effect
@@ -156,9 +146,9 @@ module FIOAppConfig =
             ExitCodeInterrupted = fun _ -> 130
         }
 
-    /// Creates a config with verbose defaults that print lifecycle events to the console.
-    /// <param name="effect">The main FIO effect to execute.</param>
-    /// <returns>A config with verbose lifecycle handlers.</returns>
+    /// <summary>Creates an application configuration whose lifecycle callbacks emit colored progress messages to standard output.</summary>
+    /// <param name="effect">The main effect the application will evaluate.</param>
+    /// <returns>A configuration carrying <paramref name="effect"/> and verbose default callbacks.</returns>
     let createVerbose (effect: FIO<'R, 'E>) : FIOAppConfig<'R, 'E> =
         { create effect with
             OnStart = fun () -> printColored ConsoleColor.DarkMagenta "starting"
@@ -182,9 +172,13 @@ module FIOAppConfig =
                     | _ -> printColored ConsoleColor.Red $"cleanup failed: %s{ex.Message}"
         }
 
-/// Functions for running FIO applications from a config.
+/// <summary>Provides functions for running FIO applications from an <c>FIOAppConfig</c>.</summary>
 module FIOApp =
 
+    /// <summary>Builds a task that evaluates the shutdown hook effect with timeout enforcement and cleanup.</summary>
+    /// <param name="config">The application configuration containing the shutdown hook and callbacks.</param>
+    /// <param name="runtime">The runtime used to evaluate the shutdown hook effect.</param>
+    /// <returns>A task that completes when the shutdown hook has finished or been interrupted after a timeout.</returns>
     let private runShutdown (config: FIOAppConfig<'R, 'E>) (runtime: FIORuntime) =
         task {
             let mutable shutdownFiberOpt = None
@@ -220,6 +214,9 @@ module FIOApp =
             | None -> ()
         }
 
+    /// <summary>Builds the main application execution pipeline including runtime setup, fiber evaluation, signal handling, and shutdown.</summary>
+    /// <param name="config">The application configuration containing the main effect and lifecycle callbacks.</param>
+    /// <returns>A struct containing the exit-code task, the shutdown trigger, and the running predicate.</returns>
     let private runEffect (config: FIOAppConfig<'R, 'E>) =
         let mutable shutdownRequested = 0
         let mutable runningFiber: Fiber<'R, 'E> option = None
@@ -317,9 +314,9 @@ module FIOApp =
             IsRunning = isRunning
         |}
 
-    /// Starts the application and returns a handle for programmatic control.
-    /// <param name="config">The application configuration.</param>
-    /// <returns>A handle with the exit code task, stop function, and running status.</returns>
+    /// <summary>Creates a running application from the given configuration and returns a handle for programmatic control.</summary>
+    /// <param name="config">The application configuration to run.</param>
+    /// <returns>A handle exposing the exit-code task, the shutdown trigger, and the running predicate.</returns>
     let start (config: FIOAppConfig<'R, 'E>) : FIOAppHandle<'R, 'E> =
         let result = runEffect config
 
@@ -329,15 +326,15 @@ module FIOApp =
             IsRunning = result.IsRunning
         }
 
-    /// Runs the application asynchronously and returns the exit code.
-    /// <param name="config">The application configuration.</param>
-    /// <returns>A Task that completes with the exit code.</returns>
+    /// <summary>Builds a task that asynchronously runs the application and completes with its exit code.</summary>
+    /// <param name="config">The application configuration to run.</param>
+    /// <returns>A task that completes with the exit code reported by the configured handlers.</returns>
     let runAsync (config: FIOAppConfig<'R, 'E>) : Task<int> =
         let result = runEffect config
         result.ExitCode
 
-    /// Runs the application synchronously and returns the exit code.
-    /// <param name="config">The application configuration.</param>
-    /// <returns>The application exit code.</returns>
+    /// <summary>Returns the exit code produced by synchronously evaluating the application.</summary>
+    /// <param name="config">The application configuration to run.</param>
+    /// <returns>The exit code reported by the configured handlers.</returns>
     let run (config: FIOAppConfig<'R, 'E>) : int =
         (runAsync config).GetAwaiter().GetResult()

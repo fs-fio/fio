@@ -9,46 +9,32 @@ open System
 open System.IO
 open System.Globalization
 
-/// <summary>
-/// Configuration for a specific benchmark, specifying actor and round counts.
-/// </summary>
+/// <summary>Represents a benchmark configuration specifying actor and round counts.</summary>
 type internal BenchmarkConfig =
-    /// <summary>Configuration for Pingpong benchmark.</summary>
+    /// <summary>Represents the Pingpong benchmark configuration.</summary>
     | PingpongConfig of roundCount: int
-    /// <summary>Configuration for Threadring benchmark.</summary>
+    /// <summary>Represents the Threadring benchmark configuration.</summary>
     | ThreadringConfig of actorCount: int * roundCount: int
-    /// <summary>Configuration for Big benchmark.</summary>
+    /// <summary>Represents the Big benchmark configuration.</summary>
     | BigConfig of actorCount: int * roundCount: int
-    /// <summary>Configuration for Bang benchmark.</summary>
+    /// <summary>Represents the Bang benchmark configuration.</summary>
     | BangConfig of actorCount: int * roundCount: int
-    /// <summary>Configuration for Fork benchmark.</summary>
+    /// <summary>Represents the Fork benchmark configuration.</summary>
     | ForkConfig of actorCount: int
 
-/// <summary>
-/// Runtime selections supported by benchmark CLI.
-/// </summary>
+/// <summary>Represents a runtime selection supported by the benchmark CLI.</summary>
 type internal RuntimeSelection =
-    /// <summary>
-    /// Uses the direct runtime (single-threaded, .NET Tasks).
-    /// </summary>
+    /// <summary>Represents the Direct runtime selection.</summary>
     | Direct
-    /// <summary>
-    /// Uses the cooperative runtime with the given worker configuration.
-    /// </summary>
+    /// <summary>Represents the Cooperative runtime selection with the given worker configuration.</summary>
     | Cooperative of WorkerConfig
-    /// <summary>
-    /// Uses the concurrent runtime with the given worker configuration.
-    /// </summary>
+    /// <summary>Represents the Concurrent runtime selection with the given worker configuration.</summary>
     | Concurrent of WorkerConfig
 
-/// <summary>
-/// Helpers for runtime selection ordering and runtime instantiation.
-/// </summary>
+/// <summary>Provides helper functions for runtime selection and runtime instantiation.</summary>
 module internal RuntimeSelection =
 
-    /// <summary>
-    /// Creates an FIORuntime instance from the given runtime selection.
-    /// </summary>
+    /// <summary>Creates an FIORuntime instance from the given runtime selection.</summary>
     /// <param name="selection">The runtime selection to instantiate.</param>
     /// <returns>The created FIORuntime.</returns>
     let createRuntime selection : FIORuntime =
@@ -57,14 +43,10 @@ module internal RuntimeSelection =
         | Cooperative config -> new CooperativeRuntime(config) :> FIORuntime
         | Concurrent config -> new ConcurrentRuntime(config) :> FIORuntime
 
-/// <summary>
-/// Helper functions for BenchmarkConfig formatting and conversion.
-/// </summary>
+/// <summary>Provides helper functions for BenchmarkConfig formatting and conversion.</summary>
 module internal BenchmarkConfig =
 
-    /// <summary>
-    /// Gets the display name for the benchmark.
-    /// </summary>
+    /// <summary>Returns the display name for the benchmark.</summary>
     /// <param name="config">Benchmark configuration.</param>
     /// <returns>Display name string.</returns>
     let name config =
@@ -75,17 +57,13 @@ module internal BenchmarkConfig =
         | BangConfig _ -> "Bang"
         | ForkConfig _ -> "Fork"
 
-    /// <summary>
-    /// Formats an integer with thousand separators.
-    /// </summary>
+    /// <summary>Returns a formatted integer with thousand separators.</summary>
     /// <param name="n">Integer to format.</param>
     /// <returns>Formatted string with thousand separators.</returns>
     let private formatCount (n: int) =
         n.ToString("N0", CultureInfo.InvariantCulture)
 
-    /// <summary>
-    /// Gets a human-readable configuration string showing actor/round counts.
-    /// </summary>
+    /// <summary>Returns a human-readable configuration string showing actor and round counts.</summary>
     /// <param name="config">Benchmark configuration.</param>
     /// <returns>Formatted configuration string.</returns>
     let configString config =
@@ -96,17 +74,13 @@ module internal BenchmarkConfig =
         | BangConfig(ac, rc) -> $"Actor Count: {formatCount ac} Round Count: {formatCount rc}"
         | ForkConfig ac -> $"Actor Count: {formatCount ac} Round Count: 1"
 
-    /// <summary>
-    /// Gets a full display string including benchmark name and configuration.
-    /// </summary>
+    /// <summary>Returns a full display string including benchmark name and configuration.</summary>
     /// <param name="config">Benchmark configuration.</param>
     /// <returns>Full display string.</returns>
     let toString config =
         $"{name config} ({configString config})"
 
-    /// <summary>
-    /// Gets a sanitized filename-safe string representation.
-    /// </summary>
+    /// <summary>Returns a sanitized filename-safe string representation.</summary>
     /// <param name="config">Benchmark configuration.</param>
     /// <returns>Filename-safe string.</returns>
     let toFileString config =
@@ -114,45 +88,45 @@ module internal BenchmarkConfig =
         |> String.filter (fun c -> not ("():,. ".Contains c))
         |> (fun s -> s.ToLowerInvariant())
 
-/// <summary>
-/// Results from a benchmark run including execution times and memory usage statistics.
-/// </summary>
+/// <summary>Represents benchmark run results including execution times and statistics.</summary>
 type internal BenchmarkResult =
     {
-        /// <summary>Benchmark configuration used for this run.</summary>
+        /// <summary>Represents the benchmark configuration used for this run.</summary>
         Config: BenchmarkConfig
-        /// <summary>Display name of the runtime.</summary>
+        /// <summary>Represents the display name of the runtime.</summary>
         RuntimeName: string
-        /// <summary>Filename-safe runtime name.</summary>
+        /// <summary>Represents the filename-safe runtime name.</summary>
         RuntimeFileName: string
-        /// <summary>List of run numbers.</summary>
+        /// <summary>Represents the list of run numbers.</summary>
         Runs: int64 list
-        /// <summary>Execution times in milliseconds for each run.</summary>
+        /// <summary>Represents the execution times in milliseconds for each run.</summary>
         ExecutionTimes: int64 list
-        /// <summary>Average execution time in milliseconds.</summary>
+        /// <summary>Represents the average execution time in milliseconds.</summary>
         AvgExecutionTime: float
-        /// <summary>Median execution time in milliseconds.</summary>
+        /// <summary>Represents the median execution time in milliseconds.</summary>
         MedianExecutionTime: float
-        /// <summary>95th percentile execution time in milliseconds.</summary>
+        /// <summary>Represents the 95th percentile execution time in milliseconds.</summary>
         P95ExecutionTime: float
-        /// <summary>Standard deviation of execution times.</summary>
+        /// <summary>Represents the standard deviation of execution times.</summary>
         StdExecutionTime: float
     }
 
-/// <summary>
-/// Helper functions for printing and persisting benchmark results.
-/// </summary>
+/// <summary>Provides helper functions for printing and persisting benchmark results.</summary>
 module internal BenchmarkResult =
+    /// <summary>Returns the megabyte equivalent of a byte count.</summary>
+    /// <param name="bytes">Byte count to convert.</param>
+    /// <returns>The value in megabytes.</returns>
     let private bytesToMb (bytes: int64) = float bytes / 1024.0 / 1024.0
 
+    /// <summary>Returns a formatted megabyte string with three decimal places.</summary>
+    /// <param name="value">Megabyte value to format.</param>
+    /// <returns>A formatted string with three decimal places.</returns>
     let private formatMb (value: float) =
         value.ToString("0.000", CultureInfo.InvariantCulture)
 
-    /// <summary>
-    /// Prints benchmark results to the console in a formatted table.
-    /// </summary>
-    /// <param name="result">Benchmark result to print.</param>
+    /// <summary>Transforms benchmark results into a formatted console output table.</summary>
     /// <param name="includeRunRows">When true, includes per-run rows; otherwise summary-only output is shown.</param>
+    /// <param name="result">Benchmark result to print.</param>
     let printWithMode includeRunRows result =
         let innerWidth = 92
         let horizontal = String.replicate innerWidth "─"
@@ -225,15 +199,11 @@ module internal BenchmarkResult =
 
         printfn "%s" (String.concat "\n" lines)
 
-    /// <summary>
-    /// Prints benchmark results to the console with all per-run rows.
-    /// </summary>
+    /// <summary>Transforms benchmark results into a formatted console output with all per-run rows.</summary>
     /// <param name="result">Benchmark result to print.</param>
     let print result = printWithMode true result
 
-    /// <summary>
-    /// Prints a compact comparison summary across runtimes for one benchmark config.
-    /// </summary>
+    /// <summary>Transforms the console output by printing a compact comparison summary across runtimes for one benchmark config.</summary>
     /// <param name="config">Benchmark configuration compared.</param>
     /// <param name="results">Runtime-specific benchmark results.</param>
     let printComparisonSummary (config: BenchmarkConfig) (results: BenchmarkResult list) =
@@ -318,9 +288,7 @@ module internal BenchmarkResult =
 
                 printfn "  %s" rowLine
 
-    /// <summary>
-    /// Writes benchmark results to a CSV file for analysis.
-    /// </summary>
+    /// <summary>Transforms benchmark results into a CSV file for analysis.</summary>
     /// <param name="result">Benchmark result to save.</param>
     /// <param name="savePath">Directory path for saving the CSV file.</param>
     let writeToCsv (result, savePath) =
@@ -393,29 +361,27 @@ module internal BenchmarkResult =
         File.WriteAllText(filePath, csvText)
         printfn $"\nSaved benchmark result to file: '%s{filePath}'"
 
-/// <summary>
-/// Arguments controlling benchmark execution including runtime, runs, and configurations.
-/// </summary>
+/// <summary>Represents the arguments controlling benchmark execution including runtime, runs, and configurations.</summary>
 type internal BenchmarkArgs =
     {
-        /// <summary>Runtime selections to benchmark in canonical order.</summary>
+        /// <summary>Represents the runtime selections to benchmark in canonical order.</summary>
         Runtimes: RuntimeSelection list
-        /// <summary>Number of runs per benchmark configuration.</summary>
+        /// <summary>Represents the number of runs per benchmark configuration.</summary>
         Runs: int
-        /// <summary>Number of warmup runs executed before measured runs.</summary>
+        /// <summary>Represents the number of warmup runs executed before measured runs.</summary>
         WarmupRuns: int
-        /// <summary>Suppress per-run logs when true.</summary>
+        /// <summary>Represents whether to suppress per-run logs.</summary>
         Quiet: bool
-        /// <summary>Print detailed per-run logs and per-run result rows when true.</summary>
+        /// <summary>Represents whether to print detailed per-run logs and per-run result rows.</summary>
         Detailed: bool
-        /// <summary>Actor increment value and number of times to apply.</summary>
+        /// <summary>Represents the actor increment value and number of times to apply.</summary>
         ActorIncrement: int * int
-        /// <summary>Round increment value and number of times to apply.</summary>
+        /// <summary>Represents the round increment value and number of times to apply.</summary>
         RoundIncrement: int * int
-        /// <summary>List of benchmark configurations to run.</summary>
+        /// <summary>Represents the list of benchmark configurations to run.</summary>
         BenchmarkConfigs: BenchmarkConfig list
-        /// <summary>Whether to save results to CSV files.</summary>
+        /// <summary>Represents whether to save results to CSV files.</summary>
         SaveToCsv: bool
-        /// <summary>Directory path for saving CSV files.</summary>
+        /// <summary>Represents the directory path for saving CSV files.</summary>
         SavePath: string
     }

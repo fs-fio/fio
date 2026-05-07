@@ -1,3 +1,4 @@
+/// <summary>Provides tests for WebSocket domain types and error representations.</summary>
 module FIO.WebSockets.Tests.TypesTests
 
 open FIO.DSL

@@ -3,9 +3,7 @@
 (* Measures: Fiber creation and scheduling overhead  *)
 (*****************************************************)
 
-/// <summary>
-/// Fork benchmark measuring fiber creation and scheduling overhead.
-/// </summary>
+/// <summary>Provides the Fork benchmark measuring fiber creation and scheduling overhead.</summary>
 [<RequireQualifiedAccess>]
 module private FIO.Benchmarks.Suite.Fork
 
@@ -14,15 +12,11 @@ open FIO.Benchmarks.Tools.Timer
 
 open System
 
-/// <summary>
-/// Actor effect that signals completion to the timer.
-/// </summary>
+/// <summary>Builds the actor effect that signals completion to the timer.</summary>
 /// <param name="timerChan">Channel for timer control messages.</param>
 let private actorEff (timerChan: Channel<TimerMessage<int>>) = fio { do! timerChan.Send(Stop).Unit() }
 
-/// <summary>
-/// Composes multiple actor effects to run concurrently via the parallel operator.
-/// </summary>
+/// <summary>Combines multiple actor effects to run concurrently via the parallel operator.</summary>
 /// <param name="actorCount">Number of actors to fork.</param>
 /// <param name="timerChan">Channel for timer control messages.</param>
 let private forkEff (actorCount, timerChan) =
@@ -31,11 +25,9 @@ let private forkEff (actorCount, timerChan) =
     [ 1..actorCount ]
     |> List.fold (fun acc _ -> actorEff timerChan <&&> acc) baseEff
 
-/// <summary>
-/// Creates and runs the fork benchmark, returning execution time in milliseconds.
-/// </summary>
+/// <summary>Builds the fork benchmark effect, returning execution time in milliseconds.</summary>
 /// <param name="config">Fork benchmark configuration.</param>
-/// <returns>Execution time in milliseconds.</returns>
+/// <returns>An effect that produces the execution time in milliseconds.</returns>
 let benchmark config : FIO<int64, exn> =
     fio {
         let! actorCount =

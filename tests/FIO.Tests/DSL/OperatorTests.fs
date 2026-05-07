@@ -1,3 +1,4 @@
+/// <summary>Provides property-based tests for FIO operators including bind, map, parallel, and fallback operators.</summary>
 module FIO.Tests.OperatorTests
 
 open FIO.Tests.Utilities.FsCheckProperties
