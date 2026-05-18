@@ -193,8 +193,7 @@ module Route =
                     let before = List.rev acc
                     let after = rest
                     RoutePath.withString before after
-                | seg :: rest ->
-                    buildPath (seg :: acc) rest
+                | seg :: rest -> buildPath (seg :: acc) rest
 
             RoutePattern.create method (buildPath [] segments)
         | _ ->

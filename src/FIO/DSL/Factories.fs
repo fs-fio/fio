@@ -3,6 +3,7 @@
 module FIO.DSL.Factories
 
 open System
+open System.Threading
 open System.Threading.Tasks
 
 /// <summary>Provides factory functions for creating FIO effects, accessed as <c>FIO.succeed</c>, <c>FIO.fail</c>, and so on.</summary>
@@ -78,6 +79,12 @@ module FIO =
     /// <returns>An effect that calls <paramref name="eff"/> at evaluation time and runs the effect it produces.</returns>
     /// <remarks>Use to wrap construction-time side effects so they only run when the resulting effect is interpreted.</remarks>
     let suspend<'R, 'E> (eff: unit -> FIO<'R, 'E>) : FIO<'R, 'E> = (unit ()).FlatMap(fun () -> eff ())
+
+    /// <summary>Builds an effect that produces the running fiber's <c>CancellationToken</c>.</summary>
+    /// <returns>An effect that completes with the cancellation token of the fiber evaluating it; falls back to <c>CancellationToken.None</c> when no fiber context is available.</returns>
+    /// <remarks>The returned token is cancelled when the running fiber is interrupted. Pass it to .NET cancellation-aware APIs to make I/O cooperate with FIO interruption.</remarks>
+    let cancellationToken<'E> () : FIO<CancellationToken, 'E> =
+        attempt ((fun () -> FiberAmbient.currentToken ()), (fun ex -> raise ex))
 
     /// <summary>Builds an effect that awaits an <c>Async</c> computation and completes with its result.</summary>
     /// <param name="async">The async workflow to await.</param>

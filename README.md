@@ -1,18 +1,14 @@
 <div align="center">
   <a href="https://github.com/fs-fio/fio/">
-    <img src="assets/images/fio_logo_wide.png" width="auto" height="250" alt="FIO Logo">
+    <img src="assets/images/fio_logo_wide.png" width="auto" height="200" alt="FIO">
   </a>
 
   <p><strong>A type-safe, purely functional effect system for F#</strong></p>
-
-  [![NuGet](https://img.shields.io/nuget/v/FIO.svg?style=flat-square)](https://www.nuget.org/packages/FIO)
-  [![License](https://img.shields.io/github/license/fs-fio/fio.svg?style=flat-square)](LICENSE.md)
-  [![CI](https://img.shields.io/github/actions/workflow/status/fs-fio/fio/ci.yml?style=flat-square&label=CI)](https://github.com/fs-fio/fio/actions)
 </div>
 
 ---
 
-FIO gives you an **IO monad** and **fibers** (green threads) for building concurrent, asynchronous F# applications with composable, type-safe effects.
+IO monad + fibers for building concurrent F# applications.
 
 ## Install
 
@@ -26,52 +22,43 @@ dotnet add package FIO
 open FIO.DSL
 open FIO.Console
 
-type HelloApp() =
+type App() =
     inherit FIOApp<unit, exn>()
 
     override _.effect = fio {
         do! Console.printLine "What is your name?"
-        let! name = Console.ReadLine
-        do! Console.printLine $"Hello, {name}! 🪻"
+        let! name = Console.readLine id
+        do! Console.printLine $"Hello, {name}!"
     }
 
 [<EntryPoint>]
-let main _ = HelloApp().Run()
+let main _ = App().Run()
 ```
 
-See the [examples](examples/) for more — including HTTP servers, sockets, and WebSockets.
+More in [examples/](examples/).
 
 ## Features
 
-- **Effect system** — lazy, composable `FIO<'R, 'E>` values with full type safety
-- **Fibers** — lightweight green threads for scalable concurrency
-- **Channels** — typed, unbounded message passing between fibers
-- **Operators** — expressive DSL (`>>=`, `<&>`, `<!>`, `<|>`, and more) plus `fio { }` computation expressions
-- **Concurrency primitives** — `Promise`, `Ref`, `Semaphore`
-- **Library modules** — `Console`, `Clock`, `Environment`, `Random`
-- **App framework** — `FIOApp` with lifecycle management, shutdown hooks, and configurable runtimes
+- **Effects** — lazy, composable `FIO<'R, 'E>` with typed errors
+- **Fibers** — green threads for scalable concurrency
+- **Channels** — typed message passing between fibers
+- **Composition** — `fio { }` CE, operators (`>>=`, `<&>`, `<|>`), combinators
+- **Primitives** — `Promise`, `Ref`, `Semaphore`
+- **Modules** — `Console`, `Clock`, `Environment`, `Random`
 
 ## Packages
 
 | Package | Description |
 |---------|-------------|
-| [`FIO`](https://www.nuget.org/packages/FIO) | Core — effect system, fibers, channels, runtimes, library modules |
+| [`FIO`](https://www.nuget.org/packages/FIO) | Core — effects, fibers, channels, runtimes |
 | [`FIO.Http`](https://www.nuget.org/packages/FIO.Http) | HTTP server (Kestrel) |
 | [`FIO.Sockets`](https://www.nuget.org/packages/FIO.Sockets) | TCP sockets |
 | [`FIO.WebSockets`](https://www.nuget.org/packages/FIO.WebSockets) | WebSockets |
 
 ## Contributing
 
-Contributions are welcome — open an [issue](https://github.com/fs-fio/fio/issues) or submit a pull request.
+[Issues](https://github.com/fs-fio/fio/issues) and pull requests welcome.
 
 ## License
 
-MIT — see [LICENSE.md](LICENSE.md).
-
-## Contact
-
-Daniel Larsen — [itsdaniel.dk](https://itsdaniel.dk)
-
-## Acknowledgments
-
-Alceste Scalas — [people.compute.dtu.dk](https://people.compute.dtu.dk/alcsc/)
+[MIT](LICENSE.md)

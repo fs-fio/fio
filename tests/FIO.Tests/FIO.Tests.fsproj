@@ -20,6 +20,7 @@
         <Compile Include="DSL/ExtensionTests.fs" />
         <Compile Include="DSL/FactoryTests.fs" />
         <Compile Include="DSL/FiberTests.fs" />
+        <Compile Include="DSL/CancellationTokenTests.fs" />
         <Compile Include="DSL/FIOTests.fs" />
         <Compile Include="DSL/OperatorTests.fs" />
 

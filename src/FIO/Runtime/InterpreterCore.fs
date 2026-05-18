@@ -204,7 +204,7 @@ let inline handleSharedCase
         ValueNone
     | Action(func, onError) ->
         try
-            let res = func ()
+            let res = FiberAmbient.withContext state.FiberContext func
             processSuccess &state onSuccessComplete res
         with exn ->
             let err =

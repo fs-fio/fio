@@ -17,6 +17,7 @@
         <Compile Include="TypesTests.fs" />
         <Compile Include="SocketTests.fs" />
         <Compile Include="ExtensionsTests.fs" />
+        <Compile Include="CancellationTests.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 

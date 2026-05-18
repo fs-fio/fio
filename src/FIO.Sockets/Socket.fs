@@ -51,8 +51,9 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
             if not netSocket.Connected then
                 return! FIO.fail (ConnectionClosed "Socket is not connected")
 
-            do! awaitTask (stream.WriteAsync(buffer, 0, buffer.Length))
-            do! awaitTask (stream.FlushAsync())
+            let! ct = FIO.cancellationToken ()
+            do! awaitTask (stream.WriteAsync(buffer, 0, buffer.Length, ct))
+            do! awaitTask (stream.FlushAsync ct)
         }
 
     /// <summary>Creates an effect that receives up to a specified number of bytes from the connection.</summary>
@@ -66,11 +67,12 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
             if not netSocket.Connected then
                 return! FIO.fail (ConnectionClosed "Socket is not connected")
 
+            let! ct = FIO.cancellationToken ()
             let! pooledBuffer = fromFunc (fun () -> ArrayPool<byte>.Shared.Rent maxBytes)
 
             let readAndCopy =
                 fio {
-                    let! bytesRead = awaitTaskT (stream.ReadAsync(pooledBuffer, 0, maxBytes))
+                    let! bytesRead = awaitTaskT (stream.ReadAsync(pooledBuffer, 0, maxBytes, ct))
 
                     if bytesRead = 0 then
                         return! FIO.fail (ConnectionClosed "Connection closed by peer")
@@ -91,6 +93,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
             if numBytes <= 0 then
                 return! FIO.fail (InvalidState("positive byte count", $"{numBytes}"))
 
+            let! ct = FIO.cancellationToken ()
             let! pooledBuffer = fromFunc (fun () -> ArrayPool<byte>.Shared.Rent numBytes)
 
             let readLoop =
@@ -99,7 +102,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
 
                     while totalRead < numBytes do
                         let! bytesRead =
-                            awaitTaskT (stream.ReadAsync(pooledBuffer, totalRead, numBytes - totalRead))
+                            awaitTaskT (stream.ReadAsync(pooledBuffer, totalRead, numBytes - totalRead, ct))
 
                         if bytesRead = 0 then
                             return!

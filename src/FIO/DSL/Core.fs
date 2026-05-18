@@ -525,8 +525,7 @@ and [<Sealed>] Fiber<'R, 'E> internal () =
 /// <param name="id">The unique identifier for this channel instance.</param>
 /// <param name="resChan">The underlying unbounded channel used for value buffering.</param>
 /// <param name="blockingSlot">The slot managing blocked work items awaiting values.</param>
-and [<Sealed>] Channel<'R>
-    private (id: Guid, resChan: UnboundedChannel<obj>, blockingSlot: BlockingWorkItemSlot) =
+and [<Sealed>] Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, blockingSlot: BlockingWorkItemSlot) =
     let upcastLock = obj ()
 
     [<VolatileField>]

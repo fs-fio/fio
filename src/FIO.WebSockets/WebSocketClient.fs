@@ -43,11 +43,14 @@ module WebSocketClient =
             return new WebSocket(clientSocket, config)
         }
 
-    /// <summary>Creates an effect that connects to a WebSocket server at the specified URI with default configuration.</summary>
+    /// <summary>Creates an effect that connects to a WebSocket server at the specified URI with default configuration, observing the running fiber's cancellation token.</summary>
     /// <param name="uri">The URI of the WebSocket server to connect to.</param>
     /// <returns>An effect that produces a connected <c>WebSocket</c>.</returns>
     let connectWith (uri: Uri) =
-        connect uri WebSocketConfig.defaultConfig CancellationToken.None
+        fio {
+            let! ct = FIO.cancellationToken ()
+            return! connect uri WebSocketConfig.defaultConfig ct
+        }
 
     /// <summary>Creates an effect that connects to a WebSocket server from a URL string.</summary>
     /// <param name="url">The URL string of the WebSocket server to connect to.</param>
@@ -60,13 +63,16 @@ module WebSocketClient =
             return! connect uri config ct
         }
 
-    /// <summary>Creates an effect that connects to a WebSocket server from a URL string with default configuration.</summary>
+    /// <summary>Creates an effect that connects to a WebSocket server from a URL string with default configuration, observing the running fiber's cancellation token.</summary>
     /// <param name="url">The URL string of the WebSocket server to connect to.</param>
     /// <returns>An effect that produces a connected <c>WebSocket</c>.</returns>
     let connectStringWith (url: string) =
-        connectString url WebSocketConfig.defaultConfig CancellationToken.None
+        fio {
+            let! ct = FIO.cancellationToken ()
+            return! connectString url WebSocketConfig.defaultConfig ct
+        }
 
-    /// <summary>Creates an effect that connects to a WebSocket server from a URL string with default configuration.</summary>
+    /// <summary>Creates an effect that connects to a WebSocket server from a URL string with default configuration, observing the running fiber's cancellation token.</summary>
     /// <param name="url">The URL string of the WebSocket server to connect to.</param>
     /// <returns>An effect that produces a connected <c>WebSocket</c>.</returns>
     let connectDefault (url: string) = connectStringWith url
@@ -77,9 +83,16 @@ module WebSocketClient =
     /// <param name="config">The configuration options for the connection.</param>
     /// <param name="action">A function from the connected WebSocket to the effect to run.</param>
     /// <returns>An effect that produces the action's result and always closes the connection afterwards.</returns>
+    /// <remarks>The connection step observes the running fiber's cancellation token, so interrupting the fiber aborts the in-flight handshake.</remarks>
     let withConnection<'R> (uri: Uri) (config: WebSocketConfig) (action: WebSocket -> FIO<'R, WsError>) =
+        let acquire =
+            fio {
+                let! ct = FIO.cancellationToken ()
+                return! connect uri config ct
+            }
+
         FIO.acquireRelease (
-            connect uri config CancellationToken.None,
+            acquire,
             (fun ws ->
                 ws
                     .Close(Net.WebSockets.WebSocketCloseStatus.NormalClosure, "Closing connection")

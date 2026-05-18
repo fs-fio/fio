@@ -145,10 +145,14 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
             return! computation.Ensuring finalizer
         }
 
-    /// <summary>Creates an effect that receives a complete message from the connection using no cancellation token.</summary>
+    /// <summary>Creates an effect that receives a complete message from the connection, observing the running fiber's cancellation token.</summary>
     /// <returns>An effect that produces the received <c>WebSocketMessage</c>.</returns>
+    /// <remarks>The fiber's cancellation token is obtained automatically and linked with the configured receive timeout. To pass a custom token instead, use the overload that takes a <c>CancellationToken</c>.</remarks>
     member this.ReceiveMessage() =
-        this.ReceiveMessage CancellationToken.None
+        fio {
+            let! ct = FIO.cancellationToken ()
+            return! this.ReceiveMessage ct
+        }
 
     /// <summary>Creates an effect that sends a frame over the connection.</summary>
     /// <param name="frame">The WebSocket frame to send.</param>
@@ -231,11 +235,15 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
             return! computation.Ensuring finalizer
         }
 
-    /// <summary>Creates an effect that sends a frame over the connection using no cancellation token.</summary>
+    /// <summary>Creates an effect that sends a frame over the connection, observing the running fiber's cancellation token.</summary>
     /// <param name="frame">The WebSocket frame to send.</param>
     /// <returns>An effect that completes when the frame has been sent.</returns>
+    /// <remarks>The fiber's cancellation token is obtained automatically and linked with the configured send timeout.</remarks>
     member this.SendFrame(frame: WebSocketFrame) =
-        this.SendFrame(frame, CancellationToken.None)
+        fio {
+            let! ct = FIO.cancellationToken ()
+            return! this.SendFrame(frame, ct)
+        }
 
     /// <summary>Creates an effect that sends a text frame over the connection.</summary>
     /// <param name="text">The UTF-8 string to send.</param>
@@ -243,11 +251,14 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// <returns>An effect that completes when the text frame has been sent.</returns>
     member this.SendText(text: string, ct: CancellationToken) = this.SendFrame(Text text, ct)
 
-    /// <summary>Creates an effect that sends a text frame over the connection using no cancellation token.</summary>
+    /// <summary>Creates an effect that sends a text frame over the connection, observing the running fiber's cancellation token.</summary>
     /// <param name="text">The UTF-8 string to send.</param>
     /// <returns>An effect that completes when the text frame has been sent.</returns>
     member this.SendText(text: string) =
-        this.SendText(text, CancellationToken.None)
+        fio {
+            let! ct = FIO.cancellationToken ()
+            return! this.SendText(text, ct)
+        }
 
     /// <summary>Creates an effect that sends a binary frame over the connection.</summary>
     /// <param name="data">The byte array to send.</param>
@@ -255,11 +266,14 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// <returns>An effect that completes when the binary frame has been sent.</returns>
     member this.SendBinary(data: byte[], ct: CancellationToken) = this.SendFrame(Binary data, ct)
 
-    /// <summary>Creates an effect that sends a binary frame over the connection using no cancellation token.</summary>
+    /// <summary>Creates an effect that sends a binary frame over the connection, observing the running fiber's cancellation token.</summary>
     /// <param name="data">The byte array to send.</param>
     /// <returns>An effect that completes when the binary frame has been sent.</returns>
     member this.SendBinary(data: byte[]) =
-        this.SendBinary(data, CancellationToken.None)
+        fio {
+            let! ct = FIO.cancellationToken ()
+            return! this.SendBinary(data, ct)
+        }
 
     /// <summary>Creates an effect that encodes a value with the specified codec and sends it over the connection.</summary>
     /// <param name="codec">The codec to use for encoding the value into a frame.</param>
@@ -272,12 +286,15 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
             do! this.SendFrame(frameResult, ct)
         }
 
-    /// <summary>Creates an effect that encodes a value with the specified codec and sends it over the connection using no cancellation token.</summary>
+    /// <summary>Creates an effect that encodes a value with the specified codec and sends it over the connection, observing the running fiber's cancellation token.</summary>
     /// <param name="codec">The codec to use for encoding the value into a frame.</param>
     /// <param name="value">The value to encode and send.</param>
     /// <returns>An effect that completes when the encoded value has been sent.</returns>
     member this.Send<'T>(codec: WebSocketCodec<'T>, value: 'T) =
-        this.Send(codec, value, CancellationToken.None)
+        fio {
+            let! ct = FIO.cancellationToken ()
+            return! this.Send(codec, value, ct)
+        }
 
     /// <summary>Creates an effect that receives a frame and decodes it using the specified codec.</summary>
     /// <param name="codec">The codec to use for decoding the received frame.</param>
@@ -294,11 +311,14 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
                     )
         }
 
-    /// <summary>Creates an effect that receives a frame and decodes it using the specified codec with no cancellation token.</summary>
+    /// <summary>Creates an effect that receives a frame and decodes it using the specified codec, observing the running fiber's cancellation token.</summary>
     /// <param name="codec">The codec to use for decoding the received frame.</param>
     /// <returns>An effect that produces the decoded value, or fails if the connection is closed.</returns>
     member this.Receive<'T>(codec: WebSocketCodec<'T>) =
-        this.Receive(codec, CancellationToken.None)
+        fio {
+            let! ct = FIO.cancellationToken ()
+            return! this.Receive(codec, ct)
+        }
 
     /// <summary>Creates an effect that gracefully closes the connection with the specified status and description.</summary>
     /// <param name="closeStatus">The status code for the close handshake.</param>
@@ -332,12 +352,15 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
             return! closeOp.Ensuring finalizer
         }
 
-    /// <summary>Creates an effect that gracefully closes the connection with the specified status and description using no cancellation token.</summary>
+    /// <summary>Creates an effect that gracefully closes the connection with the specified status and description, observing the running fiber's cancellation token.</summary>
     /// <param name="closeStatus">The status code for the close handshake.</param>
     /// <param name="statusDescription">A human-readable description of the close reason.</param>
     /// <returns>An effect that completes when the close handshake finishes.</returns>
     member this.Close(closeStatus: WebSocketCloseStatus, statusDescription: string) =
-        this.Close(closeStatus, statusDescription, CancellationToken.None)
+        fio {
+            let! ct = FIO.cancellationToken ()
+            return! this.Close(closeStatus, statusDescription, ct)
+        }
 
     /// <summary>Creates an effect that gracefully closes the connection with normal closure status.</summary>
     /// <param name="ct">The cancellation token to observe during the close operation.</param>
@@ -345,9 +368,13 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     member this.Close(ct: CancellationToken) : FIO<unit, WsError> =
         this.Close(WebSocketCloseStatus.NormalClosure, "Normal closure", ct)
 
-    /// <summary>Creates an effect that gracefully closes the connection with normal closure status and no cancellation token.</summary>
+    /// <summary>Creates an effect that gracefully closes the connection with normal closure status, observing the running fiber's cancellation token.</summary>
     /// <returns>An effect that completes when the close handshake finishes.</returns>
-    member this.Close() = this.Close CancellationToken.None
+    member this.Close() : FIO<unit, WsError> =
+        fio {
+            let! ct = FIO.cancellationToken ()
+            return! this.Close ct
+        }
 
     /// <summary>Creates an effect that closes the outgoing side of the connection with the specified status and description.</summary>
     /// <param name="closeStatus">The status code for the outgoing close.</param>
@@ -374,17 +401,20 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
             return! closeOp.Ensuring finalizer
         }
 
-    /// <summary>Creates an effect that closes the outgoing side of the connection with the specified status and description using no cancellation token.</summary>
+    /// <summary>Creates an effect that closes the outgoing side of the connection with the specified status and description, observing the running fiber's cancellation token.</summary>
     /// <param name="closeStatus">The status code for the outgoing close.</param>
     /// <param name="statusDescription">A human-readable description of the close reason.</param>
     /// <returns>An effect that completes when the outgoing side has been closed.</returns>
     member this.CloseOutput(closeStatus: WebSocketCloseStatus, statusDescription: string) =
-        this.CloseOutput(closeStatus, statusDescription, CancellationToken.None)
+        fio {
+            let! ct = FIO.cancellationToken ()
+            return! this.CloseOutput(closeStatus, statusDescription, ct)
+        }
 
-    /// <summary>Creates an effect that closes the outgoing side of the connection with normal closure status.</summary>
+    /// <summary>Creates an effect that closes the outgoing side of the connection with normal closure status, observing the running fiber's cancellation token.</summary>
     /// <returns>An effect that completes when the outgoing side has been closed.</returns>
     member this.CloseOutput() =
-        this.CloseOutput(WebSocketCloseStatus.NormalClosure, "Normal closure", CancellationToken.None)
+        this.CloseOutput(WebSocketCloseStatus.NormalClosure, "Normal closure")
 
     /// <summary>Creates an effect that aborts the connection immediately without a close handshake.</summary>
     /// <returns>An effect that completes when the connection has been aborted.</returns>

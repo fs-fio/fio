@@ -89,8 +89,10 @@ module ServerSocket =
     /// <returns>An effect that produces a connected Socket for the accepted client, or fails with AcceptFailed.</returns>
     let accept (serverSocket: ServerSocket) =
         fio {
+            let! ct = FIO.cancellationToken ()
+
             let! netSocket =
-                FIO.awaitGenericTask (serverSocket.NetSocket.AcceptAsync(), AcceptFailed)
+                FIO.awaitGenericTask (serverSocket.NetSocket.AcceptAsync(ct).AsTask(), AcceptFailed)
 
             let config =
                 match serverSocket.Config.AcceptedSocketConfig with

@@ -26,6 +26,7 @@
         <Compile Include="DSL\Utilities.fs" />
         <Compile Include="DSL\Exceptions.fs" />
         <Compile Include="DSL\Core.fs" />
+        <Compile Include="DSL\FiberAmbient.fs" />
         <Compile Include="DSL\Factories.fs" />
         <Compile Include="DSL\Extensions.fs" />
         <Compile Include="DSL\Operators.fs" />

@@ -1,20 +1,10 @@
 # FIO.Sockets
 
-TCP socket library for [FIO](https://github.com/fs-fio/fio), the type-safe functional effect system for F#.
-
-## Install
+TCP sockets for [FIO](https://github.com/fs-fio/fio).
 
 ```bash
 dotnet add package FIO.Sockets
 ```
-
-## Features
-
-- **Socket client** — connect to TCP servers with configurable options
-- **Server socket** — accept incoming TCP connections
-- **Codec support** — encode/decode messages with custom codecs
-
-## Quick Start
 
 ```fsharp
 open FIO.DSL
@@ -28,8 +18,6 @@ let client = fio {
 }
 ```
 
-See the [examples](https://github.com/fs-fio/fio/tree/main/examples/FIO.Examples.Sockets) for more.
+Client connections, server accept, custom codecs.
 
-## License
-
-MIT — see [LICENSE.md](https://github.com/fs-fio/fio/blob/main/LICENSE.md).
+[Examples](https://github.com/fs-fio/fio/tree/main/examples/FIO.Examples.Sockets) · [MIT](https://github.com/fs-fio/fio/blob/main/LICENSE.md)

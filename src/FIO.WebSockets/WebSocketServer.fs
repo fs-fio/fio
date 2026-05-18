@@ -4,6 +4,7 @@ open FIO.DSL
 
 open System
 open System.Net
+open System.Threading.Tasks
 
 /// <summary>Builds effects for accepting incoming WebSocket connections on a server.</summary>
 [<RequireQualifiedAccess>]
@@ -42,12 +43,26 @@ module WebSocketServer =
     /// <param name="config">The configuration options for the accepted connection.</param>
     /// <param name="subProtocol">An optional subprotocol to negotiate during the handshake.</param>
     /// <returns>An effect that produces the accepted <c>WebSocket</c>, or fails if the request is not a WebSocket upgrade.</returns>
+    /// <remarks>The accept observes the running fiber's cancellation token. Because <c>HttpListener.GetContextAsync</c> has no native cancellation overload, interruption stops the listener via <c>HttpListener.Stop()</c>, which aborts every outstanding accept on that listener — acceptable when the listener is owned by the fiber via <c>serve</c>.</remarks>
     let accept (listener: HttpListener) (config: WebSocketConfig) (subProtocol: string option) =
         fio {
-            let! listenerCtxTask =
-                FIO.attempt ((fun () -> listener.GetContextAsync()), WsError.fromException)
+            let! ct = FIO.cancellationToken ()
 
-            let! listenerCtx = FIO.awaitGenericTask (listenerCtxTask, WsError.fromException)
+            let! listenerCtx =
+                FIO.awaitGenericTask (
+                    Task.Run<HttpListenerContext>(fun () ->
+                        task {
+                            use _reg =
+                                ct.Register(fun () ->
+                                    try
+                                        listener.Stop()
+                                    with _ ->
+                                        ())
+
+                            return! listener.GetContextAsync()
+                        }),
+                    WsError.fromException
+                )
 
             if listenerCtx.Request.IsWebSocketRequest then
                 let subProto =

@@ -71,10 +71,13 @@ and internal BlockingWorkerConfig =
     }
 
 /// <summary>Represents a blocking item paired with the number of consecutive polling misses it has accumulated.</summary>
-and [<Struct>] internal BlockingEntry = { /// <summary>Represents the underlying blocking item (channel or fiber).</summary>
-                                          Item: BlockingItem
-                                          /// <summary>Represents the cumulative number of polling iterations where this entry was not ready.</summary>
-                                          MissCount: int }
+and [<Struct>] internal BlockingEntry =
+    {
+        /// <summary>Represents the underlying blocking item (channel or fiber).</summary>
+        Item: BlockingItem
+        /// <summary>Represents the cumulative number of polling iterations where this entry was not ready.</summary>
+        MissCount: int
+    }
 
 /// <summary>Represents an evaluation worker that takes runnable work items from a shared channel and interprets them on the cooperative runtime.</summary>
 /// <param name="config">The evaluation worker configuration.</param>

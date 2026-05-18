@@ -28,9 +28,11 @@ module SocketClient =
                     SocketError.fromException
                 )
 
+            let! ct = FIO.cancellationToken ()
+
             do!
                 FIO.awaitTask (
-                    netSocket.ConnectAsync(config.Host, config.Port),
+                    netSocket.ConnectAsync(config.Host, config.Port, ct).AsTask(),
                     fun ex -> ConnectionFailed(config.Host, config.Port, ex)
                 )
 
