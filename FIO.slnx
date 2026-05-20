@@ -26,7 +26,6 @@
 
     <Folder Name="/FIO Benchmarks/">
         <Project Path="benchmarks/FIO.Benchmarks/FIO.Benchmarks.fsproj" />
-        <Project Path="benchmarks/FIO.Benchmarks.Plots/FIO.Benchmarks.Plots.fsproj" />
     </Folder>
 
     <Folder Name="/FIO Tests/">

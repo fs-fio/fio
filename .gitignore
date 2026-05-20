@@ -1,4 +1,3 @@
-
 # Originally created by https://www.gitignore.io/api/windows,linux,visualstudio,visualstudiocode,osx,xamarinstudio,f#,monodevelop,vim,emacs,node,bower on 2016-03-19
 # Last updated: 2016-03-20
 
@@ -449,21 +448,23 @@ Scripts/
 ### CUSTOM ###
 .ionide
 
-### FIO Benchmarks ###
-/benchmarks/FIO.Benchmarks/results
-/benchmarks/FIO.Benchmarks.Plots/boxplot_data
-/benchmarks/FIO.Benchmarks.Plots/lineplot_data
-
-### Cursor ###
-.cursor/rules/cursor-rule.mdc
-.cursor/rules/fio-cursor-rule.mdc
 
 ### Claude ###
 .claude
 **CLAUDE.md
 
+
 ### Codex ###
 AGENTS.md
 
+
 ### Agent reports ###
 outputs/
+
+
+### BenchmarkDotNet artifacts ###
+BenchmarkDotNet.Artifacts/
+
+### Python ###
+.venv/
+__pycache__/

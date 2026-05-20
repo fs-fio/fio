@@ -6,17 +6,18 @@
         <WarningsAsErrors>true</WarningsAsErrors>
     </PropertyGroup>
 
-
     <ItemGroup>
-        <Compile Include="Tools\Timer.fs" />
-        <Compile Include="Suite\Types.fs" />
-        <Compile Include="Suite\Pingpong.fs" />
-        <Compile Include="Suite\Threadring.fs" />
-        <Compile Include="Suite\Big.fs" />
-        <Compile Include="Suite\Bang.fs" />
-        <Compile Include="Suite\Fork.fs" />
-        <Compile Include="Suite\BenchmarkRunner.fs" />
-        <Compile Include="Args.fs" />
+        <Compile Include="RuntimeParam.fs" />
+        <Compile Include="Effects\Pingpong.fs" />
+        <Compile Include="Effects\Threadring.fs" />
+        <Compile Include="Effects\Big.fs" />
+        <Compile Include="Effects\Bang.fs" />
+        <Compile Include="Effects\Fork.fs" />
+        <Compile Include="Benchmarks\PingpongBenchmarks.fs" />
+        <Compile Include="Benchmarks\ThreadringBenchmarks.fs" />
+        <Compile Include="Benchmarks\BigBenchmarks.fs" />
+        <Compile Include="Benchmarks\BangBenchmarks.fs" />
+        <Compile Include="Benchmarks\ForkBenchmarks.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 
@@ -25,7 +26,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="Argu" Version="6.2.5" />
+        <PackageReference Include="BenchmarkDotNet" Version="0.14.0" />
     </ItemGroup>
 
     <ItemGroup>
