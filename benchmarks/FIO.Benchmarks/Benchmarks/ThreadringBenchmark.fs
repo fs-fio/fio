@@ -10,13 +10,14 @@ open System
 
 [<MemoryDiagnoser>]
 [<RankColumn>]
-type BangBenchmarks() =
+type ThreadringBenchmark() =
     let mutable runtime: FIORuntime = Unchecked.defaultof<_>
 
-    member _.ActorCounts = RuntimeParam.intParams "FIO_BENCH_BANG_ACTORS" [| 50; 200 |]
+    member _.ActorCounts =
+        RuntimeParam.intParams "FIO_BENCH_THREADRING_ACTORS" [| 50; 100 |]
 
     member _.RoundCounts =
-        RuntimeParam.intParams "FIO_BENCH_BANG_ROUNDS" [| 1_000; 5_000 |]
+        RuntimeParam.intParams "FIO_BENCH_THREADRING_ROUNDS" [| 1_000; 10_000 |]
 
     member _.Runtimes = RuntimeParam.runtimes ()
 
@@ -41,4 +42,4 @@ type BangBenchmarks() =
 
     [<Benchmark>]
     member this.Run() =
-        runtime.Run(Bang.effect (this.ActorCount, this.RoundCount)).Task()
+        runtime.Run(Threadring.effect (this.ActorCount, this.RoundCount)).Task()

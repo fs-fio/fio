@@ -105,7 +105,6 @@ let effect (actorCount: int, roundCount: int) : FIO<unit, exn> =
         let startChan = Channel<int>()
         let actors = createActors actorCount
 
-        // Send start signal to all actors
         for _ in 1..actorCount do
             do! startChan.Send(0).Unit()
 

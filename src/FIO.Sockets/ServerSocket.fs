@@ -92,7 +92,7 @@ module ServerSocket =
             let! ct = FIO.cancellationToken ()
 
             let! netSocket =
-                FIO.awaitGenericTask (serverSocket.NetSocket.AcceptAsync(ct).AsTask(), AcceptFailed)
+                FIO.awaitTask (serverSocket.NetSocket.AcceptAsync(ct).AsTask(), AcceptFailed)
 
             let config =
                 match serverSocket.Config.AcceptedSocketConfig with

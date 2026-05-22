@@ -49,7 +49,7 @@ module WebSocketServer =
             let! ct = FIO.cancellationToken ()
 
             let! listenerCtx =
-                FIO.awaitGenericTask (
+                FIO.awaitTask (
                     Task.Run<HttpListenerContext>(fun () ->
                         task {
                             use _reg =
@@ -73,7 +73,7 @@ module WebSocketServer =
                 let! ctxTask =
                     FIO.attempt ((fun () -> listenerCtx.AcceptWebSocketAsync subProto), WsError.fromException)
 
-                let! ctx = FIO.awaitGenericTask (ctxTask, WsError.fromException)
+                let! ctx = FIO.awaitTask (ctxTask, WsError.fromException)
                 return new WebSocket(ctx.WebSocket, config)
             else
                 do! FIO.attempt ((fun () -> listenerCtx.Response.StatusCode <- 400), WsError.fromException)

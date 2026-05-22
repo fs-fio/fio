@@ -296,19 +296,22 @@ type FIO<'R, 'E> with
                         .FlatMap(fun fiber2 ->
                             let resultChan = new Channel<Choice<Result<'R, 'E>, Result<'R, 'E>>>()
 
-                            let waiter1: FIO<Choice<Result<'R, 'E>, Result<'R, 'E>>, 'E> =
+                            let inline sendUnit choice : FIO<unit, 'E> =
+                                resultChan.Send(choice).Map(fun _ -> ())
+
+                            let waiter1: FIO<unit, 'E> =
                                 fiber1
                                     .Join()
-                                    .FlatMap(fun r -> resultChan.Send(Choice1Of2(Ok r)))
-                                    .CatchAll(fun e -> resultChan.Send(Choice1Of2(Error e)))
-                                    .CatchAll(fun _ -> FIO.succeed Unchecked.defaultof<_>)
+                                    .FlatMap(fun r -> sendUnit (Choice1Of2(Ok r)))
+                                    .CatchAll(fun e -> sendUnit (Choice1Of2(Error e)))
+                                    .CatchAll(fun _ -> FIO.succeed ())
 
-                            let waiter2: FIO<Choice<Result<'R, 'E>, Result<'R, 'E>>, 'E> =
+                            let waiter2: FIO<unit, 'E> =
                                 fiber2
                                     .Join()
-                                    .FlatMap(fun r -> resultChan.Send(Choice2Of2(Ok r)))
-                                    .CatchAll(fun e -> resultChan.Send(Choice2Of2(Error e)))
-                                    .CatchAll(fun _ -> FIO.succeed Unchecked.defaultof<_>)
+                                    .FlatMap(fun r -> sendUnit (Choice2Of2(Ok r)))
+                                    .CatchAll(fun e -> sendUnit (Choice2Of2(Error e)))
+                                    .CatchAll(fun _ -> FIO.succeed ())
 
                             waiter1
                                 .Fork()

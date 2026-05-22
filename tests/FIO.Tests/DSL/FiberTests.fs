@@ -629,7 +629,6 @@ let fiberTests =
                     testAllRuntimes "InterruptionCause - all cause variants can be matched" (fun runtime ->
                         let causes =
                             [
-                                Timeout 1000.0
                                 ExplicitInterrupt
                                 InvalidArgument("arg", "bad value")
                                 ResourceExhaustion "out of memory"
@@ -642,5 +641,49 @@ let fiberTests =
                             match result with
                             | Interrupted ex -> Expect.equal ex.cause cause $"Cause {cause} should round-trip"
                             | _ -> failtest $"Expected Interrupted for cause {cause}")
+
+                    testCase "SetOnTerminal - fires exactly once even on post-terminal install (R-1)"
+                    <| fun () ->
+                        let runtime = DirectRuntime()
+                        let fiber = runtime.Run(FIO.succeed 1)
+                        fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously |> ignore
+
+                        let firstCount = ref 0
+                        let secondCount = ref 0
+                        fiber.Context.SetOnTerminal(fun () -> incr firstCount)
+                        fiber.Context.SetOnTerminal(fun () -> incr secondCount)
+
+                        Expect.equal
+                            firstCount.Value
+                            1
+                            "First post-terminal SetOnTerminal callback should fire exactly once"
+
+                        Expect.equal
+                            secondCount.Value
+                            0
+                            "Second post-terminal SetOnTerminal callback should NOT fire (CAS gate already won)"
+
+                    testCase "SetOnTerminal - second install after pre-terminal install does not refire (R-1)"
+                    <| fun () ->
+                        let runtime = DirectRuntime()
+                        let fiber = runtime.Run(FIO.sleep (TimeSpan.FromMilliseconds 20.0, id))
+
+                        let firstCount = ref 0
+                        let secondCount = ref 0
+                        fiber.Context.SetOnTerminal(fun () -> incr firstCount)
+
+                        fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously |> ignore
+
+                        fiber.Context.SetOnTerminal(fun () -> incr secondCount)
+
+                        Expect.equal
+                            firstCount.Value
+                            1
+                            "Pre-terminal SetOnTerminal callback should fire exactly once on completion"
+
+                        Expect.equal
+                            secondCount.Value
+                            0
+                            "Post-terminal SetOnTerminal after pre-terminal install must not refire (gate consumed)"
                 ]
         ]

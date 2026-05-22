@@ -6,8 +6,6 @@ open System
 
 /// <summary>Represents the cause of a fiber's interruption.</summary>
 type InterruptionCause =
-    /// <summary>Represents interruption triggered by a timeout, carrying the elapsed duration in milliseconds.</summary>
-    | Timeout of durationMs: float
     /// <summary>Represents interruption cascaded from a parent fiber, carrying the parent's identifier.</summary>
     | ParentInterrupted of parentFiberId: Guid
     /// <summary>Represents an explicit interruption requested via <c>Fiber.Interrupt</c>.</summary>
@@ -21,7 +19,6 @@ type InterruptionCause =
     /// <returns>A short string identifying the cause and any data it carries.</returns>
     override this.ToString() =
         match this with
-        | Timeout ms -> $"Timeout ({ms}ms)"
         | ParentInterrupted id -> $"ParentInterrupted ({id})"
         | ExplicitInterrupt -> "ExplicitInterrupt"
         | InvalidArgument(arg, reason) -> $"InvalidArgument ({arg}: {reason})"

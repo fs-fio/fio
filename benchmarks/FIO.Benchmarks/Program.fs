@@ -24,8 +24,7 @@ let private buildConfig () =
         | "" -> defaultIterationCount
         | value -> int value
 
-    let job =
-        Job.Default.WithWarmupCount(warmupCount).WithIterationCount iterationCount
+    let job = Job.Default.WithWarmupCount(warmupCount).WithIterationCount iterationCount
 
     ManualConfig.Create(DefaultConfig.Instance).AddJob job
 
@@ -36,11 +35,11 @@ let main args =
     BenchmarkSwitcher
         .FromTypes(
             [|
-                typeof<PingpongBenchmarks>
-                typeof<ThreadringBenchmarks>
-                typeof<BigBenchmarks>
-                typeof<BangBenchmarks>
-                typeof<ForkBenchmarks>
+                typeof<PingpongBenchmark>
+                typeof<ThreadringBenchmark>
+                typeof<BigBenchmark>
+                typeof<BangBenchmark>
+                typeof<ForkBenchmark>
             |]
         )
         .Run(args, config)

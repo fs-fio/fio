@@ -34,17 +34,17 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     let fromFunc (func: unit -> 'T) =
         FIO.attempt (func, WsError.fromException)
 
-    /// <summary>Lifts a non-generic .NET Task into a WebSocket effect, mapping exceptions to <c>WsError</c>.</summary>
+    /// <summary>Lifts a unit-returning .NET Task into a WebSocket effect, mapping exceptions to <c>WsError</c>.</summary>
     /// <param name="task">The task to await.</param>
     /// <returns>An effect that completes when the task finishes or fails with a <c>WsError</c>.</returns>
-    let awaitTask (task: Task) =
-        FIO.awaitTask (task, WsError.fromException)
+    let awaitUnitTask (task: Task) =
+        FIO.awaitUnitTask (task, WsError.fromException)
 
-    /// <summary>Lifts a generic .NET Task into a WebSocket effect, mapping exceptions to <c>WsError</c>.</summary>
+    /// <summary>Lifts a <c>Task&lt;'T&gt;</c> into a WebSocket effect, mapping exceptions to <c>WsError</c>.</summary>
     /// <param name="task">The task to await.</param>
     /// <returns>An effect that produces the task's result or fails with a <c>WsError</c>.</returns>
-    let awaitTaskT (task: Task<'T>) =
-        FIO.awaitGenericTask (task, WsError.fromException)
+    let awaitTask (task: Task<'T>) =
+        FIO.awaitTask (task, WsError.fromException)
 
     /// <summary>Creates an effect that receives a complete message from the connection.</summary>
     /// <param name="ct">The cancellation token to observe during the receive operation.</param>
@@ -72,7 +72,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
             let effectiveToken = linkedCts.Token
 
             let! lockTask = fromFunc <| fun () -> receiveLock.WaitAsync effectiveToken
-            do! awaitTask lockTask
+            do! awaitUnitTask lockTask
 
             let bufferSize = config.ReceiveBufferSize
             let buffer = ArrayPool<byte>.Shared.Rent bufferSize
@@ -92,7 +92,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
                             fromFunc
                             <| fun () -> socket.ReceiveAsync(ArraySegment(buffer, 0, bufferSize), effectiveToken)
 
-                        let! receiveResult = awaitTaskT receiveTask
+                        let! receiveResult = awaitTask receiveTask
 
                         messageType <- receiveResult.MessageType
                         endOfMessage <- receiveResult.EndOfMessage
@@ -180,7 +180,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
             let effectiveToken = linkedCts.Token
 
             let! lockTask = fromFunc <| fun () -> sendLock.WaitAsync effectiveToken
-            do! awaitTask lockTask
+            do! awaitUnitTask lockTask
 
             let computation =
                 fio {
@@ -204,7 +204,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
                                             effectiveToken
                                         )
 
-                                do! awaitTask sendTask
+                                do! awaitUnitTask sendTask
                             }
 
                         let returnBuffer = fromFunc <| fun () -> ArrayPool<byte>.Shared.Return buffer
@@ -216,13 +216,13 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
                             <| fun () ->
                                 socket.SendAsync(ArraySegment data, WebSocketMessageType.Binary, true, effectiveToken)
 
-                        do! awaitTask sendTask
+                        do! awaitUnitTask sendTask
 
                     | Close(status, description) ->
                         let! closeTask =
                             fromFunc <| fun () -> socket.CloseAsync(status, description, effectiveToken)
 
-                        do! awaitTask closeTask
+                        do! awaitUnitTask closeTask
                 }
 
             let finalizer =
@@ -328,16 +328,16 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     member _.Close(closeStatus: WebSocketCloseStatus, statusDescription: string, ct: CancellationToken) =
         fio {
             let! sendLockTask = fromFunc <| fun () -> sendLock.WaitAsync ct
-            do! awaitTask sendLockTask
+            do! awaitUnitTask sendLockTask
             let! receiveLockTask = fromFunc <| fun () -> receiveLock.WaitAsync ct
-            do! awaitTask receiveLockTask
+            do! awaitUnitTask receiveLockTask
 
             let closeOp =
                 fio {
                     let! closeTask =
                         fromFunc <| fun () -> socket.CloseAsync(closeStatus, statusDescription, ct)
 
-                    do! awaitTask closeTask
+                    do! awaitUnitTask closeTask
                 }
 
             let finalizer =
@@ -384,7 +384,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     member _.CloseOutput(closeStatus: WebSocketCloseStatus, statusDescription: string, ct: CancellationToken) =
         fio {
             let! sendLockTask = fromFunc <| fun () -> sendLock.WaitAsync ct
-            do! awaitTask sendLockTask
+            do! awaitUnitTask sendLockTask
 
             let closeOp =
                 fio {
@@ -392,7 +392,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
                         fromFunc
                         <| fun () -> socket.CloseOutputAsync(closeStatus, statusDescription, ct)
 
-                    do! awaitTask closeTask
+                    do! awaitUnitTask closeTask
                 }
 
             let finalizer =

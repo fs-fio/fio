@@ -13,11 +13,11 @@
         <Compile Include="Effects\Big.fs" />
         <Compile Include="Effects\Bang.fs" />
         <Compile Include="Effects\Fork.fs" />
-        <Compile Include="Benchmarks\PingpongBenchmarks.fs" />
-        <Compile Include="Benchmarks\ThreadringBenchmarks.fs" />
-        <Compile Include="Benchmarks\BigBenchmarks.fs" />
-        <Compile Include="Benchmarks\BangBenchmarks.fs" />
-        <Compile Include="Benchmarks\ForkBenchmarks.fs" />
+        <Compile Include="Benchmarks\PingpongBenchmark.fs" />
+        <Compile Include="Benchmarks\ThreadringBenchmark.fs" />
+        <Compile Include="Benchmarks\BigBenchmark.fs" />
+        <Compile Include="Benchmarks\BangBenchmark.fs" />
+        <Compile Include="Benchmarks\ForkBenchmark.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 
@@ -26,11 +26,11 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="BenchmarkDotNet" Version="0.14.0" />
+        <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Update="FSharp.Core" Version="10.1.201" />
+        <PackageReference Update="FSharp.Core" Version="10.1.300" />
     </ItemGroup>
 
 </Project>

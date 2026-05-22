@@ -27,19 +27,19 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="coverlet.collector" Version="8.0.1">
+        <PackageReference Include="coverlet.collector" Version="10.0.1">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
+        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.5.1" />
         <PackageReference Include="Expecto" Version="10.2.3" />
         <PackageReference Include="Expecto.FsCheck" Version="10.2.3" />
         <PackageReference Include="FsCheck" Version="2.16.6" />
-        <PackageReference Include="YoloDev.Expecto.TestSdk" Version="0.15.5" />
+        <PackageReference Include="YoloDev.Expecto.TestSdk" Version="0.15.6" />
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Update="FSharp.Core" Version="10.1.201" />
+        <PackageReference Update="FSharp.Core" Version="10.1.300" />
     </ItemGroup>
 
 </Project>

@@ -10,11 +10,14 @@ open System
 
 [<MemoryDiagnoser>]
 [<RankColumn>]
-type BigBenchmarks() =
+type BangBenchmark() =
     let mutable runtime: FIORuntime = Unchecked.defaultof<_>
 
-    member _.ActorCounts = RuntimeParam.intParams "FIO_BENCH_BIG_ACTORS" [| 10; 25 |]
-    member _.RoundCounts = RuntimeParam.intParams "FIO_BENCH_BIG_ROUNDS" [| 100; 500 |]
+    member _.ActorCounts = RuntimeParam.intParams "FIO_BENCH_BANG_ACTORS" [| 50; 200 |]
+
+    member _.RoundCounts =
+        RuntimeParam.intParams "FIO_BENCH_BANG_ROUNDS" [| 1_000; 5_000 |]
+
     member _.Runtimes = RuntimeParam.runtimes ()
 
     [<ParamsSource("ActorCounts")>]
@@ -38,4 +41,4 @@ type BigBenchmarks() =
 
     [<Benchmark>]
     member this.Run() =
-        runtime.Run(Big.effect (this.ActorCount, this.RoundCount)).Task()
+        runtime.Run(Bang.effect (this.ActorCount, this.RoundCount)).Task()

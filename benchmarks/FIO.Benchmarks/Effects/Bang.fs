@@ -40,7 +40,6 @@ let effect (actorCount: int, roundCount: int) : FIO<unit, exn> =
         let receivingActor = { Chan = Channel<int>() }
         let sendingActors = createSendingActors (receivingActor.Chan, actorCount)
 
-        // Send start signal to receiver + all senders
         for _ in 1 .. (actorCount + 1) do
             do! startChan.Send(0).Unit()
 

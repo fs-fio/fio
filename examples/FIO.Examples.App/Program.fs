@@ -3,9 +3,7 @@ module private FIO.Examples.App
 
 open FIO.DSL
 open FIO.App
-open FIO.Random
 open FIO.Console
-open FIO.Environment
 open FIO.Runtime.Concurrent
 
 open System
@@ -98,13 +96,13 @@ type ForApp() =
         }
 
 /// <summary>Represents an interactive FIOApp that generates a random target number and loops until the user guesses it correctly, providing higher/lower feedback.</summary>
-/// <remarks>Demonstrates while loops, mutable state, Random.nextIntRange, and input parsing inside a fio CE for an interactive game loop.</remarks>
+/// <remarks>Demonstrates while loops, mutable state, FIO.attempt for wrapping Random.Shared.Next as an FIO effect, and input parsing inside a fio CE for an interactive game loop.</remarks>
 type GuessNumberApp() =
     inherit FIOApp<int, exn>()
 
     override _.effect =
         fio {
-            let! numberToGuess = Random.nextIntRange (1, 101)
+            let! numberToGuess = FIO.attempt ((fun () -> Random.Shared.Next(1, 101)), id)
             let mutable guess = -1
 
             while guess <> numberToGuess do
@@ -234,7 +232,7 @@ type PingPongMatchApp() =
 
             let! sentMsg =
                 fio {
-                    match! Random.nextIntRange (0, 2) with
+                    match! FIO.attempt ((fun () -> Random.Shared.Next(0, 2)), _.Message) with
                     | 0 -> do! chan2.Send PongMsg
                     | _ -> do! chan2.Send PingMsg
                 }
@@ -400,7 +398,7 @@ type HighlyConcurrentApp() =
     /// <returns>An effect that completes after sending one message and printing a confirmation.</returns>
     let sender (chan: Channel<int>) id =
         fio {
-            let! msg = Random.nextIntRange (100, 501)
+            let! msg = FIO.attempt ((fun () -> Random.Shared.Next(100, 501)), Operators.id)
             do! chan.Send(msg).Unit()
             do! Console.printLine ($"Sender[%i{id}] sent: %i{msg}", Operators.id)
         }
@@ -443,16 +441,16 @@ type HighlyConcurrentApp() =
             return! create chan (fiberCount - 1) acc
         }
 
-/// <summary>Represents an FIOApp that wraps .NET Tasks as FIO fibers using FIO.fromGenericTask, demonstrating how to run Task-based computations within the fiber runtime.</summary>
-/// <remarks>Uses FIO.fromGenericTask to fork each Fibonacci computation as a managed fiber, then joins all three concurrently with &lt;&amp;&amp;&gt;.</remarks>
+/// <summary>Represents an FIOApp that wraps .NET Tasks as FIO fibers using FIO.forkTask, demonstrating how to run Task-based computations within the fiber runtime.</summary>
+/// <remarks>Uses FIO.forkTask to fork each Fibonacci computation as a managed fiber, then joins all three concurrently with &lt;&amp;&amp;&gt;.</remarks>
 type FiberFromTaskApp() =
     inherit FIOApp<unit, exn>()
 
-    /// <summary>Builds an effect that computes a Fibonacci number inside a .NET Task, wrapped as a forkable FIO fiber via FIO.fromGenericTask.</summary>
+    /// <summary>Builds an effect that computes a Fibonacci number inside a .NET Task, wrapped as a forkable FIO fiber via FIO.forkTask.</summary>
     /// <param name="n">The Fibonacci index to compute.</param>
     /// <returns>An effect that forks the Task and produces a Fiber that can be joined to await completion.</returns>
     let fibonacci n =
-        FIO.fromGenericTask (
+        FIO.forkTask (
             (fun () ->
                 task {
                     let fib (n: int64) =
@@ -492,7 +490,7 @@ type FiberFromTaskApp() =
         }
 
 /// <summary>Represents an FIOApp that wraps .NET Tasks returning string results as FIO fibers, demonstrating how to retrieve typed results from Task-based computations.</summary>
-/// <remarks>Similar to FiberFromTaskApp but the Tasks return result strings, showing how FIO.fromGenericTask preserves the Task's return type through the fiber.</remarks>
+/// <remarks>Similar to FiberFromTaskApp but the Tasks return result strings, showing how FIO.forkTask preserves the Task's return type through the fiber.</remarks>
 type FiberFromGenericTaskApp() =
     inherit FIOApp<unit, exn>()
 
@@ -500,7 +498,7 @@ type FiberFromGenericTaskApp() =
     /// <param name="n">The Fibonacci index to compute.</param>
     /// <returns>An effect that forks the Task and produces a Fiber whose join result is the formatted Fibonacci string.</returns>
     let fibonacci n =
-        FIO.fromGenericTask (
+        FIO.forkTask (
             (fun () ->
                 task {
                     let fib (n: int64) =
@@ -565,7 +563,6 @@ type CustomRuntimeApp() =
             EWC = System.Environment.ProcessorCount * 2
             EWS = 500
             BWC = 2
-            MaxFibers = None
         }
 
     override _.effect =
@@ -581,7 +578,6 @@ type CustomRuntimeApp() =
 type ShutdownApp() =
     inherit FIOApp<unit, exn>()
 
-    override _.verbose = true
     override _.onShutdownTimeout = TimeSpan.FromSeconds 5.0
 
     override _.onShutdown() =
@@ -603,18 +599,21 @@ type ShutdownApp() =
             do! Console.printLine ("Completed normally (no Ctrl+C)", id)
         }
 
-/// <summary>Represents an FIOApp that overrides exitCodeSuccess and exitCodeError to map effect outcomes to custom process exit codes.</summary>
-/// <remarks>Demonstrates exit code customization: the effect returns an int on success or fails with an int, and the overridden members translate each outcome to the process exit code.</remarks>
+/// <summary>Represents an FIOApp that overrides <c>mapExitCode</c> to translate effect outcomes into custom process exit codes.</summary>
+/// <remarks>Demonstrates exit-code customization via the unified <c>AppOutcome</c> mapping: the effect returns an int on success or fails with an int, and the override translates each outcome to the process exit code.</remarks>
 type CustomExitCodeApp() =
     inherit FIOApp<int, int>()
 
-    override _.exitCodeSuccess res =
-        printfn $"Success with value: {res}"
-        0
-
-    override _.exitCodeError err =
-        printfn $"Failed with error code: {err}"
-        err
+    override _.mapExitCode outcome =
+        match outcome with
+        | AppSucceeded res ->
+            printfn $"Success with value: {res}"
+            0
+        | AppFailed err ->
+            printfn $"Failed with error code: {err}"
+            err
+        | AppInterrupted _ -> 130
+        | AppFatalError _ -> 2
 
     override _.effect =
         fio {
@@ -626,108 +625,6 @@ type CustomExitCodeApp() =
             | true, n when n > 0 && n <= 5 -> return! FIO.fail n
             | _ -> return! FIO.fail 99
         }
-
-/// <summary>Represents an FIOApp that queries system information and environment variables using the Environment module effects.</summary>
-/// <remarks>Demonstrates Environment.processorCount, Environment.machineName, Environment.getOption, Environment.getOrDefault, Environment.getIntOrDefault, and Environment.getBoolOrDefault for typed environment access.</remarks>
-type EnvironmentApp() =
-    inherit FIOApp<unit, exn>()
-
-    override _.effect =
-        fio {
-            do! Console.printLine ("Environment Module Examples:", id)
-            do! Console.printLine ("", id)
-
-            // System info effects
-            let! processorCount = Environment.processorCount ()
-            do! Console.printLine ($"  ProcessorCount: {processorCount}", id)
-
-            let! is64Proc = Environment.is64BitProcess ()
-            do! Console.printLine ($"  Is64BitProcess: {is64Proc}", id)
-
-            let! is64Os = Environment.is64BitOperatingSystem ()
-            do! Console.printLine ($"  Is64BitOperatingSystem: {is64Os}", id)
-            do! Console.printLine ("", id)
-
-            // System info effects
-            let! cwd = Environment.currentDirectory ()
-            do! Console.printLine ($"  CurrentDirectory: {cwd}", id)
-
-            let! machine = Environment.machineName ()
-            do! Console.printLine ($"  MachineName: {machine}", id)
-
-            let! user = Environment.userName ()
-            do! Console.printLine ($"  UserName: {user}", id)
-
-            let! tempPath = Environment.getTempPath ()
-            do! Console.printLine ($"  TempPath: {tempPath}", id)
-            do! Console.printLine ("", id)
-
-            // Environment variables
-            let! pathOpt = Environment.getOption "PATH"
-
-            match pathOpt with
-            | Some path ->
-                let truncated =
-                    if path.Length > 50 then
-                        path.Substring(0, 50) + "..."
-                    else
-                        path
-
-                do! Console.printLine ($"  PATH: {truncated}", id)
-            | None -> do! Console.printLine ("  PATH: (not set)", id)
-
-            let! port = Environment.getOrDefault ("PORT", "8080")
-            do! Console.printLine ($"  PORT (or default): {port}", id)
-
-            let! homeSet = Environment.isSet "HOME"
-            let! userProfileSet = Environment.isSet "USERPROFILE"
-            do! Console.printLine ($"  HOME is set: {homeSet}", id)
-            do! Console.printLine ($"  USERPROFILE is set: {userProfileSet}", id)
-
-            let! timeout = Environment.getIntOrDefault ("TIMEOUT_SECONDS", 30)
-            do! Console.printLine ($"  TIMEOUT_SECONDS (or default): {timeout}", id)
-
-            let! debug = Environment.getBoolOrDefault ("DEBUG", false)
-            do! Console.printLine ($"  DEBUG (or default): {debug}", id)
-        }
-
-/// <summary>Represents an FIOApp that enables the automatic startup banner by setting showBanner to true and providing name and version properties.</summary>
-/// <remarks>Demonstrates the built-in banner feature: when showBanner is true, FIOApp prints a formatted banner with the app name and version before running the effect.</remarks>
-type BannerApp() as this =
-    inherit FIOApp<unit, exn>()
-
-    override _.name = "FIO Banner Demo"
-    override _.version = "1.0.0"
-    override _.showBanner = true
-
-    override _.effect =
-        fio {
-            do! Console.printLine ("", id)
-            do! Console.printLine ("The banner above was automatically displayed!", id)
-            do! Console.printLine ($"App name: {this.name}", id)
-            do! Console.printLine ($"App version: {this.version}", id)
-        }
-
-/// <summary>Represents an FIOApp that overrides the banner property with a custom ASCII art string, demonstrating fully customized startup banner display.</summary>
-/// <remarks>Shows that the banner property can be overridden with any string content, giving full control over the startup display while still using the showBanner toggle.</remarks>
-type CustomBannerApp() =
-    inherit FIOApp<unit, exn>()
-
-    override _.name = "Custom Banner App"
-    override _.version = "2.0.0"
-    override _.showBanner = true
-
-    override _.banner =
-        """
-  ╔═══════════════════════════════════╗
-  ║     🚀 Custom Banner App 🚀       ║
-  ║         Version 2.0.0             ║
-  ║   Powered by FIO Effect System    ║
-  ╚═══════════════════════════════════╝
-        """
-
-    override _.effect =
-        fio { do! Console.printLine ("This app uses a custom banner defined by overriding the 'banner' property.", id) }
 
 /// <summary>Provides the registry of all FIOApp example names paired with their runner functions for sequential interactive execution.</summary>
 let examples =
@@ -752,9 +649,6 @@ let examples =
         nameof CustomRuntimeApp, fun () -> CustomRuntimeApp().Run()
         nameof ShutdownApp, fun () -> ShutdownApp().Run()
         nameof CustomExitCodeApp, fun () -> CustomExitCodeApp().Run()
-        nameof EnvironmentApp, fun () -> EnvironmentApp().Run()
-        nameof BannerApp, fun () -> BannerApp().Run()
-        nameof CustomBannerApp, fun () -> CustomBannerApp().Run()
     ]
 
 examples

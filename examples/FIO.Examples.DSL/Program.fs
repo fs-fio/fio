@@ -138,73 +138,6 @@ let interruptFiber () =
     let fiber = (new DefaultRuntime()).Run interrupter
     fiber.UnsafePrintResult()
 
-/// <summary>Builds an effect that creates an atomic Ref counter, increments it from ten parallel fibers using collectAllPar, and verifies the final count.</summary>
-/// <remarks>Demonstrates Ref for shared mutable state: UpdateAndGet atomically modifies the counter, and collectAllPar runs all increments concurrently to exercise the atomicity guarantee.</remarks>
-let refCounter () =
-    let effect =
-        fio {
-            let! counter = Ref.makeValue 0
-            let increment = counter.UpdateAndGet((fun n -> n + 1), id)
-            let! _ = FIO.collectAllPar (List.replicate 10 increment)
-            let! final = counter.Get()
-            do! Console.printLine ($"Final counter value: {final} (expected: 10)", id)
-        }
-
-    let fiber = (new DefaultRuntime()).Run effect
-    fiber.UnsafePrintResult()
-
-/// <summary>Builds a producer-consumer handoff using Promise for one-shot synchronization between two concurrent fibers.</summary>
-/// <remarks>A Promise can be completed exactly once: the waiter fiber blocks on Await until the producer fiber calls Succeed, demonstrating safe cross-fiber value transfer.</remarks>
-let promiseHandoff () =
-    let effect =
-        fio {
-            let! promise = Promise.make<string, exn> ()
-
-            let waiter =
-                fio {
-                    do! Console.printLine ("Waiter: waiting for value...", id)
-                    let! value = promise.Await(id)
-                    do! Console.printLine ($"Waiter: received '{value}'", id)
-                }
-
-            let producer =
-                fio {
-                    do! FIO.sleep (TimeSpan.FromMilliseconds 100.0, id)
-                    do! Console.printLine ("Producer: sending value...", id)
-                    let! _ = promise.Succeed("Hello from producer!", id)
-                    return ()
-                }
-
-            let! _ = waiter <&> producer
-            return ()
-        }
-
-    let fiber = (new DefaultRuntime()).Run effect
-    fiber.UnsafePrintResult()
-
-/// <summary>Builds an effect that creates a counting semaphore with two permits and runs five workers concurrently, each acquiring a permit before accessing the guarded resource.</summary>
-/// <remarks>Demonstrates Semaphore.WithPermit for bounded concurrency: at most two workers hold permits simultaneously, and collectAllPar runs all five workers in parallel.</remarks>
-let semaphorePool () =
-    let effect =
-        fio {
-            let! sem = Semaphore.make 2
-
-            let worker id =
-                sem.WithPermit(
-                    fio {
-                        do! Console.printLine ($"Worker {id}: acquired permit", Operators.id)
-                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, Operators.id)
-                        do! Console.printLine ($"Worker {id}: releasing permit", Operators.id)
-                    },
-                    Operators.id
-                )
-
-            do! FIO.collectAllPar(List.init 5 worker).Unit()
-            do! Console.printLine ("All workers completed.", id)
-        }
-
-    let fiber = (new DefaultRuntime()).Run effect
-    fiber.UnsafePrintResult()
 
 /// <summary>Provides the registry of all example names paired with their runner functions for sequential interactive execution.</summary>
 let examples =
@@ -220,9 +153,6 @@ let examples =
         nameof computationExpression2, computationExpression2
         nameof computationExpression3, computationExpression3
         nameof interruptFiber, interruptFiber
-        nameof refCounter, refCounter
-        nameof promiseHandoff, promiseHandoff
-        nameof semaphorePool, semaphorePool
     ]
 
 examples

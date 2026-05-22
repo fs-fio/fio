@@ -372,17 +372,29 @@ let channelTests =
                             let! receiverFibers =
                                 [ 1..receiverCount ]
                                 |> List.map (fun _ -> chan.Receive().Fork())
-                                |> FIO.collectAll
+                                |> List.fold
+                                    (fun acc e -> acc >>= fun xs -> e >>= fun x -> FIO.succeed (x :: xs))
+                                    (FIO.succeed [])
+                                |> fun eff -> List.rev <!> eff
 
                             let! senderFibers =
                                 [ 1..receiverCount ]
                                 |> List.map (fun i -> chan.Send(i).Unit().Fork())
-                                |> FIO.collectAll
+                                |> List.fold
+                                    (fun acc e -> acc >>= fun xs -> e >>= fun x -> FIO.succeed (x :: xs))
+                                    (FIO.succeed [])
+                                |> fun eff -> List.rev <!> eff
 
                             for sf in senderFibers do
                                 do! sf.Join()
 
-                            let! results = receiverFibers |> List.map (fun rf -> rf.Join()) |> FIO.collectAll
+                            let! results =
+                                receiverFibers
+                                |> List.map (fun rf -> rf.Join())
+                                |> List.fold
+                                    (fun acc e -> acc >>= fun xs -> e >>= fun x -> FIO.succeed (x :: xs))
+                                    (FIO.succeed [])
+                                |> fun eff -> List.rev <!> eff
 
                             return results |> List.sort
                         }

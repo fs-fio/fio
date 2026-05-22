@@ -10,22 +10,16 @@ open System
 
 [<MemoryDiagnoser>]
 [<RankColumn>]
-type ThreadringBenchmarks() =
+type ForkBenchmark() =
     let mutable runtime: FIORuntime = Unchecked.defaultof<_>
 
     member _.ActorCounts =
-        RuntimeParam.intParams "FIO_BENCH_THREADRING_ACTORS" [| 50; 100 |]
-
-    member _.RoundCounts =
-        RuntimeParam.intParams "FIO_BENCH_THREADRING_ROUNDS" [| 1_000; 10_000 |]
+        RuntimeParam.intParams "FIO_BENCH_FORK_ACTORS" [| 1_000; 10_000; 50_000 |]
 
     member _.Runtimes = RuntimeParam.runtimes ()
 
     [<ParamsSource("ActorCounts")>]
     member val ActorCount = 0 with get, set
-
-    [<ParamsSource("RoundCounts")>]
-    member val RoundCount = 0 with get, set
 
     [<ParamsSource("Runtimes")>]
     member val Runtime = "" with get, set
@@ -42,4 +36,4 @@ type ThreadringBenchmarks() =
 
     [<Benchmark>]
     member this.Run() =
-        runtime.Run(Threadring.effect (this.ActorCount, this.RoundCount)).Task()
+        runtime.Run(Fork.effect this.ActorCount).Task()

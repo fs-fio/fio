@@ -104,7 +104,7 @@ let effect = someEffect >>= fun x -> FIO.succeed (x + 1)
 
 - **Expecto + FsCheck** for property-based testing
 - Core tests use a `Generators` type (`tests/FIO.Tests/Utils/Utilities.fs`) that provides FsCheck `Arb` for all three runtimes — every property test runs against `DirectRuntime`, `CooperativeRuntime`, and `ConcurrentRuntime`
-- Console tests use `IConsoleBackend` + `MockConsoleBackend` for deterministic testing — must use `testSequenced` (not parallel) because `ConsoleBackend` has process-global state
+- Console tests use `System.Console.SetOut`/`SetIn` with `StringWriter`/`StringReader` for deterministic capture — must use `testSequenced` (not parallel) because `ConsoleBackend` has process-global state
 - Extension tests use `testAllRuntimes` helper wrapping `testSequenced`
 - Stack-safety canary tests in `tests/FIO.Tests/DSL/FIOTests.fs` (depth 10000) are load-bearing — do not simplify `UpcastResult`/`UpcastError`/`UpcastBoth` to plain recursion
 

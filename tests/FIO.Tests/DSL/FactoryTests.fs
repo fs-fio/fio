@@ -81,31 +81,6 @@ let factoryTests =
                         "FIO.interrupt should set the provided message in the exception"
                 | _ -> failtest "FIO.interrupt should result in Interrupted"
 
-            testPropertyWithConfig fsCheckConfig "interrupt - with Timeout cause"
-            <| fun (runtime: FIORuntime) ->
-                let eff = FIO.interrupt<int, exn> (Timeout 1000.0, "timeout test")
-
-                let fiber = runtime.Run eff
-                let fiberResult = fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
-
-                match fiberResult with
-                | Interrupted ex ->
-                    Expect.equal
-                        ex.fiberId
-                        fiber.Id
-                        "FIO.interrupt should set the fiberId in the exception to the current fiber's ID"
-
-                    Expect.equal
-                        ex.cause
-                        (Timeout 1000.0)
-                        "FIO.interrupt should set the provided Timeout cause in the exception"
-
-                    Expect.equal
-                        ex.message
-                        "timeout test"
-                        "FIO.interrupt should set the provided message in the exception"
-                | _ -> failtest "FIO.interrupt with Timeout should result in Interrupted"
-
             testPropertyWithConfig fsCheckConfig "interrupt - with ParentInterrupted cause"
             <| fun (runtime: FIORuntime) ->
                 let parentGuid = Guid.NewGuid()
@@ -269,79 +244,79 @@ let factoryTests =
 
                 Expect.equal result error "FIO.fromChoice should convert Choice2Of2 to fail"
 
-            testPropertyWithConfig fsCheckConfig "awaitTask - completes successfully"
+            testPropertyWithConfig fsCheckConfig "awaitUnitTask - completes successfully"
             <| fun (runtime: FIORuntime) ->
-                let eff = FIO.awaitTask (Task.CompletedTask, fun ex -> ex.Message)
+                let eff = FIO.awaitUnitTask (Task.CompletedTask, fun ex -> ex.Message)
 
                 let result = runtime.Run(eff).UnsafeSuccess()
 
-                Expect.equal result () "FIO.awaitTask should complete successfully"
+                Expect.equal result () "FIO.awaitUnitTask should complete successfully"
 
-            testAllRuntimes "awaitTask - maps exception on faulted task" (fun runtime ->
+            testAllRuntimes "awaitUnitTask - maps exception on faulted task" (fun runtime ->
                 let eff =
-                    FIO.awaitTask (Task.FromException(Exception "task failed"), fun ex -> ex.Message)
+                    FIO.awaitUnitTask (Task.FromException(Exception "task failed"), fun ex -> ex.Message)
 
                 let result = runtime.Run(eff).UnsafeError()
 
-                Expect.equal result "task failed" "FIO.awaitTask should map exception to error")
+                Expect.equal result "task failed" "FIO.awaitUnitTask should map exception to error")
 
-            testPropertyWithConfig fsCheckConfig "awaitTaskExn - completes successfully"
+            testPropertyWithConfig fsCheckConfig "awaitUnitTaskExn - completes successfully"
             <| fun (runtime: FIORuntime) ->
-                let eff = FIO.awaitTask (Task.CompletedTask, id)
+                let eff = FIO.awaitUnitTask (Task.CompletedTask, id)
 
                 let result = runtime.Run(eff).UnsafeSuccess()
 
-                Expect.equal result () "FIO.awaitTaskExn should complete successfully"
+                Expect.equal result () "FIO.awaitUnitTaskExn should complete successfully"
 
-            testPropertyWithConfig fsCheckConfig "awaitTaskExn - propagates exception"
+            testPropertyWithConfig fsCheckConfig "awaitUnitTaskExn - propagates exception"
             <| fun (runtime: FIORuntime) ->
                 let ex = Exception "test error"
                 let faultedTask = Task.FromException ex
-                let eff = FIO.awaitTask (faultedTask, id)
+                let eff = FIO.awaitUnitTask (faultedTask, id)
 
                 let result = runtime.Run(eff).UnsafeError()
 
-                Expect.stringContains result.Message "test error" "FIO.awaitTaskExn should propagate exception"
+                Expect.stringContains result.Message "test error" "FIO.awaitUnitTaskExn should propagate exception"
 
-            testPropertyWithConfig fsCheckConfig "awaitGenericTask - returns task result"
+            testPropertyWithConfig fsCheckConfig "awaitTask - returns task result"
             <| fun (runtime: FIORuntime, value: int) ->
-                let eff = FIO.awaitGenericTask (Task.FromResult value, fun ex -> ex.Message)
+                let eff = FIO.awaitTask (Task.FromResult value, fun ex -> ex.Message)
 
                 let result = runtime.Run(eff).UnsafeSuccess()
 
-                Expect.equal result value "FIO.awaitGenericTask should return task result"
+                Expect.equal result value "FIO.awaitTask should return task result"
 
-            testAllRuntimes "awaitGenericTask - maps exception on faulted task" (fun runtime ->
+            testAllRuntimes "awaitTask - maps exception on faulted task" (fun runtime ->
                 let eff =
-                    FIO.awaitGenericTask (
+                    FIO.awaitTask (
                         Task.FromException<int>(Exception "generic task failed"),
                         fun ex -> ex.Message
                     )
 
                 let result = runtime.Run(eff).UnsafeError()
 
-                Expect.equal result "generic task failed" "FIO.awaitGenericTask should map exception to error")
+                Expect.equal result "generic task failed" "FIO.awaitTask should map exception to error")
 
-            testPropertyWithConfig fsCheckConfig "awaitGenericTaskExn - returns task result"
+            testPropertyWithConfig fsCheckConfig "awaitTaskExn - returns task result"
             <| fun (runtime: FIORuntime, value: int) ->
-                let eff = FIO.awaitGenericTask (Task.FromResult value, id)
+                let eff = FIO.awaitTask (Task.FromResult value, id)
 
                 let result = runtime.Run(eff).UnsafeSuccess()
 
-                Expect.equal result value "FIO.awaitGenericTaskExn should return task result"
+                Expect.equal result value "FIO.awaitTaskExn should return task result"
 
-            testPropertyWithConfig fsCheckConfig "awaitGenericTaskExn - propagates exception"
+            testPropertyWithConfig fsCheckConfig "awaitTaskExn - propagates exception"
             <| fun (runtime: FIORuntime) ->
                 let ex = Exception "generic task error"
                 let faultedTask = Task.FromException<int> ex
-                let eff = FIO.awaitGenericTask (faultedTask, id)
+                let eff = FIO.awaitTask (faultedTask, id)
 
                 let result = runtime.Run(eff).UnsafeError()
 
                 Expect.stringContains
                     result.Message
                     "generic task error"
-                    "FIO.awaitGenericTaskExn should propagate exception"
+                    "FIO.awaitTaskExn should propagate exception"
 
             testPropertyWithConfig fsCheckConfig "awaitAsync - returns async result"
             <| fun (runtime: FIORuntime, value: int) ->
@@ -390,13 +365,13 @@ let factoryTests =
 
                 Expect.isFalse started "Async should not be started at effect construction time")
 
-            testAllRuntimes "fromTask - forks task into fiber" (fun runtime ->
+            testAllRuntimes "forkUnitTask - forks task into fiber" (fun runtime ->
                 let mutable executed = false
 
                 let eff =
                     fio {
                         let! fiber =
-                            FIO.fromTask (
+                            FIO.forkUnitTask (
                                 (fun () ->
                                     executed <- true
                                     Task.CompletedTask),
@@ -409,13 +384,13 @@ let factoryTests =
 
                 let wasExecuted, _ = runtime.Run(eff).UnsafeSuccess()
 
-                Expect.isTrue wasExecuted "FIO.fromTask should execute the task")
+                Expect.isTrue wasExecuted "FIO.forkUnitTask should execute the task")
 
-            testCase "fromTask - does not allocate fiber at construction time" (fun () ->
+            testCase "forkUnitTask - does not allocate fiber at construction time" (fun () ->
                 let mutable taskStarted = false
 
                 let _eff =
-                    FIO.fromTask (
+                    FIO.forkUnitTask (
                         (fun () ->
                             taskStarted <- true
                             Task.CompletedTask),
@@ -424,11 +399,11 @@ let factoryTests =
 
                 Expect.isFalse taskStarted "Task should not be started at effect construction time")
 
-            testCase "fromGenericTask - does not allocate fiber at construction time" (fun () ->
+            testCase "forkTask - does not allocate fiber at construction time" (fun () ->
                 let mutable taskStarted = false
 
                 let _eff =
-                    FIO.fromGenericTask (
+                    FIO.forkTask (
                         (fun () ->
                             taskStarted <- true
                             Task.FromResult 42),
@@ -437,11 +412,11 @@ let factoryTests =
 
                 Expect.isFalse taskStarted "Task should not be started at effect construction time")
 
-            testAllRuntimes "fromTask - propagates faulted task as error" (fun runtime ->
+            testAllRuntimes "forkUnitTask - propagates faulted task as error" (fun runtime ->
                 let eff =
                     fio {
                         let! fiber =
-                            FIO.fromTask ((fun () -> Task.FromException(Exception "task err")), fun ex -> ex.Message)
+                            FIO.forkUnitTask ((fun () -> Task.FromException(Exception "task err")), fun ex -> ex.Message)
 
                         let! result = fiber.Join()
                         return result
@@ -449,15 +424,15 @@ let factoryTests =
 
                 let result = runtime.Run(eff).UnsafeError()
 
-                Expect.equal result "task err" "FIO.fromTask should propagate faulted task error")
+                Expect.equal result "task err" "FIO.forkUnitTask should propagate faulted task error")
 
-            testAllRuntimes "fromTaskExn - forks task into fiber" (fun runtime ->
+            testAllRuntimes "forkUnitTaskExn - forks task into fiber" (fun runtime ->
                 let mutable executed = false
 
                 let eff =
                     fio {
                         let! fiber =
-                            FIO.fromTask (
+                            FIO.forkUnitTask (
                                 (fun () ->
                                     executed <- true
                                     Task.CompletedTask),
@@ -470,13 +445,13 @@ let factoryTests =
 
                 let result = runtime.Run(eff).UnsafeSuccess()
 
-                Expect.isTrue result "FIO.fromTaskExn should execute the task")
+                Expect.isTrue result "FIO.forkUnitTaskExn should execute the task")
 
-            testAllRuntimes "fromTaskExn - propagates faulted task as exception" (fun runtime ->
+            testAllRuntimes "forkUnitTaskExn - propagates faulted task as exception" (fun runtime ->
                 let eff =
                     fio {
                         let! fiber =
-                            FIO.fromTask ((fun () -> Task.FromException(Exception "task exn err")), id)
+                            FIO.forkUnitTask ((fun () -> Task.FromException(Exception "task exn err")), id)
 
                         let! result = fiber.Join()
                         return result
@@ -484,27 +459,27 @@ let factoryTests =
 
                 let result = runtime.Run(eff).UnsafeError()
 
-                Expect.stringContains result.Message "task exn err" "FIO.fromTaskExn should propagate exception")
+                Expect.stringContains result.Message "task exn err" "FIO.forkUnitTaskExn should propagate exception")
 
-            testAllRuntimes "fromGenericTask - forks generic task into fiber" (fun runtime ->
+            testAllRuntimes "forkTask - forks generic task into fiber" (fun runtime ->
                 let value = 42
 
                 let eff =
                     fio {
-                        let! fiber = FIO.fromGenericTask ((fun () -> Task.FromResult value), id)
+                        let! fiber = FIO.forkTask ((fun () -> Task.FromResult value), id)
                         let! result = fiber.Join()
                         return result
                     }
 
                 let result = runtime.Run(eff).UnsafeSuccess()
 
-                Expect.equal result value "FIO.fromGenericTask should return task result")
+                Expect.equal result value "FIO.forkTask should return task result")
 
-            testAllRuntimes "fromGenericTask - propagates faulted task as error" (fun runtime ->
+            testAllRuntimes "forkTask - propagates faulted task as error" (fun runtime ->
                 let eff =
                     fio {
                         let! fiber =
-                            FIO.fromGenericTask (
+                            FIO.forkTask (
                                 (fun () -> Task.FromException<int>(Exception "generic err")),
                                 fun ex -> ex.Message
                             )
@@ -515,27 +490,27 @@ let factoryTests =
 
                 let result = runtime.Run(eff).UnsafeError()
 
-                Expect.equal result "generic err" "FIO.fromGenericTask should propagate faulted task error")
+                Expect.equal result "generic err" "FIO.forkTask should propagate faulted task error")
 
-            testAllRuntimes "fromGenericTaskExn - forks generic task into fiber" (fun runtime ->
+            testAllRuntimes "forkTaskExn - forks generic task into fiber" (fun runtime ->
                 let value = 42
 
                 let eff =
                     fio {
-                        let! fiber = FIO.fromGenericTask ((fun () -> Task.FromResult value), id)
+                        let! fiber = FIO.forkTask ((fun () -> Task.FromResult value), id)
                         let! result = fiber.Join()
                         return result
                     }
 
                 let result = runtime.Run(eff).UnsafeSuccess()
 
-                Expect.equal result value "FIO.fromGenericTaskExn should return task result")
+                Expect.equal result value "FIO.forkTaskExn should return task result")
 
-            testAllRuntimes "fromGenericTaskExn - propagates faulted task as exception" (fun runtime ->
+            testAllRuntimes "forkTaskExn - propagates faulted task as exception" (fun runtime ->
                 let eff =
                     fio {
                         let! fiber =
-                            FIO.fromGenericTask ((fun () -> Task.FromException<int>(Exception "generic exn err")), id)
+                            FIO.forkTask ((fun () -> Task.FromException<int>(Exception "generic exn err")), id)
 
                         let! result = fiber.Join()
                         return result
@@ -546,7 +521,7 @@ let factoryTests =
                 Expect.stringContains
                     result.Message
                     "generic exn err"
-                    "FIO.fromGenericTaskExn should propagate exception")
+                    "FIO.forkTaskExn should propagate exception")
 
             testPropertyWithConfig fsCheckConfig "suspend - defers effect construction"
             <| fun (runtime: FIORuntime, value: int) ->
@@ -694,228 +669,4 @@ let factoryTests =
 
                 let _ = runtime.Run(eff).UnsafeSuccess()
                 Expect.equal releaseOrder [ 2; 1 ] "Nested resources should release in reverse order"
-
-            testPropertyWithConfig fsCheckConfig "collectAll - preserves order"
-            <| fun (runtime: FIORuntime) ->
-                let mutable order = []
-
-                let effs =
-                    [
-                        FIO.attempt (
-                            (fun () ->
-                                order <- order @ [ 1 ]
-                                1),
-                            id
-                        )
-                        FIO.attempt (
-                            (fun () ->
-                                order <- order @ [ 2 ]
-                                2),
-                            id
-                        )
-                        FIO.attempt (
-                            (fun () ->
-                                order <- order @ [ 3 ]
-                                3),
-                            id
-                        )
-                    ]
-
-                let eff = FIO.collectAll effs
-
-                let result = runtime.Run(eff).UnsafeSuccess()
-
-                Expect.equal result [ 1; 2; 3 ] "collectAll should return results in order"
-                Expect.equal order [ 1; 2; 3 ] "collectAll should execute in order"
-
-            testPropertyWithConfig fsCheckConfig "collectAll - with single element returns singleton list"
-            <| fun (runtime: FIORuntime, value: int) ->
-                let eff = FIO.collectAll [ FIO.succeed value ]
-
-                let result = runtime.Run(eff).UnsafeSuccess()
-
-                Expect.equal result [ value ] "collectAll with single element should return singleton list"
-
-            testPropertyWithConfig fsCheckConfig "collectAll - with empty collection returns empty list"
-            <| fun (runtime: FIORuntime) ->
-                let eff = FIO.collectAll []
-
-                let result = runtime.Run(eff).UnsafeSuccess()
-
-                Expect.equal result [] "collectAll with empty collection should return empty list"
-
-            testPropertyWithConfig fsCheckConfig "collectAll - short-circuits on error"
-            <| fun (runtime: FIORuntime, error: string) ->
-                let mutable executed = []
-
-                let effs =
-                    [
-                        FIO.attempt (
-                            (fun () ->
-                                executed <- executed @ [ 1 ]
-                                1),
-                            fun _ -> "err"
-                        )
-                        FIO.fail error
-                        FIO.attempt (
-                            (fun () ->
-                                executed <- executed @ [ 3 ]
-                                3),
-                            fun _ -> "err"
-                        )
-                    ]
-
-                let eff = FIO.collectAll effs
-
-                let result = runtime.Run(eff).UnsafeError()
-
-                Expect.equal result error "collectAll should return the error"
-                Expect.equal executed [ 1 ] "collectAll should not execute effs after error"
-
-            testPropertyWithConfig fsCheckConfig "collectAll - large input preserves order"
-            <| fun (runtime: FIORuntime) ->
-                let items = [ 1..2_000 ]
-                let effs = items |> List.map FIO.succeed
-                let result = runtime.Run(FIO.collectAll effs).UnsafeSuccess()
-                Expect.equal result items "collectAll should preserve order for large collections"
-
-            testAllRuntimes "collectAllPar - returns all results" (fun runtime ->
-                let effs = [ FIO.succeed 1; FIO.succeed 2; FIO.succeed 3 ]
-
-                let eff = FIO.collectAllPar effs
-
-                let result = runtime.Run(eff).UnsafeSuccess()
-
-                Expect.equal result [ 1; 2; 3 ] "collectAllPar should return all results in order")
-
-            testAllRuntimes "collectAllPar - preserves result order" (fun runtime ->
-                let effs =
-                    [
-                        FIO.sleep(TimeSpan.FromMilliseconds 30.0, id).FlatMap(fun () -> FIO.succeed 3)
-                        FIO.sleep(TimeSpan.FromMilliseconds 10.0, id).FlatMap(fun () -> FIO.succeed 1)
-                        FIO.sleep(TimeSpan.FromMilliseconds 20.0, id).FlatMap(fun () -> FIO.succeed 2)
-                    ]
-
-                let result = runtime.Run(FIO.collectAllPar effs).UnsafeSuccess()
-
-                Expect.equal result [ 3; 1; 2 ] "collectAllPar should preserve order regardless of completion time")
-
-            testAllRuntimes "collectAllPar - with empty list returns empty" (fun runtime ->
-                let result = runtime.Run(FIO.collectAllPar []).UnsafeSuccess()
-
-                Expect.equal result [] "collectAllPar with empty list should return empty")
-
-            testAllRuntimes "collectAllPar - propagates first error" (fun runtime ->
-                let effs = [ FIO.succeed 1; FIO.fail "error"; FIO.succeed 3 ]
-
-                let result = runtime.Run(FIO.collectAllPar effs).UnsafeError()
-
-                Expect.equal result "error" "collectAllPar should propagate error")
-
-            testAllRuntimes "collectAllPar - large input preserves order" (fun runtime ->
-                let items = [ 1..500 ]
-
-                let effs =
-                    items
-                    |> List.map (fun i ->
-                        FIO.sleep(TimeSpan.FromMilliseconds(float (i % 5 + 1)), id).FlatMap(fun () -> FIO.succeed i))
-
-                let result = runtime.Run(FIO.collectAllPar effs).UnsafeSuccess()
-
-                Expect.equal result items "collectAllPar should preserve input order for large collections")
-
-            testAllRuntimes "collectAllPar - large input propagates first failure" (fun runtime ->
-                let effs =
-                    [ for i in 1..1_000 -> if i = 100 then FIO.fail "boom" else FIO.succeed i ]
-
-                let result = runtime.Run(FIO.collectAllPar effs).UnsafeError()
-
-                Expect.equal result "boom" "collectAllPar should propagate first failure for large input")
-
-            testPropertyWithConfig fsCheckConfig "forEach - maps and collects sequentially"
-            <| fun (runtime: FIORuntime) ->
-                let mutable order = []
-                let items = [ 1; 2; 3 ]
-
-                let f =
-                    fun x ->
-                        FIO.attempt (
-                            (fun () ->
-                                order <- order @ [ x ]
-                                x * 2),
-                            id
-                        )
-
-                let eff = FIO.forEach (items, f)
-
-                let result = runtime.Run(eff).UnsafeSuccess()
-
-                Expect.equal result [ 2; 4; 6 ] "forEach should map and collect results"
-                Expect.equal order [ 1; 2; 3 ] "forEach should execute sequentially in order"
-
-            testPropertyWithConfig fsCheckConfig "forEach - with empty list returns empty"
-            <| fun (runtime: FIORuntime) ->
-                let result =
-                    runtime.Run(FIO.forEach ([], fun x -> FIO.succeed (x * 2))).UnsafeSuccess()
-
-                Expect.equal result [] "forEach with empty list should return empty"
-
-            testPropertyWithConfig fsCheckConfig "forEach - short-circuits on error"
-            <| fun (runtime: FIORuntime) ->
-                let mutable executed = []
-                let items = [ 1; 2; 3 ]
-
-                let f =
-                    fun (x: int) ->
-                        if x = 2 then
-                            FIO.fail "boom"
-                        else
-                            FIO.attempt (
-                                (fun () ->
-                                    executed <- executed @ [ x ]
-                                    x),
-                                fun _ -> "err"
-                            )
-
-                let result = runtime.Run(FIO.forEach (items, f)).UnsafeError()
-
-                Expect.equal result "boom" "forEach should propagate error"
-                Expect.equal executed [ 1 ] "forEach should not execute effs after error"
-
-            testAllRuntimes "forEachPar - maps and collects in parallel" (fun runtime ->
-                let items = [ 1; 2; 3 ]
-                let f = fun x -> FIO.succeed (x * 2)
-
-                let eff = FIO.forEachPar (items, f)
-
-                let result = runtime.Run(eff).UnsafeSuccess()
-
-                Expect.equal result [ 2; 4; 6 ] "forEachPar should map and collect results in order")
-
-            testAllRuntimes "forEachPar - preserves result order" (fun runtime ->
-                let items = [ 1; 2; 3; 4; 5 ]
-
-                let f =
-                    fun x ->
-                        FIO
-                            .sleep(TimeSpan.FromMilliseconds(float (10 * (6 - x))), id)
-                            .FlatMap(fun () -> FIO.succeed (x * 2))
-
-                let result = runtime.Run(FIO.forEachPar (items, f)).UnsafeSuccess()
-
-                Expect.equal result [ 2; 4; 6; 8; 10 ] "forEachPar should preserve order")
-
-            testAllRuntimes "forEachPar - with empty list returns empty" (fun runtime ->
-                let result =
-                    runtime.Run(FIO.forEachPar ([], fun x -> FIO.succeed (x * 2))).UnsafeSuccess()
-
-                Expect.equal result [] "forEachPar with empty list should return empty")
-
-            testAllRuntimes "forEachPar - propagates error" (fun runtime ->
-                let items = [ 1; 2; 3 ]
-                let f = fun (x: int) -> if x = 2 then FIO.fail "boom" else FIO.succeed (x * 2)
-
-                let result = runtime.Run(FIO.forEachPar (items, f)).UnsafeError()
-
-                Expect.equal result "boom" "forEachPar should propagate error")
         ]

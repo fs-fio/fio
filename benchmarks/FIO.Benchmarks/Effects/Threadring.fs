@@ -48,7 +48,6 @@ let effect (actorCount: int, roundCount: int) : FIO<unit, exn> =
         let chans = [ for _ in 1..actorCount -> Channel<int>() ]
         let actors = createActors (chans, chans, 0, [])
 
-        // Send initial message to the first actor's receive channel
         do! actors.Head.ReceiveChan.Send(0).Unit()
         do! threadringEff (actors, roundCount)
     }

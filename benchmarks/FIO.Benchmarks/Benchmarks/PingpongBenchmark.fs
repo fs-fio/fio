@@ -10,7 +10,7 @@ open System
 
 [<MemoryDiagnoser>]
 [<RankColumn>]
-type PingpongBenchmarks() =
+type PingpongBenchmark() =
     let mutable runtime: FIORuntime = Unchecked.defaultof<_>
 
     member _.RoundCounts =

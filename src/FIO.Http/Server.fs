@@ -111,10 +111,10 @@ module Server =
 
             do!
                 FIO
-                    .awaitTask(app.StartAsync(), id)
+                    .awaitUnitTask(app.StartAsync(), id)
                     .CatchAll(fun startError ->
                         FIO
-                            .awaitTask(app.DisposeAsync().AsTask(), id)
+                            .awaitUnitTask(app.DisposeAsync().AsTask(), id)
                             .CatchAll(fun _ -> FIO.unit ())
                             .FlatMap(fun _ -> FIO.fail startError))
 
@@ -129,7 +129,7 @@ module Server =
         fio {
             match server.Host with
             | Some host ->
-                do! FIO.awaitTask (host.StopAsync(), id)
+                do! FIO.awaitUnitTask (host.StopAsync(), id)
                 // IHost uses synchronous Dispose, not DisposeAsync
                 do! FIO.attempt ((fun () -> host.Dispose()), id)
                 printfn "FIO HTTP Server stopped"
@@ -145,7 +145,7 @@ module Server =
     let run (server: FIOServer) : FIO<unit, exn> =
         fio {
             match server.Host with
-            | Some host -> do! FIO.awaitTask (host.WaitForShutdownAsync(), id)
+            | Some host -> do! FIO.awaitUnitTask (host.WaitForShutdownAsync(), id)
             | None -> return! FIO.fail (exn "FIO HTTP Server not started. Call Server.start first.")
         }
 

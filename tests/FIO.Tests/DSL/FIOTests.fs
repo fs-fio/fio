@@ -4,14 +4,12 @@ module FIO.Tests.FIOTests
 open FIO.Tests.Utilities.FsCheckProperties
 
 open FIO.DSL
-open FIO.Ref
 open FIO.Runtime
 open FIO.Runtime.Direct
 open FIO.Runtime.Cooperative
 open FIO.Runtime.Concurrent
 
 open System
-open System.IO
 open System.Threading
 
 open Expecto
@@ -227,69 +225,70 @@ let fioTests =
 
             testAllRuntimes "Ensuring - finalizer runs on self-interruption"
             <| fun (runtime: FIORuntime) ->
+                let flag = ref false
+
                 let eff =
                     fio {
-                        let! ref = Ref.makeValue false
-
                         let! fiber =
-                            FIO.interrupt(ExplicitInterrupt, "self-interrupt").Ensuring(ref.Set(true, id)).Fork()
+                            FIO
+                                .interrupt(ExplicitInterrupt, "self-interrupt")
+                                .Ensuring(FIO.attempt ((fun () -> flag.Value <- true), id))
+                                .Fork()
 
                         do! fiber.Join().CatchAll(fun _ -> FIO.unit ())
                         do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
-                        return! ref.Get()
                     }
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                runtime.Run(eff).UnsafeSuccess() |> ignore
 
-                Expect.isTrue result "Finalizer should run on self-interruption"
+                Expect.isTrue flag.Value "Finalizer should run on self-interruption"
 
             testAllRuntimes "Ensuring - finalizer runs on external interruption"
             <| fun (runtime: FIORuntime) ->
+                let flag = ref false
+
                 let eff =
                     fio {
-                        let! ref = Ref.makeValue false
-
-                        let! fiber =
-                            FIO.sleep(TimeSpan.FromSeconds 60.0, id).Ensuring(ref.Set(true, id)).Fork()
-
-                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
-                        do! fiber.Interrupt()
-                        do! fiber.Join().CatchAll(fun _ -> FIO.unit ())
-                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
-                        return! ref.Get()
-                    }
-
-                let result = runtime.Run(eff).UnsafeSuccess()
-
-                Expect.isTrue result "Finalizer should run on external interruption"
-
-            testAllRuntimes "Ensuring - nested finalizers both run on interrupt"
-            <| fun (runtime: FIORuntime) ->
-                let eff =
-                    fio {
-                        let! ref1 = Ref.makeValue false
-                        let! ref2 = Ref.makeValue false
-
                         let! fiber =
                             FIO
                                 .sleep(TimeSpan.FromSeconds 60.0, id)
-                                .Ensuring(ref1.Set(true, id))
-                                .Ensuring(ref2.Set(true, id))
+                                .Ensuring(FIO.attempt ((fun () -> flag.Value <- true), id))
                                 .Fork()
 
                         do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
                         do! fiber.Interrupt()
                         do! fiber.Join().CatchAll(fun _ -> FIO.unit ())
                         do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
-                        let! v1 = ref1.Get()
-                        let! v2 = ref2.Get()
-                        return v1, v2
                     }
 
-                let v1, v2 = runtime.Run(eff).UnsafeSuccess()
+                runtime.Run(eff).UnsafeSuccess() |> ignore
 
-                Expect.isTrue v1 "Inner finalizer should run on interrupt"
-                Expect.isTrue v2 "Outer finalizer should run on interrupt"
+                Expect.isTrue flag.Value "Finalizer should run on external interruption"
+
+            testAllRuntimes "Ensuring - nested finalizers both run on interrupt"
+            <| fun (runtime: FIORuntime) ->
+                let flag1 = ref false
+                let flag2 = ref false
+
+                let eff =
+                    fio {
+                        let! fiber =
+                            FIO
+                                .sleep(TimeSpan.FromSeconds 60.0, id)
+                                .Ensuring(FIO.attempt ((fun () -> flag1.Value <- true), id))
+                                .Ensuring(FIO.attempt ((fun () -> flag2.Value <- true), id))
+                                .Fork()
+
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
+                        do! fiber.Interrupt()
+                        do! fiber.Join().CatchAll(fun _ -> FIO.unit ())
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
+                    }
+
+                runtime.Run(eff).UnsafeSuccess() |> ignore
+
+                Expect.isTrue flag1.Value "Inner finalizer should run on interrupt"
+                Expect.isTrue flag2.Value "Outer finalizer should run on interrupt"
 
             testAllRuntimes "Ensuring - result is still interrupted when finalizer fails"
             <| fun (runtime: FIORuntime) ->
@@ -452,112 +451,4 @@ let fioTests =
 
                 let fiber2 = runtime.Run(FIO.succeed 2)
                 Expect.equal (fiber2.UnsafeSuccess()) 2 "Second run")
-
-            testCase "WorkerHealthMonitor - Healthy by default" (fun () ->
-                let monitor = WorkerHealthMonitor(4)
-                Expect.equal monitor.State Healthy "Should start Healthy")
-
-            testCase "WorkerHealthMonitor - Degraded on EW permanent fault" (fun () ->
-                let monitor = WorkerHealthMonitor(4)
-                monitor.ReportPermanentFault(Evaluation, "test fault")
-                Expect.equal monitor.State (Degraded 1) "Should be Degraded(1)")
-
-            testCase "WorkerHealthMonitor - Faulted when all EWs fault" (fun () ->
-                let monitor = WorkerHealthMonitor(2)
-                monitor.ReportPermanentFault(Evaluation, "fault 1")
-                monitor.ReportPermanentFault(Evaluation, "fault 2")
-
-                match monitor.State with
-                | Faulted _ -> ()
-                | other -> failtestf "Expected Faulted, got %A" other)
-
-            testCase "WorkerHealthMonitor - Faulted on BW permanent fault" (fun () ->
-                let monitor = WorkerHealthMonitor(4)
-                monitor.ReportPermanentFault(Blocking, "bw fault")
-
-                match monitor.State with
-                | Faulted _ -> ()
-                | other -> failtestf "Expected Faulted, got %A" other)
-
-            testCase "WorkerHealthMonitor - NotifyFault invokes callback" (fun () ->
-                let monitor = WorkerHealthMonitor(4)
-                let mutable received = false
-                monitor.OnFault(Action<WorkerFaultEvent>(fun _ -> received <- true))
-
-                let origErr = Console.Error
-                Console.SetError TextWriter.Null
-
-                try
-                    monitor.NotifyFault
-                        {
-                            WorkerName = "test"
-                            WorkerKind = Evaluation
-                            FaultCount = 1
-                            Exception = exn "test"
-                            Timestamp = DateTimeOffset.UtcNow
-                            WillRestart = true
-                        }
-                finally
-                    Console.SetError origErr
-
-                Expect.isTrue received "Callback should have been invoked")
-
-            testCase "RuntimeFaultedException - Run throws on Faulted runtime (ConcurrentRuntime)" (fun () ->
-                let runtime = new ConcurrentRuntime()
-                runtime.Monitor.ReportPermanentFault(Blocking, "test fault")
-
-                Expect.throws
-                    (fun () -> runtime.Run(FIO.succeed 1) |> ignore)
-                    "Run should throw RuntimeFaultedException"
-
-                (runtime :> IDisposable).Dispose())
-
-            testCase "RuntimeFaultedException - Run throws on Faulted runtime (CooperativeRuntime)" (fun () ->
-                let runtime = new CooperativeRuntime()
-                runtime.Monitor.ReportPermanentFault(Blocking, "test fault")
-
-                Expect.throws
-                    (fun () -> runtime.Run(FIO.succeed 1) |> ignore)
-                    "Run should throw RuntimeFaultedException"
-
-                (runtime :> IDisposable).Dispose())
-
-            testCase "HealthState - Degraded allows Run (ConcurrentRuntime)" (fun () ->
-                let runtime = new ConcurrentRuntime()
-                runtime.Monitor.ReportPermanentFault(Evaluation, "one ew down")
-                let fiber = runtime.Run(FIO.succeed 42)
-                Expect.equal (fiber.UnsafeSuccess()) 42 "Should still work when Degraded"
-                (runtime :> IDisposable).Dispose())
-
-            testCase "HealthState - Degraded allows Run (CooperativeRuntime)" (fun () ->
-                let runtime = new CooperativeRuntime()
-                runtime.Monitor.ReportPermanentFault(Evaluation, "one ew down")
-                let fiber = runtime.Run(FIO.succeed 42)
-                Expect.equal (fiber.UnsafeSuccess()) 42 "Should still work when Degraded"
-                (runtime :> IDisposable).Dispose())
-
-            testCase "OnWorkerFault - callback accessible from FIOWorkerRuntime" (fun () ->
-                let runtime = new ConcurrentRuntime()
-                let mutable received = false
-
-                runtime.OnWorkerFault(Action<WorkerFaultEvent>(fun _ -> received <- true))
-
-                let origErr = Console.Error
-                Console.SetError TextWriter.Null
-
-                try
-                    runtime.Monitor.NotifyFault
-                        {
-                            WorkerName = "test"
-                            WorkerKind = Evaluation
-                            FaultCount = 1
-                            Exception = exn "test"
-                            Timestamp = DateTimeOffset.UtcNow
-                            WillRestart = true
-                        }
-                finally
-                    Console.SetError origErr
-
-                Expect.isTrue received "OnWorkerFault callback should work"
-                (runtime :> IDisposable).Dispose())
         ]

@@ -43,8 +43,7 @@ More in [examples/](examples/).
 - **Fibers** — green threads for scalable concurrency
 - **Channels** — typed message passing between fibers
 - **Composition** — `fio { }` CE, operators (`>>=`, `<&>`, `<|>`), combinators
-- **Primitives** — `Promise`, `Ref`, `Semaphore`
-- **Modules** — `Console`, `Clock`, `Environment`, `Random`
+- **Modules** — `Console`
 
 ## Packages
 

@@ -39,7 +39,7 @@ module WebSocketClient =
             let! connectTask =
                 FIO.attempt ((fun () -> clientSocket.ConnectAsync(uri, ct)), WsError.fromException)
 
-            do! FIO.awaitTask (connectTask, WsError.fromException)
+            do! FIO.awaitUnitTask (connectTask, WsError.fromException)
             return new WebSocket(clientSocket, config)
         }
 

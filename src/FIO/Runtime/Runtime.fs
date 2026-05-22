@@ -3,7 +3,6 @@ namespace FIO.Runtime
 open FIO.DSL
 
 open System
-open System.Threading
 open System.Collections.Generic
 
 /// <summary>Represents default configuration constants for worker-based FIO runtimes.</summary>
@@ -148,8 +147,6 @@ type WorkerConfig =
         EWS: int
         /// <summary>Represents the number of blocking workers that handle fibers waiting on channels or other fibers.</summary>
         BWC: int
-        /// <summary>Represents the maximum number of concurrently active fibers; <c>None</c> means unbounded.</summary>
-        MaxFibers: int option
     }
 
     /// <summary>Returns a default worker configuration sized to the available processors.</summary>
@@ -159,82 +156,4 @@ type WorkerConfig =
             EWC = WorkerRuntimeDefaults.ComputeEvaluationWorkerCount()
             EWS = WorkerRuntimeDefaults.EvaluationWorkerSteps
             BWC = WorkerRuntimeDefaults.BlockingWorkerCount
-            MaxFibers = None
         }
-
-/// <summary>Represents an admission control strategy that decides whether a new fiber may be started.</summary>
-type internal IFiberAdmission =
-    /// <summary>Returns whether a permit was acquired, allowing a new fiber to be started.</summary>
-    /// <returns><c>true</c> if a permit was acquired; <c>false</c> if the fiber limit has been reached.</returns>
-    abstract TryAcquire: unit -> bool
-    /// <summary>Releases a previously acquired permit, allowing another fiber to start.</summary>
-    abstract Release: unit -> unit
-    /// <summary>Resets the admission controller to its initial state with all permits available.</summary>
-    abstract Reset: unit -> unit
-
-/// <summary>Represents an admission controller that permits an unlimited number of concurrent fibers.</summary>
-[<Sealed>]
-type internal UnboundedAdmission private () =
-    /// <summary>Returns the singleton instance of the unbounded admission controller.</summary>
-    static let instance = UnboundedAdmission()
-
-    /// <summary>Returns the singleton <c>UnboundedAdmission</c> as an <c>IFiberAdmission</c>.</summary>
-    /// <returns>The shared unbounded admission instance.</returns>
-    static member Instance = instance :> IFiberAdmission
-
-    /// <summary>Provides the unbounded admission control implementation.</summary>
-    interface IFiberAdmission with
-        /// <summary>Returns whether a permit was acquired, always succeeding for unbounded admission.</summary>
-        /// <returns><c>true</c> unconditionally.</returns>
-        member _.TryAcquire() = true
-        /// <summary>Transforms the admission state by releasing a permit; has no effect for unbounded admission.</summary>
-        member _.Release() = ()
-        /// <summary>Transforms the admission state by resetting all permits; has no effect for unbounded admission.</summary>
-        member _.Reset() = ()
-
-/// <summary>Represents an admission controller that limits the number of concurrent fibers to a fixed maximum.</summary>
-/// <param name="maxFibers">The maximum number of fibers that may run concurrently.</param>
-[<Sealed>]
-type internal BoundedAdmission(maxFibers: int) =
-    /// <summary>Represents the semaphore that tracks available fiber permits.</summary>
-    let sem = new SemaphoreSlim(maxFibers, maxFibers)
-
-    /// <summary>Provides the bounded admission control implementation.</summary>
-    interface IFiberAdmission with
-        /// <summary>Returns whether a permit was acquired without blocking.</summary>
-        /// <returns><c>true</c> if a permit was available and acquired; <c>false</c> if the fiber limit has been reached.</returns>
-        member _.TryAcquire() = sem.Wait(0)
-
-        /// <summary>Transforms the admission state by releasing one previously acquired permit.</summary>
-        member _.Release() =
-            try
-                sem.Release() |> ignore
-            with :? SemaphoreFullException ->
-                ()
-
-        /// <summary>Transforms the admission state by draining and restoring all permits to the initial count.</summary>
-        member _.Reset() =
-            while sem.Wait(0) do
-                ()
-
-            if maxFibers > 0 then
-                sem.Release maxFibers |> ignore
-
-    /// <summary>Provides resource cleanup for the bounded admission controller.</summary>
-    interface IDisposable with
-        /// <summary>Transforms the admission controller by releasing its underlying resources.</summary>
-        member _.Dispose() = sem.Dispose()
-
-/// <summary>Represents factory functions for creating fiber admission controllers from a worker configuration.</summary>
-module internal FiberAdmission =
-    /// <summary>Creates an <c>IFiberAdmission</c> matching the <c>MaxFibers</c> setting in the given configuration.</summary>
-    /// <param name="config">The worker configuration whose <c>MaxFibers</c> field determines the admission strategy.</param>
-    /// <returns>An unbounded admission when <c>MaxFibers</c> is <c>None</c>, or a bounded admission capped at the specified count.</returns>
-    let fromConfig (config: WorkerConfig) : IFiberAdmission =
-        match config.MaxFibers with
-        | None -> UnboundedAdmission.Instance
-        | Some maxFibers ->
-            if maxFibers <= 0 then
-                invalidArg "config" $"MaxFibers must be positive, got {maxFibers}."
-
-            new BoundedAdmission(maxFibers)

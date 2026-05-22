@@ -31,17 +31,17 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     let fromFunc (func: unit -> 'T) =
         FIO.attempt (func, SocketError.fromException)
 
-    /// <summary>Lifts a non-generic .NET Task into a socket effect, mapping exceptions to <c>SocketError</c>.</summary>
+    /// <summary>Lifts a unit-returning .NET Task into a socket effect, mapping exceptions to <c>SocketError</c>.</summary>
     /// <param name="task">The task to await.</param>
     /// <returns>An effect that completes when the task finishes or fails with a <c>GeneralError</c>.</returns>
-    let awaitTask (task: Threading.Tasks.Task) =
-        FIO.awaitTask (task, SocketError.fromException)
+    let awaitUnitTask (task: Threading.Tasks.Task) =
+        FIO.awaitUnitTask (task, SocketError.fromException)
 
-    /// <summary>Lifts a generic .NET Task into a socket effect, mapping exceptions to <c>SocketError</c>.</summary>
+    /// <summary>Lifts a <c>Task&lt;'T&gt;</c> into a socket effect, mapping exceptions to <c>SocketError</c>.</summary>
     /// <param name="task">The task to await.</param>
     /// <returns>An effect that produces the task's result or fails with a <c>GeneralError</c>.</returns>
-    let awaitTaskT (task: Threading.Tasks.Task<'T>) =
-        FIO.awaitGenericTask (task, SocketError.fromException)
+    let awaitTask (task: Threading.Tasks.Task<'T>) =
+        FIO.awaitTask (task, SocketError.fromException)
 
     /// <summary>Creates an effect that sends raw bytes over the connection.</summary>
     /// <param name="buffer">The byte array to send.</param>
@@ -52,8 +52,8 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
                 return! FIO.fail (ConnectionClosed "Socket is not connected")
 
             let! ct = FIO.cancellationToken ()
-            do! awaitTask (stream.WriteAsync(buffer, 0, buffer.Length, ct))
-            do! awaitTask (stream.FlushAsync ct)
+            do! awaitUnitTask (stream.WriteAsync(buffer, 0, buffer.Length, ct))
+            do! awaitUnitTask (stream.FlushAsync ct)
         }
 
     /// <summary>Creates an effect that receives up to a specified number of bytes from the connection.</summary>
@@ -72,7 +72,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
 
             let readAndCopy =
                 fio {
-                    let! bytesRead = awaitTaskT (stream.ReadAsync(pooledBuffer, 0, maxBytes, ct))
+                    let! bytesRead = awaitTask (stream.ReadAsync(pooledBuffer, 0, maxBytes, ct))
 
                     if bytesRead = 0 then
                         return! FIO.fail (ConnectionClosed "Connection closed by peer")
@@ -102,7 +102,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
 
                     while totalRead < numBytes do
                         let! bytesRead =
-                            awaitTaskT (stream.ReadAsync(pooledBuffer, totalRead, numBytes - totalRead, ct))
+                            awaitTask (stream.ReadAsync(pooledBuffer, totalRead, numBytes - totalRead, ct))
 
                         if bytesRead = 0 then
                             return!
