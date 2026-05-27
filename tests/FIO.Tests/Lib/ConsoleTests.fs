@@ -3,13 +3,12 @@ module FIO.Tests.ConsoleTests
 
 open FIO.DSL
 open FIO.Console
-
-open Expecto
-
 open FIO.Runtime
 open FIO.Runtime.Direct
 open FIO.Runtime.Cooperative
 open FIO.Runtime.Concurrent
+
+open Expecto
 
 open System
 open System.IO
@@ -89,18 +88,18 @@ let consoleTests =
             [
 
                 testCapturedOut "print - writes formatted text to stdout without newline" (fun cap runtime ->
-                    runtime.Run(Console.print ("hello", id)).UnsafeSuccess()
+                    runtime.Run(Console.print "hello" id).UnsafeSuccess()
 
                     Expect.equal cap.Output "hello" "Should write to stdout without newline")
 
                 testCapturedOut "printLine - writes formatted text with newline to stdout" (fun cap runtime ->
-                    runtime.Run(Console.printLine ("line", id)).UnsafeSuccess()
+                    runtime.Run(Console.printLine "line" id).UnsafeSuccess()
 
                     Expect.stringContains cap.Output "line" "Should write line content"
                     Expect.stringContains cap.Output Environment.NewLine "Should write trailing newline")
 
                 testCapturedOut "print - interpolates format arguments" (fun cap runtime ->
-                    runtime.Run(Console.print ($"count={42}", id)).UnsafeSuccess()
+                    runtime.Run(Console.print $"count={42}" id).UnsafeSuccess()
 
                     Expect.equal cap.Output "count=42" "Should render interpolated format")
 
@@ -126,12 +125,12 @@ let consoleTests =
                         throwingReader.Dispose())
 
                 testCapturedOut "write - writes text to stdout" (fun cap runtime ->
-                    runtime.Run(Console.write ("hello", id)).UnsafeSuccess()
+                    runtime.Run(Console.write "hello" id).UnsafeSuccess()
 
                     Expect.equal cap.Output "hello" "Should write text to stdout")
 
                 testCapturedOut "writeLine - writes text with newline to stdout" (fun cap runtime ->
-                    runtime.Run(Console.writeLine ("world", id)).UnsafeSuccess()
+                    runtime.Run(Console.writeLine "world" id).UnsafeSuccess()
 
                     Expect.stringContains cap.Output "world" "Should contain text"
                     Expect.stringContains cap.Output Environment.NewLine "Should write trailing newline")
@@ -142,7 +141,7 @@ let consoleTests =
                     Console.SetOut throwingWriter
 
                     try
-                        let eff = Console.write ("x", fun ex -> $"mapped: {ex.Message}")
+                        let eff = Console.write "x" (fun ex -> $"mapped: {ex.Message}")
                         let result = runtime.Run(eff).UnsafeResult()
 
                         match result with

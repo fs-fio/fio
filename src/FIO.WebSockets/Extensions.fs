@@ -22,7 +22,9 @@ module WebSocketExtensions =
                 let ct = defaultArg ct CancellationToken.None
 
                 let! jsonString =
-                    FIO.attempt ((fun () -> JsonSerializer.Serialize(value, opts)), WsError.fromException)
+                    FIO.attempt
+                        (fun () -> JsonSerializer.Serialize(value, opts))
+                        WsError.fromException
 
                 do! this.SendText(jsonString, ct)
             }
@@ -39,13 +41,14 @@ module WebSocketExtensions =
 
                 match! this.ReceiveMessage ct with
                 | Frame(Text json) ->
-                    return! FIO.attempt ((fun () -> JsonSerializer.Deserialize<'T>(json, opts)), WsError.fromException)
+                    return! FIO.attempt
+                        (fun () -> JsonSerializer.Deserialize<'T>(json, opts))
+                        WsError.fromException
                 | Frame(Binary data) ->
                     return!
-                        FIO.attempt (
-                            (fun () -> JsonSerializer.Deserialize<'T>(System.ReadOnlySpan<byte> data, opts)),
+                        FIO.attempt
+                            (fun () -> JsonSerializer.Deserialize<'T>(System.ReadOnlySpan<byte> data, opts))
                             WsError.fromException
-                        )
                 | Frame(Close _) ->
                     return!
                         FIO.fail (WsError.fromException (System.Exception "Connection closed while waiting for JSON"))

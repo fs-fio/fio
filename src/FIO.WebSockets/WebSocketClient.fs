@@ -18,10 +18,9 @@ module WebSocketClient =
             let str = err.ToString()
 
             do!
-                FIO.attempt (
-                    (fun () -> eprintfn $"[WebSocketClient] Error during {context}: {str}"),
+                FIO.attempt
+                    (fun () -> eprintfn $"[WebSocketClient] Error during {context}: {str}")
                     WsError.fromException
-                )
 
             return ()
         }
@@ -34,12 +33,16 @@ module WebSocketClient =
     let connect (uri: Uri) (config: WebSocketConfig) (ct: CancellationToken) =
         fio {
             let! clientSocket =
-                FIO.attempt ((fun () -> new Net.WebSockets.ClientWebSocket()), WsError.fromException)
+                FIO.attempt
+                    (fun () -> new Net.WebSockets.ClientWebSocket())
+                    WsError.fromException
 
             let! connectTask =
-                FIO.attempt ((fun () -> clientSocket.ConnectAsync(uri, ct)), WsError.fromException)
+                FIO.attempt
+                    (fun () -> clientSocket.ConnectAsync(uri, ct))
+                    WsError.fromException
 
-            do! FIO.awaitUnitTask (connectTask, WsError.fromException)
+            do! FIO.awaitUnitTask connectTask WsError.fromException
             return new WebSocket(clientSocket, config)
         }
 
@@ -59,7 +62,7 @@ module WebSocketClient =
     /// <returns>An effect that produces a connected <c>WebSocket</c>.</returns>
     let connectString (url: string) (config: WebSocketConfig) (ct: CancellationToken) =
         fio {
-            let! uri = FIO.attempt ((fun () -> Uri url), WsError.fromException)
+            let! uri = FIO.attempt (fun () -> Uri url) WsError.fromException
             return! connect uri config ct
         }
 
@@ -91,14 +94,12 @@ module WebSocketClient =
                 return! connect uri config ct
             }
 
-        FIO.acquireRelease (
-            acquire,
+        FIO.acquireRelease
+            acquire
             (fun ws ->
-                ws
-                    .Close(Net.WebSockets.WebSocketCloseStatus.NormalClosure, "Closing connection")
-                    .CatchAll(logAndSuppress "websocket close")),
+                ws.Close(Net.WebSockets.WebSocketCloseStatus.NormalClosure, "Closing connection")
+                    .CatchAll(logAndSuppress "websocket close"))
             action
-        )
 
     /// <summary>Builds a resource-managed effect that connects to a URL string, runs an action, and closes the connection on every outcome.</summary>
     /// <typeparam name="R">The result type produced by the action.</typeparam>
@@ -107,6 +108,6 @@ module WebSocketClient =
     /// <returns>An effect that produces the action's result and always closes the connection afterwards.</returns>
     let withConnectionString<'R> (url: string) (action: WebSocket -> FIO<'R, WsError>) =
         fio {
-            let! uri = FIO.attempt ((fun () -> Uri url), WsError.fromException)
+            let! uri = FIO.attempt (fun () -> Uri url) WsError.fromException
             return! withConnection uri WebSocketConfig.defaultConfig action
         }

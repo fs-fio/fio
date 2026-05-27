@@ -6,9 +6,16 @@ open FIO.DSL
 open FIO.Runtime.Concurrent
 
 open System
+open System.IO
 open System.Threading
 
 open Expecto
+
+let private silenceErr (body: unit -> 'a) : 'a =
+    let original = Console.Error
+    Console.SetError TextWriter.Null
+    try body ()
+    finally Console.SetError original
 
 type private TestApp
     (
@@ -23,7 +30,10 @@ type private TestApp
     override _.onShutdownTimeout = defaultArg shutdownTimeout (TimeSpan.FromSeconds 10.0)
 
     override _.onShutdown() =
-        let mark = FIO.attempt ((fun () -> log.Add "onShutdownRan"), fun (ex: exn) -> ex.Message)
+        let mark =
+            FIO.attempt
+                (fun () -> log.Add "onShutdownRan")
+                (fun (ex: exn) -> ex.Message)
         match onShutdown with
         | Some hook -> hook.FlatMap(fun _ -> mark)
         | None -> mark
@@ -74,7 +84,8 @@ type private FatalErrorApp(log: ResizeArray<string>) =
 
 [<Tests>]
 let appTests =
-    testList
+    testSequenced
+    <| testList
         "FIOApp"
         [
             testCase "runtime - defaults to ConcurrentRuntime"
@@ -118,44 +129,48 @@ let appTests =
 
             testCase "Run - error effect returns exit code 1 by default"
             <| fun () ->
-                let log = ResizeArray()
-                let app = TestApp(FIO.fail "err", log)
+                silenceErr (fun () ->
+                    let log = ResizeArray()
+                    let app = TestApp(FIO.fail "err", log)
 
-                let exitCode = app.Run()
+                    let exitCode = app.Run()
 
-                Expect.equal exitCode 1 "Error should return exit code 1"
-                Expect.contains (Seq.toList log) "outcome:Failed" "mapExitCode should see AppFailed"
+                    Expect.equal exitCode 1 "Error should return exit code 1"
+                    Expect.contains (Seq.toList log) "outcome:Failed" "mapExitCode should see AppFailed")
 
             testCase "Run - interrupted effect returns exit code 130 by default"
             <| fun () ->
-                let log = ResizeArray()
-                let app = TestApp(FIO.interrupt (ExplicitInterrupt, "test"), log)
+                silenceErr (fun () ->
+                    let log = ResizeArray()
+                    let app = TestApp(FIO.interrupt ExplicitInterrupt "test", log)
 
-                let exitCode = app.Run()
+                    let exitCode = app.Run()
 
-                Expect.equal exitCode 130 "Interrupted should return exit code 130"
-                Expect.contains (Seq.toList log) "outcome:Interrupted" "mapExitCode should see AppInterrupted"
+                    Expect.equal exitCode 130 "Interrupted should return exit code 130"
+                    Expect.contains (Seq.toList log) "outcome:Interrupted" "mapExitCode should see AppInterrupted")
 
             testCase "Run - fatal error (runtime construction throws) returns exit code 2 by default"
             <| fun () ->
-                let app =
-                    { new FIOApp<int, string>() with
-                        override _.effect = FIO.succeed 42
-                        override _.runtime = failwith "fatal" }
+                silenceErr (fun () ->
+                    let app =
+                        { new FIOApp<int, string>() with
+                            override _.effect = FIO.succeed 42
+                            override _.runtime = failwith "fatal" }
 
-                let exitCode = app.Run()
+                    let exitCode = app.Run()
 
-                Expect.equal exitCode 2 "Fatal error should return exit code 2"
+                    Expect.equal exitCode 2 "Fatal error should return exit code 2")
 
             testCase "Run - fatal error path invokes mapExitCode with AppFatalError"
             <| fun () ->
-                let log = ResizeArray()
-                let app = FatalErrorApp log
+                silenceErr (fun () ->
+                    let log = ResizeArray()
+                    let app = FatalErrorApp log
 
-                let exitCode = app.Run()
+                    let exitCode = app.Run()
 
-                Expect.equal exitCode 99 "Custom fatal-error code should win"
-                Expect.contains (Seq.toList log) "outcome:FatalError" "mapExitCode should see AppFatalError"
+                    Expect.equal exitCode 99 "Custom fatal-error code should win"
+                    Expect.contains (Seq.toList log) "outcome:FatalError" "mapExitCode should see AppFatalError")
 
             testCase "mapExitCode - default classification is 0/1/130/2"
             <| fun () ->
@@ -191,7 +206,7 @@ let appTests =
             testCase "onShutdown - custom success hook runs"
             <| fun () ->
                 let mutable hookRan = false
-                let hook = FIO.attempt ((fun () -> hookRan <- true), fun (ex: exn) -> ex.Message)
+                let hook = FIO.attempt (fun () -> hookRan <- true) (fun (ex: exn) -> ex.Message)
                 let log = ResizeArray()
                 let app = TestApp(FIO.succeed 42, log, onShutdown = hook)
 
@@ -217,19 +232,20 @@ let appTests =
 
             testCase "onShutdownTimeout - is overridable"
             <| fun () ->
-                let log = ResizeArray()
+                silenceErr (fun () ->
+                    let log = ResizeArray()
 
-                let app =
-                    TestApp(
-                        FIO.succeed 42,
-                        log,
-                        onShutdown = FIO.never (),
-                        shutdownTimeout = TimeSpan.FromMilliseconds 100.0
-                    )
+                    let app =
+                        TestApp(
+                            FIO.succeed 42,
+                            log,
+                            onShutdown = FIO.never (),
+                            shutdownTimeout = TimeSpan.FromMilliseconds 100.0
+                        )
 
-                let exitCode = app.Run()
+                    let exitCode = app.Run()
 
-                Expect.equal exitCode 0 "Timed-out shutdown should still produce the main outcome's exit code"
+                    Expect.equal exitCode 0 "Timed-out shutdown should still produce the main outcome's exit code")
 
             testCase "Run - sequential runs do not leak resources"
             <| fun () ->
@@ -255,16 +271,17 @@ let appTests =
 
             testCase "Stop - interrupts running effect"
             <| fun () ->
-                let log = ResizeArray()
-                let app = TestApp(FIO.never (), log)
+                silenceErr (fun () ->
+                    let log = ResizeArray()
+                    let app = TestApp(FIO.never (), log)
 
-                let runTask = app.RunAsync()
-                Thread.Sleep 100
-                app.Stop()
-                let exitCode = runTask.Result
+                    let runTask = app.RunAsync()
+                    Thread.Sleep 100
+                    app.Stop()
+                    let exitCode = runTask.Result
 
-                Expect.equal exitCode 130 "Stop should cause interrupted exit code"
-                Expect.contains (Seq.toList log) "outcome:Interrupted" "Stop should yield AppInterrupted"
+                    Expect.equal exitCode 130 "Stop should cause interrupted exit code"
+                    Expect.contains (Seq.toList log) "outcome:Interrupted" "Stop should yield AppInterrupted")
 
             testCase "Stop - no-op when not running"
             <| fun () ->

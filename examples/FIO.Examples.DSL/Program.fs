@@ -108,9 +108,9 @@ let computationExpression2 () =
 let computationExpression3 () =
     let welcome =
         fio {
-            do! Console.printLine ("Hello! What is your name?", id)
+            do! Console.printLine "Hello! What is your name?" id
             let! name = Console.readLine id
-            do! Console.printLine ($"Hello, %s{name}! Welcome to FIO! 🪻💜", id)
+            do! Console.printLine $"Hello, %s{name}! Welcome to FIO! 🪻💜" id
         }
 
     let fiber = (new DefaultRuntime()).Run welcome
@@ -121,18 +121,18 @@ let computationExpression3 () =
 let interruptFiber () =
     let longRunning =
         fio {
-            do! Console.printLine ("Started long-running task for 10 seconds.", id)
-            do! FIO.sleep (TimeSpan.FromSeconds 10.0, id)
-            do! Console.printLine ("Long-running task completed!", id)
+            do! Console.printLine "Started long-running task for 10 seconds." id
+            do! FIO.sleep (TimeSpan.FromSeconds 10.0) id
+            do! Console.printLine "Long-running task completed!" id
         }
 
     let interrupter =
         fio {
             let! longRunningFiber = longRunning.Fork()
-            do! Console.printLine ("Press Enter to interrupt the long-running task...", id)
+            do! Console.printLine "Press Enter to interrupt the long-running task..." id
             do! (Console.readLine id).Unit()
             do! longRunningFiber.Interrupt()
-            do! Console.printLine ("Interrupted long-running task.", id)
+            do! Console.printLine "Interrupted long-running task." id
         }
 
     let fiber = (new DefaultRuntime()).Run interrupter

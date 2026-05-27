@@ -60,8 +60,8 @@ let webSocketServerTests =
             testAllRuntimes "acceptLoop handles multiple connections" (fun runtime ->
                 withTestEchoServer
                     (fun port ->
-                        fio {
-                            for i in 1..3 do
+                        FIO.forEachDiscard [ 1..3 ] (fun i ->
+                            fio {
                                 let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
                                 let msg = $"msg{i}"
                                 do! ws.SendText msg
@@ -72,7 +72,7 @@ let webSocketServerTests =
                                 | other -> failtest $"Expected text frame but got {other}"
 
                                 do! ws.Close()
-                        })
+                            }))
                     runtime)
 
             testAllRuntimes "startDefault is alias for start" (fun runtime ->

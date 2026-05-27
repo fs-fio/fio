@@ -9,10 +9,10 @@ open FIO.Runtime.Direct
 open FIO.Runtime.Cooperative
 open FIO.Runtime.Concurrent
 
+open Expecto
+
 open System
 open System.Threading
-
-open Expecto
 
 let private runtimes () =
     [
@@ -29,7 +29,6 @@ let fioTests =
     testList
         "FIO"
         [
-
             testPropertyWithConfig fsCheckConfig "Fork - returns a fiber that completes with success value"
             <| fun (runtime: FIORuntime, value: int) ->
                 let eff =
@@ -39,7 +38,8 @@ let fioTests =
                         return result
                     }
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result value "Forked success effect should complete with the value"
 
@@ -51,7 +51,8 @@ let fioTests =
                         return fiber
                     }
 
-                let fiber = runtime.Run(eff).UnsafeSuccess()
+                let fiber =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 match fiber.UnsafeResult() with
                 | Failed e -> Expect.equal e err "Forked error effect should fail with the error"
@@ -67,7 +68,8 @@ let fioTests =
                         return result
                     }
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result 42 "Forked receiver should get message sent after fork")
 
@@ -83,7 +85,8 @@ let fioTests =
                         return [ r1; r2; r3 ]
                     }
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result [ 1; 2; 3 ] "Each forked fiber should complete independently")
 
@@ -91,7 +94,8 @@ let fioTests =
             <| fun (runtime: FIORuntime, value: int) ->
                 let eff = FIO.succeed(value).FlatMap(fun x -> FIO.succeed (x + 1))
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result (value + 1) "FlatMap should chain the continuation on success"
 
@@ -100,34 +104,36 @@ let fioTests =
                 let mutable contRan = false
 
                 let eff =
-                    FIO
-                        .fail(err)
-                        .FlatMap(fun (_: int) ->
-                            contRan <- true
-                            FIO.succeed 0)
+                    FIO.fail(err).FlatMap(fun (_: int) ->
+                        contRan <- true
+                        FIO.succeed 0)
 
-                let result = runtime.Run(eff).UnsafeError()
+                let result =
+                    runtime.Run(eff).UnsafeError()
 
                 Expect.equal result err "FlatMap should propagate the error"
                 Expect.isFalse contRan "FlatMap continuation should not run on error"
 
             testPropertyWithConfig fsCheckConfig "FlatMap - can change result type"
             <| fun (runtime: FIORuntime, value: int) ->
-                let eff = FIO.succeed(value).FlatMap(fun x -> FIO.succeed (x.ToString()))
+                let eff =
+                    FIO.succeed(value)
+                        .FlatMap(fun x -> FIO.succeed (x.ToString()))
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result (value.ToString()) "FlatMap should allow changing the result type"
 
             testAllRuntimes "FlatMap - chains multiple operations" (fun runtime ->
                 let eff =
-                    FIO
-                        .succeed(1)
+                    FIO.succeed(1)
                         .FlatMap(fun x -> FIO.succeed (x + 10))
                         .FlatMap(fun x -> FIO.succeed (x * 2))
                         .FlatMap(fun x -> FIO.succeed (x.ToString()))
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result "22" "FlatMap chain should compose correctly")
 
@@ -135,7 +141,8 @@ let fioTests =
             <| fun (runtime: FIORuntime, value: int) ->
                 let eff = FIO.succeed(value).FlatMap(fun _ -> FIO.fail "boom")
 
-                let result = runtime.Run(eff).UnsafeError()
+                let result =
+                    runtime.Run(eff).UnsafeError()
 
                 Expect.equal result "boom" "Error in FlatMap continuation should propagate"
 
@@ -143,7 +150,8 @@ let fioTests =
             <| fun (runtime: FIORuntime, err: int) ->
                 let eff = FIO.fail(err).CatchAll(fun e -> FIO.succeed (e * 2))
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result (err * 2) "CatchAll should recover from the error"
 
@@ -152,13 +160,13 @@ let fioTests =
                 let mutable handlerRan = false
 
                 let eff =
-                    FIO
-                        .succeed(value)
+                    FIO.succeed(value)
                         .CatchAll(fun (_: string) ->
                             handlerRan <- true
                             FIO.succeed 0)
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result value "CatchAll should not affect success"
                 Expect.isFalse handlerRan "CatchAll handler should not run on success"
@@ -167,7 +175,8 @@ let fioTests =
             <| fun (runtime: FIORuntime, err: int) ->
                 let eff = FIO.fail(err).CatchAll(fun e -> FIO.fail (e.ToString()))
 
-                let result = runtime.Run(eff).UnsafeError()
+                let result =
+                    runtime.Run(eff).UnsafeError()
 
                 Expect.equal result (err.ToString()) "CatchAll should allow changing the error type"
 
@@ -175,13 +184,14 @@ let fioTests =
             <| fun (runtime: FIORuntime, err: int) ->
                 let eff = FIO.fail(err).CatchAll(fun _ -> FIO.fail "recovery failed")
 
-                let result = runtime.Run(eff).UnsafeError()
+                let result =
+                    runtime.Run(eff).UnsafeError()
 
                 Expect.equal result "recovery failed" "CatchAll recovery failure should propagate"
 
             testAllRuntimes "Ensuring - runs finalizer on success" (fun runtime ->
                 let mutable finalizerRan = false
-                let finalizer = FIO.attempt ((fun () -> finalizerRan <- true), fun _ -> "")
+                let finalizer = FIO.attempt (fun () -> finalizerRan <- true) (fun _ -> "")
                 let eff = FIO.succeed(42).Ensuring finalizer
 
                 runtime.Run(eff).UnsafeSuccess() |> ignore
@@ -190,7 +200,7 @@ let fioTests =
 
             testAllRuntimes "Ensuring - runs finalizer on error" (fun runtime ->
                 let mutable finalizerRan = false
-                let finalizer = FIO.attempt ((fun () -> finalizerRan <- true), fun _ -> "")
+                let finalizer = FIO.attempt (fun () -> finalizerRan <- true) (fun _ -> "")
                 let eff = FIO.fail("boom").Ensuring finalizer
 
                 runtime.Run(eff).UnsafeError() |> ignore
@@ -201,7 +211,8 @@ let fioTests =
             <| fun (runtime: FIORuntime, value: int) ->
                 let eff = FIO.succeed(value).Ensuring(FIO.unit ())
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result value "Ensuring should preserve the success result"
 
@@ -209,7 +220,8 @@ let fioTests =
             <| fun (runtime: FIORuntime, err: string) ->
                 let eff = FIO.fail(err).Ensuring(FIO.unit ())
 
-                let result = runtime.Run(eff).UnsafeError()
+                let result =
+                    runtime.Run(eff).UnsafeError()
 
                 Expect.equal result err "Ensuring should preserve the error"
 
@@ -219,7 +231,8 @@ let fioTests =
             <| fun (runtime: FIORuntime, value: int) ->
                 let eff = FIO.succeed(value).Ensuring(FIO.fail "finalizer failed")
 
-                let result = runtime.Run(eff).UnsafeError()
+                let result =
+                    runtime.Run(eff).UnsafeError()
 
                 Expect.equal result "finalizer failed" "Finalizer error should be returned when main succeeds"
 
@@ -230,13 +243,11 @@ let fioTests =
                 let eff =
                     fio {
                         let! fiber =
-                            FIO
-                                .interrupt(ExplicitInterrupt, "self-interrupt")
-                                .Ensuring(FIO.attempt ((fun () -> flag.Value <- true), id))
+                            (FIO.interrupt ExplicitInterrupt "self-interrupt")
+                                .Ensuring(FIO.attempt (fun () -> flag.Value <- true) id)
                                 .Fork()
-
                         do! fiber.Join().CatchAll(fun _ -> FIO.unit ())
-                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) id
                     }
 
                 runtime.Run(eff).UnsafeSuccess() |> ignore
@@ -250,15 +261,14 @@ let fioTests =
                 let eff =
                     fio {
                         let! fiber =
-                            FIO
-                                .sleep(TimeSpan.FromSeconds 60.0, id)
-                                .Ensuring(FIO.attempt ((fun () -> flag.Value <- true), id))
+                            (FIO.sleep (TimeSpan.FromSeconds 60.0) id)
+                                .Ensuring(FIO.attempt (fun () -> flag.Value <- true) id)
                                 .Fork()
 
-                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) id
                         do! fiber.Interrupt()
                         do! fiber.Join().CatchAll(fun _ -> FIO.unit ())
-                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) id
                     }
 
                 runtime.Run(eff).UnsafeSuccess() |> ignore
@@ -273,16 +283,15 @@ let fioTests =
                 let eff =
                     fio {
                         let! fiber =
-                            FIO
-                                .sleep(TimeSpan.FromSeconds 60.0, id)
-                                .Ensuring(FIO.attempt ((fun () -> flag1.Value <- true), id))
-                                .Ensuring(FIO.attempt ((fun () -> flag2.Value <- true), id))
+                            (FIO.sleep(TimeSpan.FromSeconds 60.0) id)
+                                .Ensuring(FIO.attempt (fun () -> flag1.Value <- true) id)
+                                .Ensuring(FIO.attempt (fun () -> flag2.Value <- true) id)
                                 .Fork()
 
-                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) id
                         do! fiber.Interrupt()
                         do! fiber.Join().CatchAll(fun _ -> FIO.unit ())
-                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) id
                     }
 
                 runtime.Run(eff).UnsafeSuccess() |> ignore
@@ -295,14 +304,16 @@ let fioTests =
                 let eff =
                     fio {
                         let! fiber =
-                            FIO.sleep(TimeSpan.FromSeconds 60.0, id).Ensuring(FIO.fail (exn "finalizer error")).Fork()
+                            (FIO.sleep(TimeSpan.FromSeconds 60.0) id)
+                                .Ensuring(FIO.fail (exn "finalizer error")).Fork()
 
-                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, id)
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) id
                         do! fiber.Interrupt()
                         return! fiber.Join()
                     }
 
-                let result = runtime.Run(eff).UnsafeResult()
+                let result =
+                    runtime.Run(eff).UnsafeResult()
 
                 match result with
                 | Interrupted _ -> ()
@@ -327,7 +338,9 @@ let fioTests =
                         return fromFork, fromCatch
                     }
 
-                let fromFork, fromCatch = runtime.Run(joined).UnsafeSuccess()
+                let fromFork, fromCatch =
+                    runtime.Run(joined).UnsafeSuccess()
+
                 Expect.equal fromFork depth $"Forked deep FlatMap chain should yield {depth}"
                 Expect.equal fromCatch depth $"Caught deep FlatMap chain should yield {depth}"
 
@@ -347,7 +360,9 @@ let fioTests =
                         return! fiber.Join()
                     }
 
-                let result = runtime.Run(joined).UnsafeSuccess()
+                let result =
+                    runtime.Run(joined).UnsafeSuccess()
+
                 Expect.equal result 42 "Deep CatchAll chain should recover to 42"
 
             testAllRuntimes "Stack safety - deep left-chained Ensuring via Fork"
@@ -364,7 +379,9 @@ let fioTests =
                         return! fiber.Join()
                     }
 
-                let result = runtime.Run(joined).UnsafeSuccess()
+                let result =
+                    runtime.Run(joined).UnsafeSuccess()
+
                 Expect.equal result 0 "Deep Ensuring chain should yield the seed value"
 
             testAllRuntimes "AddRegistration - fast-completing forked effects do not wedge under load"
@@ -381,16 +398,21 @@ let fioTests =
                         return counter.Value
                     }
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
+
                 Expect.equal result 200 "All fast-completing forks should be observed"
 
             testAllRuntimes "Action - throwing onError falls back to original exception (E-1)" (fun runtime ->
-                let originalExn = InvalidOperationException("original")
+                let originalExn = InvalidOperationException "original"
 
-                let eff: FIO<int, exn> =
-                    FIO.attempt ((fun () -> raise originalExn), (fun _ -> failwith "onError also throws"))
+                let eff =
+                    FIO.attempt 
+                        (fun () -> raise originalExn)
+                        (fun _ -> failwith "onError also throws")
 
-                let result = runtime.Run(eff).UnsafeError()
+                let result =
+                    runtime.Run(eff).UnsafeError()
 
                 Expect.isTrue
                     (obj.ReferenceEquals(result, originalExn))
@@ -398,38 +420,44 @@ let fioTests =
 
             testAllRuntimes "FlatMap - throwing continuation produces error (E-2)" (fun runtime ->
                 let eff: FIO<int, exn> =
-                    FIO.succeed(42).FlatMap(fun (_: int) -> failwith "continuation throws": FIO<int, exn>)
+                    FIO.succeed(42)
+                        .FlatMap(fun (_: int) -> failwith "continuation throws")
 
-                let result = runtime.Run(eff).UnsafeError()
+                let result =
+                    runtime.Run(eff).UnsafeError()
 
                 Expect.equal result.Message "continuation throws" "Thrown exception should become the error")
 
             testAllRuntimes "CatchAll - throwing error handler produces error (E-2)" (fun runtime ->
                 let eff: FIO<int, exn> =
-                    FIO
-                        .fail(InvalidOperationException "typed error" :> exn)
-                        .CatchAll(fun _ -> failwith "handler throws": FIO<int, exn>)
+                    FIO.fail(InvalidOperationException "typed error")
+                        .CatchAll(fun _ -> failwith "handler throws")
 
-                let result = runtime.Run(eff).UnsafeError()
+                let result =
+                    runtime.Run(eff).UnsafeError()
 
                 Expect.equal
                     result.Message
                     "handler throws"
                     "Thrown exception in CatchAll handler should become the error")
 
-            testAllRuntimes "Run - orphaned child fibers are interrupted on re-Run (R-8)" (fun runtime ->
-                let childStarted = new ManualResetEventSlim(false)
+            testAllRuntimes "Run - orphaned child fibers are interrupted on re-Run" (fun runtime ->
+                let childStarted = new ManualResetEventSlim false
 
                 let childEffect: FIO<unit, exn> =
                     fio {
-                        do! FIO.attempt ((fun () -> childStarted.Set()), id)
+                        do! FIO.attempt
+                                (fun () -> childStarted.Set())
+                                id
                         return! FIO.never ()
                     }
 
                 let parentEffect: FIO<obj, exn> =
                     fio {
                         let! fiber = childEffect.Fork()
-                        do! FIO.attempt ((fun () -> childStarted.Wait(TimeSpan.FromSeconds 5.0) |> ignore), id)
+                        do! FIO.attempt
+                                (fun () -> childStarted.Wait(TimeSpan.FromSeconds 5.0) |> ignore)
+                                id
                         return fiber :> obj
                     }
 

@@ -16,13 +16,10 @@ module ServerSocket =
     let private logAndSuppress (context: string) (err: SocketError) =
         fio {
             let str = err.ToString()
-
             do!
-                FIO.attempt (
-                    (fun () -> eprintfn $"[SocketServer] Error during {context}: {str}"),
+                FIO.attempt
+                    (fun () -> eprintfn $"[SocketServer] Error during {context}: {str}")
                     SocketError.fromException
-                )
-
             return ()
         }
 
@@ -32,24 +29,20 @@ module ServerSocket =
     let bind (config: ServerSocketConfig) =
         fio {
             let! netSocket =
-                FIO.attempt (
-                    (fun () -> new Sockets.Socket(config.AddressFamily, config.SocketType, config.ProtocolType)),
+                FIO.attempt
+                    (fun () -> new Sockets.Socket(config.AddressFamily, config.SocketType, config.ProtocolType))
                     SocketError.fromException
-                )
 
             let! endpoint =
-                FIO.attempt (
-                    (fun () -> IPEndPoint(IPAddress.Parse config.BindAddress, config.BindPort) :> EndPoint),
+                FIO.attempt
+                    (fun () -> IPEndPoint(IPAddress.Parse config.BindAddress, config.BindPort) :> EndPoint)
                     SocketError.fromException
-                )
 
-            do!
-                FIO.attempt (
+            do! FIO.attempt
                     (fun () ->
                         netSocket.Bind endpoint
-                        netSocket.Listen config.Backlog),
-                    fun exn -> BindFailed(config.BindAddress, config.BindPort, exn)
-                )
+                        netSocket.Listen config.Backlog)
+                    (fun exn -> BindFailed(config.BindAddress, config.BindPort, exn))
 
             return { NetSocket = netSocket; Config = config }
         }
@@ -58,14 +51,12 @@ module ServerSocket =
     /// <param name="serverSocket">The server socket to close.</param>
     /// <returns>An effect that shuts down the listener, suppressing any cleanup errors.</returns>
     let close (serverSocket: ServerSocket) =
-        FIO
-            .attempt(
+        (FIO.attempt
                 (fun () ->
                     serverSocket.NetSocket.Close()
-                    serverSocket.NetSocket.Dispose()),
+                    serverSocket.NetSocket.Dispose())
                 SocketError.fromException
-            )
-            .CatchAll(logAndSuppress "server socket close")
+            ).CatchAll(logAndSuppress "server socket close")
 
     /// <summary>Creates an effect that acquires a bound and listening server socket.</summary>
     /// <param name="config">The server socket configuration specifying bind address, port, and backlog.</param>
@@ -82,7 +73,7 @@ module ServerSocket =
     /// <param name="action">A function from the bound server socket to the effect to run; the listener is closed after this effect completes.</param>
     /// <returns>An effect that produces the action's result and guarantees listener cleanup.</returns>
     let withServerSocket (config: ServerSocketConfig, action: ServerSocket -> FIO<'R, SocketError>) =
-        FIO.acquireRelease (acquire config, release, action)
+        FIO.acquireRelease (acquire config) release action
 
     /// <summary>Creates an effect that accepts a single incoming TCP connection.</summary>
     /// <param name="serverSocket">The server socket to accept a connection from.</param>
@@ -92,7 +83,7 @@ module ServerSocket =
             let! ct = FIO.cancellationToken ()
 
             let! netSocket =
-                FIO.awaitTask (serverSocket.NetSocket.AcceptAsync(ct).AsTask(), AcceptFailed)
+                FIO.awaitTask (serverSocket.NetSocket.AcceptAsync(ct).AsTask()) AcceptFailed
 
             let config =
                 match serverSocket.Config.AcceptedSocketConfig with
@@ -121,22 +112,21 @@ module ServerSocket =
     /// <param name="serverSocket">The server socket to accept connections from.</param>
     /// <returns>An effect that loops accepting and forking handlers, completing only when interrupted.</returns>
     let acceptLoop (handler: Socket -> FIO<unit, SocketError>, serverSocket: ServerSocket) : FIO<unit, SocketError> =
-        let rec loop () =
+        let step =
             fio {
                 let! socket = accept serverSocket
 
                 let handlerWithCleanup =
-                    FIO.acquireRelease (
-                        FIO.succeed socket,
-                        (fun s -> s.Close().CatchAll(logAndSuppress "accepted socket close")),
+                    FIO.acquireRelease
+                        (FIO.succeed socket)
+                        (fun s -> s.Close().CatchAll(logAndSuppress "accepted socket close"))
                         handler
-                    )
 
                 let! _fiber = handlerWithCleanup.Fork()
-                return! loop ()
+                return ()
             }
 
-        loop ()
+        step.Forever()
 
     /// <summary>Returns the configuration of a server socket.</summary>
     /// <param name="serverSocket">The server socket to query.</param>
@@ -147,7 +137,7 @@ module ServerSocket =
     /// <param name="serverSocket">The server socket to query.</param>
     /// <returns>An effect that produces the local endpoint address.</returns>
     let getLocalEndPoint (serverSocket: ServerSocket) =
-        FIO.attempt ((fun () -> serverSocket.NetSocket.LocalEndPoint), SocketError.fromException)
+        FIO.attempt (fun () -> serverSocket.NetSocket.LocalEndPoint) SocketError.fromException
 
     /// <summary>Builds a server effect that binds, accepts connections, and forks a handler for each one until interrupted.</summary>
     /// <param name="config">The server socket configuration specifying bind address, port, and backlog.</param>

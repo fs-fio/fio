@@ -1,8 +1,6 @@
 /// <summary>Provides tests for the FIO.cancellationToken factory and its interaction with fiber interruption.</summary>
 module FIO.Tests.CancellationTokenTests
 
-open FIO.Tests.Utilities.FsCheckProperties
-
 open FIO.DSL
 open FIO.Runtime
 open FIO.Runtime.Direct
@@ -28,7 +26,6 @@ let cancellationTokenTests =
     testList
         "FIO.cancellationToken"
         [
-
             testAllRuntimes "Returns a non-cancelled token in a healthy fiber" (fun runtime ->
                 let eff = FIO.cancellationToken<string> ()
                 let token = runtime.Run(eff).UnsafeSuccess()
@@ -48,7 +45,7 @@ let cancellationTokenTests =
                             })
                                 .Fork()
 
-                        do! FIO.sleep(TimeSpan.FromMilliseconds 50.0, id).MapError(fun _ -> "sleep err")
+                        do! (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).MapError(fun _ -> "sleep err")
                         do! fiber.Interrupt()
                         return fiber.CancellationToken.IsCancellationRequested
                     }
@@ -113,7 +110,7 @@ let cancellationTokenTests =
                             })
                                 .Fork()
 
-                        do! FIO.sleep(TimeSpan.FromMilliseconds 50.0, id).MapError(fun _ -> "sleep err")
+                        do! (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).MapError(fun _ -> "sleep err")
                         do! parent.Interrupt()
                         return parent.CancellationToken.IsCancellationRequested
                     }

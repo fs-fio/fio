@@ -13,12 +13,14 @@ module internal Casting =
     /// <summary>Transforms a typed error handler into one that returns <c>obj</c>.</summary>
     /// <param name="onError">The typed error handler to upcast.</param>
     /// <returns>An error handler whose return type is erased to <c>obj</c>.</returns>
-    let inline upcastOnError (onError: exn -> 'E) : (exn -> obj) = fun (ex: exn) -> onError ex :> obj
+    let inline upcastOnError (onError: exn -> 'E) : (exn -> obj) =
+        fun (ex: exn) -> onError ex :> obj
 
     /// <summary>Transforms a typed thunk into one that returns <c>obj</c>.</summary>
     /// <param name="func">The typed thunk to upcast.</param>
     /// <returns>A thunk whose return type is erased to <c>obj</c>.</returns>
-    let inline upcastFunc (func: unit -> 'R) : unit -> obj = fun () -> func () :> obj
+    let inline upcastFunc (func: unit -> 'R) : unit -> obj =
+        fun () -> func () :> obj
 
     /// <summary>Transforms a completed or pending <c>Task</c> into a <c>Task&lt;obj&gt;</c> using the supplied boxing function.</summary>
     /// <param name="boxResult">A function that boxes the completed task's result into <c>obj</c>.</param>
@@ -46,8 +48,7 @@ module internal Casting =
                 CancellationToken.None,
                 TaskContinuationOptions.ExecuteSynchronously,
                 TaskScheduler.Default
-            )
-            |> ignore
+            ) |> ignore
 
             tcs.Task
 
@@ -60,7 +61,8 @@ module internal Casting =
     /// <summary>Transforms a non-generic <c>Task</c> into a <c>Task&lt;obj&gt;</c> that completes with boxed unit.</summary>
     /// <param name="task">The void task to wrap.</param>
     /// <returns>A <c>Task&lt;obj&gt;</c> that completes with boxed unit when the original task finishes.</returns>
-    let inline wrapVoidTask (task: Task) : Task<obj> = wrapTaskCore (fun () -> box ()) task
+    let inline wrapVoidTask (task: Task) : Task<obj> =
+        wrapTaskCore (fun () -> box ()) task
 
 /// <summary>Provides intent-revealing wrappers around <c>System.Threading.Interlocked</c> primitives used to implement one-shot flags, state-machine transitions, and lazy double-checked initialization of nullable reference fields.</summary>
 /// <remarks>Every helper is <c>inline</c> so the call site expands to the same IL as a direct <c>Interlocked</c> call — no allocation, no virtual dispatch, no measurable overhead.</remarks>
@@ -93,8 +95,7 @@ module internal Atomics =
     /// <param name="field">The field to initialize, passed by reference.</param>
     /// <param name="factory">A factory invoked at most once per losing race to produce a candidate value; the candidate may be discarded if another thread wins.</param>
     /// <returns>The instance now stored in <paramref name="field"/> — either the existing one, the freshly created one, or the one installed by the winning concurrent caller.</returns>
-    let inline initIfNull< ^T when ^T : not struct and ^T : null>
-        (field: byref< ^T >) (factory: unit -> ^T) : ^T =
+    let inline initIfNull< ^T when ^T : not struct and ^T : null> (field: byref< ^T >) (factory: unit -> ^T) : ^T =
         let existing = Volatile.Read &field
         if not (isNull existing) then
             existing

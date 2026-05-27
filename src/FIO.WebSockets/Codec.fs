@@ -60,24 +60,25 @@ module Codec =
         {
             Encode =
                 fun value ->
-                    FIO.attempt (
+                    FIO.attempt
                         (fun () ->
                             let json = JsonSerializer.Serialize(value, options)
-                            Text json),
+                            Text json)
                         WsError.fromException
-                    )
             Decode =
                 fun frame ->
                     match frame with
                     | Text json ->
-                        FIO.attempt ((fun () -> JsonSerializer.Deserialize<'T>(json, options)), WsError.fromException)
+                        FIO.attempt
+                            (fun () ->
+                                JsonSerializer.Deserialize<'T>(json, options))
+                            WsError.fromException
                     | Binary bytes ->
-                        FIO.attempt (
+                        FIO.attempt
                             (fun () ->
                                 let json = Encoding.UTF8.GetString bytes
-                                JsonSerializer.Deserialize<'T>(json, options)),
+                                JsonSerializer.Deserialize<'T>(json, options))
                             WsError.fromException
-                        )
                     | Close _ -> FIO.fail (CodecError "Cannot decode close frame as JSON")
         }
 
@@ -95,29 +96,26 @@ module Codec =
         {
             Encode =
                 fun value ->
-                    FIO.attempt (
+                    FIO.attempt
                         (fun () ->
                             let json = JsonSerializer.Serialize(value, opts)
-                            Text(json + "\n")),
+                            Text(json + "\n"))
                         WsError.fromException
-                    )
             Decode =
                 fun frame ->
                     match frame with
                     | Text json ->
-                        FIO.attempt (
+                        FIO.attempt
                             (fun () ->
                                 let trimmed = json.TrimEnd('\n', '\r')
-                                JsonSerializer.Deserialize<'T>(trimmed, opts)),
+                                JsonSerializer.Deserialize<'T>(trimmed, opts))
                             WsError.fromException
-                        )
                     | Binary bytes ->
-                        FIO.attempt (
+                        FIO.attempt
                             (fun () ->
                                 let json = Encoding.UTF8.GetString(bytes).TrimEnd('\n', '\r')
-                                JsonSerializer.Deserialize<'T>(json, opts)),
+                                JsonSerializer.Deserialize<'T>(json, opts))
                             WsError.fromException
-                        )
                     | Close _ -> FIO.fail (CodecError "Cannot decode close frame as JSON line")
         }
 
@@ -151,21 +149,19 @@ module Codec =
         {
             Encode =
                 fun (a, b) ->
-                    FIO.attempt (
+                    FIO.attempt
                         (fun () ->
-                            // Serialize each value separately to preserve type info
                             let jsonA = JsonSerializer.Serialize(a)
                             let jsonB = JsonSerializer.Serialize(b)
                             let json = JsonSerializer.Serialize [| jsonA; jsonB |]
-                            Text json),
+                            Text json)
                         WsError.fromException
-                    )
             Decode =
                 fun frame ->
                     match frame with
                     | Close _ -> FIO.fail (CodecError "Cannot decode close frame as composed value")
                     | _ ->
-                        FIO.attempt (
+                        FIO.attempt
                             (fun () ->
                                 let json =
                                     match frame with
@@ -198,9 +194,8 @@ module Codec =
                                 let a = JsonSerializer.Deserialize<'A> jsonA
                                 let b = JsonSerializer.Deserialize<'B> jsonB
 
-                                a, b),
+                                a, b)
                             WsError.fromException
-                        )
         }
 
     /// <summary>Creates a codec from effectful encode and decode functions.</summary>
@@ -218,6 +213,12 @@ module Codec =
     /// <returns>A codec that wraps the pure functions in effects with error handling.</returns>
     let createPure (encode: 'T -> WebSocketFrame) (decode: WebSocketFrame -> 'T) =
         {
-            Encode = fun value -> FIO.attempt ((fun () -> encode value), WsError.fromException)
-            Decode = fun frame -> FIO.attempt ((fun () -> decode frame), WsError.fromException)
+            Encode = fun value ->
+                FIO.attempt
+                    (fun () -> encode value)
+                    WsError.fromException
+            Decode = fun frame ->
+                FIO.attempt
+                    (fun () -> decode frame)
+                    WsError.fromException
         }

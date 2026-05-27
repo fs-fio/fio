@@ -15,9 +15,16 @@ module WebSocketServer =
     /// <returns>An effect that produces the running HTTP listener.</returns>
     let start (url: string) =
         fio {
-            let! listener = FIO.attempt ((fun () -> new HttpListener()), WsError.fromException)
-            do! FIO.attempt ((fun () -> listener.Prefixes.Add url), WsError.fromException)
-            do! FIO.attempt ((fun () -> listener.Start()), WsError.fromException)
+            let! listener =
+                FIO.attempt
+                    (fun () -> new HttpListener())
+                    WsError.fromException
+            do! FIO.attempt
+                    (fun () -> listener.Prefixes.Add url)
+                    WsError.fromException
+            do! FIO.attempt
+                    (fun () -> listener.Start())
+                    WsError.fromException
             return listener
         }
 
@@ -30,13 +37,17 @@ module WebSocketServer =
     /// <param name="listener">The HTTP listener to stop.</param>
     /// <returns>An effect that completes when the server has stopped.</returns>
     let close (listener: HttpListener) =
-        FIO.attempt ((fun () -> listener.Stop()), WsError.fromException)
+        FIO.attempt
+            (fun () -> listener.Stop())
+            WsError.fromException
 
     /// <summary>Creates an effect that aborts the server immediately without waiting for pending requests.</summary>
     /// <param name="listener">The HTTP listener to abort.</param>
     /// <returns>An effect that completes when the server has been aborted.</returns>
     let abort (listener: HttpListener) =
-        FIO.attempt ((fun () -> listener.Abort()), WsError.fromException)
+        FIO.attempt
+            (fun () -> listener.Abort())
+            WsError.fromException
 
     /// <summary>Creates an effect that accepts a single incoming WebSocket connection.</summary>
     /// <param name="listener">The HTTP listener to accept connections from.</param>
@@ -49,8 +60,8 @@ module WebSocketServer =
             let! ct = FIO.cancellationToken ()
 
             let! listenerCtx =
-                FIO.awaitTask (
-                    Task.Run<HttpListenerContext>(fun () ->
+                FIO.awaitTask
+                    (Task.Run<HttpListenerContext>(fun () ->
                         task {
                             use _reg =
                                 ct.Register(fun () ->
@@ -58,11 +69,9 @@ module WebSocketServer =
                                         listener.Stop()
                                     with _ ->
                                         ())
-
                             return! listener.GetContextAsync()
-                        }),
+                        }))
                     WsError.fromException
-                )
 
             if listenerCtx.Request.IsWebSocketRequest then
                 let subProto =
@@ -71,13 +80,19 @@ module WebSocketServer =
                     | None -> null
 
                 let! ctxTask =
-                    FIO.attempt ((fun () -> listenerCtx.AcceptWebSocketAsync subProto), WsError.fromException)
+                    FIO.attempt
+                        (fun () -> listenerCtx.AcceptWebSocketAsync subProto)
+                        WsError.fromException
 
-                let! ctx = FIO.awaitTask (ctxTask, WsError.fromException)
+                let! ctx = FIO.awaitTask ctxTask WsError.fromException
                 return new WebSocket(ctx.WebSocket, config)
             else
-                do! FIO.attempt ((fun () -> listenerCtx.Response.StatusCode <- 400), WsError.fromException)
-                do! FIO.attempt ((fun () -> listenerCtx.Response.Close()), WsError.fromException)
+                do! FIO.attempt
+                        (fun () -> listenerCtx.Response.StatusCode <- 400)
+                        WsError.fromException
+                do! FIO.attempt
+                        (fun () -> listenerCtx.Response.Close())
+                        WsError.fromException
                 return! FIO.fail (WsError.fromException <| Exception "Not a WebSocket request")
         }
 
@@ -93,14 +108,14 @@ module WebSocketServer =
     /// <param name="handler">A function from an accepted WebSocket to the effect that handles the connection.</param>
     /// <returns>An effect that loops indefinitely until interrupted.</returns>
     let acceptLoop (listener: HttpListener) (config: WebSocketConfig) (handler: WebSocket -> FIO<unit, WsError>) =
-        let rec loop () =
+        let step =
             fio {
                 let! ws = accept listener config None
                 let! _ = (handler ws).Fork()
-                return! loop ()
+                return ()
             }
 
-        loop ()
+        step.Forever()
 
     /// <summary>Builds a resource-managed effect that starts a server, accepts connections in a loop, and stops the server on every outcome.</summary>
     /// <param name="url">The URL prefix to listen on.</param>
@@ -108,11 +123,10 @@ module WebSocketServer =
     /// <param name="handler">A function from an accepted WebSocket to the effect that handles the connection.</param>
     /// <returns>An effect that runs the server until interrupted, then stops the listener.</returns>
     let serve (url: string) (config: WebSocketConfig) (handler: WebSocket -> FIO<unit, WsError>) =
-        FIO.acquireRelease (
-            start url,
-            (fun listener -> close listener),
-            fun listener -> acceptLoop listener config handler
-        )
+        FIO.acquireRelease 
+            (start url)
+            (fun listener -> close listener)
+            (fun listener -> acceptLoop listener config handler)
 
     /// <summary>Builds a resource-managed server that decodes each request with a codec, passes it to a handler, and encodes the response back.</summary>
     /// <typeparam name="Req">The request type decoded from incoming frames.</typeparam>

@@ -115,11 +115,8 @@ module Middleware =
         create (fun handler ->
             fun request ->
                 let handlerEffect = handler request
-
-                let timeoutEffect =
-                    FIO.sleep(duration, onError).FlatMap(fun () -> FIO.succeed Response.requestTimeout)
-
-                handlerEffect.Race(timeoutEffect))
+                let timeoutEffect = FIO.succeed(Response.requestTimeout).Delay duration onError
+                handlerEffect.Race timeoutEffect)
 
     /// <summary>Creates CORS middleware that adds cross-origin headers and responds to preflight OPTIONS requests.</summary>
     /// <param name="allowedOrigins">The list of allowed origins (use "*" for all).</param>

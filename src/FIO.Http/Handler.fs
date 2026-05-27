@@ -30,7 +30,7 @@ module HttpHandler =
     /// <param name="f">The function that transforms a request into a response.</param>
     /// <returns>A handler that applies the function, catching exceptions as errors.</returns>
     let fromFunc (f: HttpRequest -> HttpResponse) : HttpHandler<exn> =
-        fun request -> FIO.attempt ((fun () -> f request), id)
+        fun request -> FIO.attempt (fun () -> f request) id
 
     /// <summary>Creates a handler from a function returning an FIO effect.</summary>
     /// <param name="f">The function that transforms a request into an FIO effect.</param>
@@ -253,15 +253,12 @@ module HttpHandler =
     /// <returns>A function that parses the request body as JSON, producing an FIO effect.</returns>
     let parseJsonBody<'T> (options: JsonSerializerOptions option) : HttpRequest -> FIO<'T, exn> =
         fun request ->
-            FIO.attempt (
-                (fun () ->
-                    let bodyStr = request.Body.AsString()
-
-                    match options with
-                    | Some opts -> JsonSerializer.Deserialize<'T>(bodyStr, opts)
-                    | None -> JsonSerializer.Deserialize<'T> bodyStr),
+            FIO.attempt (fun () ->
+            let bodyStr = request.Body.AsString()
+            match options with
+            | Some opts -> JsonSerializer.Deserialize<'T>(bodyStr, opts)
+            | None -> JsonSerializer.Deserialize<'T> bodyStr)
                 id
-            )
 
     /// <summary>Creates a handler that deserializes the JSON request body and processes it with the given function.</summary>
     /// <param name="f">The function that processes the deserialized body and produces a response effect.</param>

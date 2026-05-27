@@ -33,16 +33,14 @@ module Codec =
         {
             Encode =
                 fun str ->
-                    FIO.attempt (
-                        (fun () -> Encoding.UTF8.GetBytes str),
-                        fun exn -> CodecError("UTF-8 encoding failed", exn)
-                    )
+                    FIO.attempt
+                        (fun () -> Encoding.UTF8.GetBytes str)
+                        (fun exn -> CodecError("UTF-8 encoding failed", exn))
             Decode =
                 fun bytes ->
-                    FIO.attempt (
-                        (fun () -> Encoding.UTF8.GetString bytes),
-                        fun exn -> CodecError("UTF-8 decoding failed", exn)
-                    )
+                    FIO.attempt
+                        (fun () -> Encoding.UTF8.GetString bytes)
+                        (fun exn -> CodecError("UTF-8 decoding failed", exn))
         }
 
     /// <summary>Returns the line-delimited string codec that appends a newline on encode and trims it on decode.</summary>
@@ -70,20 +68,18 @@ module Codec =
         {
             Encode =
                 fun value ->
-                    FIO.attempt (
+                    FIO.attempt
                         (fun () ->
                             let json = JsonSerializer.Serialize(value, options)
-                            Encoding.UTF8.GetBytes json),
-                        fun exn -> CodecError("JSON encoding failed", exn)
-                    )
+                            Encoding.UTF8.GetBytes json)
+                        (fun exn -> CodecError("JSON encoding failed", exn))
             Decode =
                 fun bytes ->
-                    FIO.attempt (
+                    FIO.attempt
                         (fun () ->
                             let json = Encoding.UTF8.GetString bytes
-                            JsonSerializer.Deserialize<'T>(json, options)),
-                        fun exn -> CodecError("JSON decoding failed", exn)
-                    )
+                            JsonSerializer.Deserialize<'T>(json, options))
+                        (fun exn -> CodecError("JSON decoding failed", exn))
         }
 
     /// <summary>Returns the JSON codec using default serializer options.</summary>
@@ -99,20 +95,18 @@ module Codec =
         {
             Encode =
                 fun value ->
-                    FIO.attempt (
+                    FIO.attempt
                         (fun () ->
                             let json = JsonSerializer.Serialize(value, opts)
-                            Encoding.UTF8.GetBytes(json + "\n")),
-                        fun exn -> CodecError("JSON line encoding failed", exn)
-                    )
+                            Encoding.UTF8.GetBytes(json + "\n"))
+                        (fun exn -> CodecError("JSON line encoding failed", exn))
             Decode =
                 fun bytes ->
-                    FIO.attempt (
+                    FIO.attempt
                         (fun () ->
                             let json = Encoding.UTF8.GetString(bytes).TrimEnd('\n', '\r')
-                            JsonSerializer.Deserialize<'T>(json, opts)),
-                        fun exn -> CodecError("JSON line decoding failed", exn)
-                    )
+                            JsonSerializer.Deserialize<'T>(json, opts))
+                        (fun exn -> CodecError("JSON line decoding failed", exn))
         }
 
     /// <summary>Transforms a codec to a different type using bidirectional conversion functions.</summary>
@@ -234,6 +228,12 @@ module Codec =
     /// <returns>A codec that lifts the pure functions into effects with automatic error handling.</returns>
     let createPure (encode: 'T -> byte[]) (decode: byte[] -> 'T) =
         {
-            Encode = fun value -> FIO.attempt ((fun () -> encode value), fun exn -> CodecError("Encoding failed", exn))
-            Decode = fun bytes -> FIO.attempt ((fun () -> decode bytes), fun exn -> CodecError("Decoding failed", exn))
+            Encode = fun value ->
+                FIO.attempt
+                    (fun () -> encode value)
+                    (fun exn -> CodecError("Encoding failed", exn))
+            Decode = fun bytes ->
+                FIO.attempt
+                    (fun () -> decode bytes)
+                    (fun exn -> CodecError("Decoding failed", exn))
         }

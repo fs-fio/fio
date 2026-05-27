@@ -150,7 +150,7 @@ let withTestEchoServer (action: int -> FIO<'R, SocketError>) (runtime: FIORuntim
             let! ep = ServerSocket.getLocalEndPoint server
             let port = (ep :?> IPEndPoint).Port
             let! serverFiber = ServerSocket.acceptLoop(echoHandler, server).Fork()
-            do! FIO.sleep (TimeSpan.FromMilliseconds 50.0, SocketError.fromException)
+            do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) SocketError.fromException
             let! result = action port
             do! serverFiber.Interrupt()
             do! ServerSocket.close server

@@ -28,7 +28,6 @@ let channelTests =
     testList
         "Channel"
         [
-
             testPropertyWithConfig fsCheckConfig "Constructor - creates channel with zero count"
             <| fun (runtime: FIORuntime) ->
                 let eff =
@@ -37,7 +36,8 @@ let channelTests =
                         return chan.Count
                     }
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result 0 "New channel should have count 0"
 
@@ -50,7 +50,8 @@ let channelTests =
                         return chan1.Count, chan2.Count
                     }
 
-                let c1, c2 = runtime.Run(eff).UnsafeSuccess()
+                let c1, c2 =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal c1 1 "Channel with message should have count 1"
                 Expect.equal c2 0 "Other channel should remain at count 0")
@@ -64,7 +65,8 @@ let channelTests =
                         return chan1.Id, chan2.Id
                     }
 
-                let id1, id2 = runtime.Run(eff).UnsafeSuccess()
+                let id1, id2 =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.notEqual id1 id2 "Each channel should have a unique id"
                 Expect.notEqual id1 Guid.Empty "Channel id should not be empty"
@@ -79,7 +81,8 @@ let channelTests =
                         return id1, id2
                     }
 
-                let id1, id2 = runtime.Run(eff).UnsafeSuccess()
+                let id1, id2 =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal id1 id2 "Id should return the same value on repeated access"
 
@@ -94,7 +97,8 @@ let channelTests =
                         return before, after
                     }
 
-                let before, after = runtime.Run(eff).UnsafeSuccess()
+                let before, after =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal before 0 "Count should be 0 before send"
                 Expect.equal after 1 "Count should be 1 after send"
@@ -111,7 +115,8 @@ let channelTests =
                         return before, after
                     }
 
-                let before, after = runtime.Run(eff).UnsafeSuccess()
+                let before, after =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal before 1 "Count should be 1 before receive"
                 Expect.equal after 0 "Count should be 0 after receive"
@@ -131,7 +136,8 @@ let channelTests =
                         return afterThreeSends, afterOneReceive, afterTwoReceives
                     }
 
-                let c3, c2, c1 = runtime.Run(eff).UnsafeSuccess()
+                let c3, c2, c1 =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal c3 3 "Count should be 3 after three sends"
                 Expect.equal c2 2 "Count should be 2 after one receive"
@@ -146,7 +152,8 @@ let channelTests =
                         return sent
                     }
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result msg "Send should return the sent message"
 
@@ -159,7 +166,8 @@ let channelTests =
                         return sent
                     }
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result msg "Send should return the sent string"
 
@@ -172,7 +180,8 @@ let channelTests =
                         return sent
                     }
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result (a, b) "Send should return the sent tuple"
 
@@ -186,7 +195,8 @@ let channelTests =
                         return received
                     }
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result msg "Receive should return the sent message"
 
@@ -200,7 +210,8 @@ let channelTests =
                         return received
                     }
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result msg "Receive should work with string type"
 
@@ -218,7 +229,8 @@ let channelTests =
                         return [ r1; r2; r3 ]
                     }
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result [ 1; 2; 3 ] "Messages should be received in FIFO order"
 
@@ -236,7 +248,8 @@ let channelTests =
                         return [ r1; r2; r3 ]
                     }
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result [ 10; 20; 30 ] "Alternating send/receive should work correctly"
 
@@ -250,7 +263,8 @@ let channelTests =
                         return received
                     }
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result 42 "Blocked receiver should get message once sent")
 
@@ -270,7 +284,8 @@ let channelTests =
                         return [ v1; v2; v3 ] |> List.sort
                     }
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result [ 1; 2; 3 ] "All receivers should get messages")
 
@@ -290,7 +305,8 @@ let channelTests =
                         return [ v1; v2; v3 ] |> List.sort
                     }
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result [ 1; 2; 3 ] "All sent messages should be receivable")
 
@@ -307,7 +323,8 @@ let channelTests =
                         return c1, c2, received
                     }
 
-                let c1, c2, received = runtime.Run(eff).UnsafeSuccess()
+                let c1, c2, received =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal c1 1 "Source channel should have 1 message"
                 Expect.equal c2 0 "Other channel should be empty"
@@ -318,12 +335,13 @@ let channelTests =
                     fio {
                         let chan = Channel<int>()
                         let! receiverFiber = (chan.Receive()).Fork()
-                        do! FIO.sleep (TimeSpan.FromMilliseconds 10.0, id)
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 10.0) id
                         do! receiverFiber.Interrupt()
                         return receiverFiber
                     }
 
-                let fiber = runtime.Run(eff).UnsafeSuccess()
+                let fiber =
+                    runtime.Run(eff).UnsafeSuccess()
 
                 match fiber.UnsafeResult() with
                 | Interrupted _ -> ()
@@ -370,36 +388,23 @@ let channelTests =
                             let chan = Channel<int>()
 
                             let! receiverFibers =
-                                [ 1..receiverCount ]
-                                |> List.map (fun _ -> chan.Receive().Fork())
-                                |> List.fold
-                                    (fun acc e -> acc >>= fun xs -> e >>= fun x -> FIO.succeed (x :: xs))
-                                    (FIO.succeed [])
-                                |> fun eff -> List.rev <!> eff
+                                FIO.forEach [ 1..receiverCount ] (fun _ ->
+                                    chan.Receive().Fork())
 
                             let! senderFibers =
-                                [ 1..receiverCount ]
-                                |> List.map (fun i -> chan.Send(i).Unit().Fork())
-                                |> List.fold
-                                    (fun acc e -> acc >>= fun xs -> e >>= fun x -> FIO.succeed (x :: xs))
-                                    (FIO.succeed [])
-                                |> fun eff -> List.rev <!> eff
+                                FIO.forEach [ 1..receiverCount ] (fun i ->
+                                    chan.Send(i).Unit().Fork())
 
-                            for sf in senderFibers do
-                                do! sf.Join()
+                            do! FIO.forEachDiscard senderFibers (fun sf -> sf.Join())
 
                             let! results =
-                                receiverFibers
-                                |> List.map (fun rf -> rf.Join())
-                                |> List.fold
-                                    (fun acc e -> acc >>= fun xs -> e >>= fun x -> FIO.succeed (x :: xs))
-                                    (FIO.succeed [])
-                                |> fun eff -> List.rev <!> eff
+                                FIO.forEach receiverFibers (fun rf -> rf.Join())
 
                             return results |> List.sort
                         }
 
-                    let result = runtime.Run(eff).UnsafeSuccess()
+                    let result =
+                        runtime.Run(eff).UnsafeSuccess()
 
                     Expect.equal
                         result

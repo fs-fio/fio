@@ -14,27 +14,24 @@ module SocketClient =
     let connect (config: SocketConfig) =
         fio {
             let! netSocket =
-                FIO.attempt (
+                FIO.attempt
                     (fun () ->
                         let s =
                             new Sockets.Socket(config.AddressFamily, config.SocketType, config.ProtocolType)
-
                         s.SendBufferSize <- config.SendBufferSize
                         s.ReceiveBufferSize <- config.ReceiveBufferSize
                         s.SendTimeout <- config.SendTimeout
                         s.ReceiveTimeout <- config.ReceiveTimeout
                         s.NoDelay <- config.NoDelay
-                        s),
+                        s)
                     SocketError.fromException
-                )
 
             let! ct = FIO.cancellationToken ()
 
             do!
-                FIO.awaitUnitTask (
-                    netSocket.ConnectAsync(config.Host, config.Port, ct).AsTask(),
-                    fun ex -> ConnectionFailed(config.Host, config.Port, ex)
-                )
+                FIO.awaitUnitTask 
+                    (netSocket.ConnectAsync(config.Host, config.Port, ct).AsTask())
+                    (fun ex -> ConnectionFailed(config.Host, config.Port, ex))
 
             return new Socket(netSocket, config)
         }
@@ -54,7 +51,7 @@ module SocketClient =
     /// <param name="action">A function from the connected socket to the effect to run; the connection is closed after this effect completes.</param>
     /// <returns>An effect that produces the action's result and guarantees connection cleanup.</returns>
     let withConnection (config: SocketConfig) (action: Socket -> FIO<'R, SocketError>) =
-        FIO.acquireRelease (connect config, (fun socket -> socket.Close().CatchAll(fun _ -> FIO.unit ())), action)
+        FIO.acquireRelease (connect config) (fun socket -> socket.Close().Ignore()) action
 
     /// <summary>Builds a resource-scoped effect that connects to the given host and port, runs an action, and closes the connection on every outcome.</summary>
     /// <param name="host">The remote host to connect to.</param>

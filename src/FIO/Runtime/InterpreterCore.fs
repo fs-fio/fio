@@ -188,7 +188,7 @@ let inline handleSharedCase
             (OutcomeInterrupt(FiberInterruptedException(state.FiberContext.Id, cause, msg) :> obj))
 
         ValueNone
-    | GetFiberCancellationToken ->
+    | FiberCancellationToken ->
         processOutcome
             &state
             onSuccessComplete

@@ -24,7 +24,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     let logAndSuppress (context: string) (err: WsError) =
         fio {
             let str = err.ToString()
-            do! FIO.attempt ((fun () -> eprintfn $"[WebSocket] Error during {context}: {str}"), WsError.fromException)
+            do! FIO.attempt (fun () -> eprintfn $"[WebSocket] Error during {context}: {str}") WsError.fromException
             return ()
         }
 
@@ -32,19 +32,19 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// <param name="func">The synchronous function to execute.</param>
     /// <returns>An effect that produces the function's result or fails with a <c>WsError</c>.</returns>
     let fromFunc (func: unit -> 'T) =
-        FIO.attempt (func, WsError.fromException)
+        FIO.attempt func WsError.fromException
 
     /// <summary>Lifts a unit-returning .NET Task into a WebSocket effect, mapping exceptions to <c>WsError</c>.</summary>
     /// <param name="task">The task to await.</param>
     /// <returns>An effect that completes when the task finishes or fails with a <c>WsError</c>.</returns>
     let awaitUnitTask (task: Task) =
-        FIO.awaitUnitTask (task, WsError.fromException)
+        FIO.awaitUnitTask task WsError.fromException
 
     /// <summary>Lifts a <c>Task&lt;'T&gt;</c> into a WebSocket effect, mapping exceptions to <c>WsError</c>.</summary>
     /// <param name="task">The task to await.</param>
     /// <returns>An effect that produces the task's result or fails with a <c>WsError</c>.</returns>
     let awaitTask (task: Task<'T>) =
-        FIO.awaitTask (task, WsError.fromException)
+        FIO.awaitTask task WsError.fromException
 
     /// <summary>Creates an effect that receives a complete message from the connection.</summary>
     /// <param name="ct">The cancellation token to observe during the receive operation.</param>
@@ -282,7 +282,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     /// <returns>An effect that completes when the encoded value has been sent.</returns>
     member this.Send<'T>(codec: WebSocketCodec<'T>, value: 'T, ct: CancellationToken) =
         fio {
-            let! frameResult = codec.Encode(value).CatchAll(fun err -> FIO.fail err)
+            let! frameResult = codec.Encode value
             do! this.SendFrame(frameResult, ct)
         }
 
@@ -303,7 +303,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     member this.Receive<'T>(codec: WebSocketCodec<'T>, ct: CancellationToken) =
         fio {
             match! this.ReceiveMessage ct with
-            | Frame frame -> return! codec.Decode(frame).CatchAll(fun err -> FIO.fail err)
+            | Frame frame -> return! codec.Decode frame
             | ConnectionClosed(status, desc) ->
                 return!
                     FIO.fail (

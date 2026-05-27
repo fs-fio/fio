@@ -35,14 +35,14 @@ type private HttpApp() =
     /// <remarks>Uses <c>Middleware.before</c> to run a side-effecting action before the request reaches the matched route handler.</remarks>
     let logging =
         Middleware.before (fun request ->
-            FIO.attempt (
+            FIO.attempt
                 (fun () ->
                     let ts = DateTime.Now.ToString "HH:mm:ss"
-                    printfn $"[{ts}] {request.Method} {request.Path}"),
-                id
-            ))
+                    printfn $"[{ts}] {request.Method} {request.Path}")
+                id)
 
-    override _.effect = Server.runServer ServerConfig.defaultConfig (routes @@ logging)
+    override _.effect =
+        Server.runServer ServerConfig.defaultConfig (routes @@ logging)
 
 [<EntryPoint>]
 let main _ = HttpApp().Run()

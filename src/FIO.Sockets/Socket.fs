@@ -21,7 +21,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     let logAndSuppress (context: string) (err: SocketError) =
         fio {
             let str = err.ToString()
-            do! FIO.attempt ((fun () -> eprintfn $"[Socket] Error during {context}: {str}"), SocketError.fromException)
+            do! FIO.attempt (fun () -> eprintfn $"[Socket] Error during {context}: {str}") SocketError.fromException
             return ()
         }
 
@@ -29,19 +29,19 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     /// <param name="func">The synchronous function to execute.</param>
     /// <returns>An effect that produces the function's result or fails with a <c>GeneralError</c>.</returns>
     let fromFunc (func: unit -> 'T) =
-        FIO.attempt (func, SocketError.fromException)
+        FIO.attempt func SocketError.fromException
 
     /// <summary>Lifts a unit-returning .NET Task into a socket effect, mapping exceptions to <c>SocketError</c>.</summary>
     /// <param name="task">The task to await.</param>
     /// <returns>An effect that completes when the task finishes or fails with a <c>GeneralError</c>.</returns>
     let awaitUnitTask (task: Threading.Tasks.Task) =
-        FIO.awaitUnitTask (task, SocketError.fromException)
+        FIO.awaitUnitTask task SocketError.fromException
 
     /// <summary>Lifts a <c>Task&lt;'T&gt;</c> into a socket effect, mapping exceptions to <c>SocketError</c>.</summary>
     /// <param name="task">The task to await.</param>
     /// <returns>An effect that produces the task's result or fails with a <c>GeneralError</c>.</returns>
     let awaitTask (task: Threading.Tasks.Task<'T>) =
-        FIO.awaitTask (task, SocketError.fromException)
+        FIO.awaitTask task SocketError.fromException
 
     /// <summary>Creates an effect that sends raw bytes over the connection.</summary>
     /// <param name="buffer">The byte array to send.</param>
@@ -182,7 +182,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
 
     /// <summary>Creates an effect that closes the connection and releases associated resources.</summary>
     /// <returns>An effect that shuts down and closes the connection, suppressing any cleanup errors.</returns>
-    member _.Close() =
+    member _.Close () =
         fio {
             do!
                 fromFunc(fun () ->

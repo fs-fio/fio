@@ -89,15 +89,15 @@ and [<Sealed>] internal BlockingWorkItemSlot() =
     [<VolatileField>]
     let mutable chan: UnboundedChannel<WorkItem> = null
 
-    member _.GetOrCreate() =
-        initIfNull &chan (fun () -> UnboundedChannel<WorkItem>())
+    member _.Count =
+        let c = Volatile.Read &chan
+        if isNull c then 0 else c.Count
 
     member _.TryGet() =
         Volatile.Read &chan
 
-    member _.Count =
-        let c = Volatile.Read &chan
-        if isNull c then 0 else c.Count
+    member _.GetOrCreate() =
+        initIfNull &chan (fun () -> UnboundedChannel<WorkItem>())
 
 /// <summary>Represents the lifecycle state of a fiber context as a tri-state enum.</summary>
 and private FiberContextState =
@@ -139,20 +139,53 @@ and [<Sealed>] internal FiberContext() =
     member internal _.CancellationToken =
         cts.Token
 
-    member private _.InvokeOnTerminal() =
-        match onTerminalCallback with
-        | ValueSome cb when tryClaim &onTerminalFired ->
-            try
-                cb ()
-            with _ ->
-                ()
-        | _ ->
-            ()
-
     member internal this.SetOnTerminal(callback: unit -> unit) =
         onTerminalCallback <- ValueSome callback
         if this.IsTerminal() then
             this.InvokeOnTerminal()
+
+    member internal this.AddBlockingWorkItem blockingWorkItem =
+        let chan = this.GetOrCreateBlockingChan()
+        chan.WriteAsync blockingWorkItem
+
+    member internal _.RescheduleBlockingWorkItems(activeWorkItemChan: UnboundedChannel<WorkItem>) =
+        task {
+            let chan = Volatile.Read &blockingWorkItemChan
+            if not (isNull chan) then
+                let mutable workItem = Unchecked.defaultof<_>
+                while chan.TryRead &workItem do
+                    do! activeWorkItemChan.WriteAsync workItem
+        }
+
+    member internal this.TryRescheduleBlockingWorkItems(activeWorkItemChan: UnboundedChannel<WorkItem>) =
+        task {
+            if not <| this.IsTerminal() then
+                return false
+            else
+                do! this.RescheduleBlockingWorkItems activeWorkItemChan
+                return true
+        }
+
+    member internal this.AddRegistration(registration: IDisposable) =
+        let bag = initIfNull &registrations (fun () -> ConcurrentBag<IDisposable>())
+        bag.Add registration
+
+        if this.IsTerminal() then
+            let mutable victim = Unchecked.defaultof<_>
+            while bag.TryTake &victim do
+                try
+                    victim.Dispose()
+                with :? ObjectDisposedException ->
+                    ()
+
+    member internal _.IsCompleted() =
+        Volatile.Read &state = int FiberContextState.Completed
+
+    member internal _.IsInterrupted() =
+        Volatile.Read &state = int FiberContextState.Interrupted
+
+    member internal _.IsTerminal() =
+        Volatile.Read &state <> int FiberContextState.Running
 
     member internal this.Complete res =
         if tryTransition &state (int FiberContextState.Running) (int FiberContextState.Completed) then
@@ -193,57 +226,24 @@ and [<Sealed>] internal FiberContext() =
             resTcs.TrySetResult interruptError |> ignore
             this.InvokeOnTerminal()
 
-    member internal this.AddBlockingWorkItem blockingWorkItem =
-        let chan = this.GetOrCreateBlockingChan()
-        chan.WriteAsync blockingWorkItem
-
-    member internal _.RescheduleBlockingWorkItems(activeWorkItemChan: UnboundedChannel<WorkItem>) =
-        task {
-            let chan = Volatile.Read &blockingWorkItemChan
-            if not (isNull chan) then
-                let mutable workItem = Unchecked.defaultof<_>
-                while chan.TryRead &workItem do
-                    do! activeWorkItemChan.WriteAsync workItem
-        }
-
-    member private _.GetOrCreateBlockingChan() : UnboundedChannel<WorkItem> =
-        initIfNull &blockingWorkItemChan (fun () -> UnboundedChannel<WorkItem>())
-
-    member internal this.TryRescheduleBlockingWorkItems(activeWorkItemChan: UnboundedChannel<WorkItem>) =
-        task {
-            if not <| this.IsTerminal() then
-                return false
-            else
-                do! this.RescheduleBlockingWorkItems activeWorkItemChan
-                return true
-        }
-
-    member internal this.AddRegistration(registration: IDisposable) =
-        let bag = initIfNull &registrations (fun () -> ConcurrentBag<IDisposable>())
-        bag.Add registration
-
-        if this.IsTerminal() then
-            let mutable victim = Unchecked.defaultof<_>
-            while bag.TryTake &victim do
-                try
-                    victim.Dispose()
-                with :? ObjectDisposedException ->
-                    ()
-
-    member internal _.IsCompleted() =
-        Volatile.Read &state = int FiberContextState.Completed
-
-    member internal _.IsInterrupted() =
-        Volatile.Read &state = int FiberContextState.Interrupted
-
-    member internal _.IsTerminal() =
-        Volatile.Read &state <> int FiberContextState.Running
-
     member internal _.Cancel() =
         try
             cts.Cancel(throwOnFirstException = false)
         with :? ObjectDisposedException ->
             ()
+
+    member private _.InvokeOnTerminal() =
+        match onTerminalCallback with
+        | ValueSome cb when tryClaim &onTerminalFired ->
+            try
+                cb ()
+            with _ ->
+                ()
+        | _ ->
+            ()
+
+    member private _.GetOrCreateBlockingChan() : UnboundedChannel<WorkItem> =
+        initIfNull &blockingWorkItemChan (fun () -> UnboundedChannel<WorkItem>())
 
     member private _.DisposeRegistrations() =
         let bag = Volatile.Read &registrations
@@ -260,13 +260,13 @@ and [<Sealed>] internal FiberContext() =
             if disposing then
                 cts.Dispose()
 
+    override this.Finalize() =
+        this.Dispose false
+
     interface IDisposable with
         member this.Dispose() =
             this.Dispose true
             GC.SuppressFinalize this
-
-    override this.Finalize() =
-        this.Dispose false
 
 /// <summary>Represents a lightweight, cooperative thread of execution that can be awaited for its result.</summary>
 /// <typeparam name="'R">The success result type produced by the fiber.</typeparam>
@@ -420,15 +420,15 @@ and [<Sealed>] Fiber<'R, 'E> internal () =
     member this.UnsafePrintResult() =
         printfn "%A" (this.UnsafeResult())
 
-    /// <summary>Returns the fiber's identifier as a string.</summary>
-    /// <returns>The string form of <c>Id</c>.</returns>
-    override this.ToString() =
-        this.Id.ToString()
-
     /// <summary>Returns the internal <c>FiberContext</c> backing this fiber's execution state.</summary>
     /// <returns>The <c>FiberContext</c> instance associated with this fiber.</returns>
     member internal _.Context =
         fiberContext
+
+    /// <summary>Returns the fiber's identifier as a string.</summary>
+    /// <returns>The string form of <c>Id</c>.</returns>
+    override this.ToString() =
+        this.Id.ToString()
 
     interface IDisposable with
         member _.Dispose() =
@@ -485,6 +485,11 @@ and [<Sealed>] Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, bl
             return res :?> 'R
         }
 
+    /// <summary>Returns the number of work items blocked waiting on this channel.</summary>
+    /// <returns>The count of blocked work items in the blocking slot.</returns>
+    member internal _.BlockingWorkItemCount =
+        blockingSlot.Count
+
     /// <summary>Transforms the channel by adding a work item to the blocking slot for rescheduling on the next send.</summary>
     /// <param name="blockingItem">The work item to enqueue.</param>
     /// <returns>A <c>ValueTask</c> that completes when the work item has been enqueued.</returns>
@@ -517,11 +522,6 @@ and [<Sealed>] Channel<'R> private (id: Guid, resChan: UnboundedChannel<obj>, bl
     /// <summary>Transforms the channel's signal-processing state by marking it as available.</summary>
     member internal _.EndSignalProcessing() =
         Volatile.Write(&signalProcessing, 0)
-
-    /// <summary>Returns the number of work items blocked waiting on this channel.</summary>
-    /// <returns>The count of blocked work items in the blocking slot.</returns>
-    member internal _.BlockingWorkItemCount =
-        blockingSlot.Count
 
     /// <summary>Returns the underlying <c>UnboundedChannel&lt;obj&gt;</c> that stores messages.</summary>
     /// <returns>The internal message channel.</returns>
@@ -561,12 +561,12 @@ and FIO<'R, 'E> =
     | ChainSuccess of eff: FIO<obj, 'E> * cont: (obj -> FIO<'R, 'E>)
     | ChainError of eff: FIO<'R, obj> * cont: (obj -> FIO<'R, 'E>)
     | OnFinalize of eff: FIO<'R, 'E> * finalizer: FIO<obj, obj>
-    | GetFiberCancellationToken
+    | FiberCancellationToken
 
     /// <summary>Creates a new fiber that runs this effect concurrently with the caller.</summary>
     /// <typeparam name="'E1">The error type of the resulting effect; never produced because forking does not fail.</typeparam>
     /// <returns>An effect that completes with a <c>Fiber</c> handle to the newly running fiber.</returns>
-    member this.Fork<'E1>() : FIO<Fiber<'R, 'E>, 'E1> =
+    member this.Fork<'E1> () : FIO<Fiber<'R, 'E>, 'E1> =
         let fiber = new Fiber<'R, 'E>()
         ForkEffect(this.UpcastBoth(), fiber, fiber.Context)
 
@@ -574,21 +574,21 @@ and FIO<'R, 'E> =
     /// <typeparam name="'R1">The success result type produced by the continuation.</typeparam>
     /// <param name="cont">A function from this effect's success value to the next effect to run.</param>
     /// <returns>An effect that runs this effect and, on success, runs the effect produced by <paramref name="cont"/>.</returns>
-    member this.FlatMap<'R1>(cont: 'R -> FIO<'R1, 'E>) : FIO<'R1, 'E> =
+    member this.FlatMap<'R1> (cont: 'R -> FIO<'R1, 'E>) : FIO<'R1, 'E> =
         ChainSuccess(this.UpcastResult(), fun res -> cont (res :?> 'R))
 
     /// <summary>Combines this effect with a recovery function that runs when it fails.</summary>
     /// <typeparam name="'E1">The error type of the recovered effect.</typeparam>
     /// <param name="onError">A function from this effect's typed error to the recovery effect.</param>
     /// <returns>An effect that completes with this effect's success value, or with the recovery effect's outcome on failure.</returns>
-    member this.CatchAll<'E1>(onError: 'E -> FIO<'R, 'E1>) : FIO<'R, 'E1> =
+    member this.CatchAll<'E1> (onError: 'E -> FIO<'R, 'E1>) : FIO<'R, 'E1> =
         ChainError(this.UpcastError(), fun err -> onError (err :?> 'E))
 
     /// <summary>Builds an effect that runs a finalizer after this effect regardless of its outcome.</summary>
     /// <param name="finalizer">A cleanup effect that runs after this effect completes, fails, or is interrupted.</param>
     /// <returns>An effect that completes with this effect's outcome and always runs <paramref name="finalizer"/> afterwards.</returns>
     /// <remarks>The main effect's error takes precedence; a failure raised by <paramref name="finalizer"/> only surfaces when the main effect succeeded.</remarks>
-    member this.Ensuring(finalizer: FIO<unit, 'E>) : FIO<'R, 'E> =
+    member this.Ensuring (finalizer: FIO<unit, 'E>) : FIO<'R, 'E> =
         OnFinalize(this, finalizer.UpcastBoth())
 
     static member inline private flattenOnFinalize
@@ -609,7 +609,6 @@ and FIO<'R, 'E> =
             | _ -> stopped <- true
 
         let mutable rebuilt = leafUpcast current
-
         for i = finalizers.Count - 1 downto 0 do
             rebuilt <- OnFinalize(rebuilt, finalizers[i])
 
@@ -634,7 +633,6 @@ and FIO<'R, 'E> =
             | _ -> stopped <- true
 
         let mutable rebuilt = leafUpcast current
-
         for i = inners.Count - 1 downto 0 do
             rebuilt <- ChainSuccess(rebuilt, innerContWrap inners[i])
 
@@ -659,7 +657,6 @@ and FIO<'R, 'E> =
             | _ -> stopped <- true
 
         let mutable rebuilt = leafUpcast current
-
         for i = inners.Count - 1 downto 0 do
             rebuilt <- ChainError(rebuilt, innerContWrap inners[i])
 
@@ -685,7 +682,7 @@ and FIO<'R, 'E> =
                 eff cont
         | OnFinalize(eff, finalizer) ->
             FIO.flattenOnFinalize (fun e -> e.UpcastResult()) eff finalizer
-        | GetFiberCancellationToken -> GetFiberCancellationToken
+        | FiberCancellationToken -> FiberCancellationToken
 
     member internal this.UpcastError() : FIO<'R, obj> =
         match this with
@@ -707,7 +704,7 @@ and FIO<'R, 'E> =
         | ChainError(eff, cont) -> ChainError(eff, fun err -> cont(err).UpcastError())
         | OnFinalize(eff, finalizer) ->
             FIO.flattenOnFinalize (fun e -> e.UpcastError()) eff finalizer
-        | GetFiberCancellationToken -> GetFiberCancellationToken
+        | FiberCancellationToken -> FiberCancellationToken
 
     member internal this.UpcastBoth() : FIO<obj, obj> =
         match this with
@@ -734,4 +731,4 @@ and FIO<'R, 'E> =
                 eff cont
         | OnFinalize(eff, finalizer) ->
             FIO.flattenOnFinalize (fun e -> e.UpcastBoth()) eff finalizer
-        | GetFiberCancellationToken -> GetFiberCancellationToken
+        | FiberCancellationToken -> FiberCancellationToken

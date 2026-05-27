@@ -76,8 +76,8 @@ let serverSocketTests =
             testAllRuntimes "acceptLoop handles multiple connections" (fun runtime ->
                 withTestEchoServer
                     (fun port ->
-                        fio {
-                            for i in 1..3 do
+                        FIO.forEachDiscard [ 1..3 ] (fun i ->
+                            fio {
                                 let! socket = SocketClient.connectWith "127.0.0.1" port
                                 let msg = $"msg{i}"
                                 do! socket.SendString msg
@@ -86,7 +86,7 @@ let serverSocketTests =
                                 Expect.equal received msg $"Echo {i} should match"
 
                                 do! socket.Close()
-                        })
+                            }))
                     runtime)
 
             testAllRuntimes "getConfig returns bound configuration" (fun runtime ->

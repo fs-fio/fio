@@ -73,16 +73,14 @@ module Server =
     /// <param name="runtime">The FIO runtime to use for executing effects.</param>
     /// <returns>An effect that produces a new FIO HTTP server.</returns>
     let createWithRuntime (config: ServerConfig) (routes: Routes<exn>) (runtime: DefaultRuntime) : FIO<FIOServer, exn> =
-        FIO.attempt (
-            (fun () ->
-                {
-                    Config = config
-                    Routes = routes
-                    Runtime = runtime
-                    Host = None
-                }),
+        FIO.attempt (fun () ->
+            {
+                Config = config
+                Routes = routes
+                Runtime = runtime
+                Host = None
+            })
             id
-        )
 
     /// <summary>Creates a new FIO HTTP server with the default runtime.</summary>
     /// <param name="config">The server configuration.</param>
@@ -110,13 +108,9 @@ module Server =
             |> ignore
 
             do!
-                FIO
-                    .awaitUnitTask(app.StartAsync(), id)
-                    .CatchAll(fun startError ->
-                        FIO
-                            .awaitUnitTask(app.DisposeAsync().AsTask(), id)
-                            .CatchAll(fun _ -> FIO.unit ())
-                            .FlatMap(fun _ -> FIO.fail startError))
+                (FIO.awaitUnitTask (app.StartAsync()) id).CatchAll(fun startError ->
+                    (FIO.awaitUnitTask (app.DisposeAsync().AsTask()) id)
+                        .Ignore().FlatMap(fun () -> FIO.fail startError))
 
             printfn $"FIO HTTP Server listening on http://{server.Config.Host}:{server.Config.Port}"
             return { server with Host = Some app }
@@ -129,9 +123,9 @@ module Server =
         fio {
             match server.Host with
             | Some host ->
-                do! FIO.awaitUnitTask (host.StopAsync(), id)
+                do! FIO.awaitUnitTask (host.StopAsync()) id
                 // IHost uses synchronous Dispose, not DisposeAsync
-                do! FIO.attempt ((fun () -> host.Dispose()), id)
+                do! FIO.attempt (fun () -> host.Dispose()) id
                 printfn "FIO HTTP Server stopped"
                 return { server with Host = None }
             | None ->
@@ -145,7 +139,7 @@ module Server =
     let run (server: FIOServer) : FIO<unit, exn> =
         fio {
             match server.Host with
-            | Some host -> do! FIO.awaitUnitTask (host.WaitForShutdownAsync(), id)
+            | Some host -> do! FIO.awaitUnitTask (host.WaitForShutdownAsync()) id
             | None -> return! FIO.fail (exn "FIO HTTP Server not started. Call Server.start first.")
         }
 

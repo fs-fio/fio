@@ -13,7 +13,7 @@ open Expecto
 
 /// <summary>Returns a sleep effect that maps any exception to the supplied SocketError, so it can sit inside fio { } blocks.</summary>
 let private sleepMs (ms: float) =
-    FIO.sleep (TimeSpan.FromMilliseconds ms, SocketError.fromException)
+    FIO.sleep (TimeSpan.FromMilliseconds ms) SocketError.fromException
 
 /// <summary>Polls the fiber state until it terminates or the timeout elapses, returning whether it terminated within the budget.</summary>
 let private waitForTerminal (fiber: Fiber<'R, 'E>) (budgetMs: int) =

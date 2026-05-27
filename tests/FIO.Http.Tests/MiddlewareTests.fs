@@ -43,7 +43,7 @@ let middlewareTests =
 
             testAllRuntimes "before runs effect before handler" (fun runtime ->
                 let mutable ran = false
-                let mw = Middleware.before (fun _ -> FIO.attempt ((fun () -> ran <- true), id))
+                let mw = Middleware.before (fun _ -> FIO.attempt (fun () -> ran <- true) id)
 
                 let resp = applyMiddleware mw HttpHandler.ok (makeGetRequest "/test") runtime
 
@@ -54,7 +54,7 @@ let middlewareTests =
                 let mutable capturedStatus = HttpStatusCode.Continue
 
                 let mw =
-                    Middleware.after (fun _ resp -> FIO.attempt ((fun () -> capturedStatus <- resp.Status), id))
+                    Middleware.after (fun _ resp -> FIO.attempt (fun () -> capturedStatus <- resp.Status) id)
 
                 let resp = applyMiddleware mw HttpHandler.ok (makeGetRequest "/test") runtime
 
@@ -82,7 +82,7 @@ let middlewareTests =
                 let mutable loggedPath = ""
 
                 let mw =
-                    Middleware.logging (fun req -> FIO.attempt ((fun () -> loggedPath <- req.Path), id))
+                    Middleware.logging (fun req -> FIO.attempt (fun () -> loggedPath <- req.Path) id)
 
                 let resp = applyMiddleware mw HttpHandler.ok (makeGetRequest "/test") runtime
 
@@ -106,8 +106,7 @@ let middlewareTests =
                     testAllRuntimes "returns 408 when handler exceeds duration" (fun runtime ->
                         let slowHandler =
                             fun _ ->
-                                FIO
-                                    .sleep(TimeSpan.FromSeconds 10.0, id)
+                                (FIO.sleep (TimeSpan.FromSeconds 10.0) id)   
                                     .FlatMap(fun () -> FIO.succeed (Response.okText "slow"))
 
                         let mw = Middleware.timeout (TimeSpan.FromMilliseconds 100.0) id
