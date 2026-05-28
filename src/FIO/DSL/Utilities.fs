@@ -19,7 +19,7 @@ module internal Casting =
     /// <summary>Transforms a typed thunk into one that returns <c>obj</c>.</summary>
     /// <param name="func">The typed thunk to upcast.</param>
     /// <returns>A thunk whose return type is erased to <c>obj</c>.</returns>
-    let inline upcastFunc (func: unit -> 'R) : unit -> obj =
+    let inline upcastFunc (func: unit -> 'A) : unit -> obj =
         fun () -> func () :> obj
 
     /// <summary>Transforms a completed or pending <c>Task</c> into a <c>Task&lt;obj&gt;</c> using the supplied boxing function.</summary>
@@ -52,10 +52,10 @@ module internal Casting =
 
             tcs.Task
 
-    /// <summary>Transforms a generic <c>Task&lt;'R&gt;</c> into a <c>Task&lt;obj&gt;</c> by boxing its result.</summary>
+    /// <summary>Transforms a generic <c>Task&lt;'A&gt;</c> into a <c>Task&lt;obj&gt;</c> by boxing its result.</summary>
     /// <param name="genericTask">The typed task to upcast.</param>
     /// <returns>A <c>Task&lt;obj&gt;</c> that completes with the boxed result of the original task.</returns>
-    let inline upcastTask (genericTask: Task<'R>) : Task<obj> =
+    let inline upcastTask (genericTask: Task<'A>) : Task<obj> =
         wrapTaskCore (fun () -> box genericTask.Result) (genericTask :> Task)
 
     /// <summary>Transforms a non-generic <c>Task</c> into a <c>Task&lt;obj&gt;</c> that completes with boxed unit.</summary>

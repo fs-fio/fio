@@ -11,11 +11,11 @@ module ServerSocket =
 
     /// <summary>Transforms a socket error into a logged-and-suppressed unit effect for use in server cleanup paths.</summary>
     /// <param name="context">A description of the operation being cleaned up.</param>
-    /// <param name="err">The socket error to log.</param>
+    /// <param name="error">The socket error to log.</param>
     /// <returns>An effect that logs the error to standard error and succeeds with unit.</returns>
-    let private logAndSuppress (context: string) (err: SocketError) =
+    let private logAndSuppress (context: string) (error: SocketError) =
         fio {
-            let str = err.ToString()
+            let str = error.ToString()
             do!
                 FIO.attempt
                     (fun () -> eprintfn $"[SocketServer] Error during {context}: {str}")
@@ -72,7 +72,7 @@ module ServerSocket =
     /// <param name="config">The server socket configuration specifying bind address, port, and backlog.</param>
     /// <param name="action">A function from the bound server socket to the effect to run; the listener is closed after this effect completes.</param>
     /// <returns>An effect that produces the action's result and guarantees listener cleanup.</returns>
-    let withServerSocket (config: ServerSocketConfig, action: ServerSocket -> FIO<'R, SocketError>) =
+    let withServerSocket (config: ServerSocketConfig, action: ServerSocket -> FIO<'A, SocketError>) =
         FIO.acquireRelease (acquire config) release action
 
     /// <summary>Creates an effect that accepts a single incoming TCP connection.</summary>

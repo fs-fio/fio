@@ -131,7 +131,7 @@ let appTests =
             <| fun () ->
                 silenceErr (fun () ->
                     let log = ResizeArray()
-                    let app = TestApp(FIO.fail "err", log)
+                    let app = TestApp(FIO.fail "error", log)
 
                     let exitCode = app.Run()
 
@@ -191,7 +191,7 @@ let appTests =
 
             testCase "Custom mapExitCode - error uses custom code"
             <| fun () ->
-                let exitCode = CustomExitCodeApp(FIO.fail "err").Run()
+                let exitCode = CustomExitCodeApp(FIO.fail "error").Run()
 
                 Expect.equal exitCode 20 "Custom error exit code should be 20"
 

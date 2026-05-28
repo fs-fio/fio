@@ -134,11 +134,11 @@ type PingPongApp() =
     /// <param name="chan2">The channel to receive the pong reply from.</param>
     /// <returns>An effect that completes after the ping-pong exchange is printed to the console.</returns>
     let pinger (chan1: Channel<string>) (chan2: Channel<string>) =
-        chan1.Send "ping"
+        chan1.Write "ping"
         >>= fun ping ->
             Console.printLine $"pinger sent: %s{ping}" id
             >>= fun _ ->
-                chan2.Receive()
+                chan2.Read()
                 >>= fun pong -> Console.printLine $"pinger received: %s{pong}" id >>= fun _ -> FIO.unit ()
 
     /// <summary>Builds an effect that receives a ping message from chan1, then sends a pong reply on chan2, using the &gt;&gt;= bind operator for sequential composition.</summary>
@@ -146,11 +146,11 @@ type PingPongApp() =
     /// <param name="chan2">The channel to send the pong reply on.</param>
     /// <returns>An effect that completes after the ping-pong exchange is printed to the console.</returns>
     let ponger (chan1: Channel<string>) (chan2: Channel<string>) =
-        chan1.Receive()
+        chan1.Read()
         >>= fun ping ->
             Console.printLine $"ponger received: %s{ping}" id
             >>= fun _ ->
-                chan2.Send "pong"
+                chan2.Write "pong"
                 >>= fun pong -> Console.printLine $"ponger sent: %s{pong}" id >>= fun _ -> FIO.unit ()
 
     override _.effect =
@@ -169,9 +169,9 @@ type PingPongCEApp() =
     /// <returns>An effect that completes after printing the sent and received messages.</returns>
     let pinger (chan1: Channel<string>) (chan2: Channel<string>) =
         fio {
-            let! ping = chan1.Send "ping"
+            let! ping = chan1.Write "ping"
             do! Console.printLine $"pinger sent: %s{ping}" id
-            let! pong = chan2.Receive()
+            let! pong = chan2.Read()
             do! Console.printLine $"pinger received: %s{pong}" id
         }
 
@@ -181,9 +181,9 @@ type PingPongCEApp() =
     /// <returns>An effect that completes after printing the received and sent messages.</returns>
     let ponger (chan1: Channel<string>) (chan2: Channel<string>) =
         fio {
-            let! ping = chan1.Receive()
+            let! ping = chan1.Read()
             do! Console.printLine $"ponger received: %s{ping}" id
-            let! pong = chan2.Send "pong"
+            let! pong = chan2.Write "pong"
             do! Console.printLine $"ponger sent: %s{pong}" id
         }
 
@@ -212,10 +212,10 @@ type PingPongMatchApp() =
     /// <returns>An effect that completes after the exchange or fails with a protocol-violation string error.</returns>
     let pinger (chan1: Channel<Message>) (chan2: Channel<Message>) =
         fio {
-            let! ping = chan1.Send PingMsg
+            let! ping = chan1.Write PingMsg
             do! Console.printLine $"pinger sent: %A{ping}" _.Message
 
-            match! chan2.Receive() with
+            match! chan2.Read() with
             | PongMsg -> do! Console.printLine $"pinger received: %A{PongMsg}" _.Message
             | PingMsg -> return! FIO.fail $"pinger received %A{PingMsg} when %A{PongMsg} was expected!"
         }
@@ -226,15 +226,15 @@ type PingPongMatchApp() =
     /// <returns>An effect that completes after replying or fails with a protocol-violation string error.</returns>
     let ponger (chan1: Channel<Message>) (chan2: Channel<Message>) =
         fio {
-            match! chan1.Receive() with
+            match! chan1.Read() with
             | PingMsg -> do! Console.printLine $"ponger received: %A{PingMsg}" _.Message
             | PongMsg -> return! FIO.fail $"ponger received %A{PongMsg} when %A{PingMsg} was expected!"
 
             let! sentMsg =
                 fio {
                     match! FIO.attempt (fun () -> Random.Shared.Next(0, 2)) _.Message with
-                    | 0 -> do! chan2.Send PongMsg
-                    | _ -> do! chan2.Send PingMsg
+                    | 0 -> do! chan2.Write PongMsg
+                    | _ -> do! chan2.Write PingMsg
                 }
 
             do! Console.printLine $"ponger sent: %A{sentMsg}" _.Message
@@ -315,8 +315,8 @@ type ErrorHandlingWithRetryApp() =
     /// <returns>An effect that produces a string on success or fails with an Error value after exhausting retries.</returns>
     let databaseResult: FIO<string, Error> =
         fio {
-            let onEachRetry (err, retry, maxRetries) =
-                (Console.printLine $"Database read failed with error: %A{err}. Retry attempt %d{retry} of %d{maxRetries}..." id)
+            let onEachRetry (error, retry, maxRetries) =
+                (Console.printLine $"Database read failed with error: %A{error}. Retry attempt %d{retry} of %d{maxRetries}..." id)
                     .OrElseFail false
 
             return! (readFromDatabase.Retry 4 onEachRetry).CatchAll(fun error -> FIO.fail (DbError error))
@@ -326,8 +326,8 @@ type ErrorHandlingWithRetryApp() =
     /// <returns>An effect that produces a char on success or fails with an Error value after exhausting retries.</returns>
     let webserviceResult: FIO<char, Error> =
         fio {
-            let onEachRetry (err, retry, maxRetries) =
-                (Console.printLine $"Webservice read failed with error: %A{err}. Retry attempt %d{retry} of %d{maxRetries}..." id)
+            let onEachRetry (error, retry, maxRetries) =
+                (Console.printLine $"Webservice read failed with error: %A{error}. Retry attempt %d{retry} of %d{maxRetries}..." id)
                     .OrElseFail 400
 
             return! (awaitWebservice.Retry 4 onEachRetry).CatchAll(fun error -> FIO.fail (WsError error))
@@ -394,7 +394,7 @@ type HighlyConcurrentApp() =
                 FIO.attempt
                     (fun () -> Random.Shared.Next(100, 501))
                     Operators.id
-            do! chan.Send(msg).Unit()
+            do! chan.Write(msg).Unit()
             do! Console.printLine $"Sender[%i{id}] sent: %i{msg}" Operators.id
         }
 
@@ -409,7 +409,7 @@ type HighlyConcurrentApp() =
                 let! maxFibers = FIO.succeed (max.ToString("N0", CultureInfo "en-US"))
                 do! Console.printLine $"Successfully received a message from all %s{maxFibers} fibers!" Operators.id
             else
-                let! msg = chan.Receive()
+                let! msg = chan.Read()
                 do! Console.printLine $"Receiver received: %i{msg}" Operators.id
                 return! receiver chan (count - 1) max
         }
@@ -462,8 +462,8 @@ type FiberFromTaskApp() =
                         a
 
                     printfn $"Task computing Fibonacci of %i{n}..."
-                    let res = fib n
-                    printfn $"Fibonacci of %i{n} is %i{res}"
+                    let value = fib n
+                    printfn $"Fibonacci of %i{n} is %i{value}"
                     return ()
                 })
             id
@@ -509,16 +509,16 @@ type FiberFromGenericTaskApp() =
                         a
 
                     printfn $"Task computing Fibonacci of %i{n}..."
-                    let res = fib n
-                    return $"Fibonacci of %i{n} is %i{res}"
+                    let value = fib n
+                    return $"Fibonacci of %i{n} is %i{value}"
                 })
             id
 
     override _.effect: FIO<unit, exn> =
         let awaitAndPrint (fiber: Fiber<string, exn>) =
             fio {
-                let! res = fiber.Join()
-                do! Console.printLine $"%s{res}" id
+                let! value = fiber.Join()
+                do! Console.printLine $"%s{value}" id
             }
 
         fio {
@@ -599,12 +599,12 @@ type CustomExitCodeApp() =
 
     override _.mapExitCode outcome =
         match outcome with
-        | AppSucceeded res ->
-            printfn $"Success with value: {res}"
+        | AppSucceeded value ->
+            printfn $"Success with value: {value}"
             0
-        | AppFailed err ->
-            printfn $"Failed with error code: {err}"
-            err
+        | AppFailed error ->
+            printfn $"Failed with error code: {error}"
+            error
         | AppInterrupted _ -> 130
         | AppFatalError _ -> 2
 

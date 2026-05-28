@@ -84,9 +84,9 @@ let codecTests =
 
                     testAllRuntimes "decode fails on Text frame" (fun runtime ->
                         let eff = Codec.binary.Decode(Text "hello")
-                        let err = runtime.Run(eff).UnsafeError()
+                        let error = runtime.Run(eff).UnsafeError()
 
-                        match err with
+                        match error with
                         | CodecError _ -> ()
                         | other -> failtest $"Expected CodecError but got {other}")
                 ]
@@ -140,9 +140,9 @@ let codecTests =
 
                     testAllRuntimes "decode fails on Binary frame" (fun runtime ->
                         let eff = Codec.text.Decode(Binary [| 1uy |])
-                        let err = runtime.Run(eff).UnsafeError()
+                        let error = runtime.Run(eff).UnsafeError()
 
-                        match err with
+                        match error with
                         | CodecError _ -> ()
                         | other -> failtest $"Expected CodecError but got {other}")
                 ]
@@ -170,18 +170,18 @@ let codecTests =
                     testAllRuntimes "invalid JSON produces error" (fun runtime ->
                         let codec = Codec.json
                         let eff = codec.Decode(Text "not valid json!!!")
-                        let err = runtime.Run(eff).UnsafeError()
+                        let error = runtime.Run(eff).UnsafeError()
 
-                        match err with
+                        match error with
                         | GeneralError _ -> ()
                         | other -> failtest $"Expected GeneralError but got {other}")
 
                     testAllRuntimes "Close frame produces CodecError" (fun runtime ->
                         let codec = Codec.json
                         let eff = codec.Decode(Close(WebSocketCloseStatus.NormalClosure, "bye"))
-                        let err = runtime.Run(eff).UnsafeError()
+                        let error = runtime.Run(eff).UnsafeError()
 
-                        match err with
+                        match error with
                         | CodecError _ -> ()
                         | other -> failtest $"Expected CodecError but got {other}")
                 ]
@@ -314,9 +314,9 @@ let codecTests =
                                 | _ -> failwith "unexpected")
 
                         let eff = codec.Encode "test"
-                        let err = runtime.Run(eff).UnsafeError()
+                        let error = runtime.Run(eff).UnsafeError()
 
-                        match err with
+                        match error with
                         | GeneralError _ -> ()
                         | other -> failtest $"Expected GeneralError but got {other}")
 
@@ -325,9 +325,9 @@ let codecTests =
                             Codec.createPure (fun str -> Text str) (fun (_: WebSocketFrame) -> failwith "boom")
 
                         let eff = codec.Decode(Text "test")
-                        let err = runtime.Run(eff).UnsafeError()
+                        let error = runtime.Run(eff).UnsafeError()
 
-                        match err with
+                        match error with
                         | GeneralError _ -> ()
                         | other -> failtest $"Expected GeneralError but got {other}")
 

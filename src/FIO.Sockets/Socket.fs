@@ -16,11 +16,11 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
 
     /// <summary>Transforms a socket error into a logged-and-suppressed unit effect for use in cleanup paths.</summary>
     /// <param name="context">A description of the operation being cleaned up.</param>
-    /// <param name="err">The socket error to log.</param>
+    /// <param name="error">The socket error to log.</param>
     /// <returns>An effect that logs the error to standard error and succeeds with unit.</returns>
-    let logAndSuppress (context: string) (err: SocketError) =
+    let logAndSuppress (context: string) (error: SocketError) =
         fio {
-            let str = err.ToString()
+            let str = error.ToString()
             do! FIO.attempt (fun () -> eprintfn $"[Socket] Error during {context}: {str}") SocketError.fromException
             return ()
         }

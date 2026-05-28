@@ -26,9 +26,9 @@ let handlerTests =
             testAllRuntimes "fail returns error" (fun runtime ->
                 let handler = HttpHandler.fail (exn "boom")
 
-                let err = runtime.Run(handler (makeGetRequest "/")).UnsafeError()
+                let error = runtime.Run(handler (makeGetRequest "/")).UnsafeError()
 
-                Expect.equal err.Message "boom" "Error message")
+                Expect.equal error.Message "boom" "Error message")
 
             testAllRuntimes "fromFIO runs effect ignoring request" (fun runtime ->
                 let handler = HttpHandler.fromFIO (FIO.succeed (Response.okText "from effect"))
@@ -151,9 +151,9 @@ let handlerTests =
                     HttpHandler.fail "original"
                     |> HttpHandler.mapError (fun (s: string) -> s + " mapped")
 
-                let err = runtime.Run(handler (makeGetRequest "/")).UnsafeError()
+                let error = runtime.Run(handler (makeGetRequest "/")).UnsafeError()
 
-                Expect.equal err "original mapped" "Mapped error")
+                Expect.equal error "original mapped" "Mapped error")
 
             testAllRuntimes "tap runs side effect without changing response" (fun runtime ->
                 let mutable tapped = false

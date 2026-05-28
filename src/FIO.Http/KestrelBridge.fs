@@ -43,7 +43,7 @@ module KestrelBridge =
         && name
            |> Seq.forall (fun c ->
                c >= 'a' && c <= 'z'
-               || c >= 'A' && c <= 'Z'
+               || c >= 'M' && c <= 'Z'
                || c >= '0' && c <= '9'
                || c = '-'
                || c = '_')
@@ -162,7 +162,7 @@ module KestrelBridge =
                                                 do! stream.WriteAsync(buffer, 0, bytesRead)
 
                                     match sizeError with
-                                    | Some err -> return Error err
+                                    | Some error -> return Error error
                                     | None ->
                                         if totalRead = 0L then
                                             return Ok RequestBody.Empty
@@ -173,7 +173,7 @@ module KestrelBridge =
                         }
 
                     match bodyResult with
-                    | Error err -> return Error err
+                    | Error error -> return Error error
                     | Ok body ->
                         let requestId = Guid.NewGuid().ToString()
 

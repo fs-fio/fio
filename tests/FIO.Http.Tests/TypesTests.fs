@@ -22,9 +22,9 @@ let typesTests =
                     testCase "fromException wraps in GeneralError"
                     <| fun () ->
                         let exn = Exception "test"
-                        let err = HttpError.fromException exn
+                        let error = HttpError.fromException exn
 
-                        match err with
+                        match error with
                         | GeneralError e ->
                             Expect.isTrue (Object.ReferenceEquals(e, exn)) "Should wrap same exception reference"
                         | _ -> failtest "Expected GeneralError"
@@ -32,8 +32,8 @@ let typesTests =
                     testCase "toException unwraps GeneralError"
                     <| fun () ->
                         let original = Exception "test"
-                        let err = GeneralError original
-                        let result = HttpError.toException err
+                        let error = GeneralError original
+                        let result = HttpError.toException error
 
                         Expect.isTrue
                             (Object.ReferenceEquals(result, original))
@@ -41,8 +41,8 @@ let typesTests =
 
                     testCase "toException creates Exception for other variants"
                     <| fun () ->
-                        let err = InvalidRoute "/bad"
-                        let result = HttpError.toException err
+                        let error = InvalidRoute "/bad"
+                        let result = HttpError.toException error
 
                         Expect.stringContains result.Message "/bad" "Exception message should contain error details"
 
@@ -277,6 +277,16 @@ let typesTests =
                                 |> HttpResponse.withHeader "Bad Header" "value"
                                 |> ignore)
                             "Space in header name"
+
+                    testCase "withHeader accepts uppercase letters across the full A-Z range"
+                    <| fun () ->
+                        let resp =
+                            HttpResponse.create HttpStatusCode.OK
+                            |> HttpResponse.withHeader "Content-Type" "text/plain"
+                            |> HttpResponse.withHeader "Accept-Encoding" "gzip"
+
+                        Expect.equal (HttpResponse.header "Content-Type" resp) (Some "text/plain") "Content-Type"
+                        Expect.equal (HttpResponse.header "Accept-Encoding" resp) (Some "gzip") "Accept-Encoding"
 
                     testCase "withBody sets body"
                     <| fun () ->

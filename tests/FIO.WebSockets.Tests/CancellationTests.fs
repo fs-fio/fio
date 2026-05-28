@@ -17,7 +17,7 @@ let private sleepMs (ms: float) =
     FIO.sleep (TimeSpan.FromMilliseconds ms) WsError.fromException
 
 /// <summary>Polls the fiber state until it terminates or the timeout elapses, returning whether it terminated within the budget.</summary>
-let private waitForTerminal (fiber: Fiber<'R, 'E>) (budgetMs: int) =
+let private waitForTerminal (fiber: Fiber<'A, 'E>) (budgetMs: int) =
     fio {
         let stopwatch = Stopwatch.StartNew()
         let mutable terminal = fiber.IsCompleted() || fiber.IsInterrupted()
@@ -50,7 +50,7 @@ let cancellationTests =
 
                             let! receiveFiber = (ws.ReceiveMessage()).Fork()
                             do! sleepMs 100.0
-                            do! receiveFiber.Interrupt()
+                            do! receiveFiber.Interrupt ExplicitInterrupt "Interrupted"
 
                             let! terminated, elapsed = waitForTerminal receiveFiber 2_000
 
@@ -73,7 +73,7 @@ let cancellationTests =
                         let! connectFiber = (WebSocketClient.connectStringWith "ws://192.0.2.1:9/").Fork()
 
                         do! sleepMs 100.0
-                        do! connectFiber.Interrupt()
+                        do! connectFiber.Interrupt ExplicitInterrupt "Interrupted"
 
                         let! terminated, elapsed = waitForTerminal connectFiber 5_000
 
@@ -104,7 +104,7 @@ let cancellationTests =
 
                             let! attemptResult =
                                 (ws.ReceiveMessage(cts.Token).Map(fun _ -> Ok()))
-                                    .CatchAll(fun err -> FIO.succeed (Error err))
+                                    .CatchAll(fun error -> FIO.succeed (Error error))
 
                             stopwatch.Stop()
 
@@ -138,7 +138,7 @@ let cancellationTests =
                             let stopwatch = Stopwatch.StartNew()
 
                             let! attemptResult =
-                                (ws.ReceiveMessage().Map(fun _ -> Ok())).CatchAll(fun err -> FIO.succeed (Error err))
+                                (ws.ReceiveMessage().Map(fun _ -> Ok())).CatchAll(fun error -> FIO.succeed (Error error))
 
                             stopwatch.Stop()
 

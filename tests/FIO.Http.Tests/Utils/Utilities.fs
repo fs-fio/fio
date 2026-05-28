@@ -83,7 +83,7 @@ let testAllRuntimes name (f: FIORuntime -> unit) =
 /// <param name="runtime">The runtime to execute the effect on.</param>
 /// <param name="eff">The effect to run.</param>
 /// <returns>The success value of the effect, or fails the test on error or interruption.</returns>
-let runWithTimeout (runtime: FIORuntime) (eff: FIO<'R, exn>) : 'R =
+let runWithTimeout (runtime: FIORuntime) (eff: FIO<'A, exn>) : 'A =
     let fiber = runtime.Run(eff)
 
     match

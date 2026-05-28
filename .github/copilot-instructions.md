@@ -23,7 +23,7 @@ dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --concurrent-runtim
 
 ### FIO Type
 
-`FIO<'R, 'E>` is a discriminated union representing lazy effects. DU cases are `internal` — external code uses factory functions and instance methods.
+`FIO<'A, 'E>` is a discriminated union representing lazy effects. DU cases are `internal` — external code uses factory functions and instance methods.
 
 Key DU cases: `Success`/`Failure` (terminal), `Action` (sync side effects), `SendChan`/`ReceiveChan` (channels), `ForkEffect`/`ForkTPLTask` (forking), `JoinFiber` (waiting), `AwaitTPLTask`/`AwaitGenericTPLTask` (.NET Task interop), `ChainSuccess`/`ChainError` (bind), `InterruptFiber`/`InterruptSelf` (interruption), `OnFinalize`/`ResumeInterrupt`/`FinalizerResult` (finalizer infrastructure).
 

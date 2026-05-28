@@ -73,7 +73,7 @@ let webSocketClientTests =
                         return!
                             (WebSocketClient.connectDefault "ws://localhost:1/")
                                 .Map(fun _ -> None)
-                                .CatchAll(fun err -> FIO.succeed (Some err))
+                                .CatchAll(fun error -> FIO.succeed (Some error))
                     }
 
                 let result = runtime.Run(eff).UnsafeSuccess()

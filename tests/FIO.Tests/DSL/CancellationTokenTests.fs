@@ -45,8 +45,8 @@ let cancellationTokenTests =
                             })
                                 .Fork()
 
-                        do! (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).MapError(fun _ -> "sleep err")
-                        do! fiber.Interrupt()
+                        do! (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).MapError(fun _ -> "sleep error")
+                        do! fiber.Interrupt ExplicitInterrupt "Interrupted"
                         return fiber.CancellationToken.IsCancellationRequested
                     }
 
@@ -110,8 +110,8 @@ let cancellationTokenTests =
                             })
                                 .Fork()
 
-                        do! (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).MapError(fun _ -> "sleep err")
-                        do! parent.Interrupt()
+                        do! (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).MapError(fun _ -> "sleep error")
+                        do! parent.Interrupt ExplicitInterrupt "Interrupted"
                         return parent.CancellationToken.IsCancellationRequested
                     }
 

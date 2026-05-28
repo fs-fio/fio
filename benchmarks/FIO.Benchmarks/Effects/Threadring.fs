@@ -9,10 +9,10 @@ type private Actor = { SendChan: Channel<int>; ReceiveChan: Channel<int> }
 let private actorEff (actor, isLastActor, roundCount) =
     fio {
         for round in 1..roundCount do
-            let! receivedMsg = actor.ReceiveChan.Receive()
+            let! receivedMsg = actor.ReceiveChan.Read()
 
             if not (isLastActor && round = roundCount) then
-                do! actor.SendChan.Send(receivedMsg + 1).Unit()
+                do! actor.SendChan.Write(receivedMsg + 1).Unit()
     }
 
 let private threadringEff (actors: Actor list, roundCount: int) =
@@ -48,6 +48,6 @@ let effect (actorCount: int, roundCount: int) : FIO<unit, exn> =
         let chans = [ for _ in 1..actorCount -> Channel<int>() ]
         let actors = createActors (chans, chans, 0, [])
 
-        do! actors.Head.ReceiveChan.Send(0).Unit()
+        do! actors.Head.ReceiveChan.Write(0).Unit()
         do! threadringEff (actors, roundCount)
     }

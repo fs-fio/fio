@@ -393,7 +393,7 @@ let factoryTests =
                     fio {
                         let! fiber = (FIO.awaitAsync asyncComp (fun ex -> ex.Message)).Fork()
                         do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) (fun ex -> ex.Message)
-                        return! fiber.InterruptAwait()
+                        return! fiber.InterruptAwait ExplicitInterrupt "Interrupted"
                     }
 
                 let sw = Stopwatch.StartNew()
@@ -447,7 +447,7 @@ let factoryTests =
                     fio {
                         let! fiber =
                             FIO.forkUnitTask
-                                (fun () -> Task.FromException(Exception "task err"))
+                                (fun () -> Task.FromException(Exception "task error"))
                                 (fun ex -> ex.Message)
 
                         let! result = fiber.Join()
@@ -457,7 +457,7 @@ let factoryTests =
                 let result =
                     runtime.Run(eff).UnsafeError()
 
-                Expect.equal result "task err" "FIO.forkUnitTask should propagate faulted task error")
+                Expect.equal result "task error" "FIO.forkUnitTask should propagate faulted task error")
 
             testAllRuntimes "forkUnitTask - propagates faulted task as exception" (fun runtime ->
                 let eff =
@@ -465,7 +465,7 @@ let factoryTests =
                         let! fiber =
                             FIO.forkUnitTask
                                 (fun () ->
-                                    Task.FromException(Exception "task err"))
+                                    Task.FromException(Exception "task error"))
                                 id
 
                         let! result = fiber.Join()
@@ -474,7 +474,7 @@ let factoryTests =
 
                 let result = runtime.Run(eff).UnsafeError()
 
-                Expect.stringContains result.Message "task err" "FIO.forkUnitTask should propagate exception")
+                Expect.stringContains result.Message "task error" "FIO.forkUnitTask should propagate exception")
 
             testCase "forkTask - does not allocate fiber at construction time" (fun () ->
                 let mutable taskStarted = false
@@ -511,7 +511,7 @@ let factoryTests =
                     fio {
                         let! fiber =
                             FIO.forkTask
-                                (fun () -> Task.FromException<int>(Exception "generic err"))
+                                (fun () -> Task.FromException<int>(Exception "generic error"))
                                 (fun ex -> ex.Message)
 
                         let! result = fiber.Join()
@@ -521,14 +521,14 @@ let factoryTests =
                 let result =
                     runtime.Run(eff).UnsafeError()
 
-                Expect.equal result "generic err" "FIO.forkTask should propagate faulted task error")
+                Expect.equal result "generic error" "FIO.forkTask should propagate faulted task error")
 
             testAllRuntimes "forkTask - propagates faulted task as exception" (fun runtime ->
                 let eff =
                     fio {
                         let! fiber =
                             FIO.forkTask
-                                (fun () -> Task.FromException<int>(Exception "generic err"))
+                                (fun () -> Task.FromException<int>(Exception "generic error"))
                                 id
 
                         let! result = fiber.Join()
@@ -540,8 +540,51 @@ let factoryTests =
 
                 Expect.stringContains
                     result.Message
-                    "generic err"
+                    "generic error"
                     "FIO.forkTask should propagate exception")
+
+            testAllRuntimes "forkUnitTask - outer error channel independent of inner" (fun runtime ->
+                let eff: FIO<int, int> =
+                    (FIO.forkUnitTask
+                        (fun () -> Task.CompletedTask)
+                        (fun ex -> ex.Message))
+                        .FlatMap(fun _ -> FIO.succeed 1)
+
+                let result = runtime.Run(eff).UnsafeSuccess()
+
+                Expect.equal result 1 "Outer error channel should be free to differ from the inner fiber's error type")
+
+            testAllRuntimes "forkUnitTask - synchronous throw from factory surfaces via onError" (fun runtime ->
+                let eff =
+                    fio {
+                        let! fiber =
+                            FIO.forkUnitTask
+                                (fun () -> failwith "boom")
+                                (fun ex -> ex.Message)
+
+                        let! result = fiber.Join()
+                        return result
+                    }
+
+                let result = runtime.Run(eff).UnsafeError()
+
+                Expect.equal result "boom" "Synchronous throw from taskFactory should reach onError")
+
+            testAllRuntimes "forkTask - synchronous throw from factory surfaces via onError" (fun runtime ->
+                let eff =
+                    fio {
+                        let! fiber =
+                            FIO.forkTask
+                                (fun () -> failwith "boom": Task<int>)
+                                (fun ex -> ex.Message)
+
+                        let! result = fiber.Join()
+                        return result
+                    }
+
+                let result = runtime.Run(eff).UnsafeError()
+
+                Expect.equal result "boom" "Synchronous throw from taskFactory should reach onError")
 
             // ─── Callback adapter ─────────────────────────────────────────
 
@@ -613,7 +656,7 @@ let factoryTests =
                         let! fiber =
                             (FIO.async (fun _ -> ()) (fun ex -> ex.Message): FIO<int, string>).Fork()
                         do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) (fun ex -> ex.Message)
-                        return! fiber.InterruptAwait()
+                        return! fiber.InterruptAwait ExplicitInterrupt "Interrupted"
                     }
 
                 let sw = Stopwatch.StartNew()
@@ -653,7 +696,7 @@ let factoryTests =
                     fio {
                         let! fiber = (FIO.sleep (TimeSpan.FromMinutes 1.0) (fun ex -> ex.Message)).Fork()
                         do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) (fun ex -> ex.Message)
-                        return! fiber.InterruptAwait()
+                        return! fiber.InterruptAwait ExplicitInterrupt "Interrupted"
                     }
 
                 let sw = Stopwatch.StartNew()
@@ -944,19 +987,22 @@ let factoryTests =
                                 (fun ex -> ex.Message)
                             ).FlatMap(fun () -> FIO.fail "boom")
                         else
-                            FIO.attempt
-                                (fun () ->
-                                    started.Set()
-                                    Thread.Sleep 200
-                                    Interlocked.Increment(&peerCompleted) |> ignore)
-                                (fun ex -> ex.Message)
+                            (FIO.attempt
+                                (fun () -> started.Set())
+                                (fun ex -> ex.Message))
+                                .FlatMap(fun () ->
+                                    FIO.sleep (TimeSpan.FromMilliseconds 200.0) (fun ex -> ex.Message))
+                                .FlatMap(fun () ->
+                                    FIO.attempt
+                                        (fun () -> Interlocked.Increment(&peerCompleted) |> ignore)
+                                        (fun ex -> ex.Message))
 
                     let eff = FIO.forEachPar [ 0 .. failureItems ] f
 
-                    let err =
+                    let error =
                         runtime.Run(eff).UnsafeError()
 
-                    Expect.equal err "boom" $"forEachPar on {runtime.GetType().Name} should propagate the failure"
+                    Expect.equal error "boom" $"forEachPar on {runtime.GetType().Name} should propagate the failure"
                     Expect.isLessThan peerCompleted failureItems $"forEachPar on {runtime.GetType().Name} should interrupt at least one peer"
 
             testPropertyWithConfig fsCheckConfig "forEachParDiscard - applies f to each input without collecting"
@@ -1071,10 +1117,10 @@ let factoryTests =
                         if count = 3 then FIO.fail "boom"
                         else FIO.succeed count)
 
-                let err =
+                let error =
                     runtime.Run(FIO.replicate 10 eff).UnsafeError()
 
-                Expect.equal err "boom" "replicate should fail with the first error"
+                Expect.equal error "boom" "replicate should fail with the first error"
                 Expect.equal callCount 3 "replicate should not evaluate further iterations after failure"
 
             testCase "replicate - stack-safe over 10000 iterations"
@@ -1139,10 +1185,10 @@ let factoryTests =
                         if count = 2 then FIO.fail "boom"
                         else FIO.succeed ())
 
-                let err =
+                let error =
                     runtime.Run(FIO.replicateDiscard 10 eff).UnsafeError()
 
-                Expect.equal err "boom" "replicateDiscard should fail with the first error"
+                Expect.equal error "boom" "replicateDiscard should fail with the first error"
                 Expect.equal callCount 2 "replicateDiscard should not evaluate further iterations after failure"
 
             testCase "replicateDiscard - stack-safe over 10000 iterations"
@@ -1195,10 +1241,10 @@ let factoryTests =
                         if s = 3 then FIO.fail "boom"
                         else FIO.succeed s)
 
-                let err =
+                let error =
                     runtime.Run(FIO.loop 0 (fun s -> s < 10) ((+) 1) body).UnsafeError()
 
-                Expect.equal err "boom" "loop should fail with the first error"
+                Expect.equal error "boom" "loop should fail with the first error"
                 Expect.equal callCount 4 "loop should not invoke body after failure"
 
             testCase "loop - stack-safe over 10000 iterations"
@@ -1254,10 +1300,10 @@ let factoryTests =
                         if s = 2 then FIO.fail "boom"
                         else FIO.succeed ())
 
-                let err =
+                let error =
                     runtime.Run(FIO.loopDiscard 0 (fun s -> s < 10) ((+) 1) body).UnsafeError()
 
-                Expect.equal err "boom" "loopDiscard should fail with the first error"
+                Expect.equal error "boom" "loopDiscard should fail with the first error"
                 Expect.equal callCount 3 "loopDiscard should not invoke body after failure"
 
             testCase "loopDiscard - stack-safe over 10000 iterations"
@@ -1308,10 +1354,10 @@ let factoryTests =
                         if count = 4 then FIO.fail "boom"
                         else FIO.succeed (s + 1))
 
-                let err =
+                let error =
                     runtime.Run(FIO.iterate 0 (fun s -> s < 100) body).UnsafeError()
 
-                Expect.equal err "boom" "iterate should fail with the first error"
+                Expect.equal error "boom" "iterate should fail with the first error"
                 Expect.equal callCount 4 "iterate should not invoke body after failure"
 
             testCase "iterate - stack-safe over 10000 iterations"
@@ -1358,10 +1404,10 @@ let factoryTests =
                         else FIO.succeed i)
                 let effects = [ 0 .. 9 ] |> List.map mk
 
-                let err =
+                let error =
                     runtime.Run(FIO.mergeAll effects 0 (+)).UnsafeError()
 
-                Expect.equal err "boom" "mergeAll should fail with the first error"
+                Expect.equal error "boom" "mergeAll should fail with the first error"
                 Expect.equal callCount 4 "mergeAll should not evaluate further effects after failure"
 
             testCase "mergeAll - stack-safe over 10000 effects"
@@ -1402,10 +1448,10 @@ let factoryTests =
                       FIO.fail "boom"
                       FIO.succeed 2 ]
 
-                let err =
+                let error =
                     runtime.Run(FIO.mergeAllPar effects 0 (+)).UnsafeError()
 
-                Expect.equal err "boom" "mergeAllPar should propagate the failure"
+                Expect.equal error "boom" "mergeAllPar should propagate the failure"
 
             testPropertyWithConfig fsCheckConfig "reduceAll - empty tail returns head's result"
             <| fun (runtime: FIORuntime, x: int) ->
@@ -1437,10 +1483,10 @@ let factoryTests =
                         (fun ex -> ex.Message)
                 let tail = [ 1; 2; 3 ] |> List.map mkTail
 
-                let err =
+                let error =
                     runtime.Run(FIO.reduceAll (FIO.fail "boom") tail (+)).UnsafeError()
 
-                Expect.equal err "boom" "reduceAll should fail with head's error"
+                Expect.equal error "boom" "reduceAll should fail with head's error"
                 Expect.equal tailEvaluated 0 "reduceAll should not evaluate tail after head failure"
 
             testCase "reduceAll - stack-safe over 10000 effects"
@@ -1477,10 +1523,10 @@ let factoryTests =
             <| fun (runtime: FIORuntime) ->
                 let tail = [ FIO.succeed 1; FIO.succeed 2 ]
 
-                let err =
+                let error =
                     runtime.Run(FIO.reduceAllPar (FIO.fail "boom") tail (+)).UnsafeError()
 
-                Expect.equal err "boom" "reduceAllPar should fail with head's error"
+                Expect.equal error "boom" "reduceAllPar should fail with head's error"
 
             // ─── Error-tolerant traversals ─────────────────────────────────────────
 
@@ -1819,10 +1865,10 @@ let factoryTests =
                         (fun ex -> ex.Message)
                 let eff = FIO.ifFIO (FIO.fail "boom") mk mk
 
-                let err =
+                let error =
                     runtime.Run(eff).UnsafeError()
 
-                Expect.equal err "boom" "ifFIO should propagate predicate failure"
+                Expect.equal error "boom" "ifFIO should propagate predicate failure"
                 Expect.equal branchEvaluated 0 "ifFIO should not evaluate either branch on predicate failure"
 
             testPropertyWithConfig fsCheckConfig "ifFIO - only the selected branch is evaluated"
@@ -1860,10 +1906,10 @@ let factoryTests =
                     if pick then FIO.ifFIO (FIO.succeed true) failing other
                     else FIO.ifFIO (FIO.succeed false) other failing
 
-                let err =
+                let error =
                     runtime.Run(eff).UnsafeError()
 
-                Expect.equal err "branch boom" "ifFIO should propagate failure from the selected branch"
+                Expect.equal error "branch boom" "ifFIO should propagate failure from the selected branch"
 
             // ─── Option unwrapping ─────────────────────────────────────────
 
@@ -2051,13 +2097,13 @@ let factoryTests =
                 Expect.equal result 42 "raceAll over a single success should yield that value")
 
             testAllRuntimes "raceAll - single-element sequence propagates failure" (fun runtime ->
-                let err = exn "single failure"
-                let eff = FIO.raceAll (seq { FIO.fail err })
+                let error = exn "single failure"
+                let eff = FIO.raceAll (seq { FIO.fail error })
 
                 let result =
                     runtime.Run(eff).UnsafeError()
 
-                Expect.equal result.Message err.Message "raceAll over a single failure should propagate that error")
+                Expect.equal result.Message error.Message "raceAll over a single failure should propagate that error")
 
             testAllRuntimes "raceAll - fastest success wins" (fun runtime ->
                 let fast = FIO.succeed 1

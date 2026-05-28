@@ -115,7 +115,7 @@ let echoHandler (ws: WebSocket) : FIO<unit, WsError> =
 /// <param name="runtime">The runtime to execute the effect on.</param>
 /// <param name="eff">The effect to run.</param>
 /// <returns>The success value of the effect, or fails the test on error or interruption.</returns>
-let private runWithTimeout (runtime: FIORuntime) (eff: FIO<'R, WsError>) : 'R =
+let private runWithTimeout (runtime: FIORuntime) (eff: FIO<'A, WsError>) : 'A =
     let fiber = runtime.Run(eff)
 
     match
@@ -132,7 +132,7 @@ let private runWithTimeout (runtime: FIORuntime) (eff: FIO<'R, WsError>) : 'R =
 /// <param name="action">A function from port number to the client effect to execute against the server.</param>
 /// <param name="runtime">The runtime to execute the server and client effects on.</param>
 /// <returns>The result of the client action effect.</returns>
-let withTestServer (handler: WebSocket -> FIO<unit, WsError>) (action: int -> FIO<'R, WsError>) (runtime: FIORuntime) =
+let withTestServer (handler: WebSocket -> FIO<unit, WsError>) (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
     let port = findAvailablePort ()
     let url = $"http://localhost:{port}/"
 
@@ -149,7 +149,7 @@ let withTestServer (handler: WebSocket -> FIO<unit, WsError>) (action: int -> FI
                     .Fork()
 
             let! result = action port
-            do! serverFiber.Interrupt()
+            do! serverFiber.Interrupt ExplicitInterrupt "Interrupted"
             do! WebSocketServer.close listener
             return result
         }
@@ -160,7 +160,7 @@ let withTestServer (handler: WebSocket -> FIO<unit, WsError>) (action: int -> FI
 /// <param name="action">A function from port number to the client effect to execute against the echo server.</param>
 /// <param name="runtime">The runtime to execute the server and client effects on.</param>
 /// <returns>The result of the client action effect.</returns>
-let withTestEchoServer (action: int -> FIO<'R, WsError>) (runtime: FIORuntime) =
+let withTestEchoServer (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
     let port = findAvailablePort ()
     let url = $"http://localhost:{port}/"
 
@@ -178,7 +178,7 @@ let withTestEchoServer (action: int -> FIO<'R, WsError>) (runtime: FIORuntime) =
                 (WebSocketServer.acceptLoop listener WebSocketConfig.defaultConfig closingEchoHandler).Fork()
 
             let! result = action port
-            do! serverFiber.Interrupt()
+            do! serverFiber.Interrupt ExplicitInterrupt "Interrupted"
             do! WebSocketServer.close listener
             return result
         }

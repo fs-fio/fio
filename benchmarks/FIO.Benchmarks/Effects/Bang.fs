@@ -8,18 +8,18 @@ type private Actor = { Chan: Channel<int> }
 
 let private sendingActorEff (actor, roundCount, msg, startChan: Channel<int>) =
     fio {
-        do! startChan.Receive().Unit()
+        do! startChan.Read().Unit()
 
         for _ in 1..roundCount do
-            do! actor.Chan.Send(msg).Unit()
+            do! actor.Chan.Write(msg).Unit()
     }
 
 let private receivingActorEff (actor, totalMessages, startChan: Channel<int>) =
     fio {
-        do! startChan.Receive().Unit()
+        do! startChan.Read().Unit()
 
         for _ in 1..totalMessages do
-            let! _ = actor.Chan.Receive()
+            let! _ = actor.Chan.Read()
             ()
     }
 
@@ -41,7 +41,7 @@ let effect (actorCount: int, roundCount: int) : FIO<unit, exn> =
         let sendingActors = createSendingActors (receivingActor.Chan, actorCount)
 
         for _ in 1 .. (actorCount + 1) do
-            do! startChan.Send(0).Unit()
+            do! startChan.Write(0).Unit()
 
         do! bangEff (receivingActor, sendingActors, actorCount, roundCount, 1, startChan)
     }

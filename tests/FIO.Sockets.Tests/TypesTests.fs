@@ -25,9 +25,9 @@ let typesTests =
                     testPropertyWithConfig fsCheckConfig "fromException wraps in GeneralError"
                     <| fun (_: FIORuntime) ->
                         let exn = Exception "test"
-                        let err = SocketError.fromException exn
+                        let error = SocketError.fromException exn
 
-                        match err with
+                        match error with
                         | GeneralError e ->
                             Expect.isTrue (Object.ReferenceEquals(e, exn)) "Should wrap same exception reference"
                         | _ -> failtest "Expected GeneralError"
@@ -35,8 +35,8 @@ let typesTests =
                     testPropertyWithConfig fsCheckConfig "toException unwraps GeneralError"
                     <| fun (_: FIORuntime) ->
                         let original = Exception "test"
-                        let err = GeneralError original
-                        let result = SocketError.toException err
+                        let error = GeneralError original
+                        let result = SocketError.toException error
 
                         Expect.isTrue
                             (Object.ReferenceEquals(result, original))
@@ -44,8 +44,8 @@ let typesTests =
 
                     testCase "toException creates Exception for other variants"
                     <| fun () ->
-                        let err = ConnectionClosed "peer disconnected"
-                        let result = SocketError.toException err
+                        let error = ConnectionClosed "peer disconnected"
+                        let result = SocketError.toException error
 
                         Expect.stringContains
                             result.Message
@@ -74,9 +74,9 @@ let typesTests =
 
                     testAllRuntimes "create fails for empty host" (fun runtime ->
                         let eff = SocketConfig.create ("", 8080)
-                        let err = runtime.Run(eff).UnsafeError()
+                        let error = runtime.Run(eff).UnsafeError()
 
-                        match err with
+                        match error with
                         | InvalidState _ -> ()
                         | other -> failtest $"Expected InvalidState but got {other}"
 
@@ -90,9 +90,9 @@ let typesTests =
                     testAllRuntimes "create fails for invalid port" (fun runtime ->
                         for port in [ 0; -1; 65536; 100000 ] do
                             let eff = SocketConfig.create ("localhost", port)
-                            let err = runtime.Run(eff).UnsafeError()
+                            let error = runtime.Run(eff).UnsafeError()
 
-                            match err with
+                            match error with
                             | InvalidState _ -> ()
                             | other -> failtest $"Expected InvalidState for port {port} but got {other}")
 

@@ -218,13 +218,13 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
         let currentFiberContext = workItem.FiberContext
         let mutable completionAction = NoCompletion
 
-        let inline onSuccessComplete res =
+        let inline onSuccessComplete value =
             ContStackPool.Return state.ContStack
-            completionAction <- CompleteSuccess res
+            completionAction <- CompleteSuccess value
 
-        let inline onErrorComplete err =
+        let inline onErrorComplete error =
             ContStackPool.Return state.ContStack
-            completionAction <- CompleteFailure err
+            completionAction <- CompleteFailure error
 
         // Signals a blocking worker if the channel has both pending messages and blocked work items,
         // enabling constant-time rescheduling of blocked fibers.
@@ -247,7 +247,7 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
                     then
                         match! currentFiberContext.Task with
                         | Ok _ -> raise (InvalidOperationException "Fiber was cancelled but completed successfully.")
-                        | Error err -> processOutcome &state onSuccessComplete onErrorComplete (OutcomeInterrupt err)
+                        | Error error -> processOutcome &state onSuccessComplete onErrorComplete (OutcomeInterrupt error)
                     elif currentEWSteps = 0 then
                         let newWorkItem = WorkItemPool.Rent(state.Eff, currentFiberContext, state.ContStack)
 
@@ -262,17 +262,17 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
                         | ValueSome runtimeCase ->
                             match runtimeCase with
                             | HandleSendChan(msg, chan) ->
-                                do! chan.SendAsync msg
+                                do! chan.WriteAsync msg
                                 do! signalBlockingWorkerIfPending chan
                                 processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess msg)
                             | HandleReceiveChan chan ->
-                                let mutable res = Unchecked.defaultof<_>
+                                let mutable value = Unchecked.defaultof<_>
 
-                                if chan.UnboundedChannel.TryRead(&res) then
-                                    processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess res)
+                                if chan.UnboundedChannel.TryRead(&value) then
+                                    processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess value)
                                 else
                                     let newWorkItem =
-                                        WorkItemPool.Rent(ReceiveChan chan, currentFiberContext, state.ContStack)
+                                        WorkItemPool.Rent(ReadChan chan, currentFiberContext, state.ContStack)
 
                                     newWorkItem.InterruptionSuppressed <- state.InterruptionSuppressed
                                     do! chan.AddBlockingWorkItem newWorkItem
@@ -285,8 +285,8 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
                                 processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess fiber)
                             | HandleJoinFiber fiberContext ->
                                 if fiberContext.IsTerminal() then
-                                    let! res = fiberContext.Task
-                                    processResult &state onSuccessComplete onErrorComplete res
+                                    let! value = fiberContext.Task
+                                    processResult &state onSuccessComplete onErrorComplete value
                                 else
                                     let newWorkItem =
                                         WorkItemPool.Rent(JoinFiber fiberContext, currentFiberContext, state.ContStack)
@@ -297,13 +297,13 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
                                     state.Completed <- true
                             | HandleAwaitTask(task, onError) ->
                                 try
-                                    let! res =
+                                    let! value =
                                         if state.InterruptionSuppressed > 0 then
                                             task
                                         else
                                             task.WaitAsync currentFiberContext.CancellationToken
 
-                                    processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess res)
+                                    processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess value)
                                 with
                                 | :? OperationCanceledException when
                                     currentFiberContext.CancellationToken.IsCancellationRequested
@@ -320,8 +320,8 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
                                 | exn -> processOutcome &state onSuccessComplete onErrorComplete (OutcomeError (onError exn))
 
                 match completionAction with
-                | CompleteSuccess res -> do! currentFiberContext.CompleteAndReschedule(Ok res, activeWorkItemChan)
-                | CompleteFailure err -> do! currentFiberContext.CompleteAndReschedule(Error err, activeWorkItemChan)
+                | CompleteSuccess value -> do! currentFiberContext.CompleteAndReschedule(Ok value, activeWorkItemChan)
+                | CompleteFailure error -> do! currentFiberContext.CompleteAndReschedule(Error error, activeWorkItemChan)
                 | NoCompletion -> ()
 
                 return ()
@@ -338,12 +338,12 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
         activeBlockingEventChan.Clear()
 
     /// <summary>Creates a new fiber that interprets the given effect on this runtime's worker pool.</summary>
-    /// <typeparam name="'R">The success result type produced by the effect.</typeparam>
+    /// <typeparam name="'A">The success result type produced by the effect.</typeparam>
     /// <typeparam name="'E">The typed error type the effect may fail with.</typeparam>
     /// <param name="eff">The effect to interpret.</param>
     /// <returns>A fiber that runs <paramref name="eff"/> and exposes its terminal state.</returns>
     /// <remarks><c>Run</c> is intended for sequential invocation; if a prior fiber on this runtime is still running, the call blocks until it completes. Concurrency within a single <c>Run</c> is supplied by forked fibers.</remarks>
-    override _.Run<'R, 'E>(eff: FIO<'R, 'E>) : Fiber<'R, 'E> =
+    override _.Run<'A, 'E>(eff: FIO<'A, 'E>) : Fiber<'A, 'E> =
         lock runLock (fun () ->
             match currentFiber with
             | Some fiberContext when not (fiberContext.IsTerminal()) ->
@@ -355,7 +355,7 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
             | None -> ()
 
             this.Reset()
-            let fiber = new Fiber<'R, 'E>()
+            let fiber = new Fiber<'A, 'E>()
             currentFiber <- Some fiber.Context
 
             let workItem =

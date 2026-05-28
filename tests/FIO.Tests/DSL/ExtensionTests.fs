@@ -35,80 +35,80 @@ let extensionTests =
             // ─── Mapping ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "Map - transforms success value"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.Map(fun x -> x * 2)).UnsafeSuccess()
 
-                Expect.equal result (res * 2) "Map should transform success value"
+                Expect.equal result (value * 2) "Map should transform success value"
 
             testPropertyWithConfig fsCheckConfig "Map - preserves error"
-            <| fun (runtime: FIORuntime, err: string) ->
-                let eff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: string) ->
+                let eff = FIO.fail error
 
                 let result =
                     runtime.Run(eff.Map(fun x -> x * 2)).UnsafeError()
 
-                Expect.equal result err "Map should preserve error"
+                Expect.equal result error "Map should preserve error"
 
             testPropertyWithConfig fsCheckConfig "MapError - transforms error"
-            <| fun (runtime: FIORuntime, err: int) ->
-                let eff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: int) ->
+                let eff = FIO.fail error
 
                 let result =
                     runtime.Run(eff.MapError(fun e -> e.ToString())).UnsafeError()
 
-                Expect.equal result (err.ToString()) "MapError should transform error"
+                Expect.equal result (error.ToString()) "MapError should transform error"
 
             testPropertyWithConfig fsCheckConfig "MapError - preserves success"
-            <| fun (runtime: FIORuntime, res: string) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: string) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.MapError(fun e -> e.ToString())).UnsafeSuccess()
 
-                Expect.equal result res "MapError should preserve success"
+                Expect.equal result value "MapError should preserve success"
 
             testPropertyWithConfig fsCheckConfig "MapBoth - transforms success"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.MapBoth (fun x -> x * 2) (fun e -> e + 100)).UnsafeSuccess()
 
-                Expect.equal result (res * 2) "MapBoth should transform success"
+                Expect.equal result (value * 2) "MapBoth should transform success"
 
             testPropertyWithConfig fsCheckConfig "MapBoth - transforms error"
-            <| fun (runtime: FIORuntime, err: int) ->
-                let eff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: int) ->
+                let eff = FIO.fail error
 
                 let result =
                     runtime.Run(eff.MapBoth(fun x -> x * 2) (fun e -> e + 100)).UnsafeError()
 
-                Expect.equal result (err + 100) "MapBoth should transform error"
+                Expect.equal result (error + 100) "MapBoth should transform error"
 
             testPropertyWithConfig fsCheckConfig "MapAttempt - transforms success value"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.MapAttempt (fun x -> x * 2) (fun ex -> ex.Message)).UnsafeSuccess()
 
-                Expect.equal result (res * 2) "MapAttempt should transform success value"
+                Expect.equal result (value * 2) "MapAttempt should transform success value"
 
             testPropertyWithConfig fsCheckConfig "MapAttempt - preserves original error"
-            <| fun (runtime: FIORuntime, err: string) ->
-                let eff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: string) ->
+                let eff = FIO.fail error
 
                 let result =
                     runtime.Run(eff.MapAttempt(fun x -> x * 2) (fun ex -> ex.Message)).UnsafeError()
 
-                Expect.equal result err "MapAttempt should preserve the original typed error"
+                Expect.equal result error "MapAttempt should preserve the original typed error"
 
             testPropertyWithConfig fsCheckConfig "MapAttempt - routes mapper exception through onError"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
                 let boom = "boom"
 
                 let result =
@@ -120,8 +120,8 @@ let extensionTests =
             // ─── Replace / wrap success value ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "Unit - discards result, returns unit"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.Unit()).UnsafeSuccess()
@@ -129,8 +129,8 @@ let extensionTests =
                 Expect.equal result () "Unit should discard result and return unit"
 
             testPropertyWithConfig fsCheckConfig "As - maps to constant value"
-            <| fun (runtime: FIORuntime, res: int, constant: string) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int, constant: string) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.As constant).UnsafeSuccess()
@@ -138,93 +138,93 @@ let extensionTests =
                 Expect.equal result constant "As should map to the constant value"
 
             testPropertyWithConfig fsCheckConfig "AsLeft - wraps success in Choice1Of2"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.AsLeft ()).UnsafeSuccess()
 
-                Expect.equal result (Choice1Of2 res) "AsLeft should wrap success in Choice1Of2"
+                Expect.equal result (Choice1Of2 value) "AsLeft should wrap success in Choice1Of2"
 
             testPropertyWithConfig fsCheckConfig "AsRight - wraps success in Choice2Of2"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.AsRight ()).UnsafeSuccess()
 
-                Expect.equal result (Choice2Of2 res) "AsRight should wrap success in Choice2Of2"
+                Expect.equal result (Choice2Of2 value) "AsRight should wrap success in Choice2Of2"
 
             testPropertyWithConfig fsCheckConfig "AsSome - wraps success in Some"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.AsSome()).UnsafeSuccess()
 
-                Expect.equal result (Some res) "AsSome should wrap success in Some"
+                Expect.equal result (Some value) "AsSome should wrap success in Some"
 
             // ─── Wrap typed error ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "AsLeftError - wraps error in Choice1Of2"
-            <| fun (runtime: FIORuntime, err: string) ->
-                let eff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: string) ->
+                let eff = FIO.fail error
 
                 let result =
                     runtime.Run(eff.AsLeftError ()).UnsafeError()
 
-                Expect.equal result (Choice1Of2 err) "AsLeftError should wrap error in Choice1Of2"
+                Expect.equal result (Choice1Of2 error) "AsLeftError should wrap error in Choice1Of2"
 
             testPropertyWithConfig fsCheckConfig "AsRightError - wraps error in Choice2Of2"
-            <| fun (runtime: FIORuntime, err: string) ->
-                let eff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: string) ->
+                let eff = FIO.fail error
 
                 let result =
                     runtime.Run(eff.AsRightError ()).UnsafeError()
 
-                Expect.equal result (Choice2Of2 err) "AsRightError should wrap error in Choice2Of2"
+                Expect.equal result (Choice2Of2 error) "AsRightError should wrap error in Choice2Of2"
 
             testPropertyWithConfig fsCheckConfig "AsSomeError - wraps error in Some"
-            <| fun (runtime: FIORuntime, err: string) ->
-                let eff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: string) ->
+                let eff = FIO.fail error
 
                 let result =
                     runtime.Run(eff.AsSomeError ()).UnsafeError()
 
-                Expect.equal result (Some err) "AsSomeError should wrap error in Some"
+                Expect.equal result (Some error) "AsSomeError should wrap error in Some"
 
             // ─── Container shape (outcome → infallible) ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "Result - converts success to Ok"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.Result ()).UnsafeSuccess()
 
-                Expect.equal result (Ok res) "Result should convert success to Ok"
+                Expect.equal result (Ok value) "Result should convert success to Ok"
 
             testPropertyWithConfig fsCheckConfig "Result - converts error to Error"
-            <| fun (runtime: FIORuntime, err: string) ->
-                let eff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: string) ->
+                let eff = FIO.fail error
 
                 let result =
                     runtime.Run(eff.Result ()).UnsafeSuccess()
 
-                Expect.equal result (Error err) "Result should convert error to Error"
+                Expect.equal result (Error error) "Result should convert error to Error"
     
             testPropertyWithConfig fsCheckConfig "Option - converts success to Some"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.Option ()).UnsafeSuccess()
 
-                Expect.equal result (Some res) "Option should convert success to Some"
+                Expect.equal result (Some value) "Option should convert success to Some"
 
             testPropertyWithConfig fsCheckConfig "Option - converts error to None"
-            <| fun (runtime: FIORuntime, err: string) ->
-                let eff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: string) ->
+                let eff = FIO.fail error
 
                 let result =
                     runtime.Run(eff.Option ()).UnsafeSuccess()
@@ -232,64 +232,64 @@ let extensionTests =
                 Expect.equal result None "Option should convert error to None"
 
             testPropertyWithConfig fsCheckConfig "Choice - converts success to Choice1Of2"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.Choice ()).UnsafeSuccess()
 
-                Expect.equal result (Choice1Of2 res) "Choice should convert success to Choice1Of2"
+                Expect.equal result (Choice1Of2 value) "Choice should convert success to Choice1Of2"
 
             testPropertyWithConfig fsCheckConfig "Choice - converts error to Choice2Of2"
-            <| fun (runtime: FIORuntime, err: string) ->
-                let eff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: string) ->
+                let eff = FIO.fail error
 
                 let result =
                     runtime.Run(eff.Choice ()).UnsafeSuccess()
 
-                Expect.equal result (Choice2Of2 err) "Choice should convert error to Choice2Of2"
+                Expect.equal result (Choice2Of2 error) "Choice should convert error to Choice2Of2"
 
             testPropertyWithConfig fsCheckConfig "Flip - success becomes error"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.Flip ()).UnsafeError()
 
-                Expect.equal result res "Flip should move success value to error channel"
+                Expect.equal result value "Flip should move success value to error channel"
 
             testPropertyWithConfig fsCheckConfig "Flip - error becomes success"
-            <| fun (runtime: FIORuntime, err: string) ->
-                let eff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: string) ->
+                let eff = FIO.fail error
 
                 let result =
                     runtime.Run(eff.Flip ()).UnsafeSuccess()
 
-                Expect.equal result err "Flip should move typed error to success channel"
+                Expect.equal result error "Flip should move typed error to success channel"
 
             testPropertyWithConfig fsCheckConfig "Flip - double flip restores success"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.Flip().Flip ()).UnsafeSuccess()
 
-                Expect.equal result res "Flip().Flip() should restore the original success"
+                Expect.equal result value "Flip().Flip() should restore the original success"
 
             testPropertyWithConfig fsCheckConfig "Flip - double flip restores error"
-            <| fun (runtime: FIORuntime, err: string) ->
-                let eff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: string) ->
+                let eff = FIO.fail error
 
                 let result =
                     runtime.Run(eff.Flip().Flip ()).UnsafeError()
 
-                Expect.equal result err "Flip().Flip() should restore the original error"
+                Expect.equal result error "Flip().Flip() should restore the original error"
 
             // ─── Outcome predicates / discards ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "Ignore - returns unit on success"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed(res).Ignore()
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed(value).Ignore()
 
                 let actual =
                     runtime.Run(eff).UnsafeSuccess()
@@ -297,8 +297,8 @@ let extensionTests =
                 Expect.equal actual () "Ignore should return unit on success"
 
             testPropertyWithConfig fsCheckConfig "Ignore - returns unit on failure (swallows error)"
-            <| fun (runtime: FIORuntime, err: int) ->
-                let eff = FIO.fail(err).Ignore()
+            <| fun (runtime: FIORuntime, error: int) ->
+                let eff = FIO.fail(error).Ignore()
 
                 let actual =
                     runtime.Run(eff).UnsafeSuccess()
@@ -306,8 +306,8 @@ let extensionTests =
                 Expect.equal actual () "Ignore should return unit on failure"
 
             testPropertyWithConfig fsCheckConfig "IsSuccess - returns true on success"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed(res).IsSuccess()
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed(value).IsSuccess()
 
                 let actual =
                     runtime.Run(eff).UnsafeSuccess()
@@ -315,8 +315,8 @@ let extensionTests =
                 Expect.isTrue actual "IsSuccess should return true on success"
 
             testPropertyWithConfig fsCheckConfig "IsSuccess - returns false on failure"
-            <| fun (runtime: FIORuntime, err: int) ->
-                let eff = FIO.fail(err).IsSuccess()
+            <| fun (runtime: FIORuntime, error: int) ->
+                let eff = FIO.fail(error).IsSuccess()
 
                 let actual =
                     runtime.Run(eff).UnsafeSuccess()
@@ -324,8 +324,8 @@ let extensionTests =
                 Expect.isFalse actual "IsSuccess should return false on failure"
 
             testPropertyWithConfig fsCheckConfig "IsFailure - returns true on failure"
-            <| fun (runtime: FIORuntime, err: int) ->
-                let eff = FIO.fail(err).IsFailure()
+            <| fun (runtime: FIORuntime, error: int) ->
+                let eff = FIO.fail(error).IsFailure()
 
                 let actual =
                     runtime.Run(eff).UnsafeSuccess()
@@ -333,8 +333,8 @@ let extensionTests =
                 Expect.isTrue actual "IsFailure should return true on failure"
 
             testPropertyWithConfig fsCheckConfig "IsFailure - returns false on success"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed(res).IsFailure()
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed(value).IsFailure()
 
                 let actual =
                     runtime.Run(eff).UnsafeSuccess()
@@ -344,14 +344,14 @@ let extensionTests =
             // ─── Boolean guards ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "When - true executes effect"
-            <| fun (runtime: FIORuntime, res: int) ->
+            <| fun (runtime: FIORuntime, value: int) ->
                 let mutable executed = false
 
                 let eff =
                     FIO.attempt
                         (fun () ->
                             executed <- true
-                            res)
+                            value)
                         id
 
                 let _ =
@@ -360,14 +360,14 @@ let extensionTests =
                 Expect.isTrue executed "When(true) should execute the effect"
 
             testPropertyWithConfig fsCheckConfig "When - false returns unit without executing"
-            <| fun (runtime: FIORuntime, res: int) ->
+            <| fun (runtime: FIORuntime, value: int) ->
                 let mutable executed = false
 
                 let eff =
                     FIO.attempt
                         (fun () ->
                             executed <- true
-                            res)
+                            value)
                         id
 
                 let result =
@@ -377,14 +377,14 @@ let extensionTests =
                 Expect.equal result () "When(false) should return unit"
 
             testPropertyWithConfig fsCheckConfig "Unless - false executes effect"
-            <| fun (runtime: FIORuntime, res: int) ->
+            <| fun (runtime: FIORuntime, value: int) ->
                 let mutable executed = false
 
                 let eff =
                     FIO.attempt
                         (fun () ->
                             executed <- true
-                            res)
+                            value)
                         id
 
                 let _ =
@@ -393,14 +393,14 @@ let extensionTests =
                 Expect.isTrue executed "Unless(false) should execute the effect"
 
             testPropertyWithConfig fsCheckConfig "Unless - true returns unit without executing"
-            <| fun (runtime: FIORuntime, res: int) ->
+            <| fun (runtime: FIORuntime, value: int) ->
                 let mutable executed = false
 
                 let eff =
                     FIO.attempt
                         (fun () ->
                             executed <- true
-                            res)
+                            value)
                         id
 
                 let result =
@@ -412,50 +412,50 @@ let extensionTests =
             // ─── Observation (preserve outcome, run side effect) ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "Tap - executes side effect preserving value"
-            <| fun (runtime: FIORuntime, res: int) ->
+            <| fun (runtime: FIORuntime, value: int) ->
                 let mutable sideEffect = 0
-                let eff = FIO.succeed(res).Tap(fun r -> FIO.succeed (sideEffect <- r * 2))
+                let eff = FIO.succeed(value).Tap(fun r -> FIO.succeed (sideEffect <- r * 2))
 
                 let actual =
                     runtime.Run(eff).UnsafeSuccess()
 
-                Expect.equal actual res "Tap should preserve original value"
-                Expect.equal sideEffect (res * 2) "Tap should execute side effect"
+                Expect.equal actual value "Tap should preserve original value"
+                Expect.equal sideEffect (value * 2) "Tap should execute side effect"
 
             testPropertyWithConfig fsCheckConfig "Tap - propagates tap effect error"
-            <| fun (runtime: FIORuntime, res: int, err: int) ->
-                let eff = FIO.succeed(res).Tap(fun _ -> FIO.fail err)
+            <| fun (runtime: FIORuntime, value: int, error: int) ->
+                let eff = FIO.succeed(value).Tap(fun _ -> FIO.fail error)
 
                 let actual =
                     runtime.Run(eff).UnsafeError()
 
-                Expect.equal actual err "Tap should propagate tap error"
+                Expect.equal actual error "Tap should propagate tap error"
 
             testPropertyWithConfig fsCheckConfig "Tap - does not execute on original error"
-            <| fun (runtime: FIORuntime, err: int) ->
+            <| fun (runtime: FIORuntime, error: int) ->
                 let mutable executed = false
-                let eff = FIO.fail(err).Tap(fun _ -> FIO.succeed (executed <- true))
+                let eff = FIO.fail(error).Tap(fun _ -> FIO.succeed (executed <- true))
 
                 let actual =
                     runtime.Run(eff).UnsafeError()
 
-                Expect.equal actual err "Tap should preserve original error"
+                Expect.equal actual error "Tap should preserve original error"
                 Expect.isFalse executed "Tap should not execute on original error"
 
             testPropertyWithConfig fsCheckConfig "TapError - executes on error preserving error"
-            <| fun (runtime: FIORuntime, err: int) ->
+            <| fun (runtime: FIORuntime, error: int) ->
                 let mutable sideEffect = 0
-                let eff = FIO.fail(err).TapError(fun e -> FIO.succeed (sideEffect <- e * 2))
+                let eff = FIO.fail(error).TapError(fun e -> FIO.succeed (sideEffect <- e * 2))
 
                 let actual =
                     runtime.Run(eff).UnsafeError()
 
-                Expect.equal actual err "TapError should preserve error"
-                Expect.equal sideEffect (err * 2) "TapError should execute side effect"
+                Expect.equal actual error "TapError should preserve error"
+                Expect.equal sideEffect (error * 2) "TapError should execute side effect"
 
             testPropertyWithConfig fsCheckConfig "TapError - propagates tap effect error"
-            <| fun (runtime: FIORuntime, err: int, newErr: int) ->
-                let eff = FIO.fail(err).TapError(fun _ -> FIO.fail newErr)
+            <| fun (runtime: FIORuntime, error: int, newErr: int) ->
+                let eff = FIO.fail(error).TapError(fun _ -> FIO.fail newErr)
 
                 let actual =
                     runtime.Run(eff).UnsafeError()
@@ -463,44 +463,44 @@ let extensionTests =
                 Expect.equal actual newErr "TapError should propagate tap error"
 
             testPropertyWithConfig fsCheckConfig "TapError - does not execute on success"
-            <| fun (runtime: FIORuntime, res: int) ->
+            <| fun (runtime: FIORuntime, value: int) ->
                 let mutable executed = false
-                let eff = FIO.succeed(res).TapError(fun _ -> FIO.succeed (executed <- true))
+                let eff = FIO.succeed(value).TapError(fun _ -> FIO.succeed (executed <- true))
 
                 let actual =
                     runtime.Run(eff).UnsafeSuccess()
 
-                Expect.equal actual res "TapError should preserve success"
+                Expect.equal actual value "TapError should preserve success"
                 Expect.isFalse executed "TapError should not execute on success"
 
             testPropertyWithConfig fsCheckConfig "TapBoth - executes success tap on success"
-            <| fun (runtime: FIORuntime, res: int) ->
+            <| fun (runtime: FIORuntime, value: int) ->
                 let mutable successTap = false
                 let mutable errorTap = false
 
                 let eff =
-                    FIO.succeed(res)
+                    FIO.succeed(value)
                         .TapBoth (fun _ -> FIO.succeed (successTap <- true)) (fun _ -> FIO.succeed (errorTap <- true))
 
                 let actual =
                     runtime.Run(eff).UnsafeSuccess()
 
-                Expect.equal actual res "TapBoth should preserve success"
+                Expect.equal actual value "TapBoth should preserve success"
                 Expect.isTrue successTap "TapBoth should execute success tap"
                 Expect.isFalse errorTap "TapBoth should not execute error tap on success"
 
             testPropertyWithConfig fsCheckConfig "TapBoth - executes error tap on error"
-            <| fun (runtime: FIORuntime, err: int) ->
+            <| fun (runtime: FIORuntime, error: int) ->
                 let mutable successTap = false
                 let mutable errorTap = false
 
                 let eff =
-                    FIO.fail(err)
+                    FIO.fail(error)
                         .TapBoth (fun _ -> FIO.succeed (successTap <- true)) (fun _ -> FIO.succeed (errorTap <- true))
 
                 let actual = runtime.Run(eff).UnsafeError()
 
-                Expect.equal actual err "TapBoth should preserve error"
+                Expect.equal actual error "TapBoth should preserve error"
                 Expect.isFalse successTap "TapBoth should not execute success tap on error"
                 Expect.isTrue errorTap "TapBoth should execute error tap"
 
@@ -510,8 +510,8 @@ let extensionTests =
                     "Debug"
                     [
                         testPropertyWithConfig fsCheckConfig "Debug - preserves success value"
-                        <| fun (runtime: FIORuntime, res: int) ->
-                            let eff = FIO.succeed(res).Debug()
+                        <| fun (runtime: FIORuntime, value: int) ->
+                            let eff = FIO.succeed(value).Debug()
                             let oldOut = Console.Out
                             let oldErr = Console.Error
                             Console.SetOut TextWriter.Null
@@ -520,14 +520,14 @@ let extensionTests =
                             try
                                 let result =
                                     runtime.Run(eff).UnsafeSuccess()
-                                Expect.equal result res "Debug should preserve success value"
+                                Expect.equal result value "Debug should preserve success value"
                             finally
                                 Console.SetOut oldOut
                                 Console.SetError oldErr
 
                         testPropertyWithConfig fsCheckConfig "Debug - with custom message preserves value"
-                        <| fun (runtime: FIORuntime, res: int) ->
-                            let eff = FIO.succeed(res).Debug "Custom"
+                        <| fun (runtime: FIORuntime, value: int) ->
+                            let eff = FIO.succeed(value).Debug "Custom"
                             let oldOut = Console.Out
                             let oldErr = Console.Error
                             Console.SetOut TextWriter.Null
@@ -536,14 +536,14 @@ let extensionTests =
                             try
                                 let result =
                                     runtime.Run(eff).UnsafeSuccess()
-                                Expect.equal result res "Debug with message should preserve success value"
+                                Expect.equal result value "Debug with message should preserve success value"
                             finally
                                 Console.SetOut oldOut
                                 Console.SetError oldErr
 
                         testPropertyWithConfig fsCheckConfig "DebugError - preserves error value"
-                        <| fun (runtime: FIORuntime, err: string) ->
-                            let eff = FIO.fail(err).DebugError()
+                        <| fun (runtime: FIORuntime, error: string) ->
+                            let eff = FIO.fail(error).DebugError()
                             let oldOut = Console.Out
                             let oldErr = Console.Error
                             Console.SetOut TextWriter.Null
@@ -552,14 +552,14 @@ let extensionTests =
                             try
                                 let result =
                                     runtime.Run(eff).UnsafeError()
-                                Expect.equal result err "DebugError should preserve error value"
+                                Expect.equal result error "DebugError should preserve error value"
                             finally
                                 Console.SetOut oldOut
                                 Console.SetError oldErr
 
                         testPropertyWithConfig fsCheckConfig "DebugError - with custom message preserves error"
-                        <| fun (runtime: FIORuntime, err: string) ->
-                            let eff = FIO.fail(err).DebugError "Custom Error"
+                        <| fun (runtime: FIORuntime, error: string) ->
+                            let eff = FIO.fail(error).DebugError "Custom Error"
                             let oldOut = Console.Out
                             let oldErr = Console.Error
                             Console.SetOut TextWriter.Null
@@ -568,7 +568,7 @@ let extensionTests =
                             try
                                 let result =
                                     runtime.Run(eff).UnsafeError()
-                                Expect.equal result err "DebugError with message should preserve error value"
+                                Expect.equal result error "DebugError with message should preserve error value"
                             finally
                                 Console.SetOut oldOut
                                 Console.SetError oldErr
@@ -578,8 +578,8 @@ let extensionTests =
             // ─── Recovery / fallback ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "OrElse - falls back on error"
-            <| fun (runtime: FIORuntime, err: string, fallback: int) ->
-                let eff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: string, fallback: int) ->
+                let eff = FIO.fail error
 
                 let result =
                     runtime.Run(eff.OrElse(FIO.succeed fallback)).UnsafeSuccess()
@@ -587,13 +587,13 @@ let extensionTests =
                 Expect.equal result fallback "OrElse should return fallback on error"
 
             testPropertyWithConfig fsCheckConfig "OrElse - passes through on success"
-            <| fun (runtime: FIORuntime, res: int, fallback: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int, fallback: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.OrElse(FIO.succeed fallback)).UnsafeSuccess()
 
-                Expect.equal result res "OrElse should pass through on success"
+                Expect.equal result value "OrElse should pass through on success"
 
             testPropertyWithConfig fsCheckConfig "OrElse - chains fallbacks"
             <| fun (runtime: FIORuntime, fallback: int) ->
@@ -605,8 +605,8 @@ let extensionTests =
                 Expect.equal result fallback "OrElse should chain fallbacks"
 
             testPropertyWithConfig fsCheckConfig "OrElseSucceed - falls back to value on error"
-            <| fun (runtime: FIORuntime, err: string, fallback: int) ->
-                let eff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: string, fallback: int) ->
+                let eff = FIO.fail error
 
                 let result =
                     runtime.Run(eff.OrElseSucceed fallback).UnsafeSuccess()
@@ -614,17 +614,17 @@ let extensionTests =
                 Expect.equal result fallback "OrElseSucceed should produce the fallback value on error"
 
             testPropertyWithConfig fsCheckConfig "OrElseSucceed - passes through on success"
-            <| fun (runtime: FIORuntime, res: int, fallback: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int, fallback: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.OrElseSucceed fallback).UnsafeSuccess()
 
-                Expect.equal result res "OrElseSucceed should pass through the original success"
+                Expect.equal result value "OrElseSucceed should pass through the original success"
 
             testPropertyWithConfig fsCheckConfig "OrElseFail - replaces error with constant"
-            <| fun (runtime: FIORuntime, err: string, replacement: int) ->
-                let eff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: string, replacement: int) ->
+                let eff = FIO.fail error
 
                 let result =
                     runtime.Run(eff.OrElseFail replacement).UnsafeError()
@@ -632,27 +632,27 @@ let extensionTests =
                 Expect.equal result replacement "OrElseFail should replace the original error"
 
             testPropertyWithConfig fsCheckConfig "OrElseFail - passes through on success"
-            <| fun (runtime: FIORuntime, res: int, replacement: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int, replacement: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.OrElseFail replacement).UnsafeSuccess()
 
-                Expect.equal result res "OrElseFail should pass through the original success"
+                Expect.equal result value "OrElseFail should pass through the original success"
 
             testPropertyWithConfig fsCheckConfig "OrElseEither - this succeeds returns Choice1Of2"
-            <| fun (runtime: FIORuntime, res: int, fallback: string) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int, fallback: string) ->
+                let eff = FIO.succeed value
                 let fallbackEff = FIO.succeed fallback
 
                 let result =
                     runtime.Run(eff.OrElseEither fallbackEff).UnsafeSuccess()
 
-                Expect.equal result (Choice1Of2 res) "OrElseEither should return Choice1Of2 on success"
+                Expect.equal result (Choice1Of2 value) "OrElseEither should return Choice1Of2 on success"
 
             testPropertyWithConfig fsCheckConfig "OrElseEither - this fails, fallback succeeds returns Choice2Of2"
-            <| fun (runtime: FIORuntime, err: string, fallback: string) ->
-                let eff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: string, fallback: string) ->
+                let eff = FIO.fail error
                 let fallbackEff = FIO.succeed fallback
 
                 let result =
@@ -661,8 +661,8 @@ let extensionTests =
                 Expect.equal result (Choice2Of2 fallback) "OrElseEither should return Choice2Of2 when fallback succeeds"
 
             testPropertyWithConfig fsCheckConfig "OrElseEither - both fail returns fallback error"
-            <| fun (runtime: FIORuntime, err: string, fallbackErr: int) ->
-                let eff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: string, fallbackErr: int) ->
+                let eff = FIO.fail error
                 let fallbackEff = FIO.fail fallbackErr
 
                 let result =
@@ -671,9 +671,9 @@ let extensionTests =
                 Expect.equal result fallbackErr "OrElseEither should propagate the fallback's error when both fail"
 
             testPropertyWithConfig fsCheckConfig "CatchSome - partial function matches, recovers"
-            <| fun (runtime: FIORuntime, err: int, recovery: string) ->
-                let eff = FIO.fail err
-                let func = fun e -> if e = err then Some(FIO.succeed recovery) else None
+            <| fun (runtime: FIORuntime, error: int, recovery: string) ->
+                let eff = FIO.fail error
+                let func = fun e -> if e = error then Some(FIO.succeed recovery) else None
 
                 let result =
                     runtime.Run(eff.CatchSome func).UnsafeSuccess()
@@ -681,14 +681,14 @@ let extensionTests =
                 Expect.equal result recovery "CatchSome should recover when partial function matches"
 
             testPropertyWithConfig fsCheckConfig "CatchSome - partial function returns None, propagates error"
-            <| fun (runtime: FIORuntime, err: int) ->
-                let eff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: int) ->
+                let eff = FIO.fail error
                 let func = fun _ -> None
 
                 let result =
                     runtime.Run(eff.CatchSome func).UnsafeError()
 
-                Expect.equal result err "CatchSome should propagate error when partial function returns None"
+                Expect.equal result error "CatchSome should propagate error when partial function returns None"
 
             testPropertyWithConfig fsCheckConfig "OrInterrupt - preserves success"
             <| fun (runtime: FIORuntime, value: int) ->
@@ -714,17 +714,17 @@ let extensionTests =
             // ─── Filter / partial functions ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "FilterOrFail - predicate passes returns success"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.FilterOrFail (fun _ -> true) "rejected").UnsafeSuccess()
 
-                Expect.equal result res "FilterOrFail should return success when predicate accepts"
+                Expect.equal result value "FilterOrFail should return success when predicate accepts"
 
             testPropertyWithConfig fsCheckConfig "FilterOrFail - predicate fails returns supplied error"
-            <| fun (runtime: FIORuntime, res: int, error: string) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int, error: string) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.FilterOrFail (fun _ -> false) error).UnsafeError()
@@ -741,17 +741,17 @@ let extensionTests =
                 Expect.equal result originalError "FilterOrFail should propagate the original failure unchanged"
 
             testPropertyWithConfig fsCheckConfig "FilterOrElse - predicate passes returns success"
-            <| fun (runtime: FIORuntime, res: int, fallback: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int, fallback: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.FilterOrElse (fun _ -> true) (FIO.succeed fallback)).UnsafeSuccess()
 
-                Expect.equal result res "FilterOrElse should return success when predicate accepts"
+                Expect.equal result value "FilterOrElse should return success when predicate accepts"
 
             testPropertyWithConfig fsCheckConfig "FilterOrElse - predicate fails evaluates fallback"
-            <| fun (runtime: FIORuntime, res: int, fallback: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int, fallback: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.FilterOrElse (fun _ -> false) (FIO.succeed fallback)).UnsafeSuccess()
@@ -759,35 +759,35 @@ let extensionTests =
                 Expect.equal result fallback "FilterOrElse should evaluate fallback when predicate rejects"
 
             testPropertyWithConfig fsCheckConfig "FilterOrElseWith - predicate passes returns success"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.FilterOrElseWith (fun _ -> true) (fun v -> FIO.succeed (v * 100))).UnsafeSuccess()
 
-                Expect.equal result res "FilterOrElseWith should return success when predicate accepts"
+                Expect.equal result value "FilterOrElseWith should return success when predicate accepts"
 
             testPropertyWithConfig fsCheckConfig "FilterOrElseWith - predicate fails passes rejected value to fallback"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.FilterOrElseWith (fun _ -> false) (fun v -> FIO.succeed (v + 1))).UnsafeSuccess()
 
-                Expect.equal result (res + 1) "FilterOrElseWith should pass the rejected value to the fallback"
+                Expect.equal result (value + 1) "FilterOrElseWith should pass the rejected value to the fallback"
 
             testPropertyWithConfig fsCheckConfig "FilterOrInterrupt - predicate passes returns success"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.FilterOrInterrupt (fun _ -> true) "should not interrupt").UnsafeSuccess()
 
-                Expect.equal result res "FilterOrInterrupt should return success when predicate accepts"
+                Expect.equal result value "FilterOrInterrupt should return success when predicate accepts"
 
             testPropertyWithConfig fsCheckConfig "FilterOrInterrupt - predicate fails interrupts the fiber"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
 
                 let outcome =
                     runtime.Run(eff.FilterOrInterrupt (fun _ -> false) "rejected")
@@ -800,8 +800,8 @@ let extensionTests =
                 Expect.isTrue interrupted "FilterOrInterrupt should interrupt the fiber when predicate rejects"
 
             testPropertyWithConfig fsCheckConfig "Reject - partial function matches fails with error"
-            <| fun (runtime: FIORuntime, res: int, error: string) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int, error: string) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.Reject(fun _ -> Some error)).UnsafeError()
@@ -809,17 +809,17 @@ let extensionTests =
                 Expect.equal result error "Reject should fail with the matched error"
 
             testPropertyWithConfig fsCheckConfig "Reject - partial function does not match passes through"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.Reject(fun _ -> None)).UnsafeSuccess()
 
-                Expect.equal result res "Reject should pass through when the partial function does not match"
+                Expect.equal result value "Reject should pass through when the partial function does not match"
 
             testPropertyWithConfig fsCheckConfig "RejectFIO - partial function matches and effect succeeds fails with computed error"
-            <| fun (runtime: FIORuntime, res: int, error: string) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int, error: string) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.RejectFIO(fun _ -> Some (FIO.succeed error))).UnsafeError()
@@ -827,8 +827,8 @@ let extensionTests =
                 Expect.equal result error "RejectFIO should fail with the successful result of the rejection effect"
 
             testPropertyWithConfig fsCheckConfig "RejectFIO - partial function matches and effect fails propagates that failure"
-            <| fun (runtime: FIORuntime, res: int, error: string) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int, error: string) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.RejectFIO(fun _ -> Some (FIO.fail error))).UnsafeError()
@@ -836,26 +836,26 @@ let extensionTests =
                 Expect.equal result error "RejectFIO should propagate failure of the rejection effect as the rejection error"
 
             testPropertyWithConfig fsCheckConfig "RejectFIO - partial function does not match passes through"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.RejectFIO(fun _ -> None)).UnsafeSuccess()
 
-                Expect.equal result res "RejectFIO should pass through when the partial function does not match"
+                Expect.equal result value "RejectFIO should pass through when the partial function does not match"
 
             testPropertyWithConfig fsCheckConfig "Collect - partial function matches returns extracted value"
-            <| fun (runtime: FIORuntime, res: int, error: string) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int, error: string) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.Collect error (fun v -> Some (v + 1))).UnsafeSuccess()
 
-                Expect.equal result (res + 1) "Collect should return the extracted value when partial function matches"
+                Expect.equal result (value + 1) "Collect should return the extracted value when partial function matches"
 
             testPropertyWithConfig fsCheckConfig "Collect - partial function does not match fails with supplied error"
-            <| fun (runtime: FIORuntime, res: int, error: string) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int, error: string) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.Collect error (fun _ -> None)).UnsafeError()
@@ -863,8 +863,8 @@ let extensionTests =
                 Expect.equal result error "Collect should fail with the supplied error when partial function does not match"
 
             testPropertyWithConfig fsCheckConfig "CollectFIO - partial function matches and effect succeeds returns extracted value"
-            <| fun (runtime: FIORuntime, res: int, extracted: int, error: string) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int, extracted: int, error: string) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.CollectFIO error (fun _ -> Some (FIO.succeed extracted))).UnsafeSuccess()
@@ -872,8 +872,8 @@ let extensionTests =
                 Expect.equal result extracted "CollectFIO should return the value from the extracted effect when partial function matches"
 
             testPropertyWithConfig fsCheckConfig "CollectFIO - partial function matches and effect fails propagates that failure"
-            <| fun (runtime: FIORuntime, res: int, innerError: string, outerError: string) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int, innerError: string, outerError: string) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.CollectFIO outerError (fun _ -> Some (FIO.fail innerError))).UnsafeError()
@@ -881,8 +881,8 @@ let extensionTests =
                 Expect.equal result innerError "CollectFIO should propagate the inner effect's failure"
 
             testPropertyWithConfig fsCheckConfig "CollectFIO - partial function does not match fails with supplied error"
-            <| fun (runtime: FIORuntime, res: int, error: string) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int, error: string) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.CollectFIO error (fun _ -> None)).UnsafeError()
@@ -892,54 +892,54 @@ let extensionTests =
             // ─── Applicative ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "Apply - applies function to value"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let valEff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let valEff = FIO.succeed value
                 let fnEff = FIO.succeed (fun x -> x * 3)
 
                 let result =
                     runtime.Run(valEff.Apply fnEff).UnsafeSuccess()
 
-                Expect.equal result (res * 3) "Apply should apply function to value"
+                Expect.equal result (value * 3) "Apply should apply function to value"
 
             testPropertyWithConfig fsCheckConfig "Apply - propagates value error"
-            <| fun (runtime: FIORuntime, err: string) ->
-                let valEff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: string) ->
+                let valEff = FIO.fail error
                 let fnEff = FIO.succeed (fun x -> x * 3)
 
                 let result =
                     runtime.Run(valEff.Apply fnEff).UnsafeError()
 
-                Expect.equal result err "Apply should propagate value error"
+                Expect.equal result error "Apply should propagate value error"
 
             testPropertyWithConfig fsCheckConfig "Apply - propagates function error"
-            <| fun (runtime: FIORuntime, res: int, err: string) ->
-                let valEff = FIO.succeed res
-                let fnEff = FIO.fail err
+            <| fun (runtime: FIORuntime, value: int, error: string) ->
+                let valEff = FIO.succeed value
+                let fnEff = FIO.fail error
 
                 let result =
                     runtime.Run(valEff.Apply fnEff).UnsafeError()
 
-                Expect.equal result err "Apply should propagate function error"
+                Expect.equal result error "Apply should propagate function error"
 
             testPropertyWithConfig fsCheckConfig "ApplyError - applies error function"
-            <| fun (runtime: FIORuntime, err: int) ->
-                let errEff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: int) ->
+                let errEff = FIO.fail error
                 let fnEff = FIO.fail (fun e -> $"Error: {e}")
 
                 let result =
                     runtime.Run(errEff.ApplyError fnEff).UnsafeError()
 
-                Expect.equal result $"Error: {err}" "ApplyError should apply error function"
+                Expect.equal result $"Error: {error}" "ApplyError should apply error function"
 
             testPropertyWithConfig fsCheckConfig "ApplyError - preserves success"
-            <| fun (runtime: FIORuntime, res: string) ->
-                let succEff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: string) ->
+                let succEff = FIO.succeed value
                 let fnEff = FIO.fail (fun e -> $"Error: {e}")
 
                 let result =
                     runtime.Run(succEff.ApplyError fnEff).UnsafeSuccess()
 
-                Expect.equal result res "ApplyError should preserve success"
+                Expect.equal result value "ApplyError should preserve success"
 
             // ─── Sequential composition (Zip) ─────────────────────────────────────────
 
@@ -954,9 +954,9 @@ let extensionTests =
                 Expect.equal result (res1, res2) "Zip should combine two success values into tuple"
 
             testPropertyWithConfig fsCheckConfig "Zip - first fails returns error"
-            <| fun (runtime: FIORuntime, err: string) ->
+            <| fun (runtime: FIORuntime, error: string) ->
                 let mutable secondExecuted = false
-                let eff1 = FIO.fail err
+                let eff1 = FIO.fail error
 
                 let eff2 =
                     FIO.attempt
@@ -968,7 +968,7 @@ let extensionTests =
                 let result =
                     runtime.Run(eff1.Zip eff2).UnsafeError()
 
-                Expect.equal result err "Zip should return error when first fails"
+                Expect.equal result error "Zip should return error when first fails"
                 Expect.isFalse secondExecuted "Zip should not execute second effect when first fails"
 
             testPropertyWithConfig fsCheckConfig "ZipError - combines two errors into tuple"
@@ -1034,14 +1034,14 @@ let extensionTests =
                 Expect.equal result value "ZipParError should return success when second succeeds"
 
             testPropertyWithConfig fsCheckConfig "ZipParError - both succeed returns first"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff1 = FIO.succeed res
-                let eff2 = FIO.succeed (res + 1)
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff1 = FIO.succeed value
+                let eff2 = FIO.succeed (value + 1)
 
                 let result =
                     runtime.Run(eff1.ZipParError eff2).UnsafeSuccess()
 
-                Expect.equal result res "ZipParError should return first result when both succeed"
+                Expect.equal result value "ZipParError should return first result when both succeed"
 
             testPropertyWithConfig fsCheckConfig "ZipParRight - returns second result from parallel"
             <| fun (runtime: FIORuntime, res1: int, res2: int) ->
@@ -1066,58 +1066,58 @@ let extensionTests =
             // ─── Fold / consume outcome ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "Fold - handles success"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed(res).Fold (fun e -> e) (fun r -> r * 2)
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed(value).Fold (fun e -> e) (fun r -> r * 2)
 
                 let actual =
                     runtime.Run(eff).UnsafeSuccess()
 
-                Expect.equal actual (res * 2) "Fold should handle success"
+                Expect.equal actual (value * 2) "Fold should handle success"
 
             testPropertyWithConfig fsCheckConfig "Fold - handles error"
-            <| fun (runtime: FIORuntime, err: int) ->
-                let eff = FIO.fail(err).Fold (fun e -> e + 100) (fun r -> r * 2)
+            <| fun (runtime: FIORuntime, error: int) ->
+                let eff = FIO.fail(error).Fold (fun e -> e + 100) (fun r -> r * 2)
 
                 let actual =
                     runtime.Run(eff).UnsafeSuccess()
 
-                Expect.equal actual (err + 100) "Fold should handle error"
+                Expect.equal actual (error + 100) "Fold should handle error"
 
             testPropertyWithConfig fsCheckConfig "FoldFIO - handles success"
-            <| fun (runtime: FIORuntime, res: int) ->
+            <| fun (runtime: FIORuntime, value: int) ->
                 let eff =
-                    FIO.succeed(res).FoldFIO (fun e -> FIO.succeed e) (fun r -> FIO.succeed (r * 2))
+                    FIO.succeed(value).FoldFIO (fun e -> FIO.succeed e) (fun r -> FIO.succeed (r * 2))
 
                 let actual =
                     runtime.Run(eff).UnsafeSuccess()
 
-                Expect.equal actual (res * 2) "FoldFIO should handle success"
+                Expect.equal actual (value * 2) "FoldFIO should handle success"
 
             testPropertyWithConfig fsCheckConfig "FoldFIO - handles error"
-            <| fun (runtime: FIORuntime, err: int) ->
+            <| fun (runtime: FIORuntime, error: int) ->
                 let eff =
-                    FIO.fail(err).FoldFIO (fun e -> FIO.succeed (e + 100)) (fun r -> FIO.succeed (r * 2))
+                    FIO.fail(error).FoldFIO (fun e -> FIO.succeed (e + 100)) (fun r -> FIO.succeed (r * 2))
 
                 let actual =
                     runtime.Run(eff).UnsafeSuccess()
 
-                Expect.equal actual (err + 100) "FoldFIO should handle error"
+                Expect.equal actual (error + 100) "FoldFIO should handle error"
 
             testPropertyWithConfig fsCheckConfig "FoldFIO - error handler catches success handler errors"
-            <| fun (runtime: FIORuntime, res: int, err: int) ->
+            <| fun (runtime: FIORuntime, value: int, error: int) ->
                 let eff =
-                    FIO.succeed(res).FoldFIO (fun e -> FIO.succeed (e * 10)) (fun _ -> FIO.fail err)
+                    FIO.succeed(value).FoldFIO (fun e -> FIO.succeed (e * 10)) (fun _ -> FIO.fail error)
 
                 let actual =
                     runtime.Run(eff).UnsafeSuccess()
 
-                Expect.equal actual (err * 10) "FoldFIO should catch success handler errors"
+                Expect.equal actual (error * 10) "FoldFIO should catch success handler errors"
 
             testPropertyWithConfig fsCheckConfig "OnDone - success branch runs onSuccess and yields unit"
-            <| fun (runtime: FIORuntime, res: int) ->
+            <| fun (runtime: FIORuntime, value: int) ->
                 let mutable observedSuccess = 0
                 let mutable observedError = 0
-                let eff = FIO.succeed res
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.OnDone
@@ -1130,14 +1130,14 @@ let extensionTests =
                         .UnsafeSuccess()
 
                 Expect.equal result () "OnDone should yield unit"
-                Expect.equal observedSuccess res "OnDone should invoke onSuccess with the original value"
+                Expect.equal observedSuccess value "OnDone should invoke onSuccess with the original value"
                 Expect.equal observedError 0 "OnDone should not invoke onError on success"
 
             testPropertyWithConfig fsCheckConfig "OnDone - error branch runs onError and yields unit"
-            <| fun (runtime: FIORuntime, err: string) ->
+            <| fun (runtime: FIORuntime, error: string) ->
                 let mutable observedError = ""
                 let mutable observedSuccess = 0
-                let eff = FIO.fail err
+                let eff = FIO.fail error
 
                 let result =
                     runtime.Run(eff.OnDone
@@ -1150,12 +1150,12 @@ let extensionTests =
                         .UnsafeSuccess()
 
                 Expect.equal result () "OnDone should yield unit even on original failure"
-                Expect.equal observedError err "OnDone should invoke onError with the original error"
+                Expect.equal observedError error "OnDone should invoke onError with the original error"
                 Expect.equal observedSuccess 0 "OnDone should not invoke onSuccess on failure"
 
             testPropertyWithConfig fsCheckConfig "OnDone - onSuccess failure propagates"
-            <| fun (runtime: FIORuntime, res: int, handlerError: string) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int, handlerError: string) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.OnDone
@@ -1166,8 +1166,8 @@ let extensionTests =
                 Expect.equal result handlerError "OnDone should propagate failures from onSuccess"
 
             testPropertyWithConfig fsCheckConfig "OnDone - onError failure propagates"
-            <| fun (runtime: FIORuntime, err: string, handlerError: string) ->
-                let eff = FIO.fail err
+            <| fun (runtime: FIORuntime, error: string, handlerError: string) ->
+                let eff = FIO.fail error
 
                 let result =
                     runtime.Run(eff.OnDone
@@ -1214,14 +1214,14 @@ let extensionTests =
                 Expect.equal callbackCount 2 "RetryOrElse callback should be called on each retry"
 
             testPropertyWithConfig fsCheckConfig "Retry - succeeds immediately without retrying"
-            <| fun (runtime: FIORuntime, res: int) ->
+            <| fun (runtime: FIORuntime, value: int) ->
                 let mutable attempts = 0
 
                 let eff = 
                     FIO.attempt 
                         (fun () ->
                             attempts <- attempts + 1
-                            res)
+                            value)
                         id
 
                 let retried = eff.Retry 3 (fun _ -> FIO.unit ())
@@ -1229,7 +1229,7 @@ let extensionTests =
                 let actual =
                     runtime.Run(retried).UnsafeSuccess()
 
-                Expect.equal actual res "Retry should succeed"
+                Expect.equal actual value "Retry should succeed"
                 Expect.equal attempts 1 "Retry should not retry on immediate success"
 
             testPropertyWithConfig fsCheckConfig "Retry - retries up to max attempts"
@@ -1250,7 +1250,7 @@ let extensionTests =
                 Expect.equal attempts 4 "Retry should retry up to max"
 
             testPropertyWithConfig fsCheckConfig "Retry - succeeds on intermediate attempt"
-            <| fun (runtime: FIORuntime, res: int) ->
+            <| fun (runtime: FIORuntime, value: int) ->
                 let mutable attempts = 0
 
                 let eff =
@@ -1259,7 +1259,7 @@ let extensionTests =
                         if attempts < 3 then
                             return! FIO.fail "error"
                         else
-                            return res
+                            return value
                     }
 
                 let retried = eff.Retry 5 (fun _ -> FIO.unit ())
@@ -1267,7 +1267,7 @@ let extensionTests =
                 let actual =
                     runtime.Run(retried).UnsafeSuccess()
 
-                Expect.equal actual res "Retry should succeed on third attempt"
+                Expect.equal actual value "Retry should succeed on third attempt"
                 Expect.equal attempts 3 "Should take 3 attempts"
 
             testPropertyWithConfig fsCheckConfig "Retry - callback receives correct attempt numbers"
@@ -1297,7 +1297,7 @@ let extensionTests =
                     }
 
                 let result =
-                    runtime.Run(eff.RetryUntil(fun err -> err >= 3)).UnsafeError()
+                    runtime.Run(eff.RetryUntil(fun error -> error >= 3)).UnsafeError()
 
                 Expect.equal result 3 "RetryUntil should fail with the error that matched the predicate"
                 Expect.equal count 3 "RetryUntil should retry until predicate matches"
@@ -1329,7 +1329,7 @@ let extensionTests =
                     }
 
                 let result =
-                    runtime.Run(eff.RetryUntil(fun err -> err >= 10_000)).UnsafeError()
+                    runtime.Run(eff.RetryUntil(fun error -> error >= 10_000)).UnsafeError()
 
                 Expect.equal count 10_000 "RetryUntil should retry 10000 times"
                 Expect.equal result 10_000 "RetryUntil should fail with the final error"
@@ -1381,7 +1381,7 @@ let extensionTests =
                     }
 
                 let result =
-                    runtime.Run(eff.RetryWhile(fun err -> err < 5)).UnsafeError()
+                    runtime.Run(eff.RetryWhile(fun error -> error < 5)).UnsafeError()
 
                 Expect.equal count 5 "RetryWhile should retry until predicate is false"
                 Expect.equal result 5 "RetryWhile should fail with the error that failed the predicate"
@@ -1397,7 +1397,7 @@ let extensionTests =
                     }
 
                 let result =
-                    runtime.Run(eff.RetryWhile(fun err -> err < 10_000)).UnsafeError()
+                    runtime.Run(eff.RetryWhile(fun error -> error < 10_000)).UnsafeError()
 
                 Expect.equal count 10_000 "RetryWhile should retry 10000 times"
                 Expect.equal result 10_000 "RetryWhile should fail with the final error"
@@ -1477,21 +1477,21 @@ let extensionTests =
                 Expect.equal result 5 "RepeatN should return last result"
 
             testPropertyWithConfig fsCheckConfig "RepeatN - n=1 executes exactly once"
-            <| fun (runtime: FIORuntime, res: int) ->
+            <| fun (runtime: FIORuntime, value: int) ->
                 let mutable count = 0
 
                 let eff =
                     FIO.attempt
                         (fun () ->
                             count <- count + 1
-                            res)
+                            value)
                         id
                     
                 let result =
                     runtime.Run(eff.RepeatN 1).UnsafeSuccess()
 
                 Expect.equal count 1 "RepeatN(1) should execute exactly once"
-                Expect.equal result res "RepeatN(1) should return the result"
+                Expect.equal result value "RepeatN(1) should return the result"
 
             testPropertyWithConfig fsCheckConfig "RepeatUntil - stops on first satisfying value"
             <| fun (runtime: FIORuntime) ->
@@ -1511,21 +1511,21 @@ let extensionTests =
                 Expect.equal result 3 "RepeatUntil should return the value that satisfied the predicate"
 
             testPropertyWithConfig fsCheckConfig "RepeatUntil - executes once when predicate true on first try"
-            <| fun (runtime: FIORuntime, res: int) ->
+            <| fun (runtime: FIORuntime, value: int) ->
                 let mutable count = 0
 
                 let eff =
                     FIO.attempt
                         (fun () ->
                             count <- count + 1
-                            res)
+                            value)
                         id
 
                 let result =
                     runtime.Run(eff.RepeatUntil(fun _ -> true)).UnsafeSuccess()
 
                 Expect.equal count 1 "RepeatUntil should execute exactly once"
-                Expect.equal result res "RepeatUntil should return the first result"
+                Expect.equal result value "RepeatUntil should return the first result"
 
             testCase "RepeatUntil - stack safety with 10000 iterations" <| fun () ->
                 let runtime = new ConcurrentRuntime() :> FIORuntime
@@ -1703,22 +1703,22 @@ let extensionTests =
                 Expect.equal result None "Timeout should return None for slow effect")
 
             testPropertyWithConfig fsCheckConfig "TimeoutFail - effect completes in time returns success"
-            <| fun (runtime: FIORuntime, res: int, timeoutError: string) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int, timeoutError: string) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.TimeoutFail timeoutError (TimeSpan.FromSeconds 5.0) (fun ex -> ex.Message)).UnsafeSuccess()
 
-                Expect.equal result res "TimeoutFail should return success when effect completes in time"
+                Expect.equal result value "TimeoutFail should return success when effect completes in time"
 
             testPropertyWithConfig fsCheckConfig "TimeoutTo - effect completes in time applies onSuccess"
-            <| fun (runtime: FIORuntime, res: int, defaultValue: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int, defaultValue: int) ->
+                let eff = FIO.succeed value
 
                 let result =
                     runtime.Run(eff.TimeoutTo defaultValue (fun v -> v * 2) (TimeSpan.FromSeconds 5.0) (fun ex -> ex.Message)).UnsafeSuccess()
 
-                Expect.equal result (res * 2) "TimeoutTo should apply onSuccess when effect completes in time"
+                Expect.equal result (value * 2) "TimeoutTo should apply onSuccess when effect completes in time"
 
             testCase "TimeoutTo - timeout fires returns default value"
             <| fun () ->
@@ -1733,12 +1733,12 @@ let extensionTests =
                 Expect.equal result defaultValue "TimeoutTo should return the default value when timeout fires"
 
             testPropertyWithConfig fsCheckConfig "Timed - returns duration and result"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed value
 
                 let duration, result = runtime.Run(eff.Timed id).UnsafeSuccess()
 
-                Expect.equal result res "Timed should return the result"
+                Expect.equal result value "Timed should return the result"
                 Expect.isGreaterThanOrEqual duration TimeSpan.Zero "Timed duration should be >= 0"
 
             testAllRuntimes "Race - returns first completing effect" (fun runtime ->
@@ -1752,14 +1752,14 @@ let extensionTests =
                 Expect.equal result 1 "Race should return first completing effect")
 
             testAllRuntimes "Race - propagates error from first completing" (fun runtime ->
-                let err = exn "fast error"
-                let fast = FIO.fail err
+                let error = exn "fast error"
+                let fast = FIO.fail error
                 let slow = (FIO.sleep (TimeSpan.FromSeconds 10.0) id).FlatMap(fun () -> FIO.succeed 2)
                 let eff = fast.Race slow
 
                 let result = runtime.Run(eff).UnsafeError()
 
-                Expect.equal result.Message err.Message "Race should propagate error from first completing")
+                Expect.equal result.Message error.Message "Race should propagate error from first completing")
 
             testAllRuntimes "RaceEither - first racer wins returns Choice1Of2" (fun runtime ->
                 let fast = FIO.succeed 1
@@ -1825,20 +1825,20 @@ let extensionTests =
                 Expect.equal result.Message "slow error" "RaceFirstSuccess should fail with the most-recently-received error when both racers fail")
 
             testPropertyWithConfig fsCheckConfig "FlatMap - chains success values"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed(res).FlatMap(fun x -> FIO.succeed (x + 1))
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed(value).FlatMap(fun x -> FIO.succeed (x + 1))
 
                 let result =
                     runtime.Run(eff).UnsafeSuccess()
 
-                Expect.equal result (res + 1) "FlatMap should chain success values"
+                Expect.equal result (value + 1) "FlatMap should chain success values"
 
             testPropertyWithConfig fsCheckConfig "FlatMap - short-circuits on error"
-            <| fun (runtime: FIORuntime, err: string) ->
+            <| fun (runtime: FIORuntime, error: string) ->
                 let mutable secondExecuted = false
 
                 let eff =
-                    FIO.fail(err)
+                    FIO.fail(error)
                         .FlatMap(fun _ ->
                             secondExecuted <- true
                             FIO.succeed 42)
@@ -1846,12 +1846,12 @@ let extensionTests =
                 let result =
                     runtime.Run(eff).UnsafeError()
 
-                Expect.equal result err "FlatMap should return error"
+                Expect.equal result error "FlatMap should return error"
                 Expect.isFalse secondExecuted "FlatMap should short-circuit on error"
 
             testPropertyWithConfig fsCheckConfig "CatchAll - recovers from error"
-            <| fun (runtime: FIORuntime, err: int, recovery: int) ->
-                let eff = FIO.fail(err).CatchAll(fun _ -> FIO.succeed recovery)
+            <| fun (runtime: FIORuntime, error: int, recovery: int) ->
+                let eff = FIO.fail(error).CatchAll(fun _ -> FIO.succeed recovery)
 
                 let actual =
                     runtime.Run(eff).UnsafeSuccess()
@@ -1859,50 +1859,50 @@ let extensionTests =
                 Expect.equal actual recovery "CatchAll should recover"
 
             testPropertyWithConfig fsCheckConfig "CatchAll - does not affect success"
-            <| fun (runtime: FIORuntime, res: int) ->
-                let eff = FIO.succeed(res).CatchAll(fun _ -> FIO.succeed 0)
+            <| fun (runtime: FIORuntime, value: int) ->
+                let eff = FIO.succeed(value).CatchAll(fun _ -> FIO.succeed 0)
 
                 let actual =    
                     runtime.Run(eff).UnsafeSuccess()
 
-                Expect.equal actual res "CatchAll should not affect success"
+                Expect.equal actual value "CatchAll should not affect success"
 
             testPropertyWithConfig fsCheckConfig "CatchAll - can transform error to new error"
-            <| fun (runtime: FIORuntime, err: int) ->
-                let eff = FIO.fail(err).CatchAll(fun e -> FIO.fail (e + 100))
+            <| fun (runtime: FIORuntime, error: int) ->
+                let eff = FIO.fail(error).CatchAll(fun e -> FIO.fail (e + 100))
 
                 let actual =
                     runtime.Run(eff).UnsafeError()
 
-                Expect.equal actual (err + 100) "CatchAll can transform to new error"
+                Expect.equal actual (error + 100) "CatchAll can transform to new error"
 
             testPropertyWithConfig fsCheckConfig "Ensuring - finalizer runs on success"
-            <| fun (runtime: FIORuntime, res: int) ->
+            <| fun (runtime: FIORuntime, value: int) ->
                 let mutable finalizerRan = false
-                let eff = FIO.succeed res
+                let eff = FIO.succeed value
                 let finalizer = FIO.attempt (fun () -> finalizerRan <- true) (fun ex -> ex.Message)
 
                 let result =
                     runtime.Run(eff.Ensuring finalizer).UnsafeSuccess()
 
                 Expect.isTrue finalizerRan "Ensuring finalizer should run on success"
-                Expect.equal result res "Ensuring should preserve the success result"
+                Expect.equal result value "Ensuring should preserve the success result"
 
             testPropertyWithConfig fsCheckConfig "Ensuring - finalizer runs on failure"
-            <| fun (runtime: FIORuntime, err: string) ->
+            <| fun (runtime: FIORuntime, error: string) ->
                 let mutable finalizerRan = false
-                let eff = FIO.fail err
+                let eff = FIO.fail error
                 let finalizer = FIO.attempt (fun () -> finalizerRan <- true) (fun ex -> ex.Message)
 
                 let result =
                     runtime.Run(eff.Ensuring finalizer).UnsafeError()
 
                 Expect.isTrue finalizerRan "Ensuring finalizer should run on failure"
-                Expect.equal result err "Ensuring should preserve the error"
+                Expect.equal result error "Ensuring should preserve the error"
 
             testPropertyWithConfig fsCheckConfig "Ensuring - finalizer error on success propagates"
-            <| fun (runtime: FIORuntime, res: int, finalizerErr: string) ->
-                let eff = FIO.succeed res
+            <| fun (runtime: FIORuntime, value: int, finalizerErr: string) ->
+                let eff = FIO.succeed value
                 let finalizer = FIO.fail finalizerErr
 
                 let result =

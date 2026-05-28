@@ -21,7 +21,7 @@ type private Actor =
 let rec private sendPingsEff (actor, roundCount, ping) : FIO<unit, exn> =
     fio {
         for chan in actor.SendingChans do
-            do! chan.Send(Ping(ping, actor.PongReceiveChan)).Unit()
+            do! chan.Write(Ping(ping, actor.PongReceiveChan)).Unit()
 
         return! receivePingsEff (actor, roundCount, actor.SendingChans.Length, ping)
     }
@@ -29,9 +29,9 @@ let rec private sendPingsEff (actor, roundCount, ping) : FIO<unit, exn> =
 and private receivePingsEff (actor, rounds, receiveCount, msg) : FIO<unit, exn> =
     fio {
         for _ in 1..receiveCount do
-            match! actor.PingReceiveChan.Receive() with
+            match! actor.PingReceiveChan.Read() with
             | Ping(ping, replyChan) ->
-                match! replyChan.Send(Pong(ping + 1)) with
+                match! replyChan.Write(Pong(ping + 1)) with
                 | Pong _ -> ()
                 | Ping _ ->
                     return!
@@ -44,7 +44,7 @@ and private receivePingsEff (actor, rounds, receiveCount, msg) : FIO<unit, exn> 
 and private receivePongsEff (actor, roundCount, receiveCount, msg) : FIO<unit, exn> =
     fio {
         for _ in 1..receiveCount do
-            match! actor.PongReceiveChan.Receive() with
+            match! actor.PongReceiveChan.Read() with
             | Pong _ -> ()
             | _ -> return! FIO.fail (InvalidOperationException "receivePongsEff: Received ping when pong was expected!")
 
@@ -54,7 +54,7 @@ and private receivePongsEff (actor, roundCount, receiveCount, msg) : FIO<unit, e
 
 let private actorEff (actor, msg, roundCount, startChan: Channel<int>) : FIO<unit, exn> =
     fio {
-        do! startChan.Receive().Unit()
+        do! startChan.Read().Unit()
         return! sendPingsEff (actor, roundCount - 1, msg)
     }
 
@@ -106,7 +106,7 @@ let effect (actorCount: int, roundCount: int) : FIO<unit, exn> =
         let actors = createActors actorCount
 
         for _ in 1..actorCount do
-            do! startChan.Send(0).Unit()
+            do! startChan.Write(0).Unit()
 
         do! bigEff (actors, roundCount, 0, startChan)
     }

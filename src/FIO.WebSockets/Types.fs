@@ -128,10 +128,10 @@ module WsError =
         | _ -> GeneralError exn.Message
 
     /// <summary>Creates an exception from a WsError, mapping each error case to an appropriate exception type.</summary>
-    /// <param name="err">The error to convert.</param>
+    /// <param name="error">The error to convert.</param>
     /// <returns>An exception representing the error.</returns>
-    let toException (err: WsError) =
-        match err with
+    let toException (error: WsError) =
+        match error with
         | ConnectionFailed msg -> Exception $"Connection failed: {msg}"
         | SendFailed msg -> Exception $"Send failed: {msg}"
         | ReceiveFailed msg -> Exception $"Receive failed: {msg}"

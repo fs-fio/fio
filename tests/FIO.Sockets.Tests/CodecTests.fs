@@ -162,9 +162,9 @@ let codecTests =
                     testAllRuntimes "invalid bytes produce CodecError" (fun runtime ->
                         let codec = Codec.json
                         let eff = codec.Decode [| 0uy; 1uy; 2uy |]
-                        let err = runtime.Run(eff).UnsafeError()
+                        let error = runtime.Run(eff).UnsafeError()
 
-                        match err with
+                        match error with
                         | CodecError _ -> ()
                         | other -> failtest $"Expected CodecError but got {other}")
                 ]
@@ -251,9 +251,9 @@ let codecTests =
                     testAllRuntimes "insufficient bytes produce CodecError" (fun runtime ->
                         let codec = Codec.lengthPrefixed Codec.string
                         let eff = codec.Decode [| 0uy; 0uy |]
-                        let err = runtime.Run(eff).UnsafeError()
+                        let error = runtime.Run(eff).UnsafeError()
 
-                        match err with
+                        match error with
                         | CodecError _ -> ()
                         | other -> failtest $"Expected CodecError but got {other}")
                 ]
@@ -311,9 +311,9 @@ let codecTests =
                                 Encoding.UTF8.GetString bytes)
 
                         let eff = codec.Encode "test"
-                        let err = runtime.Run(eff).UnsafeError()
+                        let error = runtime.Run(eff).UnsafeError()
 
-                        match err with
+                        match error with
                         | CodecError _ -> ()
                         | other -> failtest $"Expected CodecError but got {other}")
 
@@ -323,9 +323,9 @@ let codecTests =
                                 failwith "boom")
 
                         let eff = codec.Decode [| 1uy |]
-                        let err = runtime.Run(eff).UnsafeError()
+                        let error = runtime.Run(eff).UnsafeError()
 
-                        match err with
+                        match error with
                         | CodecError _ -> ()
                         | other -> failtest $"Expected CodecError but got {other}")
                 ]

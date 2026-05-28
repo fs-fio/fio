@@ -19,11 +19,11 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
 
     /// <summary>Transforms a WebSocket error into a logged-and-suppressed unit effect for use in cleanup paths.</summary>
     /// <param name="context">A description of the operation being cleaned up.</param>
-    /// <param name="err">The WebSocket error to log.</param>
+    /// <param name="error">The WebSocket error to log.</param>
     /// <returns>An effect that logs the error to standard error and succeeds with unit.</returns>
-    let logAndSuppress (context: string) (err: WsError) =
+    let logAndSuppress (context: string) (error: WsError) =
         fio {
-            let str = err.ToString()
+            let str = error.ToString()
             do! FIO.attempt (fun () -> eprintfn $"[WebSocket] Error during {context}: {str}") WsError.fromException
             return ()
         }

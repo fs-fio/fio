@@ -12,11 +12,11 @@ open System.Threading.Tasks
 type private SysConsole = System.Console
 
 /// <summary>Represents the terminal outcome of an <c>FIOApp</c> run, including the fatal-error case where the runtime itself failed to construct or schedule the effect.</summary>
-/// <typeparam name="'R">The success result type produced by the application's main effect.</typeparam>
+/// <typeparam name="'A">The success result type produced by the application's main effect.</typeparam>
 /// <typeparam name="'E">The typed error type the application's main effect may fail with.</typeparam>
-type AppOutcome<'R, 'E> =
+type AppOutcome<'A, 'E> =
     /// <summary>Represents a run that completed successfully with the given value.</summary>
-    | AppSucceeded of 'R
+    | AppSucceeded of 'A
     /// <summary>Represents a run whose main effect failed with a typed error.</summary>
     | AppFailed of 'E
     /// <summary>Represents a run whose main fiber was interrupted before completion.</summary>
@@ -25,15 +25,15 @@ type AppOutcome<'R, 'E> =
     | AppFatalError of exn
 
 /// <summary>Represents the abstract base for FIO applications, exposing overridable members for the main effect, runtime, shutdown hook, shutdown timeout, and exit-code mapping.</summary>
-/// <typeparam name="'R">The success result type produced by the application's main effect.</typeparam>
+/// <typeparam name="'A">The success result type produced by the application's main effect.</typeparam>
 /// <typeparam name="'E">The typed error type the application's main effect may fail with.</typeparam>
 [<AbstractClass>]
-type FIOApp<'R, 'E>() as this =
+type FIOApp<'A, 'E>() as this =
 
     let lazyRuntime = lazy this.runtime
 
     [<VolatileField>]
-    let mutable runningFiber: Fiber<'R, 'E> option = None
+    let mutable runningFiber: Fiber<'A, 'E> option = None
 
     [<VolatileField>]
     let mutable shutdownRequested = 0
@@ -43,7 +43,7 @@ type FIOApp<'R, 'E>() as this =
 
     /// <summary>Returns the main effect this application evaluates.</summary>
     /// <returns>The effect to run; this member must be overridden by concrete subclasses.</returns>
-    abstract member effect: FIO<'R, 'E>
+    abstract member effect: FIO<'A, 'E>
 
     /// <summary>Returns the runtime used to evaluate effects.</summary>
     /// <returns>The runtime instance; the default is a fresh <c>DefaultRuntime</c>.</returns>
@@ -63,7 +63,7 @@ type FIOApp<'R, 'E>() as this =
     /// <summary>Transforms the terminal outcome of a run into the process exit code.</summary>
     /// <param name="outcome">The terminal outcome of the application's run.</param>
     /// <returns>The exit code; defaults map to <c>0</c> for success, <c>1</c> for typed error, <c>130</c> for interruption (matching the conventional SIGINT status), and <c>2</c> for fatal error.</returns>
-    abstract member mapExitCode: AppOutcome<'R, 'E> -> int
+    abstract member mapExitCode: AppOutcome<'A, 'E> -> int
     default _.mapExitCode outcome =
         match outcome with
         | AppSucceeded _ -> 0
@@ -149,10 +149,10 @@ type FIOApp<'R, 'E>() as this =
                         let! outcome =
                             task {
                                 match! fiber.Task() with
-                                | Succeeded res -> return AppSucceeded res
-                                | Failed err ->
-                                    eprintfn "FIOApp effect failed: %A" err
-                                    return AppFailed err
+                                | Succeeded value -> return AppSucceeded value
+                                | Failed error ->
+                                    eprintfn "FIOApp effect failed: %A" error
+                                    return AppFailed error
                                 | Interrupted ex ->
                                     eprintfn "FIOApp effect interrupted: %s" ex.Message
                                     return AppInterrupted ex

@@ -11,11 +11,11 @@ module WebSocketClient =
 
     /// <summary>Transforms a WebSocket error into a logged-and-suppressed unit effect for use in client cleanup paths.</summary>
     /// <param name="context">A description of the operation being cleaned up.</param>
-    /// <param name="err">The WebSocket error to log.</param>
+    /// <param name="error">The WebSocket error to log.</param>
     /// <returns>An effect that logs the error to standard error and succeeds with unit.</returns>
-    let private logAndSuppress (context: string) (err: WsError) =
+    let private logAndSuppress (context: string) (error: WsError) =
         fio {
-            let str = err.ToString()
+            let str = error.ToString()
 
             do!
                 FIO.attempt
@@ -87,7 +87,7 @@ module WebSocketClient =
     /// <param name="action">A function from the connected WebSocket to the effect to run.</param>
     /// <returns>An effect that produces the action's result and always closes the connection afterwards.</returns>
     /// <remarks>The connection step observes the running fiber's cancellation token, so interrupting the fiber aborts the in-flight handshake.</remarks>
-    let withConnection<'R> (uri: Uri) (config: WebSocketConfig) (action: WebSocket -> FIO<'R, WsError>) =
+    let withConnection<'A> (uri: Uri) (config: WebSocketConfig) (action: WebSocket -> FIO<'A, WsError>) =
         let acquire =
             fio {
                 let! ct = FIO.cancellationToken ()
@@ -106,7 +106,7 @@ module WebSocketClient =
     /// <param name="url">The URL string of the WebSocket server to connect to.</param>
     /// <param name="action">A function from the connected WebSocket to the effect to run.</param>
     /// <returns>An effect that produces the action's result and always closes the connection afterwards.</returns>
-    let withConnectionString<'R> (url: string) (action: WebSocket -> FIO<'R, WsError>) =
+    let withConnectionString<'A> (url: string) (action: WebSocket -> FIO<'A, WsError>) =
         fio {
             let! uri = FIO.attempt (fun () -> Uri url) WsError.fromException
             return! withConnection uri WebSocketConfig.defaultConfig action

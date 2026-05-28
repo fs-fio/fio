@@ -39,7 +39,7 @@ More in [examples/](examples/).
 
 ## Features
 
-- **Effects** — lazy, composable `FIO<'R, 'E>` with typed errors
+- **Effects** — lazy, composable `FIO<'A, 'E>` with typed errors
 - **Fibers** — green threads for scalable concurrency
 - **Channels** — typed message passing between fibers
 - **Composition** — `fio { }` CE, operators (`>>=`, `<&>`, `<|>`), combinators

@@ -62,12 +62,12 @@ module SocketError =
     let fromException exn = GeneralError exn
 
     /// <summary>Returns the exception underlying a SocketError.</summary>
-    /// <param name="err">The socket error to convert.</param>
+    /// <param name="error">The socket error to convert.</param>
     /// <returns>The original exception for a GeneralError, or a new exception with the error description otherwise.</returns>
-    let toException err =
-        match err with
+    let toException error =
+        match error with
         | GeneralError exn -> exn
-        | _ -> Exception(err.ToString())
+        | _ -> Exception(error.ToString())
 
 /// <summary>Represents configuration options for a TCP socket connection.</summary>
 type SocketConfig =

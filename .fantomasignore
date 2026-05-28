@@ -1,6 +1,0 @@
-# Ignore generated and build output
-obj/
-bin/
-
-# Ignore auto-generated assembly info
-**/AssemblyInfo.fs

@@ -123,11 +123,11 @@ type FIORuntime internal () =
     default this.ConfigString = this.Name
 
     /// <summary>Creates a new fiber that interprets the given effect under this runtime.</summary>
-    /// <typeparam name="'R">The success result type produced by the effect.</typeparam>
+    /// <typeparam name="'A">The success result type produced by the effect.</typeparam>
     /// <typeparam name="'E">The typed error type the effect may fail with.</typeparam>
     /// <param name="eff">The effect to evaluate.</param>
     /// <returns>A fiber that runs <paramref name="eff"/> and exposes its terminal state.</returns>
-    abstract member Run<'R, 'E> : FIO<'R, 'E> -> Fiber<'R, 'E>
+    abstract member Run<'A, 'E> : FIO<'A, 'E> -> Fiber<'A, 'E>
 
     /// <summary>Returns a lowercase, file-friendly form of this runtime's description.</summary>
     /// <returns>A string suitable for embedding in filenames, derived from <c>ConfigString</c>.</returns>

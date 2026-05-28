@@ -114,7 +114,7 @@ module Codec =
     /// <param name="g">A function that converts a value from the target type back to the source type for encoding.</param>
     /// <param name="codec">The source codec to transform.</param>
     /// <returns>A codec that encodes via <paramref name="g"/> then the source codec, and decodes via the source codec then <paramref name="f"/>.</returns>
-    let map (f: 'A -> 'B) (g: 'B -> 'A) (codec: SocketCodec<'A>) =
+    let map (f: 'M -> 'B) (g: 'B -> 'M) (codec: SocketCodec<'M>) =
         {
             Encode = fun b -> codec.Encode(g b)
             Decode =
@@ -129,7 +129,7 @@ module Codec =
     /// <param name="codec1">The codec for the first element of the pair.</param>
     /// <param name="codec2">The codec for the second element of the pair.</param>
     /// <returns>A codec that encodes pairs as length-prefixed concatenated payloads and decodes them back into tuples.</returns>
-    let compose (codec1: SocketCodec<'A>) (codec2: SocketCodec<'B>) =
+    let compose (codec1: SocketCodec<'M>) (codec2: SocketCodec<'B>) =
         {
             Encode =
                 fun (a, b) ->

@@ -44,7 +44,7 @@ let socketTests =
                             let! socket = SocketClient.connect config
 
                             let! result =
-                                socket.ReceiveBytes(0).Map(fun _ -> None).CatchAll(fun err -> FIO.succeed (Some err))
+                                socket.ReceiveBytes(0).Map(fun _ -> None).CatchAll(fun error -> FIO.succeed (Some error))
 
                             match result with
                             | Some(InvalidState _) -> ()
@@ -167,7 +167,7 @@ let socketTests =
                                 socket
                                     .ReceiveExactly(0)
                                     .Map(fun _ -> None)
-                                    .CatchAll(fun err -> FIO.succeed (Some err))
+                                    .CatchAll(fun error -> FIO.succeed (Some error))
 
                             match result with
                             | Some(InvalidState _) -> ()
@@ -289,7 +289,7 @@ let socketTests =
                             let! result =
                                 (socket.SendBytes [| 1uy |])
                                     .Map(fun _ -> None)
-                                    .CatchAll(fun err -> FIO.succeed (Some err))
+                                    .CatchAll(fun error -> FIO.succeed (Some error))
 
                             match result with
                             | Some(ConnectionClosed _) -> ()

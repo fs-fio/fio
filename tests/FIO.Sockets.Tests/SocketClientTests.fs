@@ -49,7 +49,7 @@ let socketClientTests =
                         let! config = SocketConfig.create ("127.0.0.1", 1)
 
                         return!
-                            SocketClient.connect(config).Map(fun _ -> None).CatchAll(fun err -> FIO.succeed (Some err))
+                            SocketClient.connect(config).Map(fun _ -> None).CatchAll(fun error -> FIO.succeed (Some error))
                     }
 
                 let result = runtime.Run(eff).UnsafeSuccess()

@@ -4,7 +4,7 @@ module internal FIO.Benchmarks.Effects.Fork
 
 open FIO.DSL
 
-let private actorEff (doneChan: Channel<int>) = fio { do! doneChan.Send(1).Unit() }
+let private actorEff (doneChan: Channel<int>) = fio { do! doneChan.Write(1).Unit() }
 
 let private forkEff (actorCount, doneChan) =
     let baseEff = actorEff doneChan

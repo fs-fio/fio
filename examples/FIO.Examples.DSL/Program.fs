@@ -131,7 +131,7 @@ let interruptFiber () =
             let! longRunningFiber = longRunning.Fork()
             do! Console.printLine "Press Enter to interrupt the long-running task..." id
             do! (Console.readLine id).Unit()
-            do! longRunningFiber.Interrupt()
+            do! longRunningFiber.Interrupt ExplicitInterrupt "User requested interruption"
             do! Console.printLine "Interrupted long-running task." id
         }
 

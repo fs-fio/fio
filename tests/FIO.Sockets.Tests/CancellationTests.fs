@@ -16,7 +16,7 @@ let private sleepMs (ms: float) =
     FIO.sleep (TimeSpan.FromMilliseconds ms) SocketError.fromException
 
 /// <summary>Polls the fiber state until it terminates or the timeout elapses, returning whether it terminated within the budget.</summary>
-let private waitForTerminal (fiber: Fiber<'R, 'E>) (budgetMs: int) =
+let private waitForTerminal (fiber: Fiber<'A, 'E>) (budgetMs: int) =
     fio {
         let stopwatch = Stopwatch.StartNew()
         let mutable terminal = fiber.IsCompleted() || fiber.IsInterrupted()
@@ -42,7 +42,7 @@ let cancellationTests =
 
                         let! connectFiber = (SocketClient.connect config).Fork()
                         do! sleepMs 100.0
-                        do! connectFiber.Interrupt()
+                        do! connectFiber.Interrupt ExplicitInterrupt "Interrupted"
 
                         let! terminated, elapsed = waitForTerminal connectFiber 3_000
 
@@ -76,7 +76,7 @@ let cancellationTests =
 
                             let! receiveFiber = (socket.ReceiveBytes 8192).Fork()
                             do! sleepMs 100.0
-                            do! receiveFiber.Interrupt()
+                            do! receiveFiber.Interrupt ExplicitInterrupt "Interrupted"
 
                             let! terminated, elapsed = waitForTerminal receiveFiber 2_000
 
@@ -117,7 +117,7 @@ let cancellationTests =
                                     .Fork()
 
                             do! sleepMs 150.0
-                            do! parent.Interrupt()
+                            do! parent.Interrupt ExplicitInterrupt "Interrupted"
 
                             let! parentTerminated, _ = waitForTerminal parent 2_000
                             let! childTerminated, _ = waitForTerminal childRef.Value 2_000

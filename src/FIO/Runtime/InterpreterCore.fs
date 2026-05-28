@@ -51,9 +51,9 @@ type RuntimeCase =
 [<Struct; NoComparison; NoEquality>]
 type internal Outcome =
     /// <summary>Represents a success outcome carrying its result value.</summary>
-    | OutcomeSuccess of res: obj
+    | OutcomeSuccess of value: obj
     /// <summary>Represents a typed error outcome carrying its error value.</summary>
-    | OutcomeError of err: obj
+    | OutcomeError of error: obj
     /// <summary>Represents an interruption outcome carrying the interruption error to surface after finalizers run.</summary>
     | OutcomeInterrupt of intrErr: obj
 
@@ -86,9 +86,9 @@ let inline processOutcome
 
         if state.ContStack.Count = 0 then
             match outcome with
-            | OutcomeSuccess res -> onSuccessComplete res
-            | OutcomeError err -> onErrorComplete err
-            | OutcomeInterrupt err -> onErrorComplete err
+            | OutcomeSuccess value -> onSuccessComplete value
+            | OutcomeError error -> onErrorComplete error
+            | OutcomeInterrupt error -> onErrorComplete error
 
             state.Completed <- true
             loop <- false
@@ -96,16 +96,16 @@ let inline processOutcome
             let stackFrame = state.ContStack.Pop()
 
             match outcome, stackFrame.Cont with
-            | OutcomeSuccess res, SuccessCont cont ->
+            | OutcomeSuccess value, SuccessCont cont ->
                 try
-                    state.Eff <- cont res
+                    state.Eff <- cont value
                 with exn ->
                     state.Eff <- Failure(exn :> obj)
 
                 loop <- false
-            | OutcomeError err, FailureCont cont ->
+            | OutcomeError error, FailureCont cont ->
                 try
-                    state.Eff <- cont err
+                    state.Eff <- cont error
                 with exn ->
                     state.Eff <- Failure(exn :> obj)
 
@@ -114,19 +114,19 @@ let inline processOutcome
             | OutcomeError _, SuccessCont _
             | OutcomeInterrupt _, SuccessCont _
             | OutcomeInterrupt _, FailureCont _ -> ()
-            | OutcomeSuccess res, FinalizerCont finalizer ->
+            | OutcomeSuccess value, FinalizerCont finalizer ->
                 state.InterruptionSuppressed <- state.InterruptionSuppressed + 1
-                state.ContStack.Push(ContStackFrame(PostFinalizerCont(PostFinalizerSuccess res)))
+                state.ContStack.Push(ContStackFrame(PostFinalizerCont(PostFinalizerSuccess value)))
                 state.Eff <- finalizer
                 loop <- false
-            | OutcomeError err, FinalizerCont finalizer ->
+            | OutcomeError error, FinalizerCont finalizer ->
                 state.InterruptionSuppressed <- state.InterruptionSuppressed + 1
-                state.ContStack.Push(ContStackFrame(PostFinalizerCont(PostFinalizerError err)))
+                state.ContStack.Push(ContStackFrame(PostFinalizerCont(PostFinalizerError error)))
                 state.Eff <- finalizer
                 loop <- false
-            | OutcomeInterrupt err, FinalizerCont finalizer ->
+            | OutcomeInterrupt error, FinalizerCont finalizer ->
                 state.InterruptionSuppressed <- state.InterruptionSuppressed + 1
-                state.ContStack.Push(ContStackFrame(PostFinalizerCont(PostFinalizerInterrupt err)))
+                state.ContStack.Push(ContStackFrame(PostFinalizerCont(PostFinalizerInterrupt error)))
                 state.Eff <- finalizer
                 loop <- false
             | OutcomeInterrupt _, PostFinalizerCont _ -> ()
@@ -150,16 +150,16 @@ let inline processOutcome
 /// <param name="state">The mutable interpreter state.</param>
 /// <param name="onSuccessComplete">The callback invoked when the fiber completes with a success value.</param>
 /// <param name="onErrorComplete">The callback invoked when the fiber completes with an error value.</param>
-/// <param name="res">The result to dispatch.</param>
+/// <param name="value">The result to dispatch.</param>
 let inline processResult
     (state: byref<InterpreterState>)
     ([<InlineIfLambda>] onSuccessComplete: obj -> unit)
     ([<InlineIfLambda>] onErrorComplete: obj -> unit)
-    (res: Result<obj, obj>)
+    (value: Result<obj, obj>)
     =
-    match res with
-    | Ok res -> processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess res)
-    | Error err -> processOutcome &state onSuccessComplete onErrorComplete (OutcomeError err)
+    match value with
+    | Ok value -> processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess value)
+    | Error error -> processOutcome &state onSuccessComplete onErrorComplete (OutcomeError error)
 
 /// <summary>Transforms the current effect in the interpreter state by handling all cases shared across runtimes, returning <c>ValueSome</c> with a <c>RuntimeCase</c> for cases that require runtime-specific handling.</summary>
 /// <param name="state">The mutable interpreter state to advance.</param>
@@ -172,11 +172,11 @@ let inline handleSharedCase
     ([<InlineIfLambda>] onErrorComplete: obj -> unit)
     : RuntimeCase voption =
     match state.Eff with
-    | Success res ->
-        processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess res)
+    | Success value ->
+        processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess value)
         ValueNone
-    | Failure err ->
-        processOutcome &state onSuccessComplete onErrorComplete (OutcomeError err)
+    | Failure error ->
+        processOutcome &state onSuccessComplete onErrorComplete (OutcomeError error)
         ValueNone
     | Interrupt(cause, msg) ->
         state.FiberContext.Interrupt(cause, msg)
@@ -198,16 +198,16 @@ let inline handleSharedCase
         ValueNone
     | Action(func, onError) ->
         try
-            let res = func ()
-            processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess res)
+            let value = func ()
+            processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess value)
         with exn ->
-            let err =
+            let error =
                 try
                     onError exn
                 with _ ->
                     exn :> obj
 
-            processOutcome &state onSuccessComplete onErrorComplete (OutcomeError err)
+            processOutcome &state onSuccessComplete onErrorComplete (OutcomeError error)
 
         ValueNone
     | ChainSuccess(eff, cont) ->
@@ -222,8 +222,8 @@ let inline handleSharedCase
         state.ContStack.Push(ContStackFrame(FinalizerCont finalizer))
         state.Eff <- eff
         ValueNone
-    | SendChan(msg, chan) -> ValueSome(HandleSendChan(msg, chan))
-    | ReceiveChan chan -> ValueSome(HandleReceiveChan chan)
+    | WriteChan(msg, chan) -> ValueSome(HandleSendChan(msg, chan))
+    | ReadChan chan -> ValueSome(HandleReceiveChan chan)
     | ForkEffect(eff, fiber, fiberContext) -> ValueSome(HandleForkEffect(eff, fiber, fiberContext))
     | JoinFiber fiberContext -> ValueSome(HandleJoinFiber fiberContext)
     | AwaitTask(task, onError) -> ValueSome(HandleAwaitTask(task, onError))

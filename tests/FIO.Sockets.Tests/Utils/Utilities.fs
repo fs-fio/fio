@@ -93,7 +93,7 @@ let echoHandler (socket: Socket) =
 /// <param name="runtime">The runtime to execute the effect on.</param>
 /// <param name="eff">The effect to run.</param>
 /// <returns>The success value of the effect, or fails the test on error or interruption.</returns>
-let private runWithTimeout (runtime: FIORuntime) (eff: FIO<'R, SocketError>) : 'R =
+let private runWithTimeout (runtime: FIORuntime) (eff: FIO<'A, SocketError>) : 'A =
     let fiber = runtime.Run(eff)
 
     match
@@ -112,7 +112,7 @@ let private runWithTimeout (runtime: FIORuntime) (eff: FIO<'R, SocketError>) : '
 /// <returns>The result of the client action effect.</returns>
 let withTestServer
     (handler: Socket -> FIO<unit, SocketError>)
-    (action: int -> FIO<'R, SocketError>)
+    (action: int -> FIO<'A, SocketError>)
     (runtime: FIORuntime)
     =
     let eff =
@@ -131,7 +131,7 @@ let withTestServer
                     .Fork()
 
             let! result = action port
-            do! serverFiber.Interrupt()
+            do! serverFiber.Interrupt ExplicitInterrupt "Interrupted"
             do! ServerSocket.close server
             return result
         }
@@ -142,7 +142,7 @@ let withTestServer
 /// <param name="action">A function from port number to the client effect to execute against the echo server.</param>
 /// <param name="runtime">The runtime to execute the server and client effects on.</param>
 /// <returns>The result of the client action effect.</returns>
-let withTestEchoServer (action: int -> FIO<'R, SocketError>) (runtime: FIORuntime) =
+let withTestEchoServer (action: int -> FIO<'A, SocketError>) (runtime: FIORuntime) =
     let eff =
         fio {
             let! config = ServerSocketConfig.create ("127.0.0.1", 0)
@@ -152,7 +152,7 @@ let withTestEchoServer (action: int -> FIO<'R, SocketError>) (runtime: FIORuntim
             let! serverFiber = ServerSocket.acceptLoop(echoHandler, server).Fork()
             do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) SocketError.fromException
             let! result = action port
-            do! serverFiber.Interrupt()
+            do! serverFiber.Interrupt ExplicitInterrupt "Interrupted"
             do! ServerSocket.close server
             return result
         }

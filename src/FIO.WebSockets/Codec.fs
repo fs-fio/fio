@@ -126,7 +126,7 @@ module Codec =
     /// <param name="g">A function that converts a target value back to the source type for encoding.</param>
     /// <param name="codec">The source codec to transform.</param>
     /// <returns>A codec that encodes and decodes values of the target type.</returns>
-    let map (f: 'A -> 'B) (g: 'B -> 'A) codec =
+    let map (f: 'M -> 'B) (g: 'B -> 'M) codec =
         {
             Encode = fun b -> codec.Encode(g b)
             Decode =
@@ -145,7 +145,7 @@ module Codec =
     /// <returns>A codec that encodes pairs as JSON array text frames and decodes them back to tuples.</returns>
 
     // TODO: This function seems to be broken.
-    let compose (codec1: WebSocketCodec<'A>) (codec2: WebSocketCodec<'B>) =
+    let compose (codec1: WebSocketCodec<'M>) (codec2: WebSocketCodec<'B>) =
         {
             Encode =
                 fun (a, b) ->
@@ -191,7 +191,7 @@ module Codec =
                                             Exception $"Expected string for second element, got {arr.[1].ValueKind}"
                                         )
 
-                                let a = JsonSerializer.Deserialize<'A> jsonA
+                                let a = JsonSerializer.Deserialize<'M> jsonA
                                 let b = JsonSerializer.Deserialize<'B> jsonB
 
                                 a, b)

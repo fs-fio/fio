@@ -48,12 +48,12 @@ module HttpError =
     let fromException (exn: exn) : HttpError = GeneralError exn
 
     /// <summary>Returns the underlying exception for an HTTP error.</summary>
-    /// <param name="err">The HTTP error to convert.</param>
+    /// <param name="error">The HTTP error to convert.</param>
     /// <returns>The underlying exception, or a new exception wrapping the error message.</returns>
-    let toException (err: HttpError) : exn =
-        match err with
+    let toException (error: HttpError) : exn =
+        match error with
         | GeneralError exn -> exn
-        | _ -> Exception(err.ToString())
+        | _ -> Exception(error.ToString())
 
 /// <summary>Represents an HTTP request method.</summary>
 [<RequireQualifiedAccess>]

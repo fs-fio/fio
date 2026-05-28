@@ -46,7 +46,7 @@ let channelTests =
                     fio {
                         let chan1 = Channel<int>()
                         let chan2 = Channel<int>()
-                        do! chan1.Send(42).Unit()
+                        do! chan1.Write(42).Unit()
                         return chan1.Count, chan2.Count
                     }
 
@@ -92,7 +92,7 @@ let channelTests =
                     fio {
                         let chan = Channel<int>()
                         let before = chan.Count
-                        do! chan.Send(msg).Unit()
+                        do! chan.Write(msg).Unit()
                         let after = chan.Count
                         return before, after
                     }
@@ -108,9 +108,9 @@ let channelTests =
                 let eff =
                     fio {
                         let chan = Channel<int>()
-                        do! chan.Send(msg).Unit()
+                        do! chan.Write(msg).Unit()
                         let before = chan.Count
-                        let! _ = chan.Receive()
+                        let! _ = chan.Read()
                         let after = chan.Count
                         return before, after
                     }
@@ -125,13 +125,13 @@ let channelTests =
                 let eff =
                     fio {
                         let chan = Channel<int>()
-                        do! chan.Send(1).Unit()
-                        do! chan.Send(2).Unit()
-                        do! chan.Send(3).Unit()
+                        do! chan.Write(1).Unit()
+                        do! chan.Write(2).Unit()
+                        do! chan.Write(3).Unit()
                         let afterThreeSends = chan.Count
-                        let! _ = chan.Receive()
+                        let! _ = chan.Read()
                         let afterOneReceive = chan.Count
-                        let! _ = chan.Receive()
+                        let! _ = chan.Read()
                         let afterTwoReceives = chan.Count
                         return afterThreeSends, afterOneReceive, afterTwoReceives
                     }
@@ -148,7 +148,7 @@ let channelTests =
                 let eff =
                     fio {
                         let chan = Channel<int>()
-                        let! sent = chan.Send msg
+                        let! sent = chan.Write msg
                         return sent
                     }
 
@@ -162,7 +162,7 @@ let channelTests =
                 let eff =
                     fio {
                         let chan = Channel<string>()
-                        let! sent = chan.Send msg
+                        let! sent = chan.Write msg
                         return sent
                     }
 
@@ -176,7 +176,7 @@ let channelTests =
                 let eff =
                     fio {
                         let chan = Channel<int * string>()
-                        let! sent = chan.Send(a, b)
+                        let! sent = chan.Write(a, b)
                         return sent
                     }
 
@@ -190,8 +190,8 @@ let channelTests =
                 let eff =
                     fio {
                         let chan = Channel<int>()
-                        do! chan.Send(msg).Unit()
-                        let! received = chan.Receive()
+                        do! chan.Write(msg).Unit()
+                        let! received = chan.Read()
                         return received
                     }
 
@@ -205,8 +205,8 @@ let channelTests =
                 let eff =
                     fio {
                         let chan = Channel<string>()
-                        do! chan.Send(msg).Unit()
-                        let! received = chan.Receive()
+                        do! chan.Write(msg).Unit()
+                        let! received = chan.Read()
                         return received
                     }
 
@@ -220,12 +220,12 @@ let channelTests =
                 let eff =
                     fio {
                         let chan = Channel<int>()
-                        do! chan.Send(1).Unit()
-                        do! chan.Send(2).Unit()
-                        do! chan.Send(3).Unit()
-                        let! r1 = chan.Receive()
-                        let! r2 = chan.Receive()
-                        let! r3 = chan.Receive()
+                        do! chan.Write(1).Unit()
+                        do! chan.Write(2).Unit()
+                        do! chan.Write(3).Unit()
+                        let! r1 = chan.Read()
+                        let! r2 = chan.Read()
+                        let! r3 = chan.Read()
                         return [ r1; r2; r3 ]
                     }
 
@@ -239,12 +239,12 @@ let channelTests =
                 let eff =
                     fio {
                         let chan = Channel<int>()
-                        do! chan.Send(10).Unit()
-                        let! r1 = chan.Receive()
-                        do! chan.Send(20).Unit()
-                        let! r2 = chan.Receive()
-                        do! chan.Send(30).Unit()
-                        let! r3 = chan.Receive()
+                        do! chan.Write(10).Unit()
+                        let! r1 = chan.Read()
+                        do! chan.Write(20).Unit()
+                        let! r2 = chan.Read()
+                        do! chan.Write(30).Unit()
+                        let! r3 = chan.Read()
                         return [ r1; r2; r3 ]
                     }
 
@@ -257,8 +257,8 @@ let channelTests =
                 let eff =
                     fio {
                         let chan = Channel<int>()
-                        let! receiverFiber = (chan.Receive()).Fork()
-                        do! chan.Send(42).Unit()
+                        let! receiverFiber = (chan.Read()).Fork()
+                        do! chan.Write(42).Unit()
                         let! received = receiverFiber.Join()
                         return received
                     }
@@ -272,12 +272,12 @@ let channelTests =
                 let eff =
                     fio {
                         let chan = Channel<int>()
-                        let! r1 = chan.Receive().Fork()
-                        let! r2 = chan.Receive().Fork()
-                        let! r3 = chan.Receive().Fork()
-                        do! chan.Send(1).Unit()
-                        do! chan.Send(2).Unit()
-                        do! chan.Send(3).Unit()
+                        let! r1 = chan.Read().Fork()
+                        let! r2 = chan.Read().Fork()
+                        let! r3 = chan.Read().Fork()
+                        do! chan.Write(1).Unit()
+                        do! chan.Write(2).Unit()
+                        do! chan.Write(3).Unit()
                         let! v1 = r1.Join()
                         let! v2 = r2.Join()
                         let! v3 = r3.Join()
@@ -293,15 +293,15 @@ let channelTests =
                 let eff =
                     fio {
                         let chan = Channel<int>()
-                        let! s1 = chan.Send(1).Unit().Fork()
-                        let! s2 = chan.Send(2).Unit().Fork()
-                        let! s3 = chan.Send(3).Unit().Fork()
+                        let! s1 = chan.Write(1).Unit().Fork()
+                        let! s2 = chan.Write(2).Unit().Fork()
+                        let! s3 = chan.Write(3).Unit().Fork()
                         do! s1.Join()
                         do! s2.Join()
                         do! s3.Join()
-                        let! v1 = chan.Receive()
-                        let! v2 = chan.Receive()
-                        let! v3 = chan.Receive()
+                        let! v1 = chan.Read()
+                        let! v2 = chan.Read()
+                        let! v3 = chan.Read()
                         return [ v1; v2; v3 ] |> List.sort
                     }
 
@@ -316,10 +316,10 @@ let channelTests =
                     fio {
                         let chan1 = Channel<int>()
                         let chan2 = Channel<int>()
-                        do! chan1.Send(42).Unit()
+                        do! chan1.Write(42).Unit()
                         let c1 = chan1.Count
                         let c2 = chan2.Count
-                        let! received = chan1.Receive()
+                        let! received = chan1.Read()
                         return c1, c2, received
                     }
 
@@ -334,9 +334,9 @@ let channelTests =
                 let eff =
                     fio {
                         let chan = Channel<int>()
-                        let! receiverFiber = (chan.Receive()).Fork()
+                        let! receiverFiber = (chan.Read()).Fork()
                         do! FIO.sleep (TimeSpan.FromMilliseconds 10.0) id
-                        do! receiverFiber.Interrupt()
+                        do! receiverFiber.Interrupt ExplicitInterrupt "Interrupted"
                         return receiverFiber
                     }
 
@@ -356,12 +356,12 @@ let channelTests =
                         let chan = Channel<int>()
 
                         for msg in messages do
-                            do! chan.Send(msg).Unit()
+                            do! chan.Write(msg).Unit()
 
                         let mutable received = []
 
                         for _ in messages do
-                            let! msg = chan.Receive()
+                            let! msg = chan.Read()
                             received <- received @ [ msg ]
 
                         return received
@@ -389,11 +389,11 @@ let channelTests =
 
                             let! receiverFibers =
                                 FIO.forEach [ 1..receiverCount ] (fun _ ->
-                                    chan.Receive().Fork())
+                                    chan.Read().Fork())
 
                             let! senderFibers =
                                 FIO.forEach [ 1..receiverCount ] (fun i ->
-                                    chan.Send(i).Unit().Fork())
+                                    chan.Write(i).Unit().Fork())
 
                             do! FIO.forEachDiscard senderFibers (fun sf -> sf.Join())
 

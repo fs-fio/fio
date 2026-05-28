@@ -9,21 +9,21 @@ type private Actor = { SendChan: Channel<int>; ReceiveChan: Channel<int> }
 let private pingerEff (pinger, ping, roundCount, startChan: Channel<int>) =
     fio {
         let mutable currentPing = ping
-        do! startChan.Receive().Unit()
+        do! startChan.Read().Unit()
 
         for _ in 1..roundCount do
-            do! pinger.SendChan.Send(currentPing).Unit()
-            let! pong = pinger.ReceiveChan.Receive()
+            do! pinger.SendChan.Write(currentPing).Unit()
+            let! pong = pinger.ReceiveChan.Read()
             currentPing <- pong + 1
     }
 
 let private pongerEff (ponger, roundCount, startChan: Channel<int>) =
     fio {
-        do! startChan.Send(0).Unit()
+        do! startChan.Write(0).Unit()
 
         for _ in 1..roundCount do
-            let! ping = ponger.ReceiveChan.Receive()
-            do! ponger.SendChan.Send(ping + 1).Unit()
+            let! ping = ponger.ReceiveChan.Read()
+            do! ponger.SendChan.Write(ping + 1).Unit()
     }
 
 let effect (roundCount: int) : FIO<unit, exn> =
