@@ -12,7 +12,7 @@ module FIO =
 
     /// <summary>Lifts unit into an effect that completes successfully with no value.</summary>
     /// <returns>An effect that completes immediately with unit on the success channel.</returns>
-    let unit<'E>() : FIO<unit, 'E> =
+    let unit<'E> () : FIO<unit, 'E> =
         Success()
 
     /// <summary>Lifts a value into an effect that completes with that value as its success result.</summary>
@@ -33,6 +33,12 @@ module FIO =
     /// <returns>An effect that interrupts the current fiber when evaluated.</returns>
     let interrupt<'A, 'E> (cause: InterruptionCause) (message: string) : FIO<'A, 'E> =
         Interrupt(cause, message)
+
+    /// <summary>Creates an effect that interrupts the current fiber when interpreted, using a default cause and message.</summary>
+    /// <returns>An effect that interrupts the current fiber with cause <c>ExplicitInterrupt</c> and message <c>"Fiber interrupted"</c>.</returns>
+    /// <remarks>Convenience shorthand for <c>FIO.interrupt ExplicitInterrupt "Fiber interrupted"</c>; use <c>FIO.interrupt</c> when a specific cause or message is required.</remarks>
+    let interruptNow<'A, 'E> () : FIO<'A, 'E> =
+        interrupt ExplicitInterrupt "Fiber interrupted"
 
     /// <summary>Lifts a side-effecting thunk into an effect that runs the thunk when interpreted.</summary>
     /// <param name="func">A thunk that produces the success value when invoked at evaluation time.</param>
@@ -76,7 +82,7 @@ module FIO =
     /// <summary>Builds an effect that produces the running fiber's <c>CancellationToken</c>.</summary>
     /// <returns>An effect that completes with the cancellation token of the fiber evaluating it; falls back to <c>CancellationToken.None</c> when no fiber context is available.</returns>
     /// <remarks>The returned token is cancelled when the running fiber is interrupted. Pass it to .NET cancellation-aware APIs to make I/O cooperate with FIO interruption.</remarks>
-    let cancellationToken<'E>() : FIO<CancellationToken, 'E> =
+    let cancellationToken<'E> () : FIO<CancellationToken, 'E> =
         FiberCancellationToken
 
     /// <summary>Builds an effect that awaits a <c>Task</c> that returns no value and completes with unit.</summary>
@@ -132,17 +138,16 @@ module FIO =
     /// <remarks>The canonical adapter for callback-based APIs (event handlers, native interop). The registration callback uses <c>TrySetResult</c> internally and is safe to invoke multiple times — only the first call takes effect. When the running fiber is interrupted while awaiting the callback, the await is cancelled and the fiber surfaces as interrupted; the user-side subscription installed by <paramref name="register"/> is not torn down automatically — callers that allocate long-lived resources should observe <c>cancellationToken()</c> themselves to release them.</remarks>
     let async<'A, 'E> (register: (Result<'A, 'E> -> unit) -> unit) (onError: exn -> 'E) : FIO<'A, 'E> =
         cancellationToken().FlatMap <| fun ct ->
-            suspend <| fun () ->
-                let tcs = TaskCompletionSource<Result<'A, 'E>>()
-                let registration = ct.Register(fun () -> tcs.TrySetCanceled ct |> ignore)
-                try
-                    register <| fun result ->
-                        if tcs.TrySetResult result then
-                            registration.Dispose()
-                with ex ->
-                    tcs.TrySetException ex |> ignore
-                    registration.Dispose()
-                (awaitTask tcs.Task onError).FlatMap fromResult
+            let tcs = TaskCompletionSource<Result<'A, 'E>>()
+            let registration = ct.Register(fun () -> tcs.TrySetCanceled ct |> ignore)
+            try
+                register <| fun result ->
+                    if tcs.TrySetResult result then
+                        registration.Dispose()
+            with ex ->
+                tcs.TrySetException ex |> ignore
+                registration.Dispose()
+            (awaitTask tcs.Task onError).FlatMap fromResult
 
     /// <summary>Builds an effect that completes with unit after the specified delay.</summary>
     /// <param name="duration">The amount of time to wait before completing.</param>
@@ -161,7 +166,7 @@ module FIO =
 
     /// <summary>Creates an effect that never completes on its own.</summary>
     /// <returns>An effect that suspends the fiber indefinitely; the fiber must be interrupted to terminate.</returns>
-    let never<'A, 'E>() : FIO<'A, 'E> =
+    let never<'A, 'E> () : FIO<'A, 'E> =
         suspend <| fun () ->
             let chan = new Channel<'A>()
             chan.Read()
@@ -172,7 +177,7 @@ module FIO =
     /// <param name="useResource">A function from the acquired resource to the use-effect whose result is propagated to the caller.</param>
     /// <returns>An effect that completes with the use-effect's result and always runs the cleanup effect afterwards.</returns>
     /// <remarks>The cleanup is wired through <c>Ensuring</c>, so it cannot be skipped by failure or interruption of the use-effect.</remarks>
-    let inline acquireRelease<'M, 'A, 'E> (acquire: FIO<'M, 'E>) (release: 'M -> FIO<unit, 'E>) (useResource: 'M -> FIO<'A, 'E>) : FIO<'A, 'E> =
+    let inline acquireRelease<'T, 'A, 'E> (acquire: FIO<'T, 'E>) (release: 'T -> FIO<unit, 'E>) (useResource: 'T -> FIO<'A, 'E>) : FIO<'A, 'E> =
         acquire.FlatMap <| fun resource ->
             (useResource resource)
                 .Ensuring(release resource)
@@ -182,15 +187,14 @@ module FIO =
     /// <param name="func">A function from each input to the effect that produces its result; the next effect runs only after the previous one succeeds.</param>
     /// <returns>An effect that completes with the list of per-input results in the order their inputs appeared in <paramref name="items"/>, or fails with the first error observed.</returns>
     /// <remarks>Sequential evaluation; the first failure short-circuits the traversal and no further inputs are processed.</remarks>
-    let forEach<'M, 'A, 'E> (items: seq<'M>) (func: 'M -> FIO<'A, 'E>) : FIO<'A list, 'E> =
+    let forEach<'T, 'A, 'E> (items: seq<'T>) (func: 'T -> FIO<'A, 'E>) : FIO<'A list, 'E> =
         suspend <| fun () ->
             let arr = Seq.toArray items
             let rec loop i acc =
                 if i >= arr.Length then
                     succeed (List.rev acc)
                 else
-                    (func arr.[i]).FlatMap <| fun value ->
-                        suspend <| fun () -> loop (i + 1) (value :: acc)
+                    (func arr.[i]).FlatMap <| fun value -> loop (i + 1) (value :: acc)
             loop 0 []
 
     /// <summary>Combines a sequence of inputs into one effect that applies an effectful function to each in order and discards the results.</summary>
@@ -198,15 +202,14 @@ module FIO =
     /// <param name="func">A function from each input to the effect that processes it; the next effect runs only after the previous one succeeds.</param>
     /// <returns>An effect that completes with unit once every input has been processed, or fails with the first error observed.</returns>
     /// <remarks>Sequential evaluation; the first failure short-circuits the traversal and no further inputs are processed. Prefer this over <c>forEach</c> when the per-input results are not needed.</remarks>
-    let forEachDiscard<'M, 'A, 'E> (items: seq<'M>) (func: 'M -> FIO<'A, 'E>) : FIO<unit, 'E> =
+    let forEachDiscard<'T, 'A, 'E> (items: seq<'T>) (func: 'T -> FIO<'A, 'E>) : FIO<unit, 'E> =
         suspend <| fun () ->
             let arr = Seq.toArray items
             let rec loop i =
                 if i >= arr.Length then
                     unit ()
                 else
-                    (func arr.[i]).FlatMap <| fun _ ->
-                        suspend <| fun () -> loop (i + 1)
+                    (func arr.[i]).FlatMap <| fun _ -> loop (i + 1)
             loop 0
 
     /// <summary>Combines a sequence of inputs into one effect that applies an effectful function to each concurrently and collects the results in source order.</summary>
@@ -214,7 +217,7 @@ module FIO =
     /// <param name="func">A function from each input to the effect that produces its result; each invocation runs on its own fiber.</param>
     /// <returns>An effect that completes with the list of per-input results in the order their inputs appeared in <paramref name="items"/>, or fails with the first error observed among the forked fibers.</returns>
     /// <remarks>Fail-fast: when any forked fiber fails, the remaining sibling fibers are interrupted with <c>ExplicitInterrupt</c> before the failure propagates.</remarks>
-    let forEachPar<'M, 'A, 'E> (items: seq<'M>) (func: 'M -> FIO<'A, 'E>) : FIO<'A list, 'E> =
+    let forEachPar<'T, 'A, 'E> (items: seq<'T>) (func: 'T -> FIO<'A, 'E>) : FIO<'A list, 'E> =
         suspend <| fun () ->
             let arr = Seq.toArray items
 
@@ -222,8 +225,7 @@ module FIO =
                 if i >= arr.Length then
                     succeed (List.rev forked)
                 else
-                    (func arr.[i]).Fork().FlatMap <| fun fiber ->
-                        suspend <| fun () -> forkAll (i + 1) (fiber :: forked)
+                    (func arr.[i]).Fork().FlatMap <| fun fiber -> forkAll (i + 1) (fiber :: forked)
 
             let inline interruptOne (fiber: Fiber<'A, 'E>) : FIO<unit, 'E> =
                 (fiber.Interrupt ExplicitInterrupt "forEachPar peer failed")
@@ -233,15 +235,13 @@ module FIO =
                 match fibers with
                 | [] -> unit ()
                 | fiber :: rest ->
-                    (interruptOne fiber).FlatMap <| fun () ->
-                        suspend <| fun () -> interruptAll rest
+                    (interruptOne fiber).FlatMap <| fun () -> interruptAll rest
 
             let rec joinAll (fibers: Fiber<'A, 'E> list) (acc: 'A list) : FIO<'A list, 'E> =
                 match fibers with
                 | [] -> succeed (List.rev acc)
                 | fiber :: rest ->
-                    (fiber.Join().FlatMap <| fun value -> suspend <| fun () ->
-                        joinAll rest (value :: acc))
+                    (fiber.Join().FlatMap <| fun value -> joinAll rest (value :: acc))
                         .CatchAll(fun error ->
                             (interruptAll rest).FlatMap <| fun () -> fail error)
 
@@ -252,38 +252,8 @@ module FIO =
     /// <param name="func">A function from each input to the effect that processes it; each invocation runs on its own fiber.</param>
     /// <returns>An effect that completes with unit once every forked fiber has finished, or fails with the first error observed among them.</returns>
     /// <remarks>Fail-fast: when any forked fiber fails, the remaining sibling fibers are interrupted with <c>ExplicitInterrupt</c> before the failure propagates. Prefer this over <c>forEachPar</c> when the per-input results are not needed.</remarks>
-    let forEachParDiscard<'M, 'A, 'E> (items: seq<'M>) (func: 'M -> FIO<'A, 'E>) : FIO<unit, 'E> =
-        suspend <| fun () ->
-            let arr = Seq.toArray items
-
-            let rec forkAll i (forked: Fiber<'A, 'E> list) : FIO<Fiber<'A, 'E> list, 'E> =
-                if i >= arr.Length then
-                    succeed (List.rev forked)
-                else
-                    (func arr.[i]).Fork().FlatMap <| fun fiber ->
-                        suspend <| fun () -> forkAll (i + 1) (fiber :: forked)
-
-            let inline interruptOne (fiber: Fiber<'A, 'E>) : FIO<unit, 'E> =
-                (fiber.Interrupt ExplicitInterrupt "forEachParDiscard peer failed")
-                    .CatchAll(fun _ -> unit ())
-
-            let rec interruptAll (fibers: Fiber<'A, 'E> list) : FIO<unit, 'E> =
-                match fibers with
-                | [] -> unit ()
-                | fiber :: rest ->
-                    (interruptOne fiber).FlatMap <| fun () ->
-                        suspend <| fun () -> interruptAll rest
-
-            let rec joinAll (fibers: Fiber<'A, 'E> list) : FIO<unit, 'E> =
-                match fibers with
-                | [] -> unit ()
-                | fiber :: rest ->
-                    (fiber.Join().FlatMap <| fun _ ->
-                        suspend <| fun () -> joinAll rest)
-                        .CatchAll(fun error ->
-                            (interruptAll rest).FlatMap <| fun () -> fail error)
-
-            (forkAll 0 []).FlatMap <| joinAll
+    let forEachParDiscard<'T, 'A, 'E> (items: seq<'T>) (func: 'T -> FIO<'A, 'E>) : FIO<unit, 'E> =
+        (forEachPar items func).Map(fun _ -> ())
 
     /// <summary>Combines a sequence of effects into one effect that runs them in order and collects their results in source order.</summary>
     /// <param name="effects">The effects to run sequentially; an empty sequence yields an empty result list.</param>
@@ -347,8 +317,7 @@ module FIO =
         suspend <| fun () ->
             let rec go state acc =
                 if cont state then
-                    (body state).FlatMap <| fun value ->
-                        suspend <| fun () -> go (inc state) (value :: acc)
+                    (body state).FlatMap <| fun value -> go (inc state) (value :: acc)
                 else
                     succeed (List.rev acc)
             go initial []
@@ -365,8 +334,7 @@ module FIO =
         suspend <| fun () ->
             let rec go state =
                 if cont state then
-                    (body state).FlatMap <| fun _ ->
-                        suspend <| fun () -> go (inc state)
+                    (body state).FlatMap <| fun _ -> go (inc state)
                 else
                     unit ()
             go initial
@@ -382,8 +350,7 @@ module FIO =
         suspend <| fun () ->
             let rec go state =
                 if cont state then
-                    (body state).FlatMap <| fun next ->
-                        suspend <| fun () -> go next
+                    (body state).FlatMap <| fun next -> go next
                 else
                     succeed state
             go initial
@@ -394,15 +361,14 @@ module FIO =
     /// <param name="func">The folding function applied left-to-right as each effect completes successfully.</param>
     /// <returns>An effect that completes with the final accumulator, or fails with the first error observed.</returns>
     /// <remarks>Sequential evaluation; the first failure short-circuits the fold and no further effects are evaluated. Stack-safe via internal trampolining.</remarks>
-    let mergeAll<'M, 'B, 'E> (effects: seq<FIO<'M, 'E>>) (zero: 'B) (func: 'B -> 'M -> 'B) : FIO<'B, 'E> =
+    let mergeAll<'T, 'A, 'E> (effects: seq<FIO<'T, 'E>>) (zero: 'A) (func: 'A -> 'T -> 'A) : FIO<'A, 'E> =
         suspend <| fun () ->
             let arr = Seq.toArray effects
             let rec go i acc =
                 if i >= arr.Length then
                     succeed acc
                 else
-                    arr.[i].FlatMap <| fun x ->
-                        suspend <| fun () -> go (i + 1) (func acc x)
+                    arr.[i].FlatMap <| fun x -> go (i + 1) (func acc x)
             go 0 zero
 
     /// <summary>Combines a sequence of effects into one effect that runs them concurrently and folds each successful result into an accumulator.</summary>
@@ -411,10 +377,9 @@ module FIO =
     /// <param name="func">The folding function applied to each successful result in source order after every effect has completed.</param>
     /// <returns>An effect that completes with the final accumulator, or fails with the first error observed.</returns>
     /// <remarks>Fail-fast: when any effect fails, the remaining sibling fibers are interrupted with <c>ExplicitInterrupt</c> before the failure propagates. The fold itself is applied sequentially in source order once all effects have completed; the user-supplied <paramref name="func"/> should be associative if the caller wants the result to be independent of the relative completion order of effects.</remarks>
-    let mergeAllPar<'M, 'B, 'E> (effects: seq<FIO<'M, 'E>>) (zero: 'B) (func: 'B -> 'M -> 'B) : FIO<'B, 'E> =
+    let mergeAllPar<'T, 'A, 'E> (effects: seq<FIO<'T, 'E>>) (zero: 'A) (func: 'A -> 'T -> 'A) : FIO<'A, 'E> =
         // TODO: incremental pairwise reduce as fibers complete (like ZIO) instead of collect-then-fold.
-        (collectAllPar effects).FlatMap <| fun xs ->
-            succeed (List.fold func zero xs)
+        (collectAllPar effects).Map(List.fold func zero)
 
     /// <summary>Combines a non-empty group of effects into one effect that runs them in order and reduces each successful result into the first one using <paramref name="func"/>.</summary>
     /// <param name="head">The first effect; mandatory and runs before <paramref name="tail"/>. Its successful result seeds the reduction.</param>
@@ -422,7 +387,7 @@ module FIO =
     /// <param name="func">The reducing function applied left-to-right as each tail effect completes successfully.</param>
     /// <returns>An effect that completes with the reduced value, or fails with the first error observed.</returns>
     /// <remarks>Sequential evaluation; failure of <paramref name="head"/> short-circuits before <paramref name="tail"/> is consulted. Failure inside <paramref name="tail"/> short-circuits the reduction. The non-empty invariant is enforced by the mandatory <paramref name="head"/> parameter.</remarks>
-    let reduceAll<'M, 'E> (head: FIO<'M, 'E>) (tail: seq<FIO<'M, 'E>>) (func: 'M -> 'M -> 'M) : FIO<'M, 'E> =
+    let reduceAll<'A, 'E> (head: FIO<'A, 'E>) (tail: seq<FIO<'A, 'E>>) (func: 'A -> 'A -> 'A) : FIO<'A, 'E> =
         head.FlatMap <| fun h -> mergeAll tail h func
 
     /// <summary>Combines a non-empty group of effects into one effect that runs them concurrently and reduces each successful result using <paramref name="func"/>.</summary>
@@ -431,11 +396,18 @@ module FIO =
     /// <param name="func">The reducing function applied left-to-right over the source-order list of results after every effect has completed.</param>
     /// <returns>An effect that completes with the reduced value, or fails with the first error observed.</returns>
     /// <remarks>Fail-fast: when any effect fails, the remaining sibling fibers are interrupted with <c>ExplicitInterrupt</c> before the failure propagates. The reduction itself is applied sequentially in source order once all effects have completed; the user-supplied <paramref name="func"/> should be associative if the caller wants the result to be independent of the relative completion order of effects.</remarks>
-    let reduceAllPar<'M, 'E> (head: FIO<'M, 'E>) (tail: seq<FIO<'M, 'E>>) (func: 'M -> 'M -> 'M) : FIO<'M, 'E> =
+    let reduceAllPar<'A, 'E> (head: FIO<'A, 'E>) (tail: seq<FIO<'A, 'E>>) (func: 'A -> 'A -> 'A) : FIO<'A, 'E> =
         // TODO: incremental pairwise reduce as fibers complete (like ZIO) instead of collect-then-fold.
         let all = Seq.append (Seq.singleton head) tail
-        (collectAllPar all).FlatMap <| fun xs ->
-            succeed (List.reduce func xs)
+        (collectAllPar all).Map(List.reduce func)
+
+    let private splitResults (results: Result<'A, 'E> list) : 'E list * 'A list =
+        let folder (errs, oks) value =
+            match value with
+            | Ok x -> errs, x :: oks
+            | Error e -> e :: errs, oks
+        let errs, oks = List.fold folder ([], []) results
+        List.rev errs, List.rev oks
 
     /// <summary>Combines a sequence of inputs into one effect that applies an effectful function to each in order, never failing — per-input failures and successes are gathered into two lists in source order.</summary>
     /// <typeparam name="'E1">The error type of the resulting effect; never produced because per-input failures are moved into the success channel.</typeparam>
@@ -443,15 +415,8 @@ module FIO =
     /// <param name="func">A function from each input to the effect that produces its result; per-input failures are collected rather than short-circuiting the traversal.</param>
     /// <returns>An effect that completes with a tuple <c>(errors, successes)</c> where both lists preserve the relative order of <paramref name="items"/>.</returns>
     /// <remarks>Sequential evaluation; every input is processed regardless of per-input failures. Stack safety is delegated to <c>forEach</c>.</remarks>
-    let partition<'M, 'A, 'E, 'E1> (items: seq<'M>) (func: 'M -> FIO<'A, 'E>) : FIO<'E list * 'A list, 'E1> =
-        let resultOf a = (func a).FlatMap(fun x -> succeed (Ok x)).CatchAll(fun e -> succeed (Error e))
-        (forEach items resultOf).FlatMap <| fun results ->
-            let folder (errs, oks) value =
-                match value with
-                | Ok x -> errs, x :: oks
-                | Error e -> e :: errs, oks
-            let errs, oks = List.fold folder ([], []) results
-            succeed (List.rev errs, List.rev oks)
+    let partition<'T, 'A, 'E, 'E1> (items: seq<'T>) (func: 'T -> FIO<'A, 'E>) : FIO<'E list * 'A list, 'E1> =
+        (forEach items (fun a -> (func a).Result())).Map splitResults
 
     /// <summary>Combines a sequence of inputs into one effect that applies an effectful function to each concurrently, never failing — per-input failures and successes are gathered into two lists in source order.</summary>
     /// <typeparam name="'E1">The error type of the resulting effect; never produced because per-input failures are moved into the success channel.</typeparam>
@@ -459,51 +424,28 @@ module FIO =
     /// <param name="func">A function from each input to the effect that produces its result; per-input failures are collected rather than interrupting siblings.</param>
     /// <returns>An effect that completes with a tuple <c>(errors, successes)</c> where both lists preserve the relative order of <paramref name="items"/>.</returns>
     /// <remarks>Each input runs on its own fiber. Unlike <c>forEachPar</c>, a per-input failure does not interrupt sibling fibers — every input is allowed to complete and its outcome is collected. Stack safety is delegated to <c>forEachPar</c>.</remarks>
-    let partitionPar<'M, 'A, 'E, 'E1> (items: seq<'M>) (func: 'M -> FIO<'A, 'E>) : FIO<'E list * 'A list, 'E1> =
-        let resultOf a = (func a).FlatMap(fun x -> succeed (Ok x)).CatchAll(fun e -> succeed (Error e))
-        (forEachPar items resultOf).FlatMap <| fun results ->
-            let folder (errs, oks) value =
-                match value with
-                | Ok x -> errs, x :: oks
-                | Error e -> e :: errs, oks
-            let errs, oks = List.fold folder ([], []) results
-            succeed (List.rev errs, List.rev oks)
+    let partitionPar<'T, 'A, 'E, 'E1> (items: seq<'T>) (func: 'T -> FIO<'A, 'E>) : FIO<'E list * 'A list, 'E1> =
+        (forEachPar items (fun a -> (func a).Result())).Map splitResults
 
     /// <summary>Combines a sequence of inputs into one effect that applies an effectful function to each in order, collecting every error rather than short-circuiting and only succeeding when every input succeeds.</summary>
     /// <param name="items">The inputs to traverse; an empty sequence yields an empty result list without invoking <paramref name="func"/>.</param>
     /// <param name="func">A function from each input to the effect that produces its result; per-input failures are accumulated rather than short-circuiting the traversal.</param>
     /// <returns>An effect that completes with the list of per-input results in source order when every input succeeds, or fails with the source-ordered list of every error observed.</returns>
     /// <remarks>Sequential evaluation; every input is processed regardless of per-input failures. The error-channel list is non-empty when the effect fails. Stack safety is delegated to <c>forEach</c>.</remarks>
-    let validate<'M, 'A, 'E> (items: seq<'M>) (func: 'M -> FIO<'A, 'E>) : FIO<'A list, 'E list> =
-        let resultOf a = (func a).FlatMap(fun x -> succeed (Ok x)).CatchAll(fun e -> succeed (Error e))
-        (forEach items resultOf).FlatMap <| fun results ->
-            let folder (errs, oks) value =
-                match value with
-                | Ok x -> errs, x :: oks
-                | Error e -> e :: errs, oks
-            let errs, oks = List.fold folder ([], []) results
-            if List.isEmpty errs then
-                succeed (List.rev oks)
-            else
-                fail (List.rev errs)
+    let validate<'T, 'A, 'E> (items: seq<'T>) (func: 'T -> FIO<'A, 'E>) : FIO<'A list, 'E list> =
+        (forEach items (fun a -> (func a).Result())).FlatMap <| fun results ->
+            let errs, oks = splitResults results
+            if List.isEmpty errs then succeed oks else fail errs
 
     /// <summary>Combines a sequence of inputs into one effect that applies an effectful function to each concurrently, collecting every error rather than interrupting siblings and only succeeding when every input succeeds.</summary>
     /// <param name="items">The inputs to traverse; an empty sequence yields an empty result list without forking.</param>
     /// <param name="func">A function from each input to the effect that produces its result; per-input failures are accumulated rather than interrupting siblings.</param>
     /// <returns>An effect that completes with the list of per-input results in source order when every input succeeds, or fails with the source-ordered list of every error observed.</returns>
     /// <remarks>Each input runs on its own fiber. Unlike <c>forEachPar</c>, a per-input failure does not interrupt sibling fibers — every input is allowed to complete and its outcome is collected. The error-channel list is non-empty when the effect fails. Stack safety is delegated to <c>forEachPar</c>.</remarks>
-    let validatePar<'M, 'A, 'E> (items: seq<'M>) (func: 'M -> FIO<'A, 'E>) : FIO<'A list, 'E list> =
-        let resultOf a = (func a).FlatMap(fun x -> succeed (Ok x)).CatchAll(fun e -> succeed (Error e))
-        (forEachPar items resultOf).FlatMap <| fun results ->
-            let folder (errs, oks) value =
-                match value with
-                | Ok x -> errs, x :: oks
-                | Error e -> e :: errs, oks
-            let errs, oks = List.fold folder ([], []) results
-            if List.isEmpty errs then
-                succeed (List.rev oks)
-            else
-                fail (List.rev errs)
+    let validatePar<'T, 'A, 'E> (items: seq<'T>) (func: 'T -> FIO<'A, 'E>) : FIO<'A list, 'E list> =
+        (forEachPar items (fun a -> (func a).Result())).FlatMap <| fun results ->
+            let errs, oks = splitResults results
+            if List.isEmpty errs then succeed oks else fail errs
 
     /// <summary>Combines a sequence of effects into one effect that runs them in order and collects only the successful results, silently dropping failures.</summary>
     /// <typeparam name="'E1">The error type of the resulting effect; never produced because per-effect failures are discarded.</typeparam>
@@ -511,10 +453,7 @@ module FIO =
     /// <returns>An effect that completes with the list of successful results in source order; failed effects contribute nothing and do not propagate.</returns>
     /// <remarks>Sequential evaluation; every effect is evaluated regardless of per-effect failures. Stack safety is delegated to <c>forEach</c>.</remarks>
     let collectAllSuccesses<'A, 'E, 'E1> (effects: seq<FIO<'A, 'E>>) : FIO<'A list, 'E1> =
-        let optionOf (eff: FIO<'A, 'E>) = 
-            eff.FlatMap(fun x -> succeed (Some x)).CatchAll(fun _ -> succeed None)
-        (forEach effects optionOf).FlatMap <| fun results ->
-            succeed (results |> List.choose id)
+        (forEach effects (fun eff -> eff.Option())).Map(List.choose id)
 
     /// <summary>Builds an effect that evaluates an effectful predicate and continues with one of two branches based on its result.</summary>
     /// <param name="predicate">The effect producing the boolean to branch on.</param>
@@ -541,9 +480,7 @@ module FIO =
     /// <returns>An effect that completes with the <c>Some</c> value or with <paramref name="defaultResult"/> when the option is <c>None</c>.</returns>
     /// <remarks>Exposed as a factory because F# extension methods cannot constrain the success type to <c>'A option</c>; use with <c>|></c> for chainability.</remarks>
     let someOrElse<'A, 'E> (defaultResult: 'A) (eff: FIO<'A option, 'E>) : FIO<'A, 'E> =
-        eff.FlatMap <| function
-            | Some value -> succeed value
-            | None -> succeed defaultResult
+        eff.Map(Option.defaultValue defaultResult)
 
     /// <summary>Extracts the value from an effect producing <c>Option</c>, evaluating a fallback effect when the option is <c>None</c>.</summary>
     /// <param name="defaultEffect">The effect to evaluate when the option is <c>None</c>; its outcome is propagated.</param>
@@ -573,7 +510,7 @@ module FIO =
 
             if arr.Length = 0 then
                 interrupt (InvalidArgument("effects", "sequence must not be empty")) "Cannot race an empty sequence"
-            
+
             elif arr.Length = 1 then
                 arr.[0]
             else
@@ -587,20 +524,6 @@ module FIO =
                         | Failed error ->
                             resultChan.Write(Error error).FlatMap <| fun _ -> unit ()
                         | Interrupted _ -> unit ()
-
-                let rec forkAll i (forked: Fiber<'A, 'E> list) : FIO<Fiber<'A, 'E> list, 'E> =
-                    if i >= arr.Length then
-                        succeed (List.rev forked)
-                    else
-                        arr.[i].Fork().FlatMap <| fun fiber ->
-                            suspend <| fun () -> forkAll (i + 1) (fiber :: forked)
-
-                let rec startSignals (fibers: Fiber<'A, 'E> list) (idx: int) : FIO<unit, 'E> =
-                    match fibers with
-                    | [] -> unit ()
-                    | fiber :: rest ->
-                        (signal idx fiber).Fork().FlatMap <| fun _ ->
-                            suspend <| fun () -> startSignals rest (idx + 1)
 
                 let interruptOthers (fiberArr: Fiber<'A, 'E> array) (winnerIdx: int) : FIO<unit, 'E> =
                     let rec loop i =
@@ -625,6 +548,12 @@ module FIO =
                             else
                                 receive (received + 1) fiberArr
 
-                (forkAll 0 []).FlatMap <| fun fibers ->
+                let forkAllEff = collectAll (arr |> Array.map _.Fork())
+
+                forkAllEff.FlatMap <| fun fibers ->
                     let fiberArr = List.toArray fibers
-                    (startSignals fibers 0).FlatMap <| fun () -> receive 0 fiberArr
+                    let startSignalsEff =
+                        fibers
+                        |> List.mapi (fun i f -> (signal i f).Fork().Map(fun _ -> ()))
+                        |> collectAllDiscard
+                    startSignalsEff.FlatMap <| fun () -> receive 0 fiberArr

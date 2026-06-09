@@ -16,6 +16,7 @@ let socketTests =
     testList
         "Socket"
         [
+            // ─── Byte and text I/O ─────────────────────────────────────────
 
             testAllRuntimes "SendBytes/ReceiveBytes echo roundtrip" (fun runtime ->
                 withTestServer
@@ -108,6 +109,8 @@ let socketTests =
                         })
                     runtime)
 
+            // ─── Connection state ─────────────────────────────────────────
+
             testAllRuntimes "IsConnected true after connect" (fun runtime ->
                 withTestServer
                     noopHandler
@@ -134,6 +137,8 @@ let socketTests =
                             Expect.isFalse (socket.IsConnected()) "Should not be connected after close"
                         })
                     runtime)
+
+            // ─── ReceiveExactly ─────────────────────────────────────────
 
             testAllRuntimes "ReceiveExactly roundtrip" (fun runtime ->
                 withTestServer
@@ -176,6 +181,8 @@ let socketTests =
                             do! socket.Close()
                         })
                     runtime)
+
+            // ─── Codec / JSON ─────────────────────────────────────────
 
             testAllRuntimes "Send/Receive with codec roundtrip" (fun runtime ->
                 withTestServer
@@ -228,6 +235,8 @@ let socketTests =
                             do! socket.Close()
                         })
                     runtime)
+
+            // ─── Inspection & failure modes ─────────────────────────────────────────
 
             testAllRuntimes "GetRemoteEndPoint returns valid endpoint" (fun runtime ->
                 withTestServer

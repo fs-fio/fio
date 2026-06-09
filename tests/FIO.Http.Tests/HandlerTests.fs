@@ -15,6 +15,7 @@ let handlerTests =
     testList
         "HttpHandler"
         [
+            // ─── Factories ─────────────────────────────────────────
 
             testAllRuntimes "succeed returns constant response" (fun runtime ->
                 let handler = HttpHandler.succeed Response.ok
@@ -45,6 +46,8 @@ let handlerTests =
                 match resp.Body with
                 | Text t -> Expect.equal t "/test" "Body from path"
                 | _ -> failtest "Expected Text body")
+
+            // ─── Response builders ─────────────────────────────────────────
 
             testAllRuntimes "ok returns 200" (fun runtime ->
                 let resp = runtime.Run(HttpHandler.ok (makeGetRequest "/")).UnsafeSuccess()
@@ -116,6 +119,8 @@ let handlerTests =
 
                 Expect.equal resp.Status HttpStatusCode.Found "302")
 
+            // ─── Combinators ─────────────────────────────────────────
+
             testAllRuntimes "map transforms response" (fun runtime ->
                 let handler =
                     HttpHandler.text "hello"
@@ -167,6 +172,8 @@ let handlerTests =
                 Expect.equal resp.Status HttpStatusCode.OK "200"
                 Expect.isTrue tapped "Side effect ran")
 
+            // ─── Control flow ─────────────────────────────────────────
+
             testAllRuntimes "when' runs handler when predicate is true" (fun runtime ->
                 let handler =
                     HttpHandler.when'
@@ -204,6 +211,8 @@ let handlerTests =
                 | Text t -> Expect.equal t "get" "GET branch"
                 | _ -> failtest "Expected Text body")
 
+            // ─── JSON parsing ─────────────────────────────────────────
+
             testAllRuntimes "parseJsonBody parses valid JSON" (fun runtime ->
                 let req =
                     HttpRequest.create HttpMethod.POST "/data"
@@ -226,6 +235,8 @@ let handlerTests =
                 match fiber.UnsafeResult() with
                 | Failed _ -> ()
                 | other -> failtest $"Expected failure but got {other}")
+
+            // ─── Reader / Local ─────────────────────────────────────────
 
             testAllRuntimes "local modifies request for inner handler" (fun runtime ->
                 let inner = fun req -> FIO.succeed (Response.okText req.Path)

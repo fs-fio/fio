@@ -149,7 +149,7 @@ let withTestServer (handler: WebSocket -> FIO<unit, WsError>) (action: int -> FI
                     .Fork()
 
             let! result = action port
-            do! serverFiber.Interrupt ExplicitInterrupt "Interrupted"
+            do! serverFiber.InterruptNow ()
             do! WebSocketServer.close listener
             return result
         }
@@ -178,7 +178,7 @@ let withTestEchoServer (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
                 (WebSocketServer.acceptLoop listener WebSocketConfig.defaultConfig closingEchoHandler).Fork()
 
             let! result = action port
-            do! serverFiber.Interrupt ExplicitInterrupt "Interrupted"
+            do! serverFiber.InterruptNow ()
             do! WebSocketServer.close listener
             return result
         }

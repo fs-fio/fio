@@ -131,7 +131,7 @@ let withTestServer
                     .Fork()
 
             let! result = action port
-            do! serverFiber.Interrupt ExplicitInterrupt "Interrupted"
+            do! serverFiber.InterruptNow ()
             do! ServerSocket.close server
             return result
         }
@@ -152,7 +152,7 @@ let withTestEchoServer (action: int -> FIO<'A, SocketError>) (runtime: FIORuntim
             let! serverFiber = ServerSocket.acceptLoop(echoHandler, server).Fork()
             do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) SocketError.fromException
             let! result = action port
-            do! serverFiber.Interrupt ExplicitInterrupt "Interrupted"
+            do! serverFiber.InterruptNow ()
             do! ServerSocket.close server
             return result
         }

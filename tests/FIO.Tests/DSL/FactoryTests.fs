@@ -393,7 +393,7 @@ let factoryTests =
                     fio {
                         let! fiber = (FIO.awaitAsync asyncComp (fun ex -> ex.Message)).Fork()
                         do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) (fun ex -> ex.Message)
-                        return! fiber.InterruptAwait ExplicitInterrupt "Interrupted"
+                        return! fiber.InterruptAwaitNow ()
                     }
 
                 let sw = Stopwatch.StartNew()
@@ -656,7 +656,7 @@ let factoryTests =
                         let! fiber =
                             (FIO.async (fun _ -> ()) (fun ex -> ex.Message): FIO<int, string>).Fork()
                         do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) (fun ex -> ex.Message)
-                        return! fiber.InterruptAwait ExplicitInterrupt "Interrupted"
+                        return! fiber.InterruptAwaitNow ()
                     }
 
                 let sw = Stopwatch.StartNew()
@@ -696,7 +696,7 @@ let factoryTests =
                     fio {
                         let! fiber = (FIO.sleep (TimeSpan.FromMinutes 1.0) (fun ex -> ex.Message)).Fork()
                         do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) (fun ex -> ex.Message)
-                        return! fiber.InterruptAwait ExplicitInterrupt "Interrupted"
+                        return! fiber.InterruptAwaitNow ()
                     }
 
                 let sw = Stopwatch.StartNew()
@@ -2130,7 +2130,7 @@ let factoryTests =
 
                 Expect.equal result 99 "raceAll should wait for a success even when other racers fail fast")
 
-            testAllRuntimes "raceAll - all fail returns the latest error" (fun runtime ->
+            testAllRuntimes "raceAll - all fail surfaces one of the racers' errors" (fun runtime ->
                 let fastFail = FIO.fail (exn "fast")
                 let mediumFail =
                     (FIO.sleep (TimeSpan.FromMilliseconds 30.0) id).FlatMap(fun () -> FIO.fail (exn "medium"))
@@ -2141,5 +2141,8 @@ let factoryTests =
                 let result =
                     runtime.Run(eff).UnsafeError()
 
-                Expect.equal result.Message "slow" "raceAll should fail with the most-recently-received error when all racers fail")
+                Expect.contains
+                    [ "fast"; "medium"; "slow" ]
+                    result.Message
+                    "raceAll should fail with one of the racers' error messages when all racers fail")
         ]

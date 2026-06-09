@@ -50,7 +50,7 @@ let cancellationTests =
 
                             let! receiveFiber = (ws.ReceiveMessage()).Fork()
                             do! sleepMs 100.0
-                            do! receiveFiber.Interrupt ExplicitInterrupt "Interrupted"
+                            do! receiveFiber.InterruptNow ()
 
                             let! terminated, elapsed = waitForTerminal receiveFiber 2_000
 
@@ -73,7 +73,7 @@ let cancellationTests =
                         let! connectFiber = (WebSocketClient.connectStringWith "ws://192.0.2.1:9/").Fork()
 
                         do! sleepMs 100.0
-                        do! connectFiber.Interrupt ExplicitInterrupt "Interrupted"
+                        do! connectFiber.InterruptNow ()
 
                         let! terminated, elapsed = waitForTerminal connectFiber 5_000
 

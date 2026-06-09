@@ -7,29 +7,6 @@ open System.Diagnostics
 
 type FIO<'A, 'E> with
 
-    /// <summary>Transforms the success value of this effect with a pure function.</summary>
-    /// <typeparam name="'A1">The success result type produced by the mapper.</typeparam>
-    /// <param name="mapper">A pure function from this effect's success value to the new success value.</param>
-    /// <returns>An effect that completes with <paramref name="mapper"/> applied to the original success value.</returns>
-    member inline this.Map<'A1> (mapper: 'A -> 'A1) : FIO<'A1, 'E> =
-        this.FlatMap <| fun value -> FIO.succeed <| mapper value
-
-    /// <summary>Transforms the typed error of this effect with a pure function.</summary>
-    /// <typeparam name="'E1">The error type produced by the mapper.</typeparam>
-    /// <param name="mapper">A pure function from this effect's typed error to the new typed error.</param>
-    /// <returns>An effect that propagates the original success value, or fails with <paramref name="mapper"/> applied to the original error.</returns>
-    member inline this.MapError<'E1> (mapper: 'E -> 'E1) : FIO<'A, 'E1> =
-        this.CatchAll <| fun error -> FIO.fail <| mapper error
-
-    /// <summary>Transforms both the success and error channels of this effect with pure functions.</summary>
-    /// <typeparam name="'A1">The success result type produced by <paramref name="successMapper"/>.</typeparam>
-    /// <typeparam name="'E1">The error type produced by <paramref name="errorMapper"/>.</typeparam>
-    /// <param name="successMapper">A pure function from the original success value to the new success value.</param>
-    /// <param name="errorMapper">A pure function from the original typed error to the new typed error.</param>
-    /// <returns>An effect with both channels transformed by their respective mappers.</returns>
-    member inline this.MapBoth<'A1, 'E1> (successMapper: 'A -> 'A1) (errorMapper: 'E -> 'E1) : FIO<'A1, 'E1> =
-        this.Map(successMapper).MapError errorMapper
-
     /// <summary>Transforms the success value of this effect with a function that may throw, routing any exception into the typed error channel.</summary>
     /// <typeparam name="'A1">The success result type produced by the mapper.</typeparam>
     /// <param name="mapper">A function from this effect's success value to the new success value; may throw.</param>
@@ -52,15 +29,15 @@ type FIO<'A, 'E> with
         this.Map <| fun _ -> value
 
     /// <summary>Wraps this effect's success value in <c>Choice1Of2</c>.</summary>
-    /// <typeparam name="'B">The phantom right-branch type of the resulting choice; never inhabited.</typeparam>
+    /// <typeparam name="'A1">The phantom right-branch type of the resulting choice; never inhabited.</typeparam>
     /// <returns>An effect that completes with <c>Choice1Of2</c> applied to the original success value.</returns>
-    member inline this.AsLeft<'B> () : FIO<Choice<'A, 'B>, 'E> =
+    member inline this.AsLeft<'A1> () : FIO<Choice<'A, 'A1>, 'E> =
         this.Map Choice1Of2
 
     /// <summary>Wraps this effect's success value in <c>Choice2Of2</c>.</summary>
-    /// <typeparam name="'M">The phantom left-branch type of the resulting choice; never inhabited.</typeparam>
+    /// <typeparam name="'A1">The phantom left-branch type of the resulting choice; never inhabited.</typeparam>
     /// <returns>An effect that completes with <c>Choice2Of2</c> applied to the original success value.</returns>
-    member inline this.AsRight<'M> () : FIO<Choice<'M, 'A>, 'E> =
+    member inline this.AsRight<'A1> () : FIO<Choice<'A1, 'A>, 'E> =
         this.Map Choice2Of2
 
     /// <summary>Wraps this effect's success value in <c>Some</c>.</summary>
@@ -69,40 +46,21 @@ type FIO<'A, 'E> with
         this.Map Some
 
     /// <summary>Wraps this effect's typed error in <c>Choice1Of2</c>.</summary>
-    /// <typeparam name="'B">The phantom right-branch type of the resulting choice; never inhabited.</typeparam>
+    /// <typeparam name="'E1">The phantom right-branch type of the resulting choice; never inhabited.</typeparam>
     /// <returns>An effect that propagates the original success value, or fails with <c>Choice1Of2</c> applied to the original error.</returns>
-    member inline this.AsLeftError<'B> () : FIO<'A, Choice<'E, 'B>> =
+    member inline this.AsLeftError<'E1> () : FIO<'A, Choice<'E, 'E1>> =
         this.MapError Choice1Of2
 
     /// <summary>Wraps this effect's typed error in <c>Choice2Of2</c>.</summary>
-    /// <typeparam name="'M">The phantom left-branch type of the resulting choice; never inhabited.</typeparam>
+    /// <typeparam name="'E1">The phantom left-branch type of the resulting choice; never inhabited.</typeparam>
     /// <returns>An effect that propagates the original success value, or fails with <c>Choice2Of2</c> applied to the original error.</returns>
-    member inline this.AsRightError<'M> () : FIO<'A, Choice<'M, 'E>> =
+    member inline this.AsRightError<'E1> () : FIO<'A, Choice<'E1, 'E>> =
         this.MapError Choice2Of2
 
     /// <summary>Wraps this effect's typed error in <c>Some</c>.</summary>
     /// <returns>An effect that propagates the original success value, or fails with <c>Some</c> applied to the original error.</returns>
     member inline this.AsSomeError<'A, 'E> () : FIO<'A, 'E option> =
         this.MapError Some
-
-    /// <summary>Transforms this effect into an infallible effect whose success channel carries a <c>Result</c>.</summary>
-    /// <typeparam name="'E1">The error type of the resulting effect; never produced because the original error is moved into the success channel.</typeparam>
-    /// <returns>An effect that completes with <c>Ok</c> on success or <c>Error</c> on failure.</returns>
-    member inline this.Result<'E1> () : FIO<Result<'A, 'E>, 'E1> =
-        this.Map(Ok).CatchAll <| fun error -> FIO.succeed (Error error)
-
-    /// <summary>Transforms this effect into an infallible effect whose success channel carries an <c>Option</c>, discarding the error.</summary>
-    /// <typeparam name="'E1">The error type of the resulting effect; never produced because failures are mapped to <c>None</c>.</typeparam>
-    /// <returns>An effect that completes with <c>Some</c> on success or <c>None</c> on failure.</returns>
-    member inline this.Option<'E1> () : FIO<'A option, 'E1> =
-        this.Map(Some).CatchAll <| fun _ -> FIO.succeed None
-
-    /// <summary>Transforms this effect into an infallible effect whose success channel carries a <c>Choice</c>.</summary>
-    /// <typeparam name="'E1">The error type of the resulting effect; never produced because failures are moved into the success channel.</typeparam>
-    /// <returns>An effect that completes with <c>Choice1Of2</c> on success or <c>Choice2Of2</c> on failure.</returns>
-    member inline this.Choice<'E1> () : FIO<Choice<'A, 'E>, 'E1> =
-        this.Map(Choice1Of2).CatchAll(fun error ->
-            FIO.succeed (Choice2Of2 error))
 
     /// <summary>Builds an effect that swaps the success and error channels of this effect.</summary>
     /// <returns>An effect whose success carries the original typed error, and whose error carries the original success value.</returns>
@@ -118,22 +76,19 @@ type FIO<'A, 'E> with
     /// <returns>An effect that completes with unit regardless of whether this effect succeeded or failed.</returns>
     /// <remarks>Unlike <c>Unit</c>, which preserves the error channel, <c>Ignore</c> swallows failures and is suitable for fire-and-forget effects whose outcome is intentionally disregarded.</remarks>
     member inline this.Ignore<'E1> () : FIO<unit, 'E1> =
-        this.Map(fun _ -> ()).CatchAll(fun _ ->
-            FIO.succeed ())
+        this.Fold (fun _ -> ()) (fun _ -> ())
 
     /// <summary>Builds an infallible effect that reports whether this effect succeeded.</summary>
     /// <typeparam name="'E1">The error type of the resulting effect; never produced because both branches succeed.</typeparam>
     /// <returns>An effect that completes with <c>true</c> when this effect succeeded, or <c>false</c> when it failed.</returns>
     member inline this.IsSuccess<'E1> () : FIO<bool, 'E1> =
-        this.Map(fun _ -> true).CatchAll(fun _ ->
-            FIO.succeed false)
+        this.Fold (fun _ -> false) (fun _ -> true)
 
     /// <summary>Builds an infallible effect that reports whether this effect failed.</summary>
     /// <typeparam name="'E1">The error type of the resulting effect; never produced because both branches succeed.</typeparam>
     /// <returns>An effect that completes with <c>true</c> when this effect failed, or <c>false</c> when it succeeded.</returns>
     member inline this.IsFailure<'E1> () : FIO<bool, 'E1> =
-        this.Map(fun _ -> false).CatchAll(fun _ ->
-            FIO.succeed true)
+        this.Fold (fun _ -> true) (fun _ -> false)
 
     /// <summary>Combines this effect with a boolean guard, running it only when the guard is true.</summary>
     /// <param name="cond">The condition controlling whether this effect runs.</param>
@@ -152,7 +107,7 @@ type FIO<'A, 'E> with
     /// <param name="effOnSuccess">A function from the success value to a side-effecting effect whose result is discarded.</param>
     /// <returns>An effect that runs <paramref name="effOnSuccess"/> on success and then completes with the original success value.</returns>
     member inline this.Tap<'A1> (effOnSuccess: 'A -> FIO<'A1, 'E>) : FIO<'A, 'E> =
-        this.FlatMap(fun value -> effOnSuccess(value).Map(fun _ -> value))
+        this.FlatMap(fun value -> (effOnSuccess value).As value)
 
     /// <summary>Combines this effect with a side-effecting function that observes the typed error while preserving it.</summary>
     /// <typeparam name="'A1">The result type produced by the side-effecting function; discarded.</typeparam>
@@ -170,27 +125,39 @@ type FIO<'A, 'E> with
     member inline this.TapBoth<'A1, 'A2> (onSuccess: 'A -> FIO<'A2, 'E>) (onError: 'E -> FIO<'A1, 'E>) : FIO<'A, 'E> =
         this.Tap(onSuccess).TapError onError
 
-    /// <summary>Combines this effect with a best-effort console print of its success value for debugging.</summary>
-    /// <param name="message">The prefix to print before the success value; defaults to <c>"Debug"</c>.</param>
-    /// <returns>An effect that prints the success value and completes with it unchanged; printing failures are swallowed.</returns>
-    member inline this.Debug (?message: string) : FIO<'A, 'E> =
-        let message = defaultArg message "Debug"
-        this.Tap(fun value ->
-            (FIO.attempt (fun () -> printfn "%s: %A" message value) id)
-                .CatchAll(fun ex ->
-                    (FIO.attempt (fun () -> eprintfn "Debug print failed. Message: %s, Exception: %s" message ex.Message) id)
-                        .Ignore()))
+    /// <summary>Combines this effect with a best-effort console print of its success value for debugging, prefixed with <c>"Debug"</c>.</summary>
+    /// <returns>An effect that prints the success value with the default prefix and completes with it unchanged; printing failures are swallowed.</returns>
+    member this.Debug () : FIO<'A, 'E> =
+        this.Debug "Debug"
 
-    /// <summary>Combines this effect with a best-effort console print of its typed error for debugging.</summary>
-    /// <param name="message">The prefix to print before the error value; defaults to <c>"Debug Error"</c>.</param>
+    /// <summary>Combines this effect with a best-effort console print of its success value for debugging, using a caller-supplied prefix.</summary>
+    /// <param name="message">The prefix to print before the success value.</param>
+    /// <returns>An effect that prints the success value and completes with it unchanged; printing failures are swallowed.</returns>
+    member this.Debug (message: string) : FIO<'A, 'E> =
+        this.Tap(fun value ->
+            (FIO.attempt (fun () ->
+                try printfn "%s: %A" message value
+                with ex ->
+                    try eprintfn "Debug print failed. Message: %s, Exception: %s" message ex.Message
+                    with _ -> ()
+            ) id).Ignore())
+
+    /// <summary>Combines this effect with a best-effort console print of its typed error for debugging, prefixed with <c>"Debug Error"</c>.</summary>
+    /// <returns>An effect that prints the typed error with the default prefix and re-fails with it unchanged; printing failures are swallowed.</returns>
+    member this.DebugError () : FIO<'A, 'E> =
+        this.DebugError "Debug Error"
+
+    /// <summary>Combines this effect with a best-effort console print of its typed error for debugging, using a caller-supplied prefix.</summary>
+    /// <param name="message">The prefix to print before the error value.</param>
     /// <returns>An effect that prints the typed error and re-fails with it unchanged; printing failures are swallowed.</returns>
-    member inline this.DebugError (?message: string) : FIO<'A, 'E> =
-        let message = defaultArg message "Debug Error"
+    member this.DebugError (message: string) : FIO<'A, 'E> =
         this.TapError(fun error ->
-            (FIO.attempt(fun () -> printfn "%s: %A" message error) id)
-                .CatchAll(fun ex ->
-                    (FIO.attempt(fun () -> eprintfn "Debug Error print failed. Message: %s, Exception: %s" message ex.Message) id)
-                        .Ignore()))
+            (FIO.attempt (fun () ->
+                try printfn "%s: %A" message error
+                with ex ->
+                    try eprintfn "Debug Error print failed. Message: %s, Exception: %s" message ex.Message
+                    with _ -> ()
+            ) id).Ignore())
 
     /// <summary>Combines this effect with a fallback effect that runs when this effect fails.</summary>
     /// <typeparam name="'E1">The error type of the fallback effect.</typeparam>
@@ -370,24 +337,23 @@ type FIO<'A, 'E> with
     /// <returns>An effect that completes with this effect's success value when it succeeds, or fails with a tuple of both errors when both fail.</returns>
     member inline this.ZipParError (eff: FIO<'A, 'E>) : FIO<'A, 'E * 'E> =
         eff.Fork().FlatMap(fun fiber ->
-            this.FlatMap(fun res1 -> fiber.Join().Map(fun _ -> res1))
-                .CatchAll(fun err1 -> 
-                    fiber.Join().FlatMap(fun res2 -> FIO.succeed res2)
-                        .CatchAll(fun err2 -> FIO.fail (err1, err2))))
+            this.FlatMap(fun res1 -> fiber.Join().As res1)
+                .CatchAll(fun err1 ->
+                    fiber.Join().CatchAll(fun err2 -> FIO.fail (err1, err2))))
 
     /// <summary>Combines this effect with a second effect concurrently and returns the second result.</summary>
     /// <typeparam name="'A1">The success result type of the second effect; propagated.</typeparam>
     /// <param name="eff">The effect to fork alongside this one; its result is propagated.</param>
     /// <returns>An effect that runs both concurrently and completes with the second result.</returns>
     member inline this.ZipParRight<'A1> (eff: FIO<'A1, 'E>) : FIO<'A1, 'E> =
-        this.ZipPar(eff).Map(fun (_, value) -> value)
+        this.ZipPar(eff).Map snd
 
     /// <summary>Combines this effect with a second effect concurrently and returns the first result.</summary>
     /// <typeparam name="'A1">The success result type of the second effect; discarded.</typeparam>
     /// <param name="eff">The effect to fork alongside this one; its result is discarded.</param>
     /// <returns>An effect that runs both concurrently and completes with this effect's result.</returns>
     member inline this.ZipParLeft<'A1> (eff: FIO<'A1, 'E>) : FIO<'A, 'E> =
-        this.ZipPar(eff).Map(fun (value, _) -> value)
+        this.ZipPar(eff).Map fst
 
     /// <summary>Combines this effect's outcome with two pure folds, producing an infallible effect.</summary>
     /// <typeparam name="'A1">The result type produced by both folds.</typeparam>
@@ -395,7 +361,7 @@ type FIO<'A, 'E> with
     /// <param name="onError">A pure function from the typed error to the result value.</param>
     /// <param name="onSuccess">A pure function from the success value to the result value.</param>
     /// <returns>An infallible effect that completes with the appropriate fold applied to the original outcome.</returns>
-    member inline this.Fold<'A1, 'E1> (onError: 'E -> 'A1) (onSuccess: 'A -> 'A1) : FIO<'A1, 'E1> =
+    member this.Fold<'A1, 'E1> (onError: 'E -> 'A1) (onSuccess: 'A -> 'A1) : FIO<'A1, 'E1> =
         this.Map(onSuccess).CatchAll(fun error -> FIO.succeed(onError error))
 
     /// <summary>Combines this effect's outcome with two effectful folds, producing the effect from whichever branch matches.</summary>
@@ -478,7 +444,7 @@ type FIO<'A, 'E> with
     /// <returns>An effect that completes with the first success, or fails with the first error that differs from <paramref name="error"/>.</returns>
     /// <remarks>The loop is unbounded; combining with <c>Retry(maxAttempts)</c> or <c>RetryOrElse</c> is redundant because the cap is swallowed. Pair with <c>Timeout</c> when a wall-clock bound is needed. Equality uses <c>Unchecked.equals</c> so no <c>equality</c> constraint is required.</remarks>
     member inline this.RetryWhileEquals (error: 'E) : FIO<'A, 'E> =
-        this.RetryWhile(fun error -> Unchecked.equals error error)
+        this.RetryWhile(fun err -> Unchecked.equals err error)
 
     /// <summary>Builds an effect that retries this effect on failure while an effectful predicate examining the error returns <c>true</c>.</summary>
     /// <param name="predicate">An effectful predicate evaluated against the latest error after each failure; the loop stops once it returns <c>false</c>.</param>
@@ -544,7 +510,7 @@ type FIO<'A, 'E> with
     /// <returns>An effect that completes with the first success value that differs from <paramref name="value"/>.</returns>
     /// <remarks>This effect always runs at least once. The loop is unbounded; pair with <c>Timeout</c> when a cap is needed. Equality uses <c>Unchecked.equals</c> so no <c>equality</c> constraint is required.</remarks>
     member inline this.RepeatWhileEquals (value: 'A) : FIO<'A, 'E> =
-        this.RepeatWhile(fun value -> Unchecked.equals value value)
+        this.RepeatWhile(fun v -> Unchecked.equals v value)
 
     /// <summary>Builds an effect that re-runs this effect while an effectful predicate examining the success value returns <c>true</c>.</summary>
     /// <param name="predicate">An effectful predicate evaluated against the latest success value after each run; the loop stops once it returns <c>false</c>.</param>
@@ -614,10 +580,8 @@ type FIO<'A, 'E> with
     /// <returns>An effect that completes with a tuple of the elapsed time and the original success value.</returns>
     member inline this.Timed (onError: exn -> 'E) : FIO<TimeSpan * 'A, 'E> =
         (FIO.attempt Stopwatch.StartNew onError).FlatMap(fun sw ->
-            this.Ensuring(FIO.unit().FlatMap(fun () ->
-                sw.Stop()
-                FIO.unit ()))
-                    .Map(fun value -> sw.Elapsed, value))
+            this.Ensuring(FIO.suspend (fun () -> sw.Stop(); FIO.unit ()))
+                .Map(fun value -> sw.Elapsed, value))
 
     /// <summary>Combines this effect with another concurrently and completes with whichever finishes first.</summary>
     /// <param name="eff">The effect to race against this one.</param>
@@ -631,7 +595,7 @@ type FIO<'A, 'E> with
                 fiber.Await().FlatMap(fun result ->
                     match result with
                     | Succeeded _
-                    | Failed _ -> resultChan.Write(won).Map(fun _ -> ())
+                    | Failed _ -> (resultChan.Write won).Unit()
                     | Interrupted _ -> FIO.unit ())
 
             this.Fork().FlatMap(fun fiber1 ->
@@ -643,7 +607,7 @@ type FIO<'A, 'E> with
                                     if winnerIsFirst then fiber1, fiber2 else fiber2, fiber1
 
                                 (loser.Interrupt ExplicitInterrupt "Lost race")
-                                    .CatchAll(fun _ -> FIO.unit ())
+                                    .Ignore()
                                     .FlatMap <| fun () -> winner.Join())))))
 
     /// <summary>Combines this effect with another concurrently, returning a <c>Choice</c> tagged with which racer terminated first.</summary>
@@ -665,8 +629,8 @@ type FIO<'A, 'E> with
             let signal (isFirst: bool) (fiber: Fiber<'A, 'E>) =
                 fiber.Await().FlatMap(fun result ->
                     match result with
-                    | Succeeded value -> resultChan.Write(Ok(value, isFirst)).Map(fun _ -> ())
-                    | Failed error -> resultChan.Write(Error error).Map(fun _ -> ())
+                    | Succeeded value -> (resultChan.Write(Ok(value, isFirst))).Unit()
+                    | Failed error -> (resultChan.Write(Error error)).Unit()
                     | Interrupted _ -> FIO.unit ())
 
             this.Fork().FlatMap(fun fiber1 ->
@@ -679,8 +643,8 @@ type FIO<'A, 'E> with
                                     let loser = if isFirst then fiber2 else fiber1
 
                                     (loser.Interrupt ExplicitInterrupt "Lost race")
-                                        .CatchAll(fun _ -> FIO.unit ())
-                                        .FlatMap(fun () -> FIO.succeed value)
+                                        .Ignore()
+                                        .As value
                                 | Error _ ->
                                     resultChan.Read().FlatMap(fun second ->
                                         match second with

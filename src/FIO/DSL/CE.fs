@@ -62,7 +62,7 @@ type FIOBuilder internal () =
 
     /// <summary>Lifts unit into a successful effect, supplying the default value for empty computation expressions.</summary>
     /// <returns>An effect that completes successfully with unit.</returns>
-    member inline _.Zero<'E>() : FIO<unit, 'E> =
+    member inline _.Zero<'E> () : FIO<unit, 'E> =
         FIO.succeed ()
 
     /// <summary>Combines two effects sequentially and returns the second effect's result, supporting statement sequencing inside the builder.</summary>

@@ -190,8 +190,8 @@ and [<Sealed>] internal FiberContext() =
     member internal this.Complete value =
         if tryTransition &state (int FiberContextState.Running) (int FiberContextState.Completed) then
             this.DisposeRegistrations()
-            resTcs.TrySetResult value |> ignore
             this.InvokeOnTerminal()
+            resTcs.TrySetResult value |> ignore
 
     member internal this.CompleteAndReschedule(value, activeWorkItemChan) =
         task {
@@ -199,16 +199,16 @@ and [<Sealed>] internal FiberContext() =
                 transitionFrom &state (int FiberContextState.Running) (int FiberContextState.Completed)
             if oldState = int FiberContextState.Running then
                 this.DisposeRegistrations()
-                resTcs.TrySetResult value |> ignore
                 this.InvokeOnTerminal()
+                resTcs.TrySetResult value |> ignore
 
                 let chan = Volatile.Read &blockingWorkItemChan
                 if not (isNull chan) && chan.Count > 0 then
                     do! this.RescheduleBlockingWorkItems activeWorkItemChan
             elif oldState = int FiberContextState.Interrupted then
                 this.DisposeRegistrations()
-                resTcs.TrySetResult value |> ignore
                 this.InvokeOnTerminal()
+                resTcs.TrySetResult value |> ignore
 
                 let chan = Volatile.Read &blockingWorkItemChan
                 if not (isNull chan) && chan.Count > 0 then
@@ -223,8 +223,8 @@ and [<Sealed>] internal FiberContext() =
             cts.Cancel(throwOnFirstException = false)
             this.DisposeRegistrations()
             let interruptError = Error(FiberInterruptedException(id, cause, msg) :> obj)
-            resTcs.TrySetResult interruptError |> ignore
             this.InvokeOnTerminal()
+            resTcs.TrySetResult interruptError |> ignore
 
     member internal _.Cancel() =
         try
@@ -286,7 +286,7 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
 
     /// <summary>Returns a .NET task that completes with this fiber's <c>FiberResult</c>.</summary>
     /// <returns>A task that completes with <c>Succeeded</c>, <c>Failed</c>, or <c>Interrupted</c> depending on the fiber's terminal state.</returns>
-    member _.Task() =
+    member _.Task () =
         task {
             match! fiberContext.Task with
             | Ok value ->
@@ -301,7 +301,7 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
 
     /// <summary>Builds an effect that awaits this fiber's completion and propagates its success or failure to the calling fiber.</summary>
     /// <returns>An effect that completes with the fiber's success value, fails with its typed error, or interrupts when the fiber is interrupted.</returns>
-    member _.Join() : FIO<'A, 'E> =
+    member _.Join () : FIO<'A, 'E> =
         JoinFiber fiberContext
 
     /// <summary>Creates an effect that requests interruption of this fiber.</summary>
@@ -311,10 +311,16 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
     member _.Interrupt (cause: InterruptionCause) (message: string) : FIO<unit, 'E> =
         Action((fun () -> fiberContext.Interrupt(cause, message)), fun ex -> raise ex)
 
+    /// <summary>Creates an effect that requests interruption of this fiber using a default cause and message.</summary>
+    /// <returns>An effect that completes with unit once interruption has been requested with cause <c>ExplicitInterrupt</c> and message <c>"Fiber interrupted"</c>.</returns>
+    /// <remarks>Convenience shorthand for <c>fiber.Interrupt ExplicitInterrupt "Fiber interrupted"</c>; use <c>Interrupt</c> when a specific cause or message is required.</remarks>
+    member this.InterruptNow () : FIO<unit, 'E> =
+        this.Interrupt ExplicitInterrupt "Fiber interrupted"
+
     /// <summary>Builds an effect that awaits this fiber and returns its <c>FiberResult</c> as a value, without re-raising errors or propagating interruptions.</summary>
     /// <typeparam name="'E2">The error type of the resulting effect; never produced because the await never fails.</typeparam>
     /// <returns>An effect that completes with the fiber's terminal state as a value.</returns>
-    member this.Await<'E2>() : FIO<FiberResult<'A, 'E>, 'E2> =
+    member this.Await<'E2> () : FIO<FiberResult<'A, 'E>, 'E2> =
         AwaitTask(upcastTask (this.Task()), fun ex -> raise ex)
 
     /// <summary>Builds an effect that interrupts this fiber and awaits its terminal result.</summary>
@@ -326,10 +332,17 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
         Action((fun () -> fiberContext.Interrupt(cause, message)), fun ex -> raise ex)
             .FlatMap <| fun () -> this.Await()
 
+    /// <summary>Builds an effect that interrupts this fiber using a default cause and message, then awaits its terminal result.</summary>
+    /// <typeparam name="'E2">The error type of the resulting effect; never produced because the await never fails.</typeparam>
+    /// <returns>An effect that requests interruption with cause <c>ExplicitInterrupt</c> and message <c>"Fiber interrupted"</c>, then completes with the fiber's terminal <c>FiberResult</c>.</returns>
+    /// <remarks>Convenience shorthand for <c>fiber.InterruptAwait ExplicitInterrupt "Fiber interrupted"</c>; use <c>InterruptAwait</c> when a specific cause or message is required.</remarks>
+    member this.InterruptAwaitNow<'E2> () : FIO<FiberResult<'A, 'E>, 'E2> =
+        this.InterruptAwait ExplicitInterrupt "Fiber interrupted"
+
     /// <summary>Creates an effect that produces <c>Some result</c> when the fiber has terminated, or <c>None</c> when it is still running.</summary>
     /// <typeparam name="'E2">The error type of the resulting effect; never produced because polling never fails.</typeparam>
     /// <returns>An effect that completes with <c>Some</c> wrapping the terminal <c>FiberResult</c>, or <c>None</c> when the fiber is not yet terminal.</returns>
-    member _.Poll<'E2>() : FIO<FiberResult<'A, 'E> option, 'E2> =
+    member _.Poll<'E2> () : FIO<FiberResult<'A, 'E> option, 'E2> =
         Action((fun () ->
             if not (fiberContext.IsTerminal()) then
                 None
@@ -353,11 +366,10 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
     /// <param name="onInterrupted">A function from the interruption exception to the effect to run when the fiber was interrupted.</param>
     /// <returns>An effect that awaits this fiber and runs the handler matching its terminal state.</returns>
     member this.JoinWith<'A1, 'E1>
-        (
-            onSucceeded: 'A -> FIO<'A1, 'E1>,
-            onFailed: 'E -> FIO<'A1, 'E1>,
-            onInterrupted: FiberInterruptedException -> FIO<'A1, 'E1>
-        ) : FIO<'A1, 'E1> =
+        (onSucceeded: 'A -> FIO<'A1, 'E1>)
+        (onFailed: 'E -> FIO<'A1, 'E1>)
+        (onInterrupted: FiberInterruptedException -> FIO<'A1, 'E1>)
+        : FIO<'A1, 'E1> =
         this.Await().FlatMap(fun result ->
             match result with
             | Succeeded value ->
@@ -369,29 +381,29 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
 
     /// <summary>Returns whether the fiber has reached the completed state.</summary>
     /// <returns><c>true</c> when the fiber finished with a success or a typed error; <c>false</c> while it is still running or has been interrupted.</returns>
-    member _.IsCompleted() =
+    member _.IsCompleted () =
         fiberContext.IsCompleted()
 
     /// <summary>Returns whether the fiber has been interrupted.</summary>
     /// <returns><c>true</c> when the fiber's terminal state is interruption; <c>false</c> while running or after normal completion.</returns>
-    member _.IsInterrupted() =
+    member _.IsInterrupted () =
         fiberContext.IsInterrupted()
 
     /// <summary>Returns whether the fiber has reached any terminal state.</summary>
     /// <returns><c>true</c> when the fiber has completed or been interrupted; <c>false</c> while it is still running.</returns>
-    member _.IsTerminal() =
+    member _.IsTerminal () =
         fiberContext.IsTerminal()
 
     /// <summary>Returns the fiber's <c>FiberResult</c> by synchronously blocking the calling thread until it terminates.</summary>
     /// <returns>The terminal state of the fiber.</returns>
     /// <remarks>Prefer <c>Join</c> or <c>Task</c> in effectful code; this method exists for examples and tests.</remarks>
-    member this.UnsafeResult() =
+    member this.UnsafeResult () =
         this.Task() |> Async.AwaitTask |> Async.RunSynchronously
 
     /// <summary>Returns the fiber's success value by synchronously blocking the calling thread until it terminates.</summary>
     /// <returns>The success value when the fiber completed successfully.</returns>
     /// <exception cref="System.InvalidOperationException">Thrown when the fiber failed or was interrupted.</exception>
-    member this.UnsafeSuccess() =
+    member this.UnsafeSuccess () =
         match this.UnsafeResult() with
         | Succeeded value ->
             value
@@ -424,7 +436,7 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
 
     /// <summary>Returns the fiber's identifier as a string.</summary>
     /// <returns>The string form of <c>Id</c>.</returns>
-    override this.ToString() =
+    override this.ToString () =
         this.Id.ToString()
 
     interface IDisposable with
@@ -465,7 +477,7 @@ and [<Sealed>] Channel<'A> private (id: Guid, valueChan: UnboundedChannel<obj>, 
 
     /// <summary>Builds an effect that receives the next message from this channel, blocking until one is available.</summary>
     /// <returns>An effect that completes with the next message, suspending the fiber while the channel is empty.</returns>
-    member this.Read<'E>() : FIO<'A, 'E> =
+    member this.Read<'E> () : FIO<'A, 'E> =
         ReadChan this
 
     /// <summary>Transforms the channel state by asynchronously adding a value to the underlying buffer.</summary>
@@ -560,13 +572,6 @@ and FIO<'A, 'E> =
     | OnFinalize of eff: FIO<'A, 'E> * finalizer: FIO<obj, obj>
     | FiberCancellationToken
 
-    /// <summary>Creates a new fiber that runs this effect concurrently with the caller.</summary>
-    /// <typeparam name="'E1">The error type of the resulting effect; never produced because forking does not fail.</typeparam>
-    /// <returns>An effect that completes with a <c>Fiber</c> handle to the newly running fiber.</returns>
-    member this.Fork<'E1> () : FIO<Fiber<'A, 'E>, 'E1> =
-        let fiber = new Fiber<'A, 'E>()
-        ForkEffect(this.UpcastBoth(), fiber, fiber.Context)
-
     /// <summary>Combines this effect with a continuation that runs on its successful result.</summary>
     /// <typeparam name="'A1">The success result type produced by the continuation.</typeparam>
     /// <param name="cont">A function from this effect's success value to the next effect to run.</param>
@@ -587,6 +592,55 @@ and FIO<'A, 'E> =
     /// <remarks>The main effect's error takes precedence; a failure raised by <paramref name="finalizer"/> only surfaces when the main effect succeeded.</remarks>
     member this.Ensuring (finalizer: FIO<unit, 'E>) : FIO<'A, 'E> =
         OnFinalize(this, finalizer.UpcastBoth())
+
+    /// <summary>Creates a new fiber that runs this effect concurrently with the caller.</summary>
+    /// <typeparam name="'E1">The error type of the resulting effect; never produced because forking does not fail.</typeparam>
+    /// <returns>An effect that completes with a <c>Fiber</c> handle to the newly running fiber.</returns>
+    member this.Fork<'E1> () : FIO<Fiber<'A, 'E>, 'E1> =
+        let fiber = new Fiber<'A, 'E>()
+        ForkEffect(this.UpcastBoth(), fiber, fiber.Context)
+
+    /// <summary>Transforms the success value of this effect with a pure function.</summary>
+    /// <typeparam name="'A1">The success result type produced by the mapper.</typeparam>
+    /// <param name="mapper">A pure function from this effect's success value to the new success value.</param>
+    /// <returns>An effect that completes with <paramref name="mapper"/> applied to the original success value.</returns>
+    member this.Map<'A1> (mapper: 'A -> 'A1) : FIO<'A1, 'E> =
+        this.FlatMap <| fun value -> Success (mapper value)
+
+    /// <summary>Transforms the typed error of this effect with a pure function.</summary>
+    /// <typeparam name="'E1">The error type produced by the mapper.</typeparam>
+    /// <param name="mapper">A pure function from this effect's typed error to the new typed error.</param>
+    /// <returns>An effect that propagates the original success value, or fails with <paramref name="mapper"/> applied to the original error.</returns>
+    member this.MapError<'E1> (mapper: 'E -> 'E1) : FIO<'A, 'E1> =
+        this.CatchAll <| fun error -> Failure (mapper error)
+
+    /// <summary>Transforms both the success and error channels of this effect with pure functions.</summary>
+    /// <typeparam name="'A1">The success result type produced by <paramref name="successMapper"/>.</typeparam>
+    /// <typeparam name="'E1">The error type produced by <paramref name="errorMapper"/>.</typeparam>
+    /// <param name="successMapper">A pure function from the original success value to the new success value.</param>
+    /// <param name="errorMapper">A pure function from the original typed error to the new typed error.</param>
+    /// <returns>An effect with both channels transformed by their respective mappers.</returns>
+    member this.MapBoth<'A1, 'E1> (successMapper: 'A -> 'A1) (errorMapper: 'E -> 'E1) : FIO<'A1, 'E1> =
+        this.Map(successMapper).MapError errorMapper
+
+    /// <summary>Transforms this effect into an infallible effect whose success channel carries a <c>Result</c>.</summary>
+    /// <typeparam name="'E1">The error type of the resulting effect; never produced because the original error is moved into the success channel.</typeparam>
+    /// <returns>An effect that completes with <c>Ok</c> on success or <c>Error</c> on failure.</returns>
+    member this.Result<'E1> () : FIO<Result<'A, 'E>, 'E1> =
+        this.Map(Ok).CatchAll <| fun error -> Success (Error error)
+
+    /// <summary>Transforms this effect into an infallible effect whose success channel carries an <c>Option</c>, discarding the error.</summary>
+    /// <typeparam name="'E1">The error type of the resulting effect; never produced because failures are mapped to <c>None</c>.</typeparam>
+    /// <returns>An effect that completes with <c>Some</c> on success or <c>None</c> on failure.</returns>
+    member this.Option<'E1> () : FIO<'A option, 'E1> =
+        this.Map(Some).CatchAll <| fun _ -> Success None
+
+    /// <summary>Transforms this effect into an infallible effect whose success channel carries a <c>Choice</c>.</summary>
+    /// <typeparam name="'E1">The error type of the resulting effect; never produced because failures are moved into the success channel.</typeparam>
+    /// <returns>An effect that completes with <c>Choice1Of2</c> on success or <c>Choice2Of2</c> on failure.</returns>
+    member this.Choice<'E1> () : FIO<Choice<'A, 'E>, 'E1> =
+        this.Map(Choice1Of2).CatchAll(fun error ->
+            Success (Choice2Of2 error))
 
     static member inline private flattenOnFinalize
         (leafUpcast: FIO<'A, 'E> -> FIO<'OR, 'OE>)

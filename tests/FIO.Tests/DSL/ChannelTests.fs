@@ -28,6 +28,8 @@ let channelTests =
     testList
         "Channel"
         [
+            // ─── Constructor ─────────────────────────────────────────
+
             testPropertyWithConfig fsCheckConfig "Constructor - creates channel with zero count"
             <| fun (runtime: FIORuntime) ->
                 let eff =
@@ -55,6 +57,8 @@ let channelTests =
 
                 Expect.equal c1 1 "Channel with message should have count 1"
                 Expect.equal c2 0 "Other channel should remain at count 0")
+
+            // ─── Id ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "Id - each channel has unique id"
             <| fun (runtime: FIORuntime) ->
@@ -85,6 +89,8 @@ let channelTests =
                     runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal id1 id2 "Id should return the same value on repeated access"
+
+            // ─── Count ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "Count - increments after send"
             <| fun (runtime: FIORuntime, msg: int) ->
@@ -143,6 +149,8 @@ let channelTests =
                 Expect.equal c2 2 "Count should be 2 after one receive"
                 Expect.equal c1 1 "Count should be 1 after two receives")
 
+            // ─── Send ─────────────────────────────────────────
+
             testPropertyWithConfig fsCheckConfig "Send - returns the sent message"
             <| fun (runtime: FIORuntime, msg: int) ->
                 let eff =
@@ -184,6 +192,8 @@ let channelTests =
                     runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result (a, b) "Send should return the sent tuple"
+
+            // ─── Receive ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "Receive - returns sent message"
             <| fun (runtime: FIORuntime, msg: int) ->
@@ -268,6 +278,8 @@ let channelTests =
 
                 Expect.equal result 42 "Blocked receiver should get message once sent")
 
+            // ─── Concurrent ─────────────────────────────────────────
+
             testAllRuntimes "Concurrent - multiple receivers get all messages" (fun runtime ->
                 let eff =
                     fio {
@@ -310,6 +322,8 @@ let channelTests =
 
                 Expect.equal result [ 1; 2; 3 ] "All sent messages should be receivable")
 
+            // ─── Isolation ─────────────────────────────────────────
+
             testPropertyWithConfig fsCheckConfig "Isolation - messages don't cross channels"
             <| fun (runtime: FIORuntime) ->
                 let eff =
@@ -330,13 +344,15 @@ let channelTests =
                 Expect.equal c2 0 "Other channel should be empty"
                 Expect.equal received 42 "Should receive from correct channel"
 
+            // ─── Interruption ─────────────────────────────────────────
+
             testAllRuntimes "Interruption - blocked receiver can be interrupted" (fun runtime ->
                 let eff =
                     fio {
                         let chan = Channel<int>()
                         let! receiverFiber = (chan.Read()).Fork()
                         do! FIO.sleep (TimeSpan.FromMilliseconds 10.0) id
-                        do! receiverFiber.Interrupt ExplicitInterrupt "Interrupted"
+                        do! receiverFiber.InterruptNow ()
                         return receiverFiber
                     }
 
@@ -346,6 +362,8 @@ let channelTests =
                 match fiber.UnsafeResult() with
                 | Interrupted _ -> ()
                 | other -> failtest $"Expected Interrupted but got: {other}")
+
+            // ─── Stress ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "Stress - 1000 sequential messages preserve FIFO order"
             <| fun (runtime: FIORuntime) ->

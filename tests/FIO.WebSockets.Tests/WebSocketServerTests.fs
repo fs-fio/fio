@@ -14,6 +14,7 @@ let webSocketServerTests =
     testList
         "WebSocketServer"
         [
+            // ─── Lifecycle ─────────────────────────────────────────
 
             testAllRuntimes "start creates listening server" (fun runtime ->
                 let port = findAvailablePort ()
@@ -40,6 +41,8 @@ let webSocketServerTests =
                     }
 
                 runtime.Run(eff).UnsafeSuccess())
+
+            // ─── Accept ─────────────────────────────────────────
 
             testAllRuntimes "accept receives client connection" (fun runtime ->
                 withTestServer

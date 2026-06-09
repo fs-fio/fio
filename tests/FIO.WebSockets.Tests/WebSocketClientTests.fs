@@ -18,6 +18,7 @@ let webSocketClientTests =
     testList
         "WebSocketClient"
         [
+            // ─── Connect ─────────────────────────────────────────
 
             testAllRuntimes "connect with URI and config succeeds" (fun runtime ->
                 withTestServer
@@ -81,6 +82,8 @@ let webSocketClientTests =
                 match result with
                 | Some(GeneralError _) -> ()
                 | other -> failtest $"Expected GeneralError but got {other}")
+
+            // ─── Scoped lifetime ─────────────────────────────────────────
 
             testAllRuntimes "withConnection auto-closes" (fun runtime ->
                 withTestServer

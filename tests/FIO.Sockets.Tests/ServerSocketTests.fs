@@ -16,6 +16,7 @@ let serverSocketTests =
     testList
         "ServerSocket"
         [
+            // ─── Bind / Accept ─────────────────────────────────────────
 
             testAllRuntimes "bind succeeds on port 0" (fun runtime ->
                 let eff =
@@ -51,6 +52,8 @@ let serverSocketTests =
                             do! socket.Close()
                         })
                     runtime)
+
+            // ─── Lifecycle ─────────────────────────────────────────
 
             testAllRuntimes "withServerSocket provides acquire/release" (fun runtime ->
                 let eff =
@@ -88,6 +91,8 @@ let serverSocketTests =
                                 do! socket.Close()
                             }))
                     runtime)
+
+            // ─── Inspection ─────────────────────────────────────────
 
             testAllRuntimes "getConfig returns bound configuration" (fun runtime ->
                 let eff =

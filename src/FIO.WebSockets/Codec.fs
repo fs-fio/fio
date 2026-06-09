@@ -120,13 +120,13 @@ module Codec =
         }
 
     /// <summary>Transforms a codec into one for a different type using bidirectional mapping functions.</summary>
-    /// <typeparam name="A">The source codec's value type.</typeparam>
-    /// <typeparam name="B">The target value type.</typeparam>
+    /// <typeparam name="T">The source codec's value type.</typeparam>
+    /// <typeparam name="T1">The target value type.</typeparam>
     /// <param name="f">A function that converts a decoded source value to the target type.</param>
     /// <param name="g">A function that converts a target value back to the source type for encoding.</param>
     /// <param name="codec">The source codec to transform.</param>
     /// <returns>A codec that encodes and decodes values of the target type.</returns>
-    let map (f: 'M -> 'B) (g: 'B -> 'M) codec =
+    let map (f: 'T -> 'T1) (g: 'T1 -> 'T) codec =
         {
             Encode = fun b -> codec.Encode(g b)
             Decode =
@@ -138,14 +138,14 @@ module Codec =
         }
 
     /// <summary>Combines two codecs into one that encodes and decodes pairs as a two-element JSON array.</summary>
-    /// <typeparam name="A">The type of the first element.</typeparam>
-    /// <typeparam name="B">The type of the second element.</typeparam>
+    /// <typeparam name="T">The type of the first element.</typeparam>
+    /// <typeparam name="T1">The type of the second element.</typeparam>
     /// <param name="codec1">The codec for the first element of the pair.</param>
     /// <param name="codec2">The codec for the second element of the pair.</param>
     /// <returns>A codec that encodes pairs as JSON array text frames and decodes them back to tuples.</returns>
 
     // TODO: This function seems to be broken.
-    let compose (codec1: WebSocketCodec<'M>) (codec2: WebSocketCodec<'B>) =
+    let compose (codec1: WebSocketCodec<'T>) (codec2: WebSocketCodec<'T1>) =
         {
             Encode =
                 fun (a, b) ->
@@ -191,8 +191,8 @@ module Codec =
                                             Exception $"Expected string for second element, got {arr.[1].ValueKind}"
                                         )
 
-                                let a = JsonSerializer.Deserialize<'M> jsonA
-                                let b = JsonSerializer.Deserialize<'B> jsonB
+                                let a = JsonSerializer.Deserialize<'T> jsonA
+                                let b = JsonSerializer.Deserialize<'T1> jsonB
 
                                 a, b)
                             WsError.fromException

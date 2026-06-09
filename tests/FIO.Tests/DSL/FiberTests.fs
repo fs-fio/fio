@@ -80,7 +80,7 @@ let fiberTests =
                         let eff =
                             fio {
                                 let! fiber = FIO.never().Fork()
-                                do! fiber.Interrupt ExplicitInterrupt "Interrupted"
+                                do! fiber.InterruptNow ()
                                 do! (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).MapError(fun _ -> "error")
                                 return fiber.CancellationToken.IsCancellationRequested
                             }
@@ -143,7 +143,7 @@ let fiberTests =
                         let eff =
                             fio {
                                 let! fiber = FIO.never().Fork()
-                                do! fiber.Interrupt ExplicitInterrupt "Interrupted"
+                                do! fiber.InterruptNow ()
                                 do! (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).MapError(fun _ -> "error")
                                 return fiber.IsInterrupted()
                             }
@@ -252,7 +252,7 @@ let fiberTests =
 
                     testAllRuntimes "Returns Interrupted for interrupted fiber" (fun runtime ->
                         let fiber =
-                            runtime.Run(FIO.interrupt ExplicitInterrupt "test")
+                            runtime.Run(FIO.interruptNow ())
 
                         let result = fiber.UnsafeResult()
 
@@ -327,7 +327,7 @@ let fiberTests =
                         let eff =
                             fio {
                                 let! fiber = FIO.never().Fork()
-                                do! fiber.Interrupt ExplicitInterrupt "Interrupted"
+                                do! fiber.InterruptNow ()
                                 do! (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).MapError(fun _ -> "error")
                                 return fiber.IsInterrupted()
                             }
@@ -434,7 +434,7 @@ let fiberTests =
                         let eff =
                             fio {
                                 let! fiber = FIO.never<int, string>().Fork()
-                                do! fiber.Interrupt ExplicitInterrupt "Interrupted"
+                                do! fiber.InterruptNow ()
                                 do! (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).MapError(fun _ -> "error")
                                 return! fiber.Await()
                             }
@@ -456,7 +456,7 @@ let fiberTests =
                         let eff =
                             fio {
                                 let! fiber = FIO.never<int, string>().Fork()
-                                return! fiber.InterruptAwait ExplicitInterrupt "Interrupted"
+                                return! fiber.InterruptAwaitNow ()
                             }
 
                         let result =
@@ -491,7 +491,7 @@ let fiberTests =
                             fio {
                                 let! fiber = FIO.succeed(value).Fork()
                                 let! _result = fiber.Join()
-                                return! fiber.InterruptAwait ExplicitInterrupt "Interrupted"
+                                return! fiber.InterruptAwaitNow ()
                             }
 
                         let result =
@@ -527,7 +527,7 @@ let fiberTests =
                             fio {
                                 let! fiber = FIO.never<int, string>().Fork()
                                 let! poll = fiber.Poll()
-                                do! fiber.Interrupt ExplicitInterrupt "Interrupted"
+                                do! fiber.InterruptNow ()
                                 return poll
                             }
 
@@ -563,11 +563,10 @@ let fiberTests =
                                 let! fiber = FIO.succeed(value).Fork()
 
                                 return!
-                                    fiber.JoinWith(
-                                        (fun r -> FIO.succeed (r * 2)),
-                                        (fun (_: string) -> FIO.succeed -1),
+                                    fiber.JoinWith
+                                        (fun r -> FIO.succeed (r * 2))
+                                        (fun (_: string) -> FIO.succeed -1)
                                         (fun _ -> FIO.succeed -2)
-                                    )
                             }
 
                         let result =
@@ -581,11 +580,10 @@ let fiberTests =
                             fio {
                                 let! fiber = FIO.fail(error).Fork()
                                 return!
-                                    fiber.JoinWith(
-                                        (fun (_: int) -> FIO.succeed "success"),
-                                        (fun e -> FIO.succeed ($"caught: {e}")),
+                                    fiber.JoinWith
+                                        (fun (_: int) -> FIO.succeed "success")
+                                        (fun e -> FIO.succeed ($"caught: {e}"))
                                         (fun _ -> FIO.succeed "interrupted")
-                                    )
                             }
 
                         let result =
@@ -597,15 +595,14 @@ let fiberTests =
                         let eff =
                             fio {
                                 let! fiber = FIO.never<int, string>().Fork()
-                                do! fiber.Interrupt ExplicitInterrupt "Interrupted"
+                                do! fiber.InterruptNow ()
                                 do! (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).MapError(fun _ -> "error")
 
                                 return!
-                                    fiber.JoinWith(
-                                        (fun _ -> FIO.succeed "success"),
-                                        (fun _ -> FIO.succeed "failed"),
+                                    fiber.JoinWith
+                                        (fun _ -> FIO.succeed "success")
+                                        (fun _ -> FIO.succeed "failed")
                                         (fun _ -> FIO.succeed "interrupted")
-                                    )
                             }
 
                         let result =
@@ -641,7 +638,7 @@ let fiberTests =
 
                     testAllRuntimes "Interrupted - pattern matches interrupted result with cause" (fun runtime ->
                         let fiber =
-                            runtime.Run(FIO.interrupt ExplicitInterrupt "test interruption")
+                            runtime.Run(FIO.interruptNow ())
                         let result = fiber.UnsafeResult()
 
                         match result with

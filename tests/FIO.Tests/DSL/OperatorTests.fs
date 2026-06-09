@@ -13,6 +13,7 @@ let operatorTests =
     testList
         "Operators"
         [
+            // ─── Sequential composition (*>, <*, <*>) ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "( *> ) ZipRight success"
             <| fun (runtime: FIORuntime, a: int, b: string) ->
@@ -79,6 +80,8 @@ let operatorTests =
 
                 Expect.equal operatorResult error "( <*> ) should propagate error"
                 Expect.equal operatorResult methodResult "( <*> ) should equal Zip on error"
+
+            // ─── Parallel composition (<&>, <&&>, &>, <&) ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "( <&> ) ZipPar success"
             <| fun (runtime: FIORuntime, a: int, b: int) ->
@@ -173,6 +176,8 @@ let operatorTests =
                 | Failed e -> Expect.equal e error "ZipParLeft should propagate error"
                 | _ -> failtest "Expected error"
 
+            // ─── Fallback (<|>) ─────────────────────────────────────────
+
             testPropertyWithConfig fsCheckConfig "( <|> ) OrElse first succeeds"
             <| fun (runtime: FIORuntime, a: int, b: int) ->
                 let eff1 = FIO.succeed a
@@ -205,6 +210,8 @@ let operatorTests =
 
                 Expect.equal operatorResult err2 "( <|> ) should return second error when both fail"
                 Expect.equal operatorResult methodResult "( <|> ) should equal OrElse when both fail"
+
+            // ─── Bind / Map (>>=, <!>) ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "( >>= ) FlatMap success"
             <| fun (runtime: FIORuntime, a: int, f: int -> int) ->

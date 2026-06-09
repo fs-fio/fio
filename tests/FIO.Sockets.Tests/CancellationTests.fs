@@ -8,6 +8,7 @@ open FIO.Sockets
 
 open System
 open System.Diagnostics
+open System.Threading.Tasks
 
 open Expecto
 
@@ -42,7 +43,7 @@ let cancellationTests =
 
                         let! connectFiber = (SocketClient.connect config).Fork()
                         do! sleepMs 100.0
-                        do! connectFiber.Interrupt ExplicitInterrupt "Interrupted"
+                        do! connectFiber.InterruptNow ()
 
                         let! terminated, elapsed = waitForTerminal connectFiber 3_000
 
@@ -76,7 +77,7 @@ let cancellationTests =
 
                             let! receiveFiber = (socket.ReceiveBytes 8192).Fork()
                             do! sleepMs 100.0
-                            do! receiveFiber.Interrupt ExplicitInterrupt "Interrupted"
+                            do! receiveFiber.InterruptNow ()
 
                             let! terminated, elapsed = waitForTerminal receiveFiber 2_000
 
@@ -103,24 +104,23 @@ let cancellationTests =
                         fio {
                             let! config = SocketConfig.create ("127.0.0.1", port)
                             let! socket = SocketClient.connect config
-
-                            // Parent holds the child as state so we can inspect it after parent dies.
-                            let childRef = ref Unchecked.defaultof<Fiber<byte[] * int, SocketError>>
+                            let childTcs = TaskCompletionSource<Fiber<byte[] * int, SocketError>>()
 
                             let! parent =
                                 (fio {
                                     let! childFiber = (socket.ReceiveBytes 8192).Fork()
-                                    childRef.Value <- childFiber
+                                    childTcs.SetResult childFiber
                                     // Parent holds forever; will be interrupted externally.
                                     do! FIO.never<unit, SocketError> ()
                                 })
                                     .Fork()
 
                             do! sleepMs 150.0
-                            do! parent.Interrupt ExplicitInterrupt "Interrupted"
+                            do! parent.InterruptNow ()
 
                             let! parentTerminated, _ = waitForTerminal parent 2_000
-                            let! childTerminated, _ = waitForTerminal childRef.Value 2_000
+                            let! child = FIO.awaitTask childTcs.Task SocketError.fromException
+                            let! childTerminated, _ = waitForTerminal child 2_000
 
                             Expect.isTrue parentTerminated "Parent fiber should reach terminal state after Interrupt"
                             Expect.isTrue (parent.IsInterrupted()) "Parent fiber should be interrupted"
@@ -130,7 +130,7 @@ let cancellationTests =
                                 "Child fiber reading on the socket should also reach terminal state"
 
                             Expect.isTrue
-                                (childRef.Value.IsInterrupted())
+                                (child.IsInterrupted())
                                 "Child fiber should be interrupted via parent-child propagation"
 
                             do! socket.Close()

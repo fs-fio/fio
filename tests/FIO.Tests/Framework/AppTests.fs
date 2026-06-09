@@ -88,6 +88,8 @@ let appTests =
     <| testList
         "FIOApp"
         [
+            // ─── Runtime & Run basics ─────────────────────────────────────────
+
             testCase "runtime - defaults to ConcurrentRuntime"
             <| fun () ->
                 let app = MinimalApp(FIO.succeed 1)
@@ -127,6 +129,8 @@ let appTests =
 
                 Expect.equal exitCode 0 "RunAsync should return exit code 0 for success"
 
+            // ─── Exit code mapping ─────────────────────────────────────────
+
             testCase "Run - error effect returns exit code 1 by default"
             <| fun () ->
                 silenceErr (fun () ->
@@ -142,7 +146,7 @@ let appTests =
             <| fun () ->
                 silenceErr (fun () ->
                     let log = ResizeArray()
-                    let app = TestApp(FIO.interrupt ExplicitInterrupt "test", log)
+                    let app = TestApp(FIO.interruptNow (), log)
 
                     let exitCode = app.Run()
 
@@ -195,6 +199,8 @@ let appTests =
 
                 Expect.equal exitCode 20 "Custom error exit code should be 20"
 
+            // ─── Shutdown hooks ─────────────────────────────────────────
+
             testCase "onShutdown - default hook is a no-op that does not affect exit code"
             <| fun () ->
                 let app = MinimalApp(FIO.succeed 42)
@@ -246,6 +252,8 @@ let appTests =
                     let exitCode = app.Run()
 
                     Expect.equal exitCode 0 "Timed-out shutdown should still produce the main outcome's exit code")
+
+            // ─── Lifecycle / Stop ─────────────────────────────────────────
 
             testCase "Run - sequential runs do not leak resources"
             <| fun () ->

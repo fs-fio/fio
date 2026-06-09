@@ -18,6 +18,7 @@ let webSocketTests =
     testList
         "WebSocket"
         [
+            // ─── Send / Receive ─────────────────────────────────────────
 
             testAllRuntimes "SendText/ReceiveMessage text roundtrip" (fun runtime ->
                 withTestServer
@@ -103,6 +104,8 @@ let webSocketTests =
                         })
                     runtime)
 
+            // ─── Connection state ─────────────────────────────────────────
+
             testAllRuntimes "State returns Open for connected socket" (fun runtime ->
                 withTestServer
                     noopHandler
@@ -130,6 +133,8 @@ let webSocketTests =
                             do! ws.Close()
                         })
                     runtime)
+
+            // ─── Close / Abort ─────────────────────────────────────────
 
             testAllRuntimes "Close transitions state" (fun runtime ->
                 withTestServer

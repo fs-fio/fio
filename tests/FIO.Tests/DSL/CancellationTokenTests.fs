@@ -26,6 +26,8 @@ let cancellationTokenTests =
     testList
         "FIO.cancellationToken"
         [
+            // ─── Within the running fiber ─────────────────────────────────────────
+
             testAllRuntimes "Returns a non-cancelled token in a healthy fiber" (fun runtime ->
                 let eff = FIO.cancellationToken<string> ()
                 let token = runtime.Run(eff).UnsafeSuccess()
@@ -46,7 +48,7 @@ let cancellationTokenTests =
                                 .Fork()
 
                         do! (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).MapError(fun _ -> "sleep error")
-                        do! fiber.Interrupt ExplicitInterrupt "Interrupted"
+                        do! fiber.InterruptNow ()
                         return fiber.CancellationToken.IsCancellationRequested
                     }
 
@@ -65,6 +67,8 @@ let cancellationTokenTests =
                 let equal = runtime.Run(eff).UnsafeSuccess()
 
                 Expect.isTrue equal "Repeated reads of cancellationToken in the same fiber should be equal")
+
+            // ─── Across fiber boundaries ─────────────────────────────────────────
 
             testAllRuntimes "Sibling fibers receive distinct tokens" (fun runtime ->
                 let eff =
@@ -111,7 +115,7 @@ let cancellationTokenTests =
                                 .Fork()
 
                         do! (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).MapError(fun _ -> "sleep error")
-                        do! parent.Interrupt ExplicitInterrupt "Interrupted"
+                        do! parent.InterruptNow ()
                         return parent.CancellationToken.IsCancellationRequested
                     }
 

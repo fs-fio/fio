@@ -16,6 +16,7 @@ let serverTests =
         testList
             "Server"
             [
+                // ─── Routing ─────────────────────────────────────────
 
                 testCase "starts and responds to GET request"
                 <| fun () ->
@@ -55,6 +56,8 @@ let serverTests =
                         let resp = client.GetAsync($"http://127.0.0.1:{port}/unknown").Result
 
                         Expect.equal (int resp.StatusCode) 404 "404")
+
+                // ─── Body handling ─────────────────────────────────────────
 
                 testCase "handles JSON response body"
                 <| fun () ->

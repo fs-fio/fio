@@ -65,23 +65,14 @@ module internal WorkerLifecycle =
 
         struct (cts, workerTask)
 
-/// <summary>Provides shared worker-construction helpers used by all <c>FIOWorkerRuntime</c> subclasses.</summary>
 module internal WorkerBuilders =
 
-    /// <summary>Creates the paired lists of blocking and evaluation workers, distributing each evaluation worker across blocking workers via round-robin indexing.</summary>
-    /// <typeparam name="'B">The concrete blocking-worker type used by this runtime.</typeparam>
-    /// <typeparam name="'E">The concrete evaluation-worker type used by this runtime.</typeparam>
-    /// <param name="blockingCount">The number of blocking workers to build (BWC).</param>
-    /// <param name="evaluationCount">The number of evaluation workers to build (EWC).</param>
-    /// <param name="blockingFactory">A factory that builds the blocking worker at the given index.</param>
-    /// <param name="evaluationFactory">A factory that builds the evaluation worker at the given index, paired with its round-robin-assigned blocking worker.</param>
-    /// <returns>A struct tuple of the blocking-worker list and the evaluation-worker list.</returns>
     let inline buildPairedWorkers
         (blockingCount: int)
         (evaluationCount: int)
-        ([<InlineIfLambda>] blockingFactory: int -> 'B)
-        ([<InlineIfLambda>] evaluationFactory: int -> 'B -> 'E)
-        : struct ('B list * 'E list) =
+        ([<InlineIfLambda>] blockingFactory: int -> 'T1)
+        ([<InlineIfLambda>] evaluationFactory: int -> 'T1 -> 'T2)
+        : struct ('T1 list * 'T2 list) =
         let blockingWorkers = List.init blockingCount blockingFactory
         let blockingWorkerCount = blockingWorkers.Length
 

@@ -39,6 +39,7 @@ let ceTests =
     testList
         "Computation Expression"
         [
+            // ─── Bind ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "Bind - let! binds effect result to variable"
             <| fun (runtime: FIORuntime, value: int) ->
@@ -122,6 +123,8 @@ let ceTests =
 
                 Expect.isFalse thirdRan "Effects after failure should not run")
 
+            // ─── BindReturn ─────────────────────────────────────────
+
             testPropertyWithConfig fsCheckConfig "BindReturn - let!/return maps result"
             <| fun (runtime: FIORuntime, value: int) ->
                 let eff = fio.BindReturn(FIO.succeed value, fun x -> x + 1)
@@ -146,6 +149,8 @@ let ceTests =
 
                 Expect.equal result error "BindReturn should propagate the error"
                 Expect.isFalse mapped "BindReturn mapper should not run on failure"
+
+            // ─── Return / ReturnFrom / Yield ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "Return - return wraps value in effect"
             <| fun (runtime: FIORuntime, value: int) ->
@@ -219,6 +224,8 @@ let ceTests =
                 Expect.equal result value "yield! after do! should work"
                 Expect.isTrue executed "do! before yield! should execute"
 
+            // ─── Zero ─────────────────────────────────────────
+
             testAllRuntimes "Zero - empty fio block returns unit" (fun runtime ->
                 let eff = fio { () }
 
@@ -259,6 +266,8 @@ let ceTests =
 
                 Expect.equal result () "if false without else should return unit"
                 Expect.isFalse executed "if branch should not execute")
+
+            // ─── Combine ─────────────────────────────────────────
 
             testAllRuntimes "Combine - sequences multiple statements correctly" (fun runtime ->
                 let mutable order = []
@@ -332,6 +341,8 @@ let ceTests =
                 Expect.isTrue firstRan "First effect should run before failure"
                 Expect.isTrue secondRan "Second effect should run and fail"
 
+            // ─── Delay ─────────────────────────────────────────
+
             testPropertyWithConfig fsCheckConfig "Delay - body is deferred until Run"
             <| fun (runtime: FIORuntime, value: int) ->
                 let mutable ran = false
@@ -362,6 +373,8 @@ let ceTests =
 
                 Expect.equal result1 1 "First run should return 1"
                 Expect.equal result2 2 "Second run should return 2")
+
+            // ─── TryWith ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "TryWith - catches error and recovers"
             <| fun (runtime: FIORuntime, errorValue: int, recoveryValue: int) ->
@@ -435,6 +448,8 @@ let ceTests =
                 let result = runtime.Run(eff).UnsafeError()
 
                 Expect.equal result "handler-error" "Handler error should propagate when handler fails")
+
+            // ─── TryFinally ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "TryFinally - finalizer runs on success"
             <| fun (runtime: FIORuntime, value: int) ->
@@ -611,6 +626,8 @@ let ceTests =
                 Expect.equal result "recovered: inner-error" "Inner try...with should catch error"
                 Expect.isTrue finalizerRan "Outer finalizer should still run")
 
+            // ─── For ─────────────────────────────────────────
+
             testAllRuntimes "For - iterates over sequence" (fun runtime ->
                 let mutable counter = 0
 
@@ -774,6 +791,8 @@ let ceTests =
 
                 Expect.equal result 10000 "For should handle 10000 iterations without stack overflow")
 
+            // ─── While ─────────────────────────────────────────
+
             testAllRuntimes "While - guard is evaluated at runtime" (fun runtime ->
                 let mutable started = false
                 let mutable counter = 0
@@ -902,6 +921,8 @@ let ceTests =
 
                 Expect.equal result (5, 2) "While should support error recovery in body")
 
+            // ─── Using ─────────────────────────────────────────
+
             testPropertyWithConfig fsCheckConfig "Using - use disposes resource after use"
             <| fun (runtime: FIORuntime, value: int) ->
                 let resource = new TestDisposable()
@@ -1026,6 +1047,8 @@ let ceTests =
                 Expect.equal result () "use should return unit"
                 Expect.isTrue ran "Body should execute even with null disposable")
 
+            // ─── Match ─────────────────────────────────────────
+
             testPropertyWithConfig fsCheckConfig "Match - match! pattern matches on effect result"
             <| fun (runtime: FIORuntime, value: int) ->
                 let eff =
@@ -1073,6 +1096,8 @@ let ceTests =
                 let result = runtime.Run(eff).UnsafeSuccess()
 
                 Expect.equal result 42 "match! should support DU pattern matching")
+
+            // ─── MergeSources ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "MergeSources - let! ... and! zips two effects"
             <| fun (runtime: FIORuntime, a: int, b: int) ->
@@ -1301,6 +1326,8 @@ let ceTests =
 
                 Expect.equal result error "Error from fourth effect in MergeSources5 should propagate"
 
+            // ─── Complex ─────────────────────────────────────────
+
             testAllRuntimes "Complex - control flow with let!/if/for" (fun runtime ->
                 let eff =
                     fio {
@@ -1411,6 +1438,8 @@ let ceTests =
                 let result = runtime.Run(outer).UnsafeSuccess()
 
                 Expect.equal result (error * 10) "Outer try...with should catch inner CE failure"
+
+            // ─── Concurrency ─────────────────────────────────────────
 
             testAllRuntimes "Concurrency - fork and join within CE" (fun runtime ->
                 let eff =

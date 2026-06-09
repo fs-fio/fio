@@ -15,6 +15,7 @@ let socketClientTests =
     testList
         "SocketClient"
         [
+            // ─── Connect ─────────────────────────────────────────
 
             testAllRuntimes "connect succeeds to listening server" (fun runtime ->
                 withTestServer
@@ -58,6 +59,8 @@ let socketClientTests =
                 | Some(ConnectionFailed _) -> ()
                 | other -> failtest $"Expected ConnectionFailed but got {other}")
 
+            // ─── Scoped lifetime ─────────────────────────────────────────
+
             testAllRuntimes "withConnection auto-closes socket" (fun runtime ->
                 withTestServer
                     noopHandler
@@ -89,6 +92,8 @@ let socketClientTests =
                             Expect.equal result "echo test" "Should echo data"
                         })
                     runtime)
+
+            // ─── Codec wrappers ─────────────────────────────────────────
 
             testAllRuntimes "receiveWith receives data with codec" (fun runtime ->
                 withTestServer
