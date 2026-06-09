@@ -1,29 +1,17 @@
-/// <summary>Represents shared interpreter logic used by all FIO runtimes to evaluate effect trees.</summary>
 module internal FIO.Runtime.InterpreterCore
 
 open FIO.DSL
 
 open System.Threading.Tasks
 
-/// <summary>Represents the mutable state carried through a single evaluation step of the interpreter.</summary>
 [<Struct; NoComparison; NoEquality>]
 type InterpreterState =
-    /// <summary>Represents the current effect being evaluated.</summary>
     val mutable Eff: FIO<obj, obj>
-    /// <summary>Represents the continuation stack for pending success, error, and finalizer continuations.</summary>
     val mutable ContStack: ContStack
-    /// <summary>Represents the fiber context owning this evaluation.</summary>
     val mutable FiberContext: FiberContext
-    /// <summary>Represents whether the interpreter has finished processing the current work item.</summary>
     val mutable Completed: bool
-    /// <summary>Represents the count of nested finalizer scopes that suppress interruption checks.</summary>
     val mutable InterruptionSuppressed: int
 
-    /// <summary>Creates an interpreter state initialized with the given effect, continuation stack, fiber context, and interruption suppression count.</summary>
-    /// <param name="eff">The effect to begin evaluating.</param>
-    /// <param name="contStack">The initial continuation stack.</param>
-    /// <param name="fiberContext">The fiber context owning this evaluation.</param>
-    /// <param name="interruptionSuppressed">The initial interruption suppression depth.</param>
     new(eff, contStack, fiberContext, interruptionSuppressed) =
         {
             Eff = eff
@@ -33,35 +21,20 @@ type InterpreterState =
             InterruptionSuppressed = interruptionSuppressed
         }
 
-/// <summary>Represents an effect case that requires runtime-specific handling after shared interpretation.</summary>
 [<Struct; NoComparison; NoEquality>]
 type RuntimeCase =
-    /// <summary>Represents a send operation carrying a message and the target channel.</summary>
     | HandleSendChan of msg: obj * chan: Channel<obj>
-    /// <summary>Represents a receive operation on a channel.</summary>
     | HandleReceiveChan of chan: Channel<obj>
-    /// <summary>Represents a fork of a child effect into a new fiber.</summary>
     | HandleForkEffect of eff: FIO<obj, obj> * fiber: obj * fiberContext: FiberContext
-    /// <summary>Represents a join that waits for a fiber to reach its terminal state.</summary>
     | HandleJoinFiber of fiberContext: FiberContext
-    /// <summary>Represents an await of an in-flight .NET task.</summary>
     | HandleAwaitTask of task: Task<obj> * onError: (exn -> obj)
 
-/// <summary>Represents the current outcome being propagated by the interpreter as it unwinds the continuation stack.</summary>
 [<Struct; NoComparison; NoEquality>]
 type internal Outcome =
-    /// <summary>Represents a success outcome carrying its result value.</summary>
     | OutcomeSuccess of value: obj
-    /// <summary>Represents a typed error outcome carrying its error value.</summary>
     | OutcomeError of error: obj
-    /// <summary>Represents an interruption outcome carrying the interruption error to surface after finalizers run.</summary>
     | OutcomeInterrupt of intrErr: obj
 
-/// <summary>Transforms the current outcome by unwinding the continuation stack and running any nested finalizers until the outcome is dispatched into a continuation or surfaced as the fiber's terminal state.</summary>
-/// <param name="state">The mutable interpreter state carrying the continuation stack, current effect, and interruption suppression depth.</param>
-/// <param name="onSuccessComplete">The callback invoked when the fiber completes with a success value.</param>
-/// <param name="onErrorComplete">The callback invoked when the fiber completes with an error or interruption value.</param>
-/// <param name="initialOutcome">The outcome to propagate.</param>
 let inline processOutcome
     (state: byref<InterpreterState>)
     ([<InlineIfLambda>] onSuccessComplete: obj -> unit)
@@ -79,7 +52,7 @@ let inline processOutcome
             while unwinding do
                 match state.Eff with
                 | OnFinalize(eff, finalizer) ->
-                    state.ContStack.Push(ContStackFrame(FinalizerCont finalizer))
+                    state.ContStack.Push(FinalizerCont finalizer)
                     state.Eff <- eff
                 | _ -> unwinding <- false
         | _ -> ()
@@ -93,9 +66,9 @@ let inline processOutcome
             state.Completed <- true
             loop <- false
         else
-            let stackFrame = state.ContStack.Pop()
+            let cont = state.ContStack.Pop()
 
-            match outcome, stackFrame.Cont with
+            match outcome, cont with
             | OutcomeSuccess value, SuccessCont cont ->
                 try
                     state.Eff <- cont value
@@ -116,17 +89,17 @@ let inline processOutcome
             | OutcomeInterrupt _, FailureCont _ -> ()
             | OutcomeSuccess value, FinalizerCont finalizer ->
                 state.InterruptionSuppressed <- state.InterruptionSuppressed + 1
-                state.ContStack.Push(ContStackFrame(PostFinalizerCont(PostFinalizerSuccess value)))
+                state.ContStack.Push(PostFinalizerCont(PostFinalizerSuccess value))
                 state.Eff <- finalizer
                 loop <- false
             | OutcomeError error, FinalizerCont finalizer ->
                 state.InterruptionSuppressed <- state.InterruptionSuppressed + 1
-                state.ContStack.Push(ContStackFrame(PostFinalizerCont(PostFinalizerError error)))
+                state.ContStack.Push(PostFinalizerCont(PostFinalizerError error))
                 state.Eff <- finalizer
                 loop <- false
             | OutcomeInterrupt error, FinalizerCont finalizer ->
                 state.InterruptionSuppressed <- state.InterruptionSuppressed + 1
-                state.ContStack.Push(ContStackFrame(PostFinalizerCont(PostFinalizerInterrupt error)))
+                state.ContStack.Push(PostFinalizerCont(PostFinalizerInterrupt error))
                 state.Eff <- finalizer
                 loop <- false
             | OutcomeInterrupt _, PostFinalizerCont _ -> ()
@@ -146,11 +119,6 @@ let inline processOutcome
                 | PostFinalizerError savedErr -> outcome <- OutcomeError savedErr
                 | PostFinalizerInterrupt savedErr -> outcome <- OutcomeInterrupt savedErr
 
-/// <summary>Transforms a <c>Result</c> by dispatching to <c>processOutcome</c> with the matching outcome.</summary>
-/// <param name="state">The mutable interpreter state.</param>
-/// <param name="onSuccessComplete">The callback invoked when the fiber completes with a success value.</param>
-/// <param name="onErrorComplete">The callback invoked when the fiber completes with an error value.</param>
-/// <param name="value">The result to dispatch.</param>
 let inline processResult
     (state: byref<InterpreterState>)
     ([<InlineIfLambda>] onSuccessComplete: obj -> unit)
@@ -161,11 +129,6 @@ let inline processResult
     | Ok value -> processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess value)
     | Error error -> processOutcome &state onSuccessComplete onErrorComplete (OutcomeError error)
 
-/// <summary>Transforms the current effect in the interpreter state by handling all cases shared across runtimes, returning <c>ValueSome</c> with a <c>RuntimeCase</c> for cases that require runtime-specific handling.</summary>
-/// <param name="state">The mutable interpreter state to advance.</param>
-/// <param name="onSuccessComplete">The callback invoked when the fiber completes with a success value.</param>
-/// <param name="onErrorComplete">The callback invoked when the fiber completes with an error value.</param>
-/// <returns><c>ValueNone</c> when the case was fully handled; <c>ValueSome</c> carrying a <c>RuntimeCase</c> when the caller must apply runtime-specific logic.</returns>
 let inline handleSharedCase
     (state: byref<InterpreterState>)
     ([<InlineIfLambda>] onSuccessComplete: obj -> unit)
@@ -212,15 +175,23 @@ let inline handleSharedCase
         ValueNone
     | ChainSuccess(eff, cont) ->
         state.Eff <- eff
-        state.ContStack.Push(ContStackFrame(SuccessCont cont))
+        state.ContStack.Push(SuccessCont cont)
         ValueNone
     | ChainError(eff, cont) ->
         state.Eff <- eff
-        state.ContStack.Push(ContStackFrame(FailureCont cont))
+        state.ContStack.Push(FailureCont cont)
+        ValueNone
+    | ChainBoth(eff, successCont, errorCont) ->
+        state.Eff <- eff
+        state.ContStack.Push(FailureCont errorCont)
+        state.ContStack.Push(SuccessCont successCont)
         ValueNone
     | OnFinalize(eff, finalizer) ->
-        state.ContStack.Push(ContStackFrame(FinalizerCont finalizer))
+        state.ContStack.Push(FinalizerCont finalizer)
         state.Eff <- eff
+        ValueNone
+    | Suspend thunk ->
+        state.Eff <- thunk ()
         ValueNone
     | WriteChan(msg, chan) -> ValueSome(HandleSendChan(msg, chan))
     | ReadChan chan -> ValueSome(HandleReceiveChan chan)
@@ -228,10 +199,6 @@ let inline handleSharedCase
     | JoinFiber fiberContext -> ValueSome(HandleJoinFiber fiberContext)
     | AwaitTask(task, onError) -> ValueSome(HandleAwaitTask(task, onError))
 
-/// <summary>Creates a cancellation-token registration that interrupts the child fiber when the parent fiber is cancelled.</summary>
-/// <param name="parentContext">The parent fiber context whose cancellation triggers child interruption.</param>
-/// <param name="childContext">The child fiber context to interrupt on parent cancellation.</param>
-/// <returns>The cancellation registration, which is also stored on the child context for disposal.</returns>
 let inline setupForkRegistration (parentContext: FiberContext) (childContext: FiberContext) =
     let registration =
         parentContext.CancellationToken.Register(fun () ->

@@ -394,6 +394,25 @@ let fioTests =
 
                 Expect.equal result 0 "Deep Ensuring chain should yield the seed value"
 
+            testAllRuntimes "Stack safety - deep left-chained MapBoth via Fork"
+            <| fun (runtime: FIORuntime) ->
+                let depth = 10000
+                let mutable eff : FIO<int, string> = FIO.succeed 0
+
+                for _ in 1..depth do
+                    eff <- eff.MapBoth (fun n -> n + 1) id
+
+                let joined =
+                    fio {
+                        let! fiber = eff.Fork()
+                        return! fiber.Join()
+                    }
+
+                let result =
+                    runtime.Run(joined).UnsafeSuccess()
+
+                Expect.equal result depth $"Deep MapBoth chain should yield {depth}"
+
             // ─── Scheduler edge cases ─────────────────────────────────────────
 
             testAllRuntimes "AddRegistration - fast-completing forked effects do not wedge under load"

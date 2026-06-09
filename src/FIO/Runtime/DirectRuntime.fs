@@ -1,4 +1,3 @@
-/// <summary>Provides the direct FIO runtime, which interprets effects on .NET tasks without dedicated worker threads.</summary>
 module FIO.Runtime.Direct
 
 open FIO.DSL
@@ -7,24 +6,15 @@ open FIO.Runtime.InterpreterCore
 open System
 open System.Threading.Tasks
 
-/// <summary>Represents the FIO runtime that interprets effects directly on the calling thread, dispatching forked work onto .NET tasks.</summary>
 type DirectRuntime() =
     inherit FIORuntime()
 
-    /// <summary>Represents the fiber context of the most recently started root fiber.</summary>
     let mutable currentFiber: FiberContext option = None
 
-    /// <summary>Represents the lock that serializes calls to <c>Run</c>.</summary>
     let runLock = obj ()
 
-    /// <summary>Returns the human-readable name of this runtime.</summary>
-    /// <returns>The runtime's name.</returns>
     override _.Name = "DirectRuntime"
 
-    /// <summary>Transforms an effect tree into a completed <c>Result</c> by interpreting each node on the calling task.</summary>
-    /// <param name="eff">The type-erased effect to evaluate.</param>
-    /// <param name="currentFiberContext">The fiber context that owns this evaluation.</param>
-    /// <returns>A task that completes with <c>Ok</c> on success or <c>Error</c> on failure or interruption.</returns>
     [<TailCall>]
     member private this.InterpretAsync(eff, currentFiberContext: FiberContext) =
         let mutable state =
@@ -106,13 +96,7 @@ type DirectRuntime() =
                 ContStackPool.Return state.ContStack
         }
 
-    /// <summary>Creates a new fiber that interprets the given effect on this runtime.</summary>
-    /// <typeparam name="'A">The success result type produced by the effect.</typeparam>
-    /// <typeparam name="'E">The typed error type the effect may fail with.</typeparam>
-    /// <param name="eff">The effect to interpret.</param>
-    /// <returns>A fiber that runs <paramref name="eff"/> and exposes its terminal state.</returns>
-    /// <remarks><c>Run</c> is intended for sequential invocation; if a prior fiber is still running, the call blocks until it completes. Concurrency within a single <c>Run</c> is supplied by forked fibers, not by concurrent calls to <c>Run</c>.</remarks>
-    override this.Run<'A, 'E>(eff: FIO<'A, 'E>) : Fiber<'A, 'E> =
+    override this.Run<'A, 'E> (eff: FIO<'A, 'E>) : Fiber<'A, 'E> =
         lock runLock (fun () ->
             match currentFiber with
             | Some fiberContext when not (fiberContext.IsTerminal()) ->

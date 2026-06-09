@@ -15,6 +15,9 @@ dotnet test tests/FIO.WebSockets.Tests/         # WebSockets tests only
 dotnet test --filter "Name~TestName"            # Run specific test
 dotnet test --filter "Name~PropertyTests"       # Run test file/group
 
+# Examples (five projects: DSL, App, Http, Sockets, WebSockets)
+dotnet run --project examples/FIO.Examples.DSL
+
 # Benchmarks (Release mode)
 dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --concurrent-runtime 39 200 1 --runs 30 --pingpong 150000
 ```
@@ -38,6 +41,27 @@ FIORuntime (abstract)
 ```
 
 `DefaultRuntime = ConcurrentRuntime` (recommended). Worker config params: **EWC** (evaluation worker count), **EWS** (eval steps per work item before rescheduling), **BWC** (blocking worker count).
+
+### Key Files (compile order matters)
+
+Core DSL (`src/FIO/DSL/`):
+- `Core.fs` — `FIO<'A,'E>` DU, `Fiber`, `Channel`, `FiberContext`, `WorkItem`, `ContStack`. Hosts primitive instance members: `FlatMap`, `CatchAll`, `Ensuring`, `Fork` plus the transformation cluster (`Map`/`MapError`/`MapBoth`/`Result`/`Option`/`Choice`) derived from `Success`/`Failure` + the four primitives.
+- `Factories.fs` / `Extensions.fs` / `Operators.fs` / `CE.fs` — public surface built on Core.
+
+Runtime (`src/FIO/Runtime/`):
+- `Runtime.fs` — `FIORuntime` base, `WorkerConfig`, `ContStackPool`, `WorkItemPool`
+- `WorkerInfrastructure.fs` — `FIOWorkerRuntime`, `WorkerLifecycle`
+- `InterpreterCore.fs` — shared interpreter (`InterpreterState`, `processSuccess`/`processError`/`processInterruptError`, `handleSharedCase`, `RuntimeCase` DU for runtime-specific dispatch)
+- `DirectRuntime.fs` / `CooperativeRuntime.fs` / `ConcurrentRuntime.fs` / `DefaultRuntime.fs`
+
+Framework: `src/FIO/Framework/App.fs` — `FIOApp<'A,'E>` with 5-member surface (`effect`, `runtime`, `onShutdown`, `onShutdownTimeout`, `mapExitCode`) over `AppOutcome` (Succeeded/Failed/Interrupted/FatalError).
+
+### Concurrency Primitives (`src/FIO/Lib/`)
+
+- **Promise<'A,'E>** — one-shot, completed once with success/failure
+- **Ref<'T>** — atomic reference, lock-free CAS (`Get`, `Set`, `GetAndUpdate`, …)
+- **Semaphore** — counting semaphore, `WithPermit` for scoped acquisition
+- **InterruptionCause** — `Timeout` | `ParentInterrupted` | `ExplicitInterrupt` | `InvalidArgument` | `ResourceExhaustion`
 
 ### Packages
 
@@ -84,12 +108,38 @@ let effect = fio {
 let effect = someEffect >>= fun x -> FIO.succeed (x + 1)
 ```
 
+### Running Effects
+
+```fsharp
+// Direct
+let fiber = DefaultRuntime().Run effect
+match fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously with
+| Succeeded v -> ...
+| Failed e -> ...
+| Interrupted exn -> ...
+
+// FIOApp (recommended)
+type MyApp() =
+    inherit FIOApp<unit, exn>()
+    override _.effect = myEffect
+
+[<EntryPoint>]
+let main _ = MyApp().Run()
+```
+
 ### Style
 
 - **WarningsAsErrors=true** on all projects — fix all warnings
 - 4-space indentation
 - F# compile order matters — file order in `.fsproj` is the compilation order
 - Short, sentence-style commit messages (e.g., "Fix benchmark output", "Improve App.fs")
+- Experimental compile-time flags: `DETECT_DEADLOCK`, `MONITOR` (in `Runtime.Tools/`)
+
+### Comments / XML Docs
+
+- Public items: XML doc comments required.
+- Non-public items (`internal`, `private`): **no** XML doc comments — strip any that exist.
+- Inline `//` comments: only when the *why* isn't obvious. Never restate what the code does. No commented-out code.
 
 ## Semantic Invariants (Do Not Break)
 
@@ -107,6 +157,14 @@ let effect = someEffect >>= fun x -> FIO.succeed (x + 1)
 - Console tests use `System.Console.SetOut`/`SetIn` with `StringWriter`/`StringReader` for deterministic capture — must use `testSequenced` (not parallel) because `ConsoleBackend` has process-global state
 - Extension tests use `testAllRuntimes` helper wrapping `testSequenced`
 - Stack-safety canary tests in `tests/FIO.Tests/DSL/FIOTests.fs` (depth 10000) are load-bearing — do not simplify `UpcastResult`/`UpcastError`/`UpcastBoth` to plain recursion
+- `InternalsVisibleTo("FIO.Tests")` is set on the core project only; extension libs do not expose internals to their tests
+- Disabled WebSocket test files (commented out in `.fsproj`): `WebSocketServerTests.fs`, `WebSocketPoolTests.fs` (marked "THIS ONE HANGS?") — check before assuming full coverage
+
+## CI / Release
+
+- Tests run on Ubuntu, Windows, macOS; Ubuntu collects coverage (Codecov)
+- Benchmarks run on Ubuntu only (main branch + PRs)
+- Publishing triggered by `v*` git tags — packs and pushes the NuGet packages
 
 ## Architecture Change Checklist
 
