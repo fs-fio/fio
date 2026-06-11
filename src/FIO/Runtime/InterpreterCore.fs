@@ -44,19 +44,19 @@ let inline processOutcome
     let mutable outcome = initialOutcome
     let mutable loop = true
 
+    match initialOutcome with
+    | OutcomeInterrupt _ ->
+        let mutable unwinding = true
+
+        while unwinding do
+            match state.Eff with
+            | OnFinalize(eff, finalizer) ->
+                state.ContStack.Push(FinalizerCont finalizer)
+                state.Eff <- eff
+            | _ -> unwinding <- false
+    | _ -> ()
+
     while loop do
-        match outcome with
-        | OutcomeInterrupt _ ->
-            let mutable unwinding = true
-
-            while unwinding do
-                match state.Eff with
-                | OnFinalize(eff, finalizer) ->
-                    state.ContStack.Push(FinalizerCont finalizer)
-                    state.Eff <- eff
-                | _ -> unwinding <- false
-        | _ -> ()
-
         if state.ContStack.Count = 0 then
             match outcome with
             | OutcomeSuccess value -> onSuccessComplete value

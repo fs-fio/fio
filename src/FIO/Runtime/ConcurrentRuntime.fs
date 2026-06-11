@@ -192,10 +192,13 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
                         | Error error ->
                             processOutcome &state onSuccessComplete onErrorComplete (OutcomeInterrupt error)
                     elif currentEWSteps = 0 then
-                        let newWorkItem = WorkItemPool.Rent(state.Eff, currentFiberContext, state.ContStack)
-                        newWorkItem.InterruptionSuppressed <- state.InterruptionSuppressed
-                        do! activeWorkItemChan.WriteAsync newWorkItem
-                        state.Completed <- true
+                        if activeWorkItemChan.Count > 0 then
+                            let newWorkItem = WorkItemPool.Rent(state.Eff, currentFiberContext, state.ContStack)
+                            newWorkItem.InterruptionSuppressed <- state.InterruptionSuppressed
+                            do! activeWorkItemChan.WriteAsync newWorkItem
+                            state.Completed <- true
+                        else
+                            currentEWSteps <- evalSteps
                     else
                         currentEWSteps <- currentEWSteps - 1
                         match handleSharedCase &state onSuccessComplete onErrorComplete with
@@ -203,7 +206,11 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
                         | ValueSome runtimeCase ->
                             match runtimeCase with
                             | HandleSendChan(msg, chan) ->
-                                do! chan.WriteAsync msg
+                                let writeTask = chan.WriteAsync msg
+
+                                if not writeTask.IsCompletedSuccessfully then
+                                    do! writeTask
+
                                 do! signalBlockingWorkerIfPending chan
                                 processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess msg)
                             | HandleReceiveChan chan ->

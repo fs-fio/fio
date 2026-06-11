@@ -315,8 +315,6 @@ and CooperativeRuntime(config: WorkerConfig) as this =
             currentFiberContext.Complete(Error error)
 
         task {
-            let mutable workItemOwnership = true
-
             try
                 while not state.Completed do
                     if
@@ -327,12 +325,14 @@ and CooperativeRuntime(config: WorkerConfig) as this =
                         | Ok _ -> raise (InvalidOperationException "Fiber was cancelled but completed successfully.")
                         | Error error -> processOutcome &state onSuccessComplete onErrorComplete (OutcomeInterrupt error)
                     elif currentEWSteps = 0 then
-                        let newWorkItem = WorkItemPool.Rent(state.Eff, currentFiberContext, state.ContStack)
+                        if activeWorkItemChan.Count > 0 then
+                            let newWorkItem = WorkItemPool.Rent(state.Eff, currentFiberContext, state.ContStack)
 
-                        newWorkItem.InterruptionSuppressed <- state.InterruptionSuppressed
-                        do! activeWorkItemChan.WriteAsync newWorkItem
-                        workItemOwnership <- false
-                        state.Completed <- true
+                            newWorkItem.InterruptionSuppressed <- state.InterruptionSuppressed
+                            do! activeWorkItemChan.WriteAsync newWorkItem
+                            state.Completed <- true
+                        else
+                            currentEWSteps <- evalSteps
                     else
                         currentEWSteps <- currentEWSteps - 1
 
@@ -341,7 +341,11 @@ and CooperativeRuntime(config: WorkerConfig) as this =
                         | ValueSome runtimeCase ->
                             match runtimeCase with
                             | HandleSendChan(msg, chan) ->
-                                do! chan.WriteAsync msg
+                                let writeTask = chan.WriteAsync msg
+
+                                if not writeTask.IsCompletedSuccessfully then
+                                    do! writeTask
+
                                 processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess msg)
                             | HandleReceiveChan chan ->
                                 let mutable value = Unchecked.defaultof<_>
@@ -354,7 +358,6 @@ and CooperativeRuntime(config: WorkerConfig) as this =
 
                                     newWorkItem.InterruptionSuppressed <- state.InterruptionSuppressed
                                     do! blockingWorker.RescheduleForBlocking <| BlockingChannel(chan, newWorkItem)
-                                    workItemOwnership <- false
                                     state.Completed <- true
                             | HandleForkEffect(eff, fiber, fiberContext) ->
                                 let _registration = setupForkRegistration currentFiberContext fiberContext
@@ -373,7 +376,6 @@ and CooperativeRuntime(config: WorkerConfig) as this =
 
                                     do! blockingWorker.RescheduleForBlocking <| BlockingFiber(fiberContext, newWorkItem)
 
-                                    workItemOwnership <- false
                                     state.Completed <- true
                             | HandleAwaitTask(task, onError) ->
                                 try
