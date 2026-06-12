@@ -113,10 +113,10 @@ let echoHandler (ws: WebSocket) : FIO<unit, WsError> =
 
 /// <summary>Transforms an effect into its result value by running it on the given runtime with a 10-second timeout.</summary>
 /// <param name="runtime">The runtime to execute the effect on.</param>
-/// <param name="eff">The effect to run.</param>
+/// <param name="effect">The effect to run.</param>
 /// <returns>The success value of the effect, or fails the test on error or interruption.</returns>
-let private runWithTimeout (runtime: FIORuntime) (eff: FIO<'A, WsError>) : 'A =
-    let fiber = runtime.Run(eff)
+let private runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, WsError>) : 'A =
+    let fiber = runtime.Run effect
 
     match
         fiber.Task()
@@ -136,7 +136,7 @@ let withTestServer (handler: WebSocket -> FIO<unit, WsError>) (action: int -> FI
     let port = findAvailablePort ()
     let url = $"http://localhost:{port}/"
 
-    let eff =
+    let effect =
         fio {
             let! listener = WebSocketServer.start url
 
@@ -154,7 +154,7 @@ let withTestServer (handler: WebSocket -> FIO<unit, WsError>) (action: int -> FI
             return result
         }
 
-    runWithTimeout runtime eff
+    runWithTimeout runtime effect
 
 /// <summary>Builds a test echo WebSocket server that listens on a random port, runs an accept loop with echo handling, and executes the client action against that port.</summary>
 /// <param name="action">A function from port number to the client effect to execute against the echo server.</param>
@@ -170,7 +170,7 @@ let withTestEchoServer (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
             do! ws.Close().CatchAll(fun _ -> FIO.unit ())
         }
 
-    let eff =
+    let effect =
         fio {
             let! listener = WebSocketServer.start url
 
@@ -183,4 +183,4 @@ let withTestEchoServer (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
             return result
         }
 
-    runWithTimeout runtime eff
+    runWithTimeout runtime effect

@@ -19,14 +19,14 @@ let private silenceErr (body: unit -> 'a) : 'a =
 
 type private TestApp
     (
-        eff: FIO<int, string>,
+        effect: FIO<int, string>,
         log: ResizeArray<string>,
         ?onShutdown: FIO<unit, string>,
         ?shutdownTimeout: TimeSpan
     ) =
     inherit FIOApp<int, string>()
 
-    override _.effect = eff
+    override _.effect = effect
     override _.onShutdownTimeout = defaultArg shutdownTimeout (TimeSpan.FromSeconds 10.0)
 
     override _.onShutdown() =
@@ -53,14 +53,14 @@ type private TestApp
             log.Add "outcome:FatalError"
             2
 
-type private MinimalApp(eff: FIO<int, string>) =
+type private MinimalApp(effect: FIO<int, string>) =
     inherit FIOApp<int, string>()
-    override _.effect = eff
+    override _.effect = effect
 
-type private CustomExitCodeApp(eff: FIO<int, string>) =
+type private CustomExitCodeApp(effect: FIO<int, string>) =
     inherit FIOApp<int, string>()
 
-    override _.effect = eff
+    override _.effect = effect
 
     override _.mapExitCode outcome =
         match outcome with

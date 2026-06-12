@@ -79,12 +79,8 @@ let testAllRuntimes name (f: FIORuntime -> unit) =
             ]
     )
 
-/// <summary>Transforms an effect into its result value by running it on the given runtime with a 10-second timeout.</summary>
-/// <param name="runtime">The runtime to execute the effect on.</param>
-/// <param name="eff">The effect to run.</param>
-/// <returns>The success value of the effect, or fails the test on error or interruption.</returns>
-let runWithTimeout (runtime: FIORuntime) (eff: FIO<'A, exn>) : 'A =
-    let fiber = runtime.Run(eff)
+let runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, exn>) : 'A =
+    let fiber = runtime.Run effect
 
     match
         fiber.Task()
@@ -120,8 +116,8 @@ let makePostRequest (path: string) (body: string) : HttpRequest =
 /// <param name="request">The HTTP request to dispatch.</param>
 /// <returns>The HttpResponse produced by the matched route handler.</returns>
 let dispatchAndRun (runtime: FIORuntime) (routes: Routes<exn>) (request: HttpRequest) : HttpResponse =
-    let eff = Routes.dispatch request routes
-    let fiber = runtime.Run(eff)
+    let effect = Routes.dispatch request routes
+    let fiber = runtime.Run effect
 
     match
         fiber.Task()

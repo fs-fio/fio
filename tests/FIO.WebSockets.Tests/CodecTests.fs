@@ -28,28 +28,28 @@ let codecTests =
                     <| fun (runtime: FIORuntime) ->
                         let frame = Text "hello"
 
-                        let eff =
+                        let effect =
                             fio {
                                 let! encoded = Codec.frame.Encode frame
                                 let! decoded = Codec.frame.Decode encoded
                                 return decoded
                             }
 
-                        let result = runtime.Run(eff).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result frame "frame codec roundtrip"
 
                     testAllRuntimes "Binary frame roundtrip" (fun runtime ->
                         let frame = Binary [| 1uy; 2uy; 3uy |]
 
-                        let eff =
+                        let effect =
                             fio {
                                 let! encoded = Codec.frame.Encode frame
                                 let! decoded = Codec.frame.Decode encoded
                                 return decoded
                             }
 
-                        let result = runtime.Run(eff).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result frame "Binary frame roundtrip")
                 ]
@@ -60,8 +60,8 @@ let codecTests =
 
                     testAllRuntimes "encode produces Binary frame" (fun runtime ->
                         let data = [| 10uy; 20uy; 30uy |]
-                        let eff = Codec.binary.Encode data
-                        let result = runtime.Run(eff).UnsafeSuccess()
+                        let effect = Codec.binary.Encode data
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         match result with
                         | Binary b -> Expect.equal b data "Binary data should match"
@@ -71,20 +71,20 @@ let codecTests =
                     <| fun (runtime: FIORuntime) ->
                         let data = [| 1uy; 2uy; 3uy; 4uy; 5uy |]
 
-                        let eff =
+                        let effect =
                             fio {
                                 let! encoded = Codec.binary.Encode data
                                 let! decoded = Codec.binary.Decode encoded
                                 return decoded
                             }
 
-                        let result = runtime.Run(eff).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result data "binary codec roundtrip"
 
                     testAllRuntimes "decode fails on Text frame" (fun runtime ->
-                        let eff = Codec.binary.Decode(Text "hello")
-                        let error = runtime.Run(eff).UnsafeError()
+                        let effect = Codec.binary.Decode(Text "hello")
+                        let error = runtime.Run(effect).UnsafeError()
 
                         match error with
                         | CodecError _ -> ()
@@ -96,8 +96,8 @@ let codecTests =
                 [
 
                     testAllRuntimes "encode produces Text frame" (fun runtime ->
-                        let eff = Codec.text.Encode "hello"
-                        let result = runtime.Run(eff).UnsafeSuccess()
+                        let effect = Codec.text.Encode "hello"
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         match result with
                         | Text s -> Expect.equal s "hello" "Text content should match"
@@ -107,40 +107,40 @@ let codecTests =
                     <| fun (runtime: FIORuntime) ->
                         let text = "hello world"
 
-                        let eff =
+                        let effect =
                             fio {
                                 let! encoded = Codec.text.Encode text
                                 let! decoded = Codec.text.Decode encoded
                                 return decoded
                             }
 
-                        let result = runtime.Run(eff).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result text "text codec roundtrip"
 
                     testAllRuntimes "empty string" (fun runtime ->
-                        let eff =
+                        let effect =
                             fio {
                                 let! encoded = Codec.text.Encode ""
                                 let! decoded = Codec.text.Decode encoded
                                 return decoded
                             }
 
-                        Expect.equal (runtime.Run(eff).UnsafeSuccess()) "" "empty string roundtrip")
+                        Expect.equal (runtime.Run(effect).UnsafeSuccess()) "" "empty string roundtrip")
 
                     testAllRuntimes "unicode string" (fun runtime ->
-                        let eff =
+                        let effect =
                             fio {
                                 let! encoded = Codec.text.Encode "héllo wörld 🌍"
                                 let! decoded = Codec.text.Decode encoded
                                 return decoded
                             }
 
-                        Expect.equal (runtime.Run(eff).UnsafeSuccess()) "héllo wörld 🌍" "unicode roundtrip")
+                        Expect.equal (runtime.Run(effect).UnsafeSuccess()) "héllo wörld 🌍" "unicode roundtrip")
 
                     testAllRuntimes "decode fails on Binary frame" (fun runtime ->
-                        let eff = Codec.text.Decode(Binary [| 1uy |])
-                        let error = runtime.Run(eff).UnsafeError()
+                        let effect = Codec.text.Decode(Binary [| 1uy |])
+                        let error = runtime.Run(effect).UnsafeError()
 
                         match error with
                         | CodecError _ -> ()
@@ -155,22 +155,22 @@ let codecTests =
                         let msg = { Id = 42; Text = "hello" }
                         let codec = Codec.json
 
-                        let eff =
+                        let effect =
                             fio {
                                 let! encoded = codec.Encode msg
                                 let! decoded = codec.Decode encoded
                                 return decoded
                             }
 
-                        let result = runtime.Run(eff).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result.Id msg.Id "Id should match"
                         Expect.equal result.Text msg.Text "Text should match")
 
                     testAllRuntimes "invalid JSON produces error" (fun runtime ->
                         let codec = Codec.json
-                        let eff = codec.Decode(Text "not valid json!!!")
-                        let error = runtime.Run(eff).UnsafeError()
+                        let effect = codec.Decode(Text "not valid json!!!")
+                        let error = runtime.Run(effect).UnsafeError()
 
                         match error with
                         | GeneralError _ -> ()
@@ -178,8 +178,8 @@ let codecTests =
 
                     testAllRuntimes "Close frame produces CodecError" (fun runtime ->
                         let codec = Codec.json
-                        let eff = codec.Decode(Close(WebSocketCloseStatus.NormalClosure, "bye"))
-                        let error = runtime.Run(eff).UnsafeError()
+                        let effect = codec.Decode(Close(WebSocketCloseStatus.NormalClosure, "bye"))
+                        let error = runtime.Run(effect).UnsafeError()
 
                         match error with
                         | CodecError _ -> ()
@@ -195,14 +195,14 @@ let codecTests =
                         let codec = Codec.jsonWithOptions options
                         let msg = { Id = 7; Text = "custom" }
 
-                        let eff =
+                        let effect =
                             fio {
                                 let! encoded = codec.Encode msg
                                 let! decoded = codec.Decode encoded
                                 return decoded
                             }
 
-                        let result = runtime.Run(eff).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result.Id msg.Id "Id should match"
                         Expect.equal result.Text msg.Text "Text should match")
@@ -215,9 +215,9 @@ let codecTests =
                     testAllRuntimes "encode appends newline" (fun runtime ->
                         let codec = Codec.jsonLine None
                         let msg = { Id = 1; Text = "line" }
-                        let eff = codec.Encode msg
+                        let effect = codec.Encode msg
 
-                        let result = runtime.Run(eff).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         match result with
                         | Text s -> Expect.stringContains s "\n" "Should contain newline"
@@ -227,14 +227,14 @@ let codecTests =
                         let codec = Codec.jsonLine None
                         let msg = { Id = 3; Text = "jsonline" }
 
-                        let eff =
+                        let effect =
                             fio {
                                 let! encoded = codec.Encode msg
                                 let! decoded = codec.Decode encoded
                                 return decoded
                             }
 
-                        let result = runtime.Run(eff).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result.Id msg.Id "Id should match"
                         Expect.equal result.Text msg.Text "Text should match")
@@ -248,14 +248,14 @@ let codecTests =
                     <| fun (runtime: FIORuntime) ->
                         let intCodec = Codec.text |> Codec.map int string
 
-                        let eff =
+                        let effect =
                             fio {
                                 let! encoded = intCodec.Encode 42
                                 let! decoded = intCodec.Decode encoded
                                 return decoded
                             }
 
-                        let result = runtime.Run(eff).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result 42 "map codec roundtrip"
                 ]
@@ -267,14 +267,14 @@ let codecTests =
                     testAllRuntimes "pair roundtrip" (fun runtime ->
                         let pairCodec = Codec.compose Codec.text Codec.text
 
-                        let eff =
+                        let effect =
                             fio {
                                 let! encoded = pairCodec.Encode("hello", "world")
                                 let! decoded = pairCodec.Decode encoded
                                 return decoded
                             }
 
-                        let result = runtime.Run(eff).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result ("hello", "world") "compose codec roundtrip")
                 ]
@@ -290,14 +290,14 @@ let codecTests =
                                 | Text s -> FIO.succeed s
                                 | _ -> FIO.fail (CodecError "Expected text"))
 
-                        let eff =
+                        let effect =
                             fio {
                                 let! encoded = codec.Encode "hello"
                                 let! decoded = codec.Decode encoded
                                 return decoded
                             }
 
-                        let result = runtime.Run(eff).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result "hello" "create codec roundtrip")
                 ]
@@ -313,8 +313,8 @@ let codecTests =
                                 | Text s -> s
                                 | _ -> failwith "unexpected")
 
-                        let eff = codec.Encode "test"
-                        let error = runtime.Run(eff).UnsafeError()
+                        let effect = codec.Encode "test"
+                        let error = runtime.Run(effect).UnsafeError()
 
                         match error with
                         | GeneralError _ -> ()
@@ -324,8 +324,8 @@ let codecTests =
                         let codec =
                             Codec.createPure (fun str -> Text str) (fun (_: WebSocketFrame) -> failwith "boom")
 
-                        let eff = codec.Decode(Text "test")
-                        let error = runtime.Run(eff).UnsafeError()
+                        let effect = codec.Decode(Text "test")
+                        let error = runtime.Run(effect).UnsafeError()
 
                         match error with
                         | GeneralError _ -> ()
@@ -338,14 +338,14 @@ let codecTests =
                                 | Text s -> s
                                 | _ -> failwith "unexpected")
 
-                        let eff =
+                        let effect =
                             fio {
                                 let! encoded = codec.Encode "pure test"
                                 let! decoded = codec.Decode encoded
                                 return decoded
                             }
 
-                        let result = runtime.Run(eff).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result "pure test" "createPure roundtrip")
                 ]

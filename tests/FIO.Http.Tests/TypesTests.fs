@@ -240,6 +240,30 @@ let typesTests =
                     <| fun () ->
                         let req = HttpRequest.create HttpMethod.GET "/"
                         Expect.isNone (HttpRequest.header "missing" req) "Missing"
+
+                    testCase "header lookup is case-insensitive"
+                    <| fun () ->
+                        let req =
+                            HttpRequest.create HttpMethod.GET "/"
+                            |> HttpRequest.withHeader "Content-Type" "application/json"
+
+                        Expect.equal
+                            (HttpRequest.header "content-type" req)
+                            (Some "application/json")
+                            "Lowercase lookup"
+
+                        Expect.equal
+                            (HttpRequest.header "CONTENT-TYPE" req)
+                            (Some "application/json")
+                            "Uppercase lookup"
+
+                    testCase "bodyText decodes bytes as UTF-8 by default"
+                    <| fun () ->
+                        let req =
+                            HttpRequest.create HttpMethod.POST "/"
+                            |> HttpRequest.withBody (RequestBody.Bytes(Encoding.UTF8.GetBytes "héllo"))
+
+                        Expect.equal (HttpRequest.bodyText req) "héllo" "UTF-8 decode"
                 ]
 
             testList
@@ -314,6 +338,14 @@ let typesTests =
                             |> HttpResponse.withHeader "X-Multi" "b"
 
                         Expect.equal (HttpResponse.headers "X-Multi" resp) [ "a"; "b" ] "Multi-value"
+
+                    testCase "header lookup is case-insensitive"
+                    <| fun () ->
+                        let resp =
+                            HttpResponse.create HttpStatusCode.OK
+                            |> HttpResponse.withHeader "X-Custom" "v"
+
+                        Expect.equal (HttpResponse.header "x-custom" resp) (Some "v") "CI response lookup"
                 ]
 
             testList

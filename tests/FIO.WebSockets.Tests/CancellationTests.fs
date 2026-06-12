@@ -67,7 +67,7 @@ let cancellationTests =
                     runtime)
 
             testAllRuntimes "Connect interruption against unreachable URL terminates promptly" (fun runtime ->
-                let eff =
+                let effect =
                     fio {
                         // 192.0.2.0/24 (TEST-NET-1) is reserved; routable but always discards.
                         let! connectFiber = (WebSocketClient.connectStringWith "ws://192.0.2.1:9/").Fork()
@@ -80,7 +80,7 @@ let cancellationTests =
                         return terminated, elapsed, connectFiber.IsInterrupted()
                     }
 
-                let terminated, elapsed, interrupted = (runtime.Run eff).UnsafeSuccess()
+                let terminated, elapsed, interrupted = (runtime.Run effect).UnsafeSuccess()
 
                 Expect.isTrue terminated $"Connect fiber should reach terminal state within 5s; took {elapsed}ms"
 

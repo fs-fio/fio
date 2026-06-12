@@ -4,6 +4,8 @@ module FIO.Http.Tests.ServerTests
 open FIO.Http.Tests.Utilities
 
 open FIO.DSL
+open FIO.Runtime
+open FIO.Runtime.Default
 open FIO.Http
 
 open System.Text
@@ -100,5 +102,25 @@ let serverTests =
 
                         let body = client.GetStringAsync($"http://127.0.0.1:{port}/text").Result
                         Expect.equal body "plain text" "Text body")
+
+                // ─── Server lifecycle ─────────────────────────────────────────
+
+                testCase "startServer serves a request then stop tears down"
+                <| fun () ->
+                    let port = findAvailablePort ()
+                    let config = ServerConfig.create "127.0.0.1" port
+                    let routes = get "/ping" (HttpHandler.text "pong")
+                    use runtime = new DefaultRuntime()
+
+                    let server =
+                        runWithTimeout (runtime :> FIORuntime) (Server.startServer config routes)
+
+                    try
+                        System.Threading.Thread.Sleep 200
+                        use client = new System.Net.Http.HttpClient()
+                        let body = client.GetStringAsync($"http://127.0.0.1:{port}/ping").Result
+                        Expect.equal body "pong" "Served via Server.startServer"
+                    finally
+                        runWithTimeout (runtime :> FIORuntime) (Server.stop server) |> ignore
             ]
     )

@@ -8,15 +8,15 @@ open System.Threading.Tasks
 [<AutoOpen>]
 module internal Casting =
 
-    let inline upcastOnError (onError: exn -> 'E) : (exn -> obj) =
+    let inline boxOnError (onError: exn -> 'E) : (exn -> obj) =
         fun (ex: exn) -> onError ex :> obj
 
-    let inline upcastFunc (func: unit -> 'A) : unit -> obj =
-        fun () -> func () :> obj
+    let inline boxFunc (compute: unit -> 'A) : unit -> obj =
+        fun () -> compute () :> obj
 
-    let inline private wrapTaskCore (boxResult: unit -> obj) (task: Task) : Task<obj> =
+    let inline private boxTaskCore (boxResult: unit -> obj) (task: Task) : Task<obj> =
         if task.IsCompletedSuccessfully then
-            Task.FromResult(boxResult ())
+            Task.FromResult <| boxResult ()
         elif task.IsFaulted then
             Task.FromException<obj>(task.Exception.GetBaseException())
         elif task.IsCanceled then
@@ -41,11 +41,11 @@ module internal Casting =
 
             tcs.Task
 
-    let inline upcastTask (task: Task<'A>) : Task<obj> =
-        wrapTaskCore (fun () -> box task.Result) (task :> Task)
+    let inline boxTask (task: Task<'A>) : Task<obj> =
+        boxTaskCore (fun () -> box task.Result) (task :> Task)
 
-    let inline wrapVoidTask (task: Task) : Task<obj> =
-        wrapTaskCore (fun () -> box ()) task
+    let inline boxVoidTask (task: Task) : Task<obj> =
+        boxTaskCore (fun () -> box ()) task
 
 [<AutoOpen>]
 module internal Atomics =

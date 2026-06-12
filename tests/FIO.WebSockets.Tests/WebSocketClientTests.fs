@@ -69,7 +69,7 @@ let webSocketClientTests =
                     runtime)
 
             testAllRuntimes "connect fails for unreachable host" (fun runtime ->
-                let eff =
+                let effect =
                     fio {
                         return!
                             (WebSocketClient.connectDefault "ws://localhost:1/")
@@ -77,7 +77,7 @@ let webSocketClientTests =
                                 .CatchAll(fun error -> FIO.succeed (Some error))
                     }
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result = runtime.Run(effect).UnsafeSuccess()
 
                 match result with
                 | Some(GeneralError _) -> ()

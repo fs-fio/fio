@@ -53,13 +53,14 @@ type FIOBuilder internal () =
             let enumerator = sequence.GetEnumerator()
 
             let dispose =
-                FIO.suspend (fun () ->
+                FIO.suspend <| fun () ->
                     enumerator.Dispose()
-                    FIO.unit ())
+                    FIO.unit ()
 
             let rec loop () =
                 if enumerator.MoveNext() then
-                    body(enumerator.Current).FlatMap(fun _ -> loop ())
+                    body(enumerator.Current).FlatMap <| fun _ ->
+                        loop ()
                 else
                     FIO.unit ()
 
@@ -68,7 +69,8 @@ type FIOBuilder internal () =
     member inline _.While<'A, 'E> (guard: unit -> bool, body: FIO<'A, 'E>) : FIO<unit, 'E> =
         let rec loop () =
             if guard () then
-                body.FlatMap(fun _ -> loop ())
+                body.FlatMap <| fun _ ->
+                    loop ()
             else
                 FIO.succeed ()
         FIO.suspend loop

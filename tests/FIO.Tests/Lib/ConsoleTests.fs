@@ -114,8 +114,8 @@ let consoleTests =
                     Console.SetIn throwingReader
 
                     try
-                        let eff = Console.readLine<string> (fun ex -> ex.Message)
-                        let result = runtime.Run(eff).UnsafeResult()
+                        let effect = Console.readLine<string> (fun ex -> ex.Message)
+                        let result = runtime.Run(effect).UnsafeResult()
 
                         match result with
                         | Failed msg -> Expect.equal msg "read fail" "Should map exception on read path"
@@ -141,8 +141,8 @@ let consoleTests =
                     Console.SetOut throwingWriter
 
                     try
-                        let eff = Console.write "x" (fun ex -> $"mapped: {ex.Message}")
-                        let result = runtime.Run(eff).UnsafeResult()
+                        let effect = Console.write "x" (fun ex -> $"mapped: {ex.Message}")
+                        let result = runtime.Run(effect).UnsafeResult()
 
                         match result with
                         | Failed msg -> Expect.equal msg "mapped: boom" "Should map exception"
@@ -154,8 +154,8 @@ let consoleTests =
                 testAllRuntimes "clear - effect either succeeds or maps to a typed error" (fun runtime ->
                     // Console.Clear may throw IOException when stdout is redirected (typical in test hosts).
                     // Verify the effect machinery handles both outcomes without leaking an unmapped exception.
-                    let eff = Console.clear (fun ex -> ex.Message)
-                    let result = runtime.Run(eff).UnsafeResult()
+                    let effect = Console.clear (fun ex -> ex.Message)
+                    let result = runtime.Run(effect).UnsafeResult()
 
                     match result with
                     | Succeeded () -> ()

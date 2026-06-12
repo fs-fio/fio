@@ -268,39 +268,15 @@ module SocketPoolConfig =
     /// <summary>Creates a validated pool configuration with default size and lifetime settings.</summary>
     /// <param name="socketConfig">The socket configuration for connections in the pool.</param>
     /// <returns>An effect that produces a validated SocketPoolConfig with default pool sizes and lifetime.</returns>
-    let create (socketConfig: SocketConfig) =
-        fio {
-            let minPoolSize = 0
-            let maxPoolSize = 10
-            let connectionLifetime = 300
-
-            if minPoolSize < 0 then
-                return! FIO.fail (InvalidState("MinPoolSize >= 0", $"{minPoolSize}"))
-
-            if maxPoolSize <= 0 then
-                return! FIO.fail (InvalidState("MaxPoolSize > 0", $"{maxPoolSize}"))
-
-            if maxPoolSize < minPoolSize then
-                return!
-                    FIO.fail (
-                        InvalidState(
-                            $"MaxPoolSize ({maxPoolSize}) >= MinPoolSize ({minPoolSize})",
-                            "MaxPoolSize < MinPoolSize"
-                        )
-                    )
-
-            if connectionLifetime < 0 then
-                return! FIO.fail (InvalidState("ConnectionLifetime >= 0", $"{connectionLifetime}"))
-
-            return
-                {
-                    SocketConfig = socketConfig
-                    MinPoolSize = minPoolSize
-                    MaxPoolSize = maxPoolSize
-                    ConnectionLifetime = connectionLifetime
-                    ValidateOnAcquire = true
-                }
-        }
+    let create (socketConfig: SocketConfig) : FIO<SocketPoolConfig, SocketError> =
+        FIO.succeed
+            {
+                SocketConfig = socketConfig
+                MinPoolSize = 0
+                MaxPoolSize = 10
+                ConnectionLifetime = 300
+                ValidateOnAcquire = true
+            }
 
     /// <summary>Returns a pool configuration with the specified minimum size.</summary>
     /// <param name="size">The minimum number of connections in the pool; must not exceed the current maximum.</param>

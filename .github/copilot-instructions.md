@@ -28,57 +28,57 @@ dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --concurrent-runtim
 
 `FIO<'A, 'E>` is a discriminated union representing lazy effects. DU cases are `internal` — external code uses factory functions and instance methods.
 
-Key DU cases: `Success`/`Failure` (terminal), `Action` (sync side effects), `SendChan`/`ReceiveChan` (channels), `ForkEffect`/`ForkTPLTask` (forking), `JoinFiber` (waiting), `AwaitTPLTask`/`AwaitGenericTPLTask` (.NET Task interop), `ChainSuccess`/`ChainError` (bind), `InterruptFiber`/`InterruptSelf` (interruption), `OnFinalize`/`ResumeInterrupt`/`FinalizerResult` (finalizer infrastructure).
+Key DU cases: `Success`/`Failure` (terminal), `Interrupt` (self-interrupt), `Action` (sync side effects), `WriteChan`/`ReadChan` (channels), `ForkEffect` (forking), `JoinFiber` (waiting), `AwaitTask` (.NET Task interop), `ChainSuccess`/`ChainError`/`ChainBoth` (bind), `OnFinalize` (finalizer infrastructure), `FiberCancellationToken` (current fiber token), `Suspend` (deferred construction).
 
 ### Runtime Hierarchy
 
 ```
 FIORuntime (abstract)
 ├── DirectRuntime              — .NET Tasks, waits for blocked fibers
-└── FIOWorkerRuntime (abstract, adds WorkerConfig: EWC/EWS/BWC)
+└── FIOWorkerRuntime (abstract, adds WorkerConfig: EvaluationWorkers/EvaluationSteps/BlockingWorkers)
     ├── CooperativeRuntime     — Custom fibers, linear-time blocked handling
     └── ConcurrentRuntime      — Custom fibers, constant-time blocked handling (event-driven)
 ```
 
-`DefaultRuntime = ConcurrentRuntime` (recommended). Worker config params: **EWC** (evaluation worker count), **EWS** (eval steps per work item before rescheduling), **BWC** (blocking worker count).
+`DefaultRuntime = ConcurrentRuntime` (recommended). Worker config fields: **EvaluationWorkers** (evaluation worker count), **EvaluationSteps** (eval steps per work item before rescheduling), **BlockingWorkers** (blocking worker count). The `EWC`/`EWS`/`BWC` acronyms remain as the `ConfigString` display labels and benchmark spec shorthand.
 
 ### Key Files (compile order matters)
 
 Core DSL (`src/FIO/DSL/`):
-- `Core.fs` — `FIO<'A,'E>` DU, `Fiber`, `Channel`, `FiberContext`, `WorkItem`, `ContStack`. Hosts primitive instance members: `FlatMap`, `CatchAll`, `Ensuring`, `Fork` plus the transformation cluster (`Map`/`MapError`/`MapBoth`/`Result`/`Option`/`Choice`) derived from `Success`/`Failure` + the four primitives.
+- `Core.fs` — `FIO<'A,'E>` DU, `Fiber`, `Channel`, `FiberContext`, `WorkItem`, `ContStack`. Hosts primitive instance members: `FlatMap`, `CatchAll`, `Ensuring`, `Fork` plus the transformation cluster (`Map`/`MapError`/`MapBoth`/`Result`/`Option`) derived from `Success`/`Failure` + the four primitives.
 - `Factories.fs` / `Extensions.fs` / `Operators.fs` / `CE.fs` — public surface built on Core.
+
+Lib (`src/FIO/Lib/`):
+- `Console.fs` — `FIO.Console.Console` (`[<RequireQualifiedAccess>]`): `print`, `printLine`, `readLine`, `write`, `writeLine`, `clear`, each taking `onError: exn -> 'E`. Only Lib module.
 
 Runtime (`src/FIO/Runtime/`):
 - `Runtime.fs` — `FIORuntime` base, `WorkerConfig`, `ContStackPool`, `WorkItemPool`
 - `WorkerInfrastructure.fs` — `FIOWorkerRuntime`, `WorkerLifecycle`
-- `InterpreterCore.fs` — shared interpreter (`InterpreterState`, `processSuccess`/`processError`/`processInterruptError`, `handleSharedCase`, `RuntimeCase` DU for runtime-specific dispatch)
+- `InterpreterCore.fs` — shared interpreter (`InterpreterState`, `processOutcome`/`processResult`/`handleSharedCase`, `Outcome` DU, `RuntimeCase` DU for runtime-specific dispatch)
 - `DirectRuntime.fs` / `CooperativeRuntime.fs` / `ConcurrentRuntime.fs` / `DefaultRuntime.fs`
 
-Framework: `src/FIO/Framework/App.fs` — `FIOApp<'A,'E>` with 5-member surface (`effect`, `runtime`, `onShutdown`, `onShutdownTimeout`, `mapExitCode`) over `AppOutcome` (Succeeded/Failed/Interrupted/FatalError).
+Framework: `src/FIO/Framework/App.fs` — `FIOApp<'A,'E>` with 5-member surface (`effect`, `runtime`, `onShutdown`, `onShutdownTimeout`, `mapExitCode`) over `AppResult` (`AppSucceeded`/`AppFailed`/`AppInterrupted`/`AppFatalError`).
 
 ### Concurrency Primitives (`src/FIO/Lib/`)
 
-- **Promise<'A,'E>** — one-shot, completed once with success/failure
-- **Ref<'T>** — atomic reference, lock-free CAS (`Get`, `Set`, `GetAndUpdate`, …)
-- **Semaphore** — counting semaphore, `WithPermit` for scoped acquisition
-- **InterruptionCause** — `Timeout` | `ParentInterrupted` | `ExplicitInterrupt` | `InvalidArgument` | `ResourceExhaustion`
+- **Fiber<'A,'E>** — green thread via `.Fork()` / `.Join()`
+- **Channel<'A>** — typed message passing between fibers
+- **InterruptionCause** — `ParentInterrupted` | `ExplicitInterrupt` | `InvalidArgument` | `ResourceExhaustion`
 
 ### Packages
 
-- **FIO** — Core (effect system, fibers, channels, runtimes, App framework, Console/Clock/Environment/Random/Promise/Ref/Semaphore)
+- **FIO** — Core (effect system, fibers, channels, runtimes, App framework, Console)
 - **FIO.Sockets** — TCP sockets (error type: `SocketError`)
 - **FIO.WebSockets** — WebSockets (error type: `WsError`)
 - **FIO.Http** — HTTP server, Kestrel-based (error type: `HttpError`)
-- **FIO.PostgreSQL** — PostgreSQL, Npgsql-based (error type: `PgError`)
-- **FIO.Redis** — Redis, StackExchange.Redis-based (error type: `RedisError`)
 
 ## Conventions
 
 ### API Naming
 
-- Factory functions use **lowercase** F#-idiomatic style: `FIO.succeed`, `FIO.fail`, `FIO.attempt`, `FIO.sleep`, `FIO.collectAllPar`, `FIO.acquireRelease`
+- Factory functions use **lowercase** F#-idiomatic style: `FIO.succeed`, `FIO.fail`, `FIO.attempt`, `FIO.sleep`, `FIO.collectAllPar`, `FIO.acquireReleaseWith`
 - Instance methods use **PascalCase**: `effect.Map(f)`, `effect.FlatMap(f)`, `effect.Fork()`, `effect.CatchAll(f)`, `effect.Ensuring(fin)`
-- Lib modules use **qualified access**: `Console.printLine`, `Clock.Now()`, `Ref.Get counter`, `Semaphore.WithPermit`
+- Lib modules use **qualified access**: e.g. `Console.printLine "msg" id`
 - Extension libs use abbreviated module names: `Conn.OpenAsync`, `Socket.Connect`, `Ws.Send`
 
 ### Operators
@@ -93,6 +93,8 @@ Framework: `src/FIO/Framework/App.fs` — `FIOApp<'A,'E>` with 5-member surface 
 | `&>` / `<&` | Parallel | Second / First | Concurrent, keep one |
 | `<&&>` | Parallel | Unit | Fire-and-forget parallel |
 | `<\|>` | Sequential | First success | Fallback/recovery |
+| `<+>` | Sequential | Choice | Either-fallback (OrElseEither) |
+| `<?>` | Parallel | Choice | Race for first completion (RaceEither) |
 
 ### Writing Effects
 
@@ -100,7 +102,7 @@ Framework: `src/FIO/Framework/App.fs` — `FIOApp<'A,'E>` with 5-member surface 
 // Computation expression (preferred for complex logic)
 let effect = fio {
     let! x = someEffect
-    do! Console.printLine "msg"
+    do! Console.printLine "msg" id
     return x + 1
 }
 
@@ -154,7 +156,7 @@ let main _ = MyApp().Run()
 
 - **Expecto + FsCheck** for property-based testing
 - Core tests use a `Generators` type (`tests/FIO.Tests/Utils/Utilities.fs`) that provides FsCheck `Arb` for all three runtimes — every property test runs against `DirectRuntime`, `CooperativeRuntime`, and `ConcurrentRuntime`
-- Console tests use `System.Console.SetOut`/`SetIn` with `StringWriter`/`StringReader` for deterministic capture — must use `testSequenced` (not parallel) because `ConsoleBackend` has process-global state
+- Console tests use `System.Console.SetOut`/`SetIn` with `StringWriter`/`StringReader` for deterministic capture — must use `testSequenced` (not parallel) because `System.Console` has process-global state
 - Extension tests use `testAllRuntimes` helper wrapping `testSequenced`
 - Stack-safety canary tests in `tests/FIO.Tests/DSL/FIOTests.fs` (depth 10000) are load-bearing — do not simplify `UpcastResult`/`UpcastError`/`UpcastBoth` to plain recursion
 - `InternalsVisibleTo("FIO.Tests")` is set on the core project only; extension libs do not expose internals to their tests

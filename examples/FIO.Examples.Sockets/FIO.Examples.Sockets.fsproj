@@ -16,8 +16,4 @@
         <ProjectReference Include="..\..\src\FIO.Sockets\FIO.Sockets.fsproj" />
     </ItemGroup>
 
-    <ItemGroup>
-        <PackageReference Update="FSharp.Core" Version="10.1.301" />
-    </ItemGroup>
-
 </Project>

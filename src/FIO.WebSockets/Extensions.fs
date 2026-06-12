@@ -19,7 +19,11 @@ module WebSocketExtensions =
         member this.SendJson<'T>(value: 'T, ?options: JsonSerializerOptions, ?ct: CancellationToken) =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
-                let ct = defaultArg ct CancellationToken.None
+
+                let! ct =
+                    match ct with
+                    | Some token -> FIO.succeed token
+                    | None -> FIO.cancellationToken ()
 
                 let! jsonString =
                     FIO.attempt
@@ -37,7 +41,11 @@ module WebSocketExtensions =
         member this.ReceiveJson<'T>(?options: JsonSerializerOptions, ?ct: CancellationToken) =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
-                let ct = defaultArg ct CancellationToken.None
+
+                let! ct =
+                    match ct with
+                    | Some token -> FIO.succeed token
+                    | None -> FIO.cancellationToken ()
 
                 match! this.ReceiveMessage ct with
                 | Frame(Text json) ->

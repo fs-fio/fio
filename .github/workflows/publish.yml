@@ -4,6 +4,10 @@ on:
   push:
     tags:
       - 'v*'
+      - 'core-v*'
+      - 'http-v*'
+      - 'sockets-v*'
+      - 'websockets-v*'
   workflow_dispatch:
 
 jobs:
@@ -36,12 +40,50 @@ jobs:
       - name: Run tests
         run: dotnet test -c Release --no-build --verbosity normal ./FIO.slnx
 
-      - name: Pack NuGet packages
+      - name: Resolve release target
+        id: release
         run: |
-          dotnet pack src/FIO/FIO.fsproj -c Release -o ./nupkgs
-          dotnet pack src/FIO.Sockets/FIO.Sockets.fsproj -c Release -o ./nupkgs
-          dotnet pack src/FIO.WebSockets/FIO.WebSockets.fsproj -c Release -o ./nupkgs
-          dotnet pack src/FIO.Http/FIO.Http.fsproj -c Release -o ./nupkgs
+          ref="${GITHUB_REF_NAME}"
+          props_version="$(grep -oE '<Version>[^<]+</Version>' Directory.Build.props | head -1 | sed -E 's#</?Version>##g')"
+          mode=""; version=""; projects=""; pack_arg=""
+          case "$ref" in
+            core-v*)       version="${ref#core-v}";       mode="core";      projects="src/FIO/FIO.fsproj";                       pack_arg="-p:Version=${version}" ;;
+            http-v*)       version="${ref#http-v}";       mode="extension"; projects="src/FIO.Http/FIO.Http.fsproj";             pack_arg="-p:PackageReleaseVersion=${version}" ;;
+            sockets-v*)    version="${ref#sockets-v}";    mode="extension"; projects="src/FIO.Sockets/FIO.Sockets.fsproj";       pack_arg="-p:PackageReleaseVersion=${version}" ;;
+            websockets-v*) version="${ref#websockets-v}"; mode="extension"; projects="src/FIO.WebSockets/FIO.WebSockets.fsproj"; pack_arg="-p:PackageReleaseVersion=${version}" ;;
+            v*)            version="${ref#v}";            mode="lockstep";  projects="src/FIO/FIO.fsproj src/FIO.Sockets/FIO.Sockets.fsproj src/FIO.WebSockets/FIO.WebSockets.fsproj src/FIO.Http/FIO.Http.fsproj"; pack_arg="-p:Version=${version}" ;;
+            *)             mode="manual";   projects="src/FIO/FIO.fsproj src/FIO.Sockets/FIO.Sockets.fsproj src/FIO.WebSockets/FIO.WebSockets.fsproj src/FIO.Http/FIO.Http.fsproj"; pack_arg="" ;;
+          esac
+
+          if [[ -n "$version" && ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid version '$version' parsed from tag '$ref'."
+            exit 1
+          fi
+
+          # Lockstep and core releases define the core baseline that extensions
+          # depend on, so the tag must match Directory.Build.props <Version>.
+          if [[ "$mode" == "lockstep" || "$mode" == "core" ]]; then
+            if [[ "$version" != "$props_version" ]]; then
+              echo "::error::Tag version '$version' does not match Directory.Build.props <Version> '$props_version'. Bump the baseline version to match the tag before a core/lockstep release."
+              exit 1
+            fi
+          fi
+
+          {
+            echo "mode=$mode"
+            echo "projects=$projects"
+            echo "pack_arg=$pack_arg"
+          } >> "$GITHUB_OUTPUT"
+          echo "Release mode: ${mode} | version: ${version:-<props default>} | projects: ${projects}"
+
+      - name: Pack NuGet packages
+        env:
+          PROJECTS: ${{ steps.release.outputs.projects }}
+          PACK_ARG: ${{ steps.release.outputs.pack_arg }}
+        run: |
+          for proj in $PROJECTS; do
+            dotnet pack "$proj" -c Release $PACK_ARG -o ./nupkgs
+          done
 
       - name: Upload packages as artifacts
         uses: actions/upload-artifact@v4
@@ -53,7 +95,7 @@ jobs:
         run: dotnet nuget push ./nupkgs/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true

@@ -45,7 +45,7 @@ let socketClientTests =
                     runtime)
 
             testAllRuntimes "connect fails for unreachable host" (fun runtime ->
-                let eff =
+                let effect =
                     fio {
                         let! config = SocketConfig.create ("127.0.0.1", 1)
 
@@ -53,7 +53,7 @@ let socketClientTests =
                             SocketClient.connect(config).Map(fun _ -> None).CatchAll(fun error -> FIO.succeed (Some error))
                     }
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result = runtime.Run(effect).UnsafeSuccess()
 
                 match result with
                 | Some(ConnectionFailed _) -> ()

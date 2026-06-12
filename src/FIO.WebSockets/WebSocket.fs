@@ -105,13 +105,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
                             totalSize <- totalSize + int64 count
 
                             if totalSize > config.MaxMessageSize then
-                                return!
-                                    FIO.fail (
-                                        WsError.fromException (
-                                            Exception
-                                                $"Message size {totalSize} exceeds maximum allowed size {config.MaxMessageSize}"
-                                        )
-                                    )
+                                return! FIO.fail (MessageTooLarge(totalSize, config.MaxMessageSize))
 
                             fragments.AddRange(ArraySegment(buffer, 0, count))
 
@@ -142,7 +136,13 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
                     do! fromFunc(fun () -> timeoutCts.Dispose()).CatchAll(logAndSuppress "timeoutCts disposal")
                 }
 
-            return! computation.Ensuring finalizer
+            let remapTimeout (error: WsError) =
+                if timeoutCts.IsCancellationRequested then
+                    FIO.fail (TimeoutError $"Receive operation timed out after {config.ReceiveTimeout}ms")
+                else
+                    FIO.fail error
+
+            return! (computation.CatchAll remapTimeout).Ensuring finalizer
         }
 
     /// <summary>Creates an effect that receives a complete message from the connection, observing the running fiber's cancellation token.</summary>
@@ -162,7 +162,12 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
         fio {
             let! state = fromFunc <| fun () -> socket.State
 
-            if state <> WebSocketState.Open then
+            let canSend =
+                match frame with
+                | Close _ -> state = WebSocketState.Open || state = WebSocketState.CloseReceived
+                | _ -> state = WebSocketState.Open
+
+            if not canSend then
                 return! FIO.fail (WsError.fromException (Exception $"Cannot send frame - WebSocket state is {state}"))
 
             let! timeoutCts =
@@ -232,7 +237,13 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
                     do! fromFunc(fun () -> timeoutCts.Dispose()).CatchAll(logAndSuppress "timeoutCts disposal")
                 }
 
-            return! computation.Ensuring finalizer
+            let remapTimeout (error: WsError) =
+                if timeoutCts.IsCancellationRequested then
+                    FIO.fail (TimeoutError $"Send operation timed out after {config.SendTimeout}ms")
+                else
+                    FIO.fail error
+
+            return! (computation.CatchAll remapTimeout).Ensuring finalizer
         }
 
     /// <summary>Creates an effect that sends a frame over the connection, observing the running fiber's cancellation token.</summary>
@@ -329,13 +340,18 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
         fio {
             let! sendLockTask = fromFunc <| fun () -> sendLock.WaitAsync ct
             do! awaitUnitTask sendLockTask
-            let! receiveLockTask = fromFunc <| fun () -> receiveLock.WaitAsync ct
-            do! awaitUnitTask receiveLockTask
+
+            let! hasReceiveLock = fromFunc <| fun () -> receiveLock.Wait 0
 
             let closeOp =
                 fio {
                     let! closeTask =
-                        fromFunc <| fun () -> socket.CloseAsync(closeStatus, statusDescription, ct)
+                        fromFunc
+                        <| fun () ->
+                            if hasReceiveLock then
+                                socket.CloseAsync(closeStatus, statusDescription, ct)
+                            else
+                                socket.CloseOutputAsync(closeStatus, statusDescription, ct)
 
                     do! awaitUnitTask closeTask
                 }
@@ -344,9 +360,10 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
                 fio {
                     do! fromFunc(fun () -> sendLock.Release() |> ignore).CatchAll(logAndSuppress "sendLock release")
 
-                    do!
-                        fromFunc(fun () -> receiveLock.Release() |> ignore)
-                            .CatchAll(logAndSuppress "receiveLock release")
+                    if hasReceiveLock then
+                        do!
+                            fromFunc(fun () -> receiveLock.Release() |> ignore)
+                                .CatchAll(logAndSuppress "receiveLock release")
                 }
 
             return! closeOp.Ensuring finalizer

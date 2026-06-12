@@ -10,12 +10,12 @@ dotnet add package FIO.Sockets
 open FIO.DSL
 open FIO.Sockets
 
-let client = fio {
-    use! socket = SocketClient.connect "localhost" 8080
-    do! Socket.send socket "Hello, server!"B
-    let! response = Socket.receive socket 1024
-    return response
-}
+let program =
+    SocketClient.withConnectionTo "localhost" 8080 (fun socket ->
+        fio {
+            do! socket.SendString "Hello, server!"
+            return! socket.ReceiveString 1024
+        })
 ```
 
 Client connections, server accept, custom codecs.

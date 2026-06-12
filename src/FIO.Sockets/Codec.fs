@@ -3,6 +3,7 @@ namespace FIO.Sockets
 open FIO.DSL
 
 open System
+open System.Net
 open System.Text
 open System.Text.Json
 
@@ -18,6 +19,12 @@ type SocketCodec<'T> =
 
 /// <summary>Creates codecs for encoding and decoding socket messages.</summary>
 module Codec =
+
+    let private writeLengthPrefix (length: int) : byte[] =
+        BitConverter.GetBytes(IPAddress.HostToNetworkOrder length)
+
+    let private readLengthPrefix (bytes: byte[]) (offset: int) : int =
+        IPAddress.NetworkToHostOrder(BitConverter.ToInt32(bytes, offset))
 
     /// <summary>Returns the identity codec for byte arrays that passes data through unchanged.</summary>
     /// <returns>A codec that succeeds immediately with the input bytes on both encode and decode.</returns>
@@ -137,47 +144,60 @@ module Codec =
                         let! bytes1 = codec1.Encode a
                         let! bytes2 = codec2.Encode b
 
-                        let len1Bytes = BitConverter.GetBytes bytes1.Length
-                        let len2Bytes = BitConverter.GetBytes bytes2.Length
-
-                        return Array.concat [ len1Bytes; bytes1; len2Bytes; bytes2 ]
+                        return
+                            Array.concat
+                                [ writeLengthPrefix bytes1.Length
+                                  bytes1
+                                  writeLengthPrefix bytes2.Length
+                                  bytes2 ]
                     }
             Decode =
                 fun bytes ->
                     fio {
-                        if bytes.Length < 8 then
+                        if isNull bytes || bytes.Length < 8 then
                             return!
                                 FIO.fail (
                                     CodecError(
                                         "Insufficient bytes for pair decoding (need at least 8 bytes for length prefixes)",
-                                        Exception()
+                                        ArgumentException "bytes"
                                     )
                                 )
+                        else
+                            let len1 = readLengthPrefix bytes 0
 
-                        let len1 = BitConverter.ToInt32(bytes, 0)
-
-                        if bytes.Length < 4 + len1 + 4 then
-                            return!
-                                FIO.fail (
-                                    CodecError(
-                                        $"Incomplete first payload: expected {len1} bytes plus second length prefix",
-                                        Exception()
+                            if len1 < 0 then
+                                return!
+                                    FIO.fail (
+                                        CodecError($"Negative first payload length: {len1}", ArgumentOutOfRangeException "len1")
                                     )
-                                )
+                            elif int64 bytes.Length < 4L + int64 len1 + 4L then
+                                return!
+                                    FIO.fail (
+                                        CodecError(
+                                            $"Incomplete first payload: expected {len1} bytes plus second length prefix",
+                                            ArgumentException "bytes"
+                                        )
+                                    )
+                            else
+                                let bytes1 = bytes.[4 .. 4 + len1 - 1]
+                                let len2 = readLengthPrefix bytes (4 + len1)
 
-                        let bytes1 = bytes.[4 .. 4 + len1 - 1]
+                                if len2 < 0 then
+                                    return!
+                                        FIO.fail (
+                                            CodecError($"Negative second payload length: {len2}", ArgumentOutOfRangeException "len2")
+                                        )
+                                elif int64 bytes.Length < 4L + int64 len1 + 4L + int64 len2 then
+                                    return!
+                                        FIO.fail (
+                                            CodecError($"Incomplete second payload: expected {len2} bytes", ArgumentException "bytes")
+                                        )
+                                else
+                                    let bytes2 = bytes.[4 + len1 + 4 .. 4 + len1 + 4 + len2 - 1]
 
-                        let len2 = BitConverter.ToInt32(bytes, 4 + len1)
-
-                        if bytes.Length < 4 + len1 + 4 + len2 then
-                            return!
-                                FIO.fail (CodecError($"Incomplete second payload: expected {len2} bytes", Exception()))
-
-                        let bytes2 = bytes.[4 + len1 + 4 .. 4 + len1 + 4 + len2 - 1]
-
-                        let! a = codec1.Decode bytes1
-                        let! b = codec2.Decode bytes2
-                        return a, b
+                                    let! a = codec1.Decode bytes1
+                                    let! b = codec2.Decode bytes2
+                                    return a, b
                     }
         }
 
@@ -190,28 +210,31 @@ module Codec =
                 fun value ->
                     fio {
                         let! payload = innerCodec.Encode value
-                        let lengthBytes = BitConverter.GetBytes payload.Length
-                        return Array.append lengthBytes payload
+                        return Array.append (writeLengthPrefix payload.Length) payload
                     }
             Decode =
                 fun bytes ->
                     fio {
-                        if bytes.Length < 4 then
-                            return! FIO.fail (CodecError("Insufficient bytes for length prefix", Exception()))
+                        if isNull bytes || bytes.Length < 4 then
+                            return! FIO.fail (CodecError("Insufficient bytes for length prefix", ArgumentException "bytes"))
+                        else
+                            let length = readLengthPrefix bytes 0
 
-                        let length = BitConverter.ToInt32(bytes, 0)
-                        let payload = bytes.[4..]
-
-                        if payload.Length < length then
-                            return!
-                                FIO.fail (
-                                    CodecError(
-                                        $"Incomplete payload: expected {length}, got {payload.Length}",
-                                        Exception()
+                            if length < 0 then
+                                return!
+                                    FIO.fail (
+                                        CodecError($"Negative payload length: {length}", ArgumentOutOfRangeException "length")
                                     )
-                                )
-
-                        return! innerCodec.Decode payload.[0 .. length - 1]
+                            elif int64 length > int64 bytes.Length - 4L then
+                                return!
+                                    FIO.fail (
+                                        CodecError(
+                                            $"Incomplete payload: expected {length}, got {bytes.Length - 4}",
+                                            ArgumentException "bytes"
+                                        )
+                                    )
+                            else
+                                return! innerCodec.Decode bytes.[4 .. 4 + length - 1]
                     }
         }
 

@@ -23,6 +23,19 @@ module ServerSocket =
             return ()
         }
 
+    let private resolveBindAddress (config: ServerSocketConfig) : IPAddress =
+        match IPAddress.TryParse config.BindAddress with
+        | true, address -> address
+        | _ ->
+            let addresses = Dns.GetHostAddresses config.BindAddress
+
+            match addresses |> Array.tryFind (fun a -> a.AddressFamily = config.AddressFamily) with
+            | Some address -> address
+            | None ->
+                match Array.tryHead addresses with
+                | Some address -> address
+                | None -> raise (System.ArgumentException $"Could not resolve bind address '{config.BindAddress}'")
+
     /// <summary>Creates an effect that binds to a local address and starts listening for TCP connections.</summary>
     /// <param name="config">The server socket configuration specifying bind address, port, and backlog.</param>
     /// <returns>An effect that produces a bound and listening ServerSocket, or fails with BindFailed if binding fails.</returns>
@@ -35,8 +48,8 @@ module ServerSocket =
 
             let! endpoint =
                 FIO.attempt
-                    (fun () -> IPEndPoint(IPAddress.Parse config.BindAddress, config.BindPort) :> EndPoint)
-                    SocketError.fromException
+                    (fun () -> IPEndPoint(resolveBindAddress config, config.BindPort) :> EndPoint)
+                    (fun exn -> BindFailed(config.BindAddress, config.BindPort, exn))
 
             do! FIO.attempt
                     (fun () ->
@@ -73,7 +86,7 @@ module ServerSocket =
     /// <param name="action">A function from the bound server socket to the effect to run; the listener is closed after this effect completes.</param>
     /// <returns>An effect that produces the action's result and guarantees listener cleanup.</returns>
     let withServerSocket (config: ServerSocketConfig, action: ServerSocket -> FIO<'A, SocketError>) =
-        FIO.acquireRelease (acquire config) release action
+        FIO.acquireReleaseWith (acquire config) release action
 
     /// <summary>Creates an effect that accepts a single incoming TCP connection.</summary>
     /// <param name="serverSocket">The server socket to accept a connection from.</param>
@@ -89,6 +102,8 @@ module ServerSocket =
                 match serverSocket.Config.AcceptedSocketConfig with
                 | Some cfg -> cfg
                 | None ->
+                    let linger = netSocket.LingerState
+
                     {
                         Host = "" // Not applicable for accepted socket
                         Port = 0 // Not applicable
@@ -100,11 +115,55 @@ module ServerSocket =
                         SendTimeout = netSocket.SendTimeout
                         ReceiveTimeout = netSocket.ReceiveTimeout
                         NoDelay = netSocket.NoDelay
-                        LingerEnabled = netSocket.LingerState.Enabled
-                        LingerTimeout = netSocket.LingerState.LingerTime
+                        LingerEnabled = (not (isNull linger)) && linger.Enabled
+                        LingerTimeout = if isNull linger then 0 else linger.LingerTime
                     }
 
             return new Socket(netSocket, config)
+        }
+
+    /// <summary>Represents the default maximum number of connection handlers that may run concurrently in an accept loop.</summary>
+    [<Literal>]
+    let DefaultMaxConcurrentHandlers = 1024
+
+    /// <summary>Creates an effect that continuously accepts connections and forks a bounded number of concurrent handlers until interrupted.</summary>
+    /// <param name="maxConcurrentHandlers">The maximum number of handlers allowed to run concurrently; further accepts wait until a slot frees.</param>
+    /// <param name="handler">A function from a connected socket to the effect to run for each accepted connection; each invocation runs concurrently.</param>
+    /// <param name="serverSocket">The server socket to accept connections from.</param>
+    /// <returns>An effect that loops accepting and forking handlers, tolerating transient accept errors and completing only when interrupted.</returns>
+    let acceptLoopWith
+        (
+            maxConcurrentHandlers: int,
+            handler: Socket -> FIO<unit, SocketError>,
+            serverSocket: ServerSocket
+        ) : FIO<unit, SocketError> =
+        fio {
+            let slots = Channel<unit>()
+
+            do! FIO.forEachDiscard [ 1 .. max 1 maxConcurrentHandlers ] (fun _ -> slots.Write())
+
+            let step =
+                (fio {
+                    do! slots.Read()
+                    let! socket = accept serverSocket
+
+                    let handlerWithCleanup =
+                        FIO.acquireReleaseWith
+                            (FIO.succeed socket)
+                            (fun s -> s.Close().CatchAll(logAndSuppress "accepted socket close"))
+                            handler
+
+                    let! _fiber = handlerWithCleanup.Ensuring(slots.Write()).Fork()
+                    return ()
+                })
+                    .CatchAll(fun error ->
+                        fio {
+                            do! logAndSuppress "accept loop iteration" error
+                            do! slots.Write()
+                            do! FIO.sleep (System.TimeSpan.FromMilliseconds 25.0) SocketError.fromException
+                        })
+
+            return! step.Forever()
         }
 
     /// <summary>Creates an effect that continuously accepts connections and forks a handler for each one until interrupted.</summary>
@@ -112,21 +171,7 @@ module ServerSocket =
     /// <param name="serverSocket">The server socket to accept connections from.</param>
     /// <returns>An effect that loops accepting and forking handlers, completing only when interrupted.</returns>
     let acceptLoop (handler: Socket -> FIO<unit, SocketError>, serverSocket: ServerSocket) : FIO<unit, SocketError> =
-        let step =
-            fio {
-                let! socket = accept serverSocket
-
-                let handlerWithCleanup =
-                    FIO.acquireRelease
-                        (FIO.succeed socket)
-                        (fun s -> s.Close().CatchAll(logAndSuppress "accepted socket close"))
-                        handler
-
-                let! _fiber = handlerWithCleanup.Fork()
-                return ()
-            }
-
-        step.Forever()
+        acceptLoopWith (DefaultMaxConcurrentHandlers, handler, serverSocket)
 
     /// <summary>Returns the configuration of a server socket.</summary>
     /// <param name="serverSocket">The server socket to query.</param>

@@ -6,7 +6,6 @@ open FIO.Runtime.Default
 
 open System
 open System.Threading
-open System.Threading.Tasks
 
 type private SysConsole = System.Console
 
@@ -36,7 +35,7 @@ type FIOApp<'A, 'E>() as this =
     default _.runtime = new DefaultRuntime()
 
     abstract member onShutdown: unit -> FIO<unit, 'E>
-    default _.onShutdown() = FIO.unit ()
+    default _.onShutdown () = FIO.unit ()
 
     abstract member onShutdownTimeout: TimeSpan
     default _.onShutdownTimeout = TimeSpan.FromSeconds 10.0
@@ -66,7 +65,7 @@ type FIOApp<'A, 'E>() as this =
             let mutable timedOut = false
 
             try
-                let fiber = runtime.Run(this.onShutdown ())
+                let fiber = runtime.Run <| this.onShutdown ()
                 shutdownFiberOpt <- Some fiber
                 let! _ = (fiber.Task()).WaitAsync this.onShutdownTimeout
                 ()
@@ -97,7 +96,7 @@ type FIOApp<'A, 'E>() as this =
         }
 
     member this.RunAsync () =
-        if not (tryClaim &runStarted) then
+        if not <| tryClaim &runStarted then
             invalidOp "FIOApp is already running; concurrent Run on a single instance is not supported."
 
         task {

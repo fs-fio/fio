@@ -8,6 +8,8 @@ open FIO.Runtime
 
 open Expecto
 
+open System
+
 [<Tests>]
 let operatorTests =
     testList
@@ -211,46 +213,105 @@ let operatorTests =
                 Expect.equal operatorResult err2 "( <|> ) should return second error when both fail"
                 Expect.equal operatorResult methodResult "( <|> ) should equal OrElse when both fail"
 
+            // ─── Either fallback (<+>) ─────────────────────────────────────────
+
+            testPropertyWithConfig fsCheckConfig "( <+> ) OrElseEither this succeeds returns Choice1Of2"
+            <| fun (runtime: FIORuntime, value: int, fallback: string) ->
+                let eff1 = FIO.succeed value
+                let eff2 = FIO.succeed fallback
+
+                let operatorResult = runtime.Run(eff1 <+> eff2).UnsafeSuccess()
+                let methodResult = runtime.Run(eff1.OrElseEither eff2).UnsafeSuccess()
+
+                Expect.equal operatorResult (Choice1Of2 value) "( <+> ) should return Choice1Of2 on success"
+                Expect.equal operatorResult methodResult "( <+> ) should equal OrElseEither"
+
+            testPropertyWithConfig fsCheckConfig "( <+> ) OrElseEither this fails, fallback succeeds returns Choice2Of2"
+            <| fun (runtime: FIORuntime, error: string, fallback: int) ->
+                let eff1 = FIO.fail error
+                let eff2 = FIO.succeed fallback
+
+                let operatorResult = runtime.Run(eff1 <+> eff2).UnsafeSuccess()
+                let methodResult = runtime.Run(eff1.OrElseEither eff2).UnsafeSuccess()
+
+                Expect.equal operatorResult (Choice2Of2 fallback) "( <+> ) should return Choice2Of2 when fallback succeeds"
+                Expect.equal operatorResult methodResult "( <+> ) should equal OrElseEither on fallback"
+
+            testPropertyWithConfig fsCheckConfig "( <+> ) OrElseEither both fail returns fallback error"
+            <| fun (runtime: FIORuntime, error: string, fallbackErr: int) ->
+                let eff1 = FIO.fail error
+                let eff2 = FIO.fail fallbackErr
+
+                let operatorResult = runtime.Run(eff1 <+> eff2).UnsafeError()
+                let methodResult = runtime.Run(eff1.OrElseEither eff2).UnsafeError()
+
+                Expect.equal operatorResult fallbackErr "( <+> ) should propagate the fallback error when both fail"
+                Expect.equal operatorResult methodResult "( <+> ) should equal OrElseEither when both fail"
+
+            // ─── Either race (<?>) ─────────────────────────────────────────
+
+            testPropertyWithConfig fsCheckConfig "( <?> ) RaceEither first racer wins returns Choice1Of2"
+            <| fun (runtime: FIORuntime) ->
+                let fast = FIO.succeed 1
+                let slow = (FIO.sleep (TimeSpan.FromSeconds 10.0) id).FlatMap(fun () -> FIO.succeed "slow")
+
+                let operatorResult = runtime.Run(fast <?> slow).UnsafeSuccess()
+                let methodResult = runtime.Run(fast.RaceEither slow).UnsafeSuccess()
+
+                Expect.equal operatorResult (Choice1Of2 1) "( <?> ) should return Choice1Of2 when the left racer wins"
+                Expect.equal operatorResult methodResult "( <?> ) should equal RaceEither"
+
+            testPropertyWithConfig fsCheckConfig "( <?> ) RaceEither second racer wins returns Choice2Of2"
+            <| fun (runtime: FIORuntime) ->
+                let slow = (FIO.sleep (TimeSpan.FromSeconds 10.0) id).FlatMap(fun () -> FIO.succeed 1)
+                let fast = FIO.succeed "fast"
+
+                let operatorResult = runtime.Run(slow <?> fast).UnsafeSuccess()
+                let methodResult = runtime.Run(slow.RaceEither fast).UnsafeSuccess()
+
+                Expect.equal operatorResult (Choice2Of2 "fast") "( <?> ) should return Choice2Of2 when the right racer wins"
+                Expect.equal operatorResult methodResult "( <?> ) should equal RaceEither"
+
             // ─── Bind / Map (>>=, <!>) ─────────────────────────────────────────
 
             testPropertyWithConfig fsCheckConfig "( >>= ) FlatMap success"
             <| fun (runtime: FIORuntime, a: int, f: int -> int) ->
-                let eff = FIO.succeed a
+                let effect = FIO.succeed a
                 let cont = fun x -> FIO.succeed (f x)
 
-                let operatorResult = runtime.Run(eff >>= cont).UnsafeSuccess()
-                let methodResult = runtime.Run(eff.FlatMap cont).UnsafeSuccess()
+                let operatorResult = runtime.Run(effect >>= cont).UnsafeSuccess()
+                let methodResult = runtime.Run(effect.FlatMap cont).UnsafeSuccess()
 
                 Expect.equal operatorResult (f a) "( >>= ) should apply continuation"
                 Expect.equal operatorResult methodResult "( >>= ) should equal FlatMap"
 
             testPropertyWithConfig fsCheckConfig "( >>= ) FlatMap error propagation"
             <| fun (runtime: FIORuntime, error: string) ->
-                let eff = FIO.fail error
+                let effect = FIO.fail error
                 let cont = fun x -> FIO.succeed (x + 1)
 
-                let operatorResult = runtime.Run(eff >>= cont).UnsafeError()
-                let methodResult = runtime.Run(eff.FlatMap cont).UnsafeError()
+                let operatorResult = runtime.Run(effect >>= cont).UnsafeError()
+                let methodResult = runtime.Run(effect.FlatMap cont).UnsafeError()
 
                 Expect.equal operatorResult error "( >>= ) should propagate error"
                 Expect.equal operatorResult methodResult "( >>= ) should equal FlatMap on error"
 
             testPropertyWithConfig fsCheckConfig "( <!> ) Map success"
             <| fun (runtime: FIORuntime, a: int, f: int -> int) ->
-                let eff = FIO.succeed a
+                let effect = FIO.succeed a
 
-                let operatorResult = runtime.Run(f <!> eff).UnsafeSuccess()
-                let methodResult = runtime.Run(eff.Map f).UnsafeSuccess()
+                let operatorResult = runtime.Run(f <!> effect).UnsafeSuccess()
+                let methodResult = runtime.Run(effect.Map f).UnsafeSuccess()
 
                 Expect.equal operatorResult (f a) "( <!> ) should apply mapper"
                 Expect.equal operatorResult methodResult "( <!> ) should equal Map"
 
             testPropertyWithConfig fsCheckConfig "( <!> ) Map error propagation"
             <| fun (runtime: FIORuntime, error: string, f: int -> int) ->
-                let eff = FIO.fail error
+                let effect = FIO.fail error
 
-                let operatorResult = runtime.Run(f <!> eff).UnsafeError()
-                let methodResult = runtime.Run(eff.Map f).UnsafeError()
+                let operatorResult = runtime.Run(f <!> effect).UnsafeError()
+                let methodResult = runtime.Run(effect.Map f).UnsafeError()
 
                 Expect.equal operatorResult error "( <!> ) should propagate error"
                 Expect.equal operatorResult methodResult "( <!> ) should equal Map on error"

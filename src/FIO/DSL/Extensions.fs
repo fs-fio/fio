@@ -36,10 +36,9 @@ type FIO<'A, 'E> with
         this.MapError Some
 
     member inline this.Flip () : FIO<'E, 'A> =
-        this.Result().FlatMap(fun result ->
-            match result with
-            | Ok value -> FIO.fail value
-            | Error error -> FIO.succeed error)
+        this.Result().FlatMap <| function
+        | Ok value -> FIO.fail value
+        | Error error -> FIO.succeed error
 
     member inline this.Ignore<'E1> () : FIO<unit, 'E1> =
         this.Fold (fun _ -> ()) (fun _ -> ())
@@ -56,14 +55,14 @@ type FIO<'A, 'E> with
     member inline this.Unless (cond: bool) : FIO<unit, 'E> =
         this.When(not cond)
 
-    member inline this.Tap<'A1> (effOnSuccess: 'A -> FIO<'A1, 'E>) : FIO<'A, 'E> =
-        this.FlatMap(fun value ->
-            (effOnSuccess value).As value)
+    member inline this.Tap<'A1> (onSuccess: 'A -> FIO<'A1, 'E>) : FIO<'A, 'E> =
+        this.FlatMap <| fun value ->
+            (onSuccess value).As value
 
-    member inline this.TapError<'A1> (effOnError: 'E -> FIO<'A1, 'E>) : FIO<'A, 'E> =
-        this.CatchAll(fun error ->
-            effOnError(error).FlatMap(fun _ ->
-                FIO.fail error))
+    member inline this.TapError<'A1> (onError: 'E -> FIO<'A1, 'E>) : FIO<'A, 'E> =
+        this.CatchAll <| fun error ->
+            (onError error).FlatMap <| fun _ ->
+                FIO.fail error
 
     member this.TapBoth<'A1, 'A2> (onSuccess: 'A -> FIO<'A2, 'E>) (onError: 'E -> FIO<'A1, 'E>) : FIO<'A, 'E> =
         ChainBoth(
@@ -155,7 +154,7 @@ type FIO<'A, 'E> with
     member inline this.RejectFIO (func: 'A -> FIO<'E, 'E> option) : FIO<'A, 'E> =
         this.FlatMap <| fun value ->
             match func value with
-            | Some errorEff -> errorEff.FlatMap FIO.fail
+            | Some errorEffect -> errorEffect.FlatMap FIO.fail
             | None -> FIO.succeed value
 
     member inline this.Collect<'A1> (error: 'E) (func: 'A -> 'A1 option) : FIO<'A1, 'E> =
@@ -277,7 +276,7 @@ type FIO<'A, 'E> with
         let rec loop () =
             this.CatchAll <| fun error ->
                 (predicate error).FlatMap <| fun cont ->
-                    if cont then loop () 
+                    if cont then loop ()
                     else FIO.fail error
         loop ()
 
@@ -292,7 +291,7 @@ type FIO<'A, 'E> with
         else
             this.FlatMap <|fun _ ->
                 FIO.suspend <| fun () ->
-                    this.RepeatN(n - 1)
+                    this.RepeatN (n - 1)
 
     member inline this.RepeatUntil (predicate: 'A -> bool) : FIO<'A, 'E> =
         this.RepeatUntilFIO <| fun value ->
@@ -339,43 +338,43 @@ type FIO<'A, 'E> with
             (FIO.sleep duration onError)
                 .FlatMap <| fun () ->
                     FIO.succeed None
-        this.Map(Some).Race timeoutEff
+        this.Map(Some).RaceFirst timeoutEff
 
     member inline this.TimeoutFail (timeoutError: 'E) (duration: TimeSpan) (onError: exn -> 'E) : FIO<'A, 'E> =
         let timeoutEff =
             (FIO.sleep duration onError)
                 .FlatMap <| fun () ->
                     FIO.fail timeoutError
-        this.Race timeoutEff
+        this.RaceFirst timeoutEff
 
     member inline this.TimeoutTo<'A1> (defaultValue: 'A1) (onSuccess: 'A -> 'A1) (duration: TimeSpan) (onError: exn -> 'E) : FIO<'A1, 'E> =
         let timeoutEff =
             (FIO.sleep duration onError)
                 .FlatMap <| fun () ->
                     FIO.succeed defaultValue
-        this.Map(onSuccess).Race timeoutEff
+        this.Map(onSuccess).RaceFirst timeoutEff
 
     member inline this.Timed (onError: exn -> 'E) : FIO<TimeSpan * 'A, 'E> =
-        (FIO.attempt Stopwatch.StartNew onError).FlatMap <| fun sw ->
-            this.Ensuring(FIO.suspend (fun () -> sw.Stop(); FIO.unit ()))
-                .Map <| fun value -> sw.Elapsed, value
+        (FIO.attempt Stopwatch.StartNew onError).FlatMap <| fun stopwatch ->
+            this.Ensuring(FIO.suspend (fun () -> stopwatch.Stop(); FIO.unit ()))
+                .Map <| fun value -> stopwatch.Elapsed, value
 
-    member this.Race (effect: FIO<'A, 'E>) : FIO<'A, 'E> =
+    member this.RaceFirst (effect: FIO<'A, 'E>) : FIO<'A, 'E> =
         FIO.suspend <| fun () ->
-            let resultChan = Channel<bool>()
+            let channel = Channel<bool>()
 
             let signal (won: bool) (fiber: Fiber<'A, 'E>) =
                 fiber.Await().FlatMap <| fun result ->
                     match result with
                     | Succeeded _
-                    | Failed _ -> (resultChan.Write won).Unit()
+                    | Failed _ -> (channel.Write won).Unit()
                     | Interrupted _ -> FIO.unit ()
 
             this.Fork().FlatMap <| fun fiber1 ->
                 effect.Fork().FlatMap <| fun fiber2 ->
                     (signal true fiber1).Fork().FlatMap <| fun _ ->
                         (signal false fiber2).Fork().FlatMap <| fun _ ->
-                            resultChan.Read().FlatMap <| fun winnerIsFirst ->
+                            channel.Read().FlatMap <| fun winnerIsFirst ->
                                 let winner, loser =
                                     if winnerIsFirst then fiber1, fiber2 else fiber2, fiber1
                                 (loser.Interrupt ExplicitInterrupt "Lost race")
@@ -385,22 +384,22 @@ type FIO<'A, 'E> with
     member inline this.RaceEither<'A1> (effect: FIO<'A1, 'E>) : FIO<Choice<'A, 'A1>, 'E> =
         this.Map(Choice1Of2).Race <| effect.Map Choice2Of2
 
-    member inline this.RaceFirstSuccess (effect: FIO<'A, 'E>) : FIO<'A, 'E> =
+    member this.Race (effect: FIO<'A, 'E>) : FIO<'A, 'E> =
         FIO.suspend <| fun () ->
-            let resultChan = Channel<Result<'A * bool, 'E>>()
+            let channel = Channel<Result<'A * bool, 'E>>()
 
             let signal (isFirst: bool) (fiber: Fiber<'A, 'E>) =
                 fiber.Await().FlatMap <| fun result ->
                     match result with
-                    | Succeeded value -> (resultChan.Write(Ok(value, isFirst))).Unit()
-                    | Failed error -> (resultChan.Write(Error error)).Unit()
+                    | Succeeded value -> (channel.Write(Ok(value, isFirst))).Unit()
+                    | Failed error -> (channel.Write(Error error)).Unit()
                     | Interrupted _ -> FIO.unit ()
 
             this.Fork().FlatMap <| fun fiber1 ->
                 effect.Fork().FlatMap <| fun fiber2 ->
                     (signal true fiber1).Fork().FlatMap <| fun _ ->
                         (signal false fiber2).Fork().FlatMap <| fun _ ->
-                            resultChan.Read().FlatMap <| fun first ->
+                            channel.Read().FlatMap <| fun first ->
                                 match first with
                                 | Ok(value, isFirst) ->
                                     let loser = if isFirst then fiber2 else fiber1
@@ -408,7 +407,7 @@ type FIO<'A, 'E> with
                                         .Ignore()
                                         .As value
                                 | Error _ ->
-                                    resultChan.Read().FlatMap <| fun second ->
+                                    channel.Read().FlatMap <| fun second ->
                                         match second with
                                         | Ok(value, _) -> FIO.succeed value
                                         | Error error -> FIO.fail error

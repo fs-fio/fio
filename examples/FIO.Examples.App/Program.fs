@@ -547,15 +547,15 @@ type CommandLineArgsApp(args: string array) =
         }
 
 /// <summary>Represents an FIOApp that overrides the runtime property to supply a custom ConcurrentRuntime with tuned worker configuration parameters.</summary>
-/// <remarks>Demonstrates runtime customization: EWC controls evaluation worker count, EWS sets steps per work item before rescheduling, and BWC sets blocking worker count.</remarks>
+/// <remarks>Demonstrates runtime customization: EvaluationWorkers controls evaluation worker count, EvaluationSteps sets steps per work item before rescheduling, and BlockingWorkers sets blocking worker count.</remarks>
 type CustomRuntimeApp() =
     inherit FIOApp<unit, exn>()
 
     override _.runtime =
         new ConcurrentRuntime {
-            EWC = Environment.ProcessorCount * 2
-            EWS = 500
-            BWC = 2
+            EvaluationWorkers = Environment.ProcessorCount * 2
+            EvaluationSteps = 500
+            BlockingWorkers = 2
         }
 
     override _.effect =

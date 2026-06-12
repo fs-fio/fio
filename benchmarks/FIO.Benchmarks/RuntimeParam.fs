@@ -13,8 +13,8 @@ let private defaultRuntimes =
 let create (spec: string) : FIORuntime =
     match spec.Split '-' with
     | [| "Direct" |] -> new DirectRuntime()
-    | [| "Cooperative"; ewc; ews; bwc |] -> new CooperativeRuntime { EWC = int ewc; EWS = int ews; BWC = int bwc }
-    | [| "Concurrent"; ewc; ews; bwc |] -> new ConcurrentRuntime { EWC = int ewc; EWS = int ews; BWC = int bwc }
+    | [| "Cooperative"; ewc; ews; bwc |] -> new CooperativeRuntime { EvaluationWorkers = int ewc; EvaluationSteps = int ews; BlockingWorkers = int bwc }
+    | [| "Concurrent"; ewc; ews; bwc |] -> new ConcurrentRuntime { EvaluationWorkers = int ewc; EvaluationSteps = int ews; BlockingWorkers = int bwc }
     | _ -> raise (ArgumentException $"Unknown runtime spec: {spec}")
 
 let runtimes () =

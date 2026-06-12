@@ -16,8 +16,4 @@
         <ProjectReference Include="..\..\src\FIO.Http\FIO.Http.fsproj" />
     </ItemGroup>
 
-    <ItemGroup>
-        <PackageReference Update="FSharp.Core" Version="10.1.301" />
-    </ItemGroup>
-
 </Project>

@@ -37,13 +37,26 @@ module WebSocketClient =
                     (fun () -> new Net.WebSockets.ClientWebSocket())
                     WsError.fromException
 
-            let! connectTask =
-                FIO.attempt
-                    (fun () -> clientSocket.ConnectAsync(uri, ct))
-                    WsError.fromException
+            let establish =
+                fio {
+                    let! connectTask =
+                        FIO.attempt
+                            (fun () -> clientSocket.ConnectAsync(uri, ct))
+                            WsError.fromException
 
-            do! FIO.awaitUnitTask connectTask WsError.fromException
-            return new WebSocket(clientSocket, config)
+                    do! FIO.awaitUnitTask connectTask WsError.fromException
+                    return new WebSocket(clientSocket, config)
+                }
+
+            return!
+                establish.CatchAll(fun error ->
+                    fio {
+                        do!
+                            (FIO.attempt (fun () -> clientSocket.Dispose()) WsError.fromException)
+                                .CatchAll(logAndSuppress "client socket disposal")
+
+                        return! FIO.fail error
+                    })
         }
 
     /// <summary>Creates an effect that connects to a WebSocket server at the specified URI with default configuration, observing the running fiber's cancellation token.</summary>
@@ -94,7 +107,7 @@ module WebSocketClient =
                 return! connect uri config ct
             }
 
-        FIO.acquireRelease
+        FIO.acquireReleaseWith
             acquire
             (fun ws ->
                 ws.Close(Net.WebSockets.WebSocketCloseStatus.NormalClosure, "Closing connection")

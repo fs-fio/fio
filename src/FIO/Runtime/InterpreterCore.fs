@@ -3,18 +3,19 @@ module internal FIO.Runtime.InterpreterCore
 open FIO.DSL
 
 open System.Threading.Tasks
+open System.Collections.Generic
 
 [<Struct; NoComparison; NoEquality>]
 type InterpreterState =
-    val mutable Eff: FIO<obj, obj>
-    val mutable ContStack: ContStack
+    val mutable Effect: FIO<obj, obj>
+    val mutable ContStack: Stack<Cont>
     val mutable FiberContext: FiberContext
     val mutable Completed: bool
     val mutable InterruptionSuppressed: int
 
-    new(eff, contStack, fiberContext, interruptionSuppressed) =
+    new(effect, contStack, fiberContext, interruptionSuppressed) =
         {
-            Eff = eff
+            Effect = effect
             ContStack = contStack
             FiberContext = fiberContext
             Completed = false
@@ -23,45 +24,43 @@ type InterpreterState =
 
 [<Struct; NoComparison; NoEquality>]
 type RuntimeCase =
-    | HandleSendChan of msg: obj * chan: Channel<obj>
-    | HandleReceiveChan of chan: Channel<obj>
-    | HandleForkEffect of eff: FIO<obj, obj> * fiber: obj * fiberContext: FiberContext
+    | HandleWriteChan of message: obj * channel: Channel<obj>
+    | HandleReadChan of channel: Channel<obj>
+    | HandleForkEffect of effect: FIO<obj, obj> * fiber: obj * fiberContext: FiberContext
     | HandleJoinFiber of fiberContext: FiberContext
     | HandleAwaitTask of task: Task<obj> * onError: (exn -> obj)
 
 [<Struct; NoComparison; NoEquality>]
 type internal Outcome =
-    | OutcomeSuccess of value: obj
-    | OutcomeError of error: obj
-    | OutcomeInterrupt of intrErr: obj
+    | OutcomeSucceeded of value: obj
+    | OutcomeFailed of error: obj
+    | OutcomeInterrupted of interruptError: obj
 
 let inline processOutcome
     (state: byref<InterpreterState>)
     ([<InlineIfLambda>] onSuccessComplete: obj -> unit)
     ([<InlineIfLambda>] onErrorComplete: obj -> unit)
-    (initialOutcome: Outcome)
-    =
+    (initialOutcome: Outcome) =
     let mutable outcome = initialOutcome
     let mutable loop = true
 
     match initialOutcome with
-    | OutcomeInterrupt _ ->
+    | OutcomeInterrupted _ ->
         let mutable unwinding = true
-
         while unwinding do
-            match state.Eff with
-            | OnFinalize(eff, finalizer) ->
+            match state.Effect with
+            | OnFinalize(effect, finalizer) ->
                 state.ContStack.Push(FinalizerCont finalizer)
-                state.Eff <- eff
+                state.Effect <- effect
             | _ -> unwinding <- false
     | _ -> ()
 
     while loop do
         if state.ContStack.Count = 0 then
             match outcome with
-            | OutcomeSuccess value -> onSuccessComplete value
-            | OutcomeError error -> onErrorComplete error
-            | OutcomeInterrupt error -> onErrorComplete error
+            | OutcomeSucceeded value -> onSuccessComplete value
+            | OutcomeFailed error -> onErrorComplete error
+            | OutcomeInterrupted error -> onErrorComplete error
 
             state.Completed <- true
             loop <- false
@@ -69,140 +68,138 @@ let inline processOutcome
             let cont = state.ContStack.Pop()
 
             match outcome, cont with
-            | OutcomeSuccess value, SuccessCont cont ->
+            | OutcomeSucceeded value, SuccessCont cont ->
                 try
-                    state.Eff <- cont value
+                    state.Effect <- cont value
                 with exn ->
-                    state.Eff <- Failure(exn :> obj)
+                    state.Effect <- Failure(exn :> obj)
 
                 loop <- false
-            | OutcomeError error, FailureCont cont ->
+            | OutcomeFailed error, FailureCont cont ->
                 try
-                    state.Eff <- cont error
+                    state.Effect <- cont error
                 with exn ->
-                    state.Eff <- Failure(exn :> obj)
+                    state.Effect <- Failure(exn :> obj)
 
                 loop <- false
-            | OutcomeSuccess _, FailureCont _
-            | OutcomeError _, SuccessCont _
-            | OutcomeInterrupt _, SuccessCont _
-            | OutcomeInterrupt _, FailureCont _ -> ()
-            | OutcomeSuccess value, FinalizerCont finalizer ->
+            | OutcomeSucceeded _, FailureCont _
+            | OutcomeFailed _, SuccessCont _
+            | OutcomeInterrupted _, SuccessCont _
+            | OutcomeInterrupted _, FailureCont _ -> ()
+            | OutcomeSucceeded value, FinalizerCont finalizer ->
                 state.InterruptionSuppressed <- state.InterruptionSuppressed + 1
-                state.ContStack.Push(PostFinalizerCont(PostFinalizerSuccess value))
-                state.Eff <- finalizer
+                state.ContStack.Push(PostFinalizerCont(PostFinalizerSucceeded value))
+                state.Effect <- finalizer
                 loop <- false
-            | OutcomeError error, FinalizerCont finalizer ->
+            | OutcomeFailed error, FinalizerCont finalizer ->
                 state.InterruptionSuppressed <- state.InterruptionSuppressed + 1
-                state.ContStack.Push(PostFinalizerCont(PostFinalizerError error))
-                state.Eff <- finalizer
+                state.ContStack.Push(PostFinalizerCont(PostFinalizerFailed error))
+                state.Effect <- finalizer
                 loop <- false
-            | OutcomeInterrupt error, FinalizerCont finalizer ->
+            | OutcomeInterrupted error, FinalizerCont finalizer ->
                 state.InterruptionSuppressed <- state.InterruptionSuppressed + 1
-                state.ContStack.Push(PostFinalizerCont(PostFinalizerInterrupt error))
-                state.Eff <- finalizer
+                state.ContStack.Push(PostFinalizerCont(PostFinalizerInterrupted error))
+                state.Effect <- finalizer
                 loop <- false
-            | OutcomeInterrupt _, PostFinalizerCont _ -> ()
-            | OutcomeSuccess _, PostFinalizerCont saved ->
+            | OutcomeInterrupted _, PostFinalizerCont _ -> ()
+            | OutcomeSucceeded _, PostFinalizerCont saved ->
                 state.InterruptionSuppressed <- state.InterruptionSuppressed - 1
-
                 outcome <-
                     match saved with
-                    | PostFinalizerSuccess savedRes -> OutcomeSuccess savedRes
-                    | PostFinalizerError savedErr -> OutcomeError savedErr
-                    | PostFinalizerInterrupt savedErr -> OutcomeInterrupt savedErr
-            | OutcomeError _, PostFinalizerCont saved ->
+                    | PostFinalizerSucceeded savedRes -> OutcomeSucceeded savedRes
+                    | PostFinalizerFailed savedErr -> OutcomeFailed savedErr
+                    | PostFinalizerInterrupted savedErr -> OutcomeInterrupted savedErr
+            | OutcomeFailed _, PostFinalizerCont saved ->
                 state.InterruptionSuppressed <- state.InterruptionSuppressed - 1
-
                 match saved with
-                | PostFinalizerSuccess _ -> ()
-                | PostFinalizerError savedErr -> outcome <- OutcomeError savedErr
-                | PostFinalizerInterrupt savedErr -> outcome <- OutcomeInterrupt savedErr
+                | PostFinalizerSucceeded _ -> ()
+                | PostFinalizerFailed savedErr -> outcome <- OutcomeFailed savedErr
+                | PostFinalizerInterrupted savedErr -> outcome <- OutcomeInterrupted savedErr
 
 let inline processResult
     (state: byref<InterpreterState>)
     ([<InlineIfLambda>] onSuccessComplete: obj -> unit)
     ([<InlineIfLambda>] onErrorComplete: obj -> unit)
-    (value: Result<obj, obj>)
-    =
+    (value: Result<obj, obj>) =
     match value with
-    | Ok value -> processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess value)
-    | Error error -> processOutcome &state onSuccessComplete onErrorComplete (OutcomeError error)
+    | Ok value ->
+        processOutcome &state onSuccessComplete onErrorComplete (OutcomeSucceeded value)
+    | Error error ->
+        processOutcome &state onSuccessComplete onErrorComplete (OutcomeFailed error)
 
 let inline handleSharedCase
     (state: byref<InterpreterState>)
     ([<InlineIfLambda>] onSuccessComplete: obj -> unit)
     ([<InlineIfLambda>] onErrorComplete: obj -> unit)
     : RuntimeCase voption =
-    match state.Eff with
+    match state.Effect with
     | Success value ->
-        processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess value)
+        processOutcome &state onSuccessComplete onErrorComplete (OutcomeSucceeded value)
         ValueNone
     | Failure error ->
-        processOutcome &state onSuccessComplete onErrorComplete (OutcomeError error)
+        processOutcome &state onSuccessComplete onErrorComplete (OutcomeFailed error)
         ValueNone
-    | Interrupt(cause, msg) ->
-        state.FiberContext.Interrupt(cause, msg)
-
+    | Interrupt(cause, message) ->
+        state.FiberContext.Interrupt(cause, message)
         processOutcome
             &state
             onSuccessComplete
             onErrorComplete
-            (OutcomeInterrupt(FiberInterruptedException(state.FiberContext.Id, cause, msg) :> obj))
-
+            (OutcomeInterrupted(FiberInterruptedException(state.FiberContext.Id, cause, message) :> obj))
         ValueNone
     | FiberCancellationToken ->
         processOutcome
             &state
             onSuccessComplete
             onErrorComplete
-            (OutcomeSuccess(state.FiberContext.CancellationToken :> obj))
-
+            (OutcomeSucceeded(state.FiberContext.CancellationToken :> obj))
         ValueNone
     | Action(func, onError) ->
         try
             let value = func ()
-            processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess value)
-        with exn ->
+            processOutcome &state onSuccessComplete onErrorComplete (OutcomeSucceeded value)
+        with ex ->
             let error =
                 try
-                    onError exn
+                    onError ex
                 with _ ->
-                    exn :> obj
-
-            processOutcome &state onSuccessComplete onErrorComplete (OutcomeError error)
-
+                    ex :> obj
+            processOutcome &state onSuccessComplete onErrorComplete (OutcomeFailed error)
         ValueNone
-    | ChainSuccess(eff, cont) ->
-        state.Eff <- eff
+    | ChainSuccess(effect, cont) ->
+        state.Effect <- effect
         state.ContStack.Push(SuccessCont cont)
         ValueNone
-    | ChainError(eff, cont) ->
-        state.Eff <- eff
+    | ChainError(effect, cont) ->
+        state.Effect <- effect
         state.ContStack.Push(FailureCont cont)
         ValueNone
-    | ChainBoth(eff, successCont, errorCont) ->
-        state.Eff <- eff
+    | ChainBoth(effect, successCont, errorCont) ->
+        state.Effect <- effect
         state.ContStack.Push(FailureCont errorCont)
         state.ContStack.Push(SuccessCont successCont)
         ValueNone
-    | OnFinalize(eff, finalizer) ->
+    | OnFinalize(effect, finalizer) ->
         state.ContStack.Push(FinalizerCont finalizer)
-        state.Eff <- eff
+        state.Effect <- effect
         ValueNone
-    | Suspend thunk ->
-        state.Eff <- thunk ()
+    | Suspend effect ->
+        state.Effect <- effect ()
         ValueNone
-    | WriteChan(msg, chan) -> ValueSome(HandleSendChan(msg, chan))
-    | ReadChan chan -> ValueSome(HandleReceiveChan chan)
-    | ForkEffect(eff, fiber, fiberContext) -> ValueSome(HandleForkEffect(eff, fiber, fiberContext))
-    | JoinFiber fiberContext -> ValueSome(HandleJoinFiber fiberContext)
-    | AwaitTask(task, onError) -> ValueSome(HandleAwaitTask(task, onError))
+    | WriteChan(value, channel) ->
+        ValueSome(HandleWriteChan(value, channel))
+    | ReadChan channel ->
+        ValueSome(HandleReadChan channel)
+    | ForkEffect(effect, fiber, fiberContext) ->
+        ValueSome(HandleForkEffect(effect, fiber, fiberContext))
+    | JoinFiber fiberContext ->
+        ValueSome(HandleJoinFiber fiberContext)
+    | AwaitTask(task, onError) ->
+        ValueSome(HandleAwaitTask(task, onError))
 
 let inline setupForkRegistration (parentContext: FiberContext) (childContext: FiberContext) =
     let registration =
         parentContext.CancellationToken.Register(fun () ->
             childContext.Interrupt(ParentInterrupted parentContext.Id, "Parent fiber was interrupted."))
-
     childContext.AddRegistration registration
     registration

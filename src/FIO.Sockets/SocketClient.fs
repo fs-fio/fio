@@ -51,7 +51,7 @@ module SocketClient =
     /// <param name="action">A function from the connected socket to the effect to run; the connection is closed after this effect completes.</param>
     /// <returns>An effect that produces the action's result and guarantees connection cleanup.</returns>
     let withConnection (config: SocketConfig) (action: Socket -> FIO<'A, SocketError>) =
-        FIO.acquireRelease (connect config) (fun socket -> socket.Close().Ignore()) action
+        FIO.acquireReleaseWith (connect config) (fun socket -> socket.Close().Ignore()) action
 
     /// <summary>Builds a resource-scoped effect that connects to the given host and port, runs an action, and closes the connection on every outcome.</summary>
     /// <param name="host">The remote host to connect to.</param>

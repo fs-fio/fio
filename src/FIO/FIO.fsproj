@@ -5,22 +5,15 @@
         <WarningsAsErrors>true</WarningsAsErrors>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <Title>FIO</Title>
-        <Description>FIO is a type-safe, purely functional effect system for F#, designed for building highly concurrent and asynchronous applications. It provides a lightweight DSL for writing composable programs using functional effects. Includes: Core effect system, App framework, and Console I/O.</Description>
-        <Authors>Daniel Larsen</Authors>
-        <Copyright>Copyright (c) 2022-2026 Daniel Larsen and Technical University of Denmark (DTU)</Copyright>
+        <Description>A type-safe, purely functional effect system for F#. IO monad + fibers for building concurrent F# applications. Core package: composable effects with typed errors, fibers, channels, runtimes, the fio { } computation expression, the FIOApp framework, and Console I/O.</Description>
         <PackageTags>fsharp;effects;async;concurrent;functional;zio;fibers</PackageTags>
-        <RepositoryUrl>https://github.com/fs-fio/FIO</RepositoryUrl>
-        <RepositoryType>git</RepositoryType>
         <PackageIcon>fio_logo_wide.png</PackageIcon>
         <PackageReadmeFile>README.md</PackageReadmeFile>
-        <PackageProjectUrl>https://github.com/fs-fio/FIO</PackageProjectUrl>
-        <Version>0.0.40-alpha</Version>
     </PropertyGroup>
 
     <ItemGroup>
         <InternalsVisibleTo Include="FIO.Tests" />
     </ItemGroup>
-
 
     <ItemGroup>
         <Compile Include="DSL\Utilities.fs" />
@@ -50,7 +43,6 @@
         <!-- Ensure that files that are generated during the build by the .NET SDK are also included in your compiled library. -->
         <EmbedUntrackedSources>true</EmbedUntrackedSources>
         <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
-        <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
     </PropertyGroup>
 
     <ItemGroup>
@@ -66,10 +58,6 @@
             <Pack>True</Pack>
             <PackagePath>\</PackagePath>
         </None>
-    </ItemGroup>
-
-    <ItemGroup>
-        <PackageReference Update="FSharp.Core" Version="10.1.301" />
     </ItemGroup>
 
 </Project>

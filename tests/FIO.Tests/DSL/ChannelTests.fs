@@ -32,19 +32,19 @@ let channelTests =
 
             testPropertyWithConfig fsCheckConfig "Constructor - creates channel with zero count"
             <| fun (runtime: FIORuntime) ->
-                let eff =
+                let effect =
                     fio {
                         let chan = Channel<int>()
                         return chan.Count
                     }
 
                 let result =
-                    runtime.Run(eff).UnsafeSuccess()
+                    runtime.Run(effect).UnsafeSuccess()
 
                 Expect.equal result 0 "New channel should have count 0"
 
             testAllRuntimes "Constructor - creates independent channel instances" (fun runtime ->
-                let eff =
+                let effect =
                     fio {
                         let chan1 = Channel<int>()
                         let chan2 = Channel<int>()
@@ -53,7 +53,7 @@ let channelTests =
                     }
 
                 let c1, c2 =
-                    runtime.Run(eff).UnsafeSuccess()
+                    runtime.Run(effect).UnsafeSuccess()
 
                 Expect.equal c1 1 "Channel with message should have count 1"
                 Expect.equal c2 0 "Other channel should remain at count 0")
@@ -62,7 +62,7 @@ let channelTests =
 
             testPropertyWithConfig fsCheckConfig "Id - each channel has unique id"
             <| fun (runtime: FIORuntime) ->
-                let eff =
+                let effect =
                     fio {
                         let chan1 = Channel<int>()
                         let chan2 = Channel<int>()
@@ -70,14 +70,14 @@ let channelTests =
                     }
 
                 let id1, id2 =
-                    runtime.Run(eff).UnsafeSuccess()
+                    runtime.Run(effect).UnsafeSuccess()
 
                 Expect.notEqual id1 id2 "Each channel should have a unique id"
                 Expect.notEqual id1 Guid.Empty "Channel id should not be empty"
 
             testPropertyWithConfig fsCheckConfig "Id - is stable across repeated access"
             <| fun (runtime: FIORuntime) ->
-                let eff =
+                let effect =
                     fio {
                         let chan = Channel<int>()
                         let id1 = chan.Id
@@ -86,7 +86,7 @@ let channelTests =
                     }
 
                 let id1, id2 =
-                    runtime.Run(eff).UnsafeSuccess()
+                    runtime.Run(effect).UnsafeSuccess()
 
                 Expect.equal id1 id2 "Id should return the same value on repeated access"
 
@@ -94,7 +94,7 @@ let channelTests =
 
             testPropertyWithConfig fsCheckConfig "Count - increments after send"
             <| fun (runtime: FIORuntime, msg: int) ->
-                let eff =
+                let effect =
                     fio {
                         let chan = Channel<int>()
                         let before = chan.Count
@@ -104,14 +104,14 @@ let channelTests =
                     }
 
                 let before, after =
-                    runtime.Run(eff).UnsafeSuccess()
+                    runtime.Run(effect).UnsafeSuccess()
 
                 Expect.equal before 0 "Count should be 0 before send"
                 Expect.equal after 1 "Count should be 1 after send"
 
             testPropertyWithConfig fsCheckConfig "Count - decrements after receive"
             <| fun (runtime: FIORuntime, msg: int) ->
-                let eff =
+                let effect =
                     fio {
                         let chan = Channel<int>()
                         do! chan.Write(msg).Unit()
@@ -122,13 +122,13 @@ let channelTests =
                     }
 
                 let before, after =
-                    runtime.Run(eff).UnsafeSuccess()
+                    runtime.Run(effect).UnsafeSuccess()
 
                 Expect.equal before 1 "Count should be 1 before receive"
                 Expect.equal after 0 "Count should be 0 after receive"
 
             testAllRuntimes "Count - tracks multiple messages accurately" (fun runtime ->
-                let eff =
+                let effect =
                     fio {
                         let chan = Channel<int>()
                         do! chan.Write(1).Unit()
@@ -143,7 +143,7 @@ let channelTests =
                     }
 
                 let c3, c2, c1 =
-                    runtime.Run(eff).UnsafeSuccess()
+                    runtime.Run(effect).UnsafeSuccess()
 
                 Expect.equal c3 3 "Count should be 3 after three sends"
                 Expect.equal c2 2 "Count should be 2 after one receive"
@@ -153,7 +153,7 @@ let channelTests =
 
             testPropertyWithConfig fsCheckConfig "Send - returns the sent message"
             <| fun (runtime: FIORuntime, msg: int) ->
-                let eff =
+                let effect =
                     fio {
                         let chan = Channel<int>()
                         let! sent = chan.Write msg
@@ -161,13 +161,13 @@ let channelTests =
                     }
 
                 let result =
-                    runtime.Run(eff).UnsafeSuccess()
+                    runtime.Run(effect).UnsafeSuccess()
 
                 Expect.equal result msg "Send should return the sent message"
 
             testPropertyWithConfig fsCheckConfig "Send - with string type"
             <| fun (runtime: FIORuntime, msg: string) ->
-                let eff =
+                let effect =
                     fio {
                         let chan = Channel<string>()
                         let! sent = chan.Write msg
@@ -175,13 +175,13 @@ let channelTests =
                     }
 
                 let result =
-                    runtime.Run(eff).UnsafeSuccess()
+                    runtime.Run(effect).UnsafeSuccess()
 
                 Expect.equal result msg "Send should return the sent string"
 
             testPropertyWithConfig fsCheckConfig "Send - with tuple type"
             <| fun (runtime: FIORuntime, a: int, b: string) ->
-                let eff =
+                let effect =
                     fio {
                         let chan = Channel<int * string>()
                         let! sent = chan.Write(a, b)
@@ -189,7 +189,7 @@ let channelTests =
                     }
 
                 let result =
-                    runtime.Run(eff).UnsafeSuccess()
+                    runtime.Run(effect).UnsafeSuccess()
 
                 Expect.equal result (a, b) "Send should return the sent tuple"
 
@@ -197,7 +197,7 @@ let channelTests =
 
             testPropertyWithConfig fsCheckConfig "Receive - returns sent message"
             <| fun (runtime: FIORuntime, msg: int) ->
-                let eff =
+                let effect =
                     fio {
                         let chan = Channel<int>()
                         do! chan.Write(msg).Unit()
@@ -206,13 +206,13 @@ let channelTests =
                     }
 
                 let result =
-                    runtime.Run(eff).UnsafeSuccess()
+                    runtime.Run(effect).UnsafeSuccess()
 
                 Expect.equal result msg "Receive should return the sent message"
 
             testPropertyWithConfig fsCheckConfig "Receive - works with different message types"
             <| fun (runtime: FIORuntime, msg: string) ->
-                let eff =
+                let effect =
                     fio {
                         let chan = Channel<string>()
                         do! chan.Write(msg).Unit()
@@ -221,13 +221,13 @@ let channelTests =
                     }
 
                 let result =
-                    runtime.Run(eff).UnsafeSuccess()
+                    runtime.Run(effect).UnsafeSuccess()
 
                 Expect.equal result msg "Receive should work with string type"
 
             testPropertyWithConfig fsCheckConfig "Receive - preserves FIFO order"
             <| fun (runtime: FIORuntime) ->
-                let eff =
+                let effect =
                     fio {
                         let chan = Channel<int>()
                         do! chan.Write(1).Unit()
@@ -240,13 +240,13 @@ let channelTests =
                     }
 
                 let result =
-                    runtime.Run(eff).UnsafeSuccess()
+                    runtime.Run(effect).UnsafeSuccess()
 
                 Expect.equal result [ 1; 2; 3 ] "Messages should be received in FIFO order"
 
             testPropertyWithConfig fsCheckConfig "Receive - alternating send and receive"
             <| fun (runtime: FIORuntime) ->
-                let eff =
+                let effect =
                     fio {
                         let chan = Channel<int>()
                         do! chan.Write(10).Unit()
@@ -259,12 +259,12 @@ let channelTests =
                     }
 
                 let result =
-                    runtime.Run(eff).UnsafeSuccess()
+                    runtime.Run(effect).UnsafeSuccess()
 
                 Expect.equal result [ 10; 20; 30 ] "Alternating send/receive should work correctly"
 
             testAllRuntimes "Receive - blocks until message is sent" (fun runtime ->
-                let eff =
+                let effect =
                     fio {
                         let chan = Channel<int>()
                         let! receiverFiber = (chan.Read()).Fork()
@@ -274,14 +274,14 @@ let channelTests =
                     }
 
                 let result =
-                    runtime.Run(eff).UnsafeSuccess()
+                    runtime.Run(effect).UnsafeSuccess()
 
                 Expect.equal result 42 "Blocked receiver should get message once sent")
 
             // ─── Concurrent ─────────────────────────────────────────
 
             testAllRuntimes "Concurrent - multiple receivers get all messages" (fun runtime ->
-                let eff =
+                let effect =
                     fio {
                         let chan = Channel<int>()
                         let! r1 = chan.Read().Fork()
@@ -297,12 +297,12 @@ let channelTests =
                     }
 
                 let result =
-                    runtime.Run(eff).UnsafeSuccess()
+                    runtime.Run(effect).UnsafeSuccess()
 
                 Expect.equal result [ 1; 2; 3 ] "All receivers should get messages")
 
             testAllRuntimes "Concurrent - multiple senders" (fun runtime ->
-                let eff =
+                let effect =
                     fio {
                         let chan = Channel<int>()
                         let! s1 = chan.Write(1).Unit().Fork()
@@ -318,7 +318,7 @@ let channelTests =
                     }
 
                 let result =
-                    runtime.Run(eff).UnsafeSuccess()
+                    runtime.Run(effect).UnsafeSuccess()
 
                 Expect.equal result [ 1; 2; 3 ] "All sent messages should be receivable")
 
@@ -326,7 +326,7 @@ let channelTests =
 
             testPropertyWithConfig fsCheckConfig "Isolation - messages don't cross channels"
             <| fun (runtime: FIORuntime) ->
-                let eff =
+                let effect =
                     fio {
                         let chan1 = Channel<int>()
                         let chan2 = Channel<int>()
@@ -338,7 +338,7 @@ let channelTests =
                     }
 
                 let c1, c2, received =
-                    runtime.Run(eff).UnsafeSuccess()
+                    runtime.Run(effect).UnsafeSuccess()
 
                 Expect.equal c1 1 "Source channel should have 1 message"
                 Expect.equal c2 0 "Other channel should be empty"
@@ -347,7 +347,7 @@ let channelTests =
             // ─── Interruption ─────────────────────────────────────────
 
             testAllRuntimes "Interruption - blocked receiver can be interrupted" (fun runtime ->
-                let eff =
+                let effect =
                     fio {
                         let chan = Channel<int>()
                         let! receiverFiber = (chan.Read()).Fork()
@@ -357,7 +357,7 @@ let channelTests =
                     }
 
                 let fiber =
-                    runtime.Run(eff).UnsafeSuccess()
+                    runtime.Run(effect).UnsafeSuccess()
 
                 match fiber.UnsafeResult() with
                 | Interrupted _ -> ()
@@ -369,7 +369,7 @@ let channelTests =
             <| fun (runtime: FIORuntime) ->
                 let messages = [ 1..1000 ]
 
-                let eff =
+                let effect =
                     fio {
                         let chan = Channel<int>()
 
@@ -385,7 +385,7 @@ let channelTests =
                         return received
                     }
 
-                let result = runtime.Run(eff).UnsafeSuccess()
+                let result = runtime.Run(effect).UnsafeSuccess()
 
                 Expect.equal result messages "FIFO order should be preserved for 1000 messages"
 
@@ -401,7 +401,7 @@ let channelTests =
                 for _ in 1..iterations do
                     use runtime = new ConcurrentRuntime()
 
-                    let eff =
+                    let effect =
                         fio {
                             let chan = Channel<int>()
 
@@ -422,7 +422,7 @@ let channelTests =
                         }
 
                     let result =
-                        runtime.Run(eff).UnsafeSuccess()
+                        runtime.Run(effect).UnsafeSuccess()
 
                     Expect.equal
                         result

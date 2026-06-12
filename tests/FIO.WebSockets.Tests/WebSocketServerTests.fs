@@ -20,19 +20,19 @@ let webSocketServerTests =
                 let port = findAvailablePort ()
                 let url = $"http://localhost:{port}/"
 
-                let eff =
+                let effect =
                     fio {
                         let! listener = WebSocketServer.start url
                         do! WebSocketServer.close listener
                     }
 
-                runtime.Run(eff).UnsafeSuccess())
+                runtime.Run(effect).UnsafeSuccess())
 
             testAllRuntimes "close stops the listener" (fun runtime ->
                 let port = findAvailablePort ()
                 let url = $"http://localhost:{port}/"
 
-                let eff =
+                let effect =
                     fio {
                         let! listener = WebSocketServer.start url
                         do! WebSocketServer.close listener
@@ -40,7 +40,7 @@ let webSocketServerTests =
                         do! WebSocketServer.close listener2
                     }
 
-                runtime.Run(eff).UnsafeSuccess())
+                runtime.Run(effect).UnsafeSuccess())
 
             // ─── Accept ─────────────────────────────────────────
 
@@ -82,11 +82,11 @@ let webSocketServerTests =
                 let port = findAvailablePort ()
                 let url = $"http://localhost:{port}/"
 
-                let eff =
+                let effect =
                     fio {
                         let! listener = WebSocketServer.startDefault url
                         do! WebSocketServer.close listener
                     }
 
-                runtime.Run(eff).UnsafeSuccess())
+                runtime.Run(effect).UnsafeSuccess())
         ]

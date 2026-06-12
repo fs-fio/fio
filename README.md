@@ -26,9 +26,9 @@ type App() =
     inherit FIOApp<unit, exn>()
 
     override _.effect = fio {
-        do! Console.printLine "What is your name?"
+        do! Console.printLine "What is your name?" id
         let! name = Console.readLine id
-        do! Console.printLine $"Hello, {name}!"
+        do! Console.printLine $"Hello, {name}!" id
     }
 
 [<EntryPoint>]

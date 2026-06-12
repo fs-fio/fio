@@ -19,7 +19,7 @@ let serverSocketTests =
             // ─── Bind / Accept ─────────────────────────────────────────
 
             testAllRuntimes "bind succeeds on port 0" (fun runtime ->
-                let eff =
+                let effect =
                     fio {
                         let! config = ServerSocketConfig.create ("127.0.0.1", 0)
                         let! server = ServerSocket.bind config
@@ -31,7 +31,22 @@ let serverSocketTests =
                         do! ServerSocket.close server
                     }
 
-                runtime.Run(eff).UnsafeSuccess())
+                runtime.Run(effect).UnsafeSuccess())
+
+            testAllRuntimes "bind resolves hostname localhost" (fun runtime ->
+                let effect =
+                    fio {
+                        let! config = ServerSocketConfig.create ("localhost", 0)
+                        let! server = ServerSocket.bind config
+                        let! ep = ServerSocket.getLocalEndPoint server
+                        let port = (ep :?> IPEndPoint).Port
+
+                        Expect.isGreaterThan port 0 "Port should be assigned for a resolved hostname"
+
+                        do! ServerSocket.close server
+                    }
+
+                runtime.Run(effect).UnsafeSuccess())
 
             testAllRuntimes "accept receives client connection" (fun runtime ->
                 withTestServer
@@ -56,7 +71,7 @@ let serverSocketTests =
             // ─── Lifecycle ─────────────────────────────────────────
 
             testAllRuntimes "withServerSocket provides acquire/release" (fun runtime ->
-                let eff =
+                let effect =
                     fio {
                         let! config = ServerSocketConfig.create ("127.0.0.1", 0)
 
@@ -74,7 +89,7 @@ let serverSocketTests =
                         Expect.isTrue result "Should have gotten a valid port"
                     }
 
-                runtime.Run(eff).UnsafeSuccess())
+                runtime.Run(effect).UnsafeSuccess())
 
             testAllRuntimes "acceptLoop handles multiple connections" (fun runtime ->
                 withTestEchoServer
@@ -95,7 +110,7 @@ let serverSocketTests =
             // ─── Inspection ─────────────────────────────────────────
 
             testAllRuntimes "getConfig returns bound configuration" (fun runtime ->
-                let eff =
+                let effect =
                     fio {
                         let! config = ServerSocketConfig.create ("127.0.0.1", 0)
                         let! server = ServerSocket.bind config
@@ -107,10 +122,10 @@ let serverSocketTests =
                         do! ServerSocket.close server
                     }
 
-                runtime.Run(eff).UnsafeSuccess())
+                runtime.Run(effect).UnsafeSuccess())
 
             testAllRuntimes "getLocalEndPoint returns bound endpoint" (fun runtime ->
-                let eff =
+                let effect =
                     fio {
                         let! config = ServerSocketConfig.create ("127.0.0.1", 0)
                         let! server = ServerSocket.bind config
@@ -123,5 +138,5 @@ let serverSocketTests =
                         do! ServerSocket.close server
                     }
 
-                runtime.Run(eff).UnsafeSuccess())
+                runtime.Run(effect).UnsafeSuccess())
         ]

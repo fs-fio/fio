@@ -75,26 +75,16 @@ let testAllRuntimes name (f: FIORuntime -> unit) =
             ]
     )
 
-/// <summary>Creates a socket handler effect that accepts and immediately completes without processing data.</summary>
-/// <param name="_socket">The socket connection (unused).</param>
-/// <returns>An effect that completes with unit immediately.</returns>
 let noopHandler (_socket: Socket) : FIO<unit, SocketError> = FIO.unit ()
 
-/// <summary>Creates a socket handler effect that reads up to 8192 bytes and echoes them back to the sender.</summary>
-/// <param name="socket">The connected socket to echo on.</param>
-/// <returns>An effect that reads bytes and sends them back on the same socket.</returns>
 let echoHandler (socket: Socket) =
     fio {
         let! data, _ = socket.ReceiveBytes 8192
         do! socket.SendBytes data
     }
 
-/// <summary>Transforms an effect into its result value by running it on the given runtime with a 10-second timeout.</summary>
-/// <param name="runtime">The runtime to execute the effect on.</param>
-/// <param name="eff">The effect to run.</param>
-/// <returns>The success value of the effect, or fails the test on error or interruption.</returns>
-let private runWithTimeout (runtime: FIORuntime) (eff: FIO<'A, SocketError>) : 'A =
-    let fiber = runtime.Run(eff)
+let private runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, SocketError>) : 'A =
+    let fiber = runtime.Run effect
 
     match
         fiber.Task()
@@ -105,17 +95,12 @@ let private runWithTimeout (runtime: FIORuntime) (eff: FIO<'A, SocketError>) : '
     | Failed e -> failtest $"Effect failed: {e}"
     | Interrupted ex -> failtest $"Interrupted: {ex.Message}"
 
-/// <summary>Builds a test server that binds to a random port, accepts one connection handled by the given handler, and runs the client action against that port.</summary>
-/// <param name="handler">The effect to run for the accepted socket connection.</param>
-/// <param name="action">A function from port number to the client effect to execute against the server.</param>
-/// <param name="runtime">The runtime to execute the server and client effects on.</param>
-/// <returns>The result of the client action effect.</returns>
 let withTestServer
     (handler: Socket -> FIO<unit, SocketError>)
     (action: int -> FIO<'A, SocketError>)
     (runtime: FIORuntime)
     =
-    let eff =
+    let effect =
         fio {
             let! config = ServerSocketConfig.create ("127.0.0.1", 0)
             let! server = ServerSocket.bind config
@@ -136,14 +121,10 @@ let withTestServer
             return result
         }
 
-    runWithTimeout runtime eff
+    runWithTimeout runtime effect
 
-/// <summary>Builds a test echo server that binds to a random port, runs an accept loop with echo handling, and executes the client action against that port.</summary>
-/// <param name="action">A function from port number to the client effect to execute against the echo server.</param>
-/// <param name="runtime">The runtime to execute the server and client effects on.</param>
-/// <returns>The result of the client action effect.</returns>
 let withTestEchoServer (action: int -> FIO<'A, SocketError>) (runtime: FIORuntime) =
-    let eff =
+    let effect =
         fio {
             let! config = ServerSocketConfig.create ("127.0.0.1", 0)
             let! server = ServerSocket.bind config
@@ -157,4 +138,4 @@ let withTestEchoServer (action: int -> FIO<'A, SocketError>) (runtime: FIORuntim
             return result
         }
 
-    runWithTimeout runtime eff
+    runWithTimeout runtime effect

@@ -16,14 +16,17 @@ type DirectRuntime() =
     override _.Name = "DirectRuntime"
 
     [<TailCall>]
-    member private this.InterpretAsync(eff, currentFiberContext: FiberContext) =
+    member private this.InterpretAsync effect (currentFiberContext: FiberContext) =
         let mutable state =
-            InterpreterState(eff, ContStackPool.Rent(), currentFiberContext, 0)
+            InterpreterState(effect, ContStackPool.Rent(), currentFiberContext, 0)
 
         let mutable result = ValueNone
 
-        let inline onSuccessComplete value = result <- ValueSome(Ok value)
-        let inline onErrorComplete error = result <- ValueSome(Error error)
+        let inline onSuccessComplete value =
+            result <- ValueSome <| Ok value
+
+        let inline onErrorComplete error =
+            result <- ValueSome <| Error error
 
         task {
             try
@@ -33,40 +36,61 @@ type DirectRuntime() =
                         && currentFiberContext.CancellationToken.IsCancellationRequested
                     then
                         match! currentFiberContext.Task with
-                        | Ok _ -> raise (InvalidOperationException "Fiber was cancelled but completed successfully.")
-                        | Error error -> processOutcome &state onSuccessComplete onErrorComplete (OutcomeInterrupt error)
+                        | Ok _ ->
+                            raise (InvalidOperationException "Fiber was cancelled but completed successfully.")
+                        | Error error ->
+                            processOutcome
+                                &state
+                                onSuccessComplete
+                                onErrorComplete
+                                (OutcomeInterrupted error)
                     else
                         match handleSharedCase &state onSuccessComplete onErrorComplete with
-                        | ValueNone -> ()
+                        | ValueNone ->
+                            ()
                         | ValueSome runtimeCase ->
                             match runtimeCase with
-                            | HandleSendChan(msg, chan) ->
-                                do! chan.WriteAsync msg
-                                processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess msg)
-                            | HandleReceiveChan chan ->
-                                let! value = chan.ReadAsync()
-                                processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess value)
-                            | HandleForkEffect(eff, fiber, fiberContext) ->
+                            | HandleWriteChan(message, channel) ->
+                                do! channel.WriteAsync message
+                                processOutcome
+                                    &state
+                                    onSuccessComplete
+                                    onErrorComplete
+                                    (OutcomeSucceeded message)
+                            | HandleReadChan channel ->
+                                let! value = channel.ReadAsync()
+                                processOutcome
+                                    &state
+                                    onSuccessComplete
+                                    onErrorComplete
+                                    (OutcomeSucceeded value)
+                            | HandleForkEffect(effect, fiber, fiberContext) ->
                                 let registration = setupForkRegistration currentFiberContext fiberContext
-
                                 Task.Run(fun () ->
                                     task {
                                         try
                                             try
-                                                let! value = this.InterpretAsync(eff, fiberContext)
+                                                let! value = this.InterpretAsync effect fiberContext
                                                 fiberContext.Complete value
                                             with exn ->
-                                                fiberContext.Complete(Error exn)
+                                                fiberContext.Complete <| Error exn
                                         finally
                                             registration.Dispose()
                                     }
                                     :> Task)
                                 |> ignore
-
-                                processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess fiber)
+                                processOutcome
+                                    &state
+                                    onSuccessComplete
+                                    onErrorComplete
+                                    (OutcomeSucceeded fiber)
                             | HandleJoinFiber fiberContext ->
                                 let! value = fiberContext.Task
-                                processResult &state onSuccessComplete onErrorComplete value
+                                processResult
+                                    &state
+                                    onSuccessComplete
+                                    onErrorComplete
+                                    value
                             | HandleAwaitTask(task, onError) ->
                                 try
                                     let! value =
@@ -74,30 +98,36 @@ type DirectRuntime() =
                                             task
                                         else
                                             task.WaitAsync currentFiberContext.CancellationToken
-
-                                    processOutcome &state onSuccessComplete onErrorComplete (OutcomeSuccess value)
-                                with
-                                | :? OperationCanceledException when
-                                    currentFiberContext.CancellationToken.IsCancellationRequested
-                                    ->
                                     processOutcome
                                         &state
                                         onSuccessComplete
                                         onErrorComplete
-                                        (OutcomeInterrupt (FiberInterruptedException(
+                                        (OutcomeSucceeded value)
+                                with
+                                | :? OperationCanceledException when
+                                    currentFiberContext.CancellationToken.IsCancellationRequested ->
+                                    processOutcome
+                                        &state
+                                        onSuccessComplete
+                                        onErrorComplete
+                                        (OutcomeInterrupted (FiberInterruptedException(
                                             currentFiberContext.Id,
                                             ExplicitInterrupt,
                                             "Task has been cancelled."
                                         )))
-                                | exn -> processOutcome &state onSuccessComplete onErrorComplete (OutcomeError (onError exn))
-
+                                | ex ->
+                                    processOutcome
+                                        &state
+                                        onSuccessComplete
+                                        onErrorComplete
+                                        (OutcomeFailed (onError ex))
                 return result.Value
             finally
                 ContStackPool.Return state.ContStack
         }
 
-    override this.Run<'A, 'E> (eff: FIO<'A, 'E>) : Fiber<'A, 'E> =
-        lock runLock (fun () ->
+    override this.Run<'A, 'E> (effect: FIO<'A, 'E>) : Fiber<'A, 'E> =
+        lock runLock <| fun () ->
             match currentFiber with
             | Some fiberContext when not (fiberContext.IsTerminal()) ->
                 fiberContext.Task.GetAwaiter().GetResult() |> ignore
@@ -110,24 +140,24 @@ type DirectRuntime() =
             let fiber = new Fiber<'A, 'E>()
             currentFiber <- Some fiber.Context
 
-            let t =
+            let task =
                 task {
-                    let! value = this.InterpretAsync(eff.UpcastBoth(), fiber.Context)
+                    let! value = this.InterpretAsync (effect.UpcastBoth()) fiber.Context
                     fiber.Context.Complete value
                 }
 
-            t.ContinueWith(
-                (fun (t: Task) ->
-                    if t.IsFaulted then
+            task.ContinueWith(
+                (fun (task: Task) ->
+                    if task.IsFaulted then
                         let exn: exn =
-                            match t.Exception with
-                            | null -> upcast InvalidOperationException "DirectRuntime task faulted without exception."
-                            | aggr when aggr.InnerExceptions.Count = 1 -> aggr.InnerExceptions[0]
-                            | aggr -> upcast aggr
-
+                            match task.Exception with
+                            | null ->
+                                upcast InvalidOperationException "DirectRuntime task faulted without exception."
+                            | aggr when aggr.InnerExceptions.Count = 1 ->
+                                aggr.InnerExceptions[0]
+                            | aggr ->
+                                upcast aggr
                         fiber.Context.Complete(Error(box exn))),
-                TaskContinuationOptions.OnlyOnFaulted
-            )
-            |> ignore
+                TaskContinuationOptions.OnlyOnFaulted) |> ignore
 
-            fiber)
+            fiber

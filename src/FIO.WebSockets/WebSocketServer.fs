@@ -10,9 +10,22 @@ open System.Threading.Tasks
 [<RequireQualifiedAccess>]
 module WebSocketServer =
 
+    let private logAndSuppress (context: string) (error: WsError) =
+        fio {
+            let str = error.ToString()
+
+            do!
+                FIO.attempt
+                    (fun () -> eprintfn $"[WebSocketServer] Error during {context}: {str}")
+                    WsError.fromException
+
+            return ()
+        }
+
     /// <summary>Creates an effect that starts a WebSocket server listening on the specified URL prefix.</summary>
     /// <param name="url">The URL prefix to listen on.</param>
     /// <returns>An effect that produces the running HTTP listener.</returns>
+    /// <remarks>Backed by <c>System.Net.HttpListener</c>, which is fully supported on Windows but limited on Linux/macOS. For cross-platform production hosting, front the server with a reverse proxy or a Kestrel-based host.</remarks>
     let start (url: string) =
         fio {
             let! listener =
@@ -49,13 +62,7 @@ module WebSocketServer =
             (fun () -> listener.Abort())
             WsError.fromException
 
-    /// <summary>Creates an effect that accepts a single incoming WebSocket connection.</summary>
-    /// <param name="listener">The HTTP listener to accept connections from.</param>
-    /// <param name="config">The configuration options for the accepted connection.</param>
-    /// <param name="subProtocol">An optional subprotocol to negotiate during the handshake.</param>
-    /// <returns>An effect that produces the accepted <c>WebSocket</c>, or fails if the request is not a WebSocket upgrade.</returns>
-    /// <remarks>The accept observes the running fiber's cancellation token. Because <c>HttpListener.GetContextAsync</c> has no native cancellation overload, interruption stops the listener via <c>HttpListener.Stop()</c>, which aborts every outstanding accept on that listener — acceptable when the listener is owned by the fiber via <c>serve</c>.</remarks>
-    let accept (listener: HttpListener) (config: WebSocketConfig) (subProtocol: string option) =
+    let private tryAccept (listener: HttpListener) (config: WebSocketConfig) (subProtocol: string option) =
         fio {
             let! ct = FIO.cancellationToken ()
 
@@ -69,6 +76,7 @@ module WebSocketServer =
                                         listener.Stop()
                                     with _ ->
                                         ())
+
                             return! listener.GetContextAsync()
                         }))
                     WsError.fromException
@@ -85,7 +93,7 @@ module WebSocketServer =
                         WsError.fromException
 
                 let! ctx = FIO.awaitTask ctxTask WsError.fromException
-                return new WebSocket(ctx.WebSocket, config)
+                return Some(new WebSocket(ctx.WebSocket, config))
             else
                 do! FIO.attempt
                         (fun () -> listenerCtx.Response.StatusCode <- 400)
@@ -93,7 +101,20 @@ module WebSocketServer =
                 do! FIO.attempt
                         (fun () -> listenerCtx.Response.Close())
                         WsError.fromException
-                return! FIO.fail (WsError.fromException <| Exception "Not a WebSocket request")
+                return None
+        }
+
+    /// <summary>Creates an effect that accepts a single incoming WebSocket connection.</summary>
+    /// <param name="listener">The HTTP listener to accept connections from.</param>
+    /// <param name="config">The configuration options for the accepted connection.</param>
+    /// <param name="subProtocol">An optional subprotocol to negotiate during the handshake.</param>
+    /// <returns>An effect that produces the accepted <c>WebSocket</c>, or fails if the request is not a WebSocket upgrade.</returns>
+    /// <remarks>The accept observes the running fiber's cancellation token. Because <c>HttpListener.GetContextAsync</c> has no native cancellation overload, interruption stops the listener via <c>HttpListener.Stop()</c>, which aborts every outstanding accept on that listener — acceptable when the listener is owned by the fiber via <c>serve</c>.</remarks>
+    let accept (listener: HttpListener) (config: WebSocketConfig) (subProtocol: string option) =
+        fio {
+            match! tryAccept listener config subProtocol with
+            | Some ws -> return ws
+            | None -> return! FIO.fail (WsError.fromException <| Exception "Not a WebSocket request")
         }
 
     /// <summary>Creates an effect that accepts a single incoming WebSocket connection with no subprotocol negotiation.</summary>
@@ -108,11 +129,20 @@ module WebSocketServer =
     /// <param name="handler">A function from an accepted WebSocket to the effect that handles the connection.</param>
     /// <returns>An effect that loops indefinitely until interrupted.</returns>
     let acceptLoop (listener: HttpListener) (config: WebSocketConfig) (handler: WebSocket -> FIO<unit, WsError>) =
+        let handleConnection (ws: WebSocket) =
+            (handler ws)
+                .CatchAll(logAndSuppress "connection handler")
+                .Ensuring(ws.Close().CatchAll(fun _ -> FIO.unit ()))
+
         let step =
             fio {
-                let! ws = accept listener config None
-                let! _ = (handler ws).Fork()
-                return ()
+                match! tryAccept listener config None with
+                | Some ws ->
+                    let! _ = (handleConnection ws).Fork()
+                    return ()
+                | None ->
+                    // A non-WebSocket request was rejected with 400; keep the loop alive.
+                    return ()
             }
 
         step.Forever()
@@ -123,7 +153,7 @@ module WebSocketServer =
     /// <param name="handler">A function from an accepted WebSocket to the effect that handles the connection.</param>
     /// <returns>An effect that runs the server until interrupted, then stops the listener.</returns>
     let serve (url: string) (config: WebSocketConfig) (handler: WebSocket -> FIO<unit, WsError>) =
-        FIO.acquireRelease 
+        FIO.acquireReleaseWith
             (start url)
             (fun listener -> close listener)
             (fun listener -> acceptLoop listener config handler)
@@ -149,7 +179,6 @@ module WebSocketServer =
                 let! request = ws.Receive requestCodec
                 let! response = handler request
                 do! ws.Send(responseCodec, response)
-                do! ws.Close(WebSockets.WebSocketCloseStatus.NormalClosure, "Request processed")
             }
 
         serve url config wsHandler

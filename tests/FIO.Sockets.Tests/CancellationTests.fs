@@ -36,7 +36,7 @@ let cancellationTests =
         [
 
             testAllRuntimes "Connect interruption against unreachable host terminates promptly" (fun runtime ->
-                let eff =
+                let effect =
                     fio {
                         // 192.0.2.0/24 (TEST-NET-1) is reserved; routable but always discards.
                         let! config = SocketConfig.create ("192.0.2.1", 1)
@@ -50,7 +50,7 @@ let cancellationTests =
                         return terminated, elapsed, connectFiber.IsInterrupted()
                     }
 
-                let terminated, elapsed, interrupted = (runtime.Run eff).UnsafeSuccess()
+                let terminated, elapsed, interrupted = (runtime.Run effect).UnsafeSuccess()
 
                 Expect.isTrue terminated $"Connect fiber should reach terminal state within 3s; took {elapsed}ms"
 

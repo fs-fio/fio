@@ -1,0 +1,40 @@
+<Project>
+
+    <!--
+        Single source of truth for FIO's lockstep package version and shared
+        package metadata. See docs/versioning-strategy.md.
+
+        The four published packages (FIO, FIO.Http, FIO.Sockets, FIO.WebSockets)
+        are versioned in lockstep: bump <Version> here once. At release time the
+        publish workflow overrides this with the git tag (-p:Version=<tag>), so
+        the tag is the authoritative published version.
+    -->
+    <PropertyGroup>
+        <Version>0.0.40-alpha</Version>
+    </PropertyGroup>
+
+    <!--
+        Per-package (independent) release support. A `<pkg>-v*` tag sets
+        PackageReleaseVersion, which publishes that one package at the given
+        version while leaving its FIO dependency pinned to the core baseline
+        <Version> above. The mapping is applied to every project EXCEPT the core
+        FIO package, so the core's version (and therefore the dependency floor
+        extensions are built against) stays at the baseline. Lockstep releases
+        instead pass -p:Version, which overrides this for all packages.
+    -->
+    <PropertyGroup Condition="'$(PackageReleaseVersion)' != '' and '$(MSBuildProjectName)' != 'FIO'">
+        <Version>$(PackageReleaseVersion)</Version>
+    </PropertyGroup>
+
+    <!-- Shared NuGet package metadata (applied to every project; only the
+         publishable packages are actually packed). -->
+    <PropertyGroup>
+        <Authors>Daniel Larsen</Authors>
+        <Copyright>Copyright (c) 2022-2026 Daniel Larsen and Technical University of Denmark (DTU)</Copyright>
+        <RepositoryUrl>https://github.com/fs-fio/fio</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageProjectUrl>https://github.com/fs-fio/fio</PackageProjectUrl>
+        <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
+    </PropertyGroup>
+
+</Project>

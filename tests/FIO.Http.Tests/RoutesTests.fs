@@ -84,12 +84,27 @@ let routesTests =
 
                 Expect.equal resp.Status HttpStatusCode.NotFound "404")
 
-            testAllRuntimes "dispatch returns notFound for wrong method" (fun runtime ->
+            testAllRuntimes "dispatch returns 405 for wrong method with Allow header" (fun runtime ->
                 let routes = Routes.route (Route.get "/only-get") (HttpHandler.text "ok")
 
                 let resp = dispatchAndRun runtime routes (makeRequest HttpMethod.POST "/only-get")
 
-                Expect.equal resp.Status HttpStatusCode.NotFound "Wrong method -> 404")
+                Expect.equal resp.Status HttpStatusCode.MethodNotAllowed "Wrong method -> 405"
+                Expect.equal (HttpResponse.header "Allow" resp) (Some "GET") "Allow header lists GET")
+
+            testAllRuntimes "dispatch falls through to notFound for OPTIONS" (fun runtime ->
+                let routes = Routes.route (Route.get "/only-get") (HttpHandler.text "ok")
+
+                let resp = dispatchAndRun runtime routes (makeRequest HttpMethod.OPTIONS "/only-get")
+
+                Expect.equal resp.Status HttpStatusCode.NotFound "OPTIONS not treated as 405")
+
+            testAllRuntimes "dispatch routes HEAD to matching GET handler" (fun runtime ->
+                let routes = Routes.route (Route.get "/page") (HttpHandler.text "content")
+
+                let resp = dispatchAndRun runtime routes (makeRequest HttpMethod.HEAD "/page")
+
+                Expect.equal resp.Status HttpStatusCode.OK "HEAD served by GET handler")
 
             testAllRuntimes "withNotFound changes fallback handler" (fun runtime ->
                 let routes = Routes.empty |> Routes.withNotFound (HttpHandler.text "custom 404")

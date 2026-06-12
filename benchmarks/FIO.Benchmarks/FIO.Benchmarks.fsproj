@@ -29,8 +29,4 @@
         <PackageReference Include="BenchmarkDotNet" Version="0.15.8" />
     </ItemGroup>
 
-    <ItemGroup>
-        <PackageReference Update="FSharp.Core" Version="10.1.301" />
-    </ItemGroup>
-
 </Project>

@@ -82,9 +82,14 @@ module Codec =
                     | Close _ -> FIO.fail (CodecError "Cannot decode close frame as JSON")
         }
 
+    let private defaultJsonOptions =
+        let options = JsonSerializerOptions()
+        options.MakeReadOnly true
+        options
+
     /// <summary>Creates a JSON codec that serializes values as text frames using default serializer options.</summary>
     /// <returns>A codec that encodes values as JSON text frames and decodes text or binary frames as JSON.</returns>
-    let json<'T> = jsonWithOptions<'T> (JsonSerializerOptions())
+    let json<'T> = jsonWithOptions<'T> defaultJsonOptions
 
     /// <summary>Creates a line-delimited JSON codec that appends a newline to each encoded value.</summary>
     /// <typeparam name="T">The type to serialize and deserialize.</typeparam>
@@ -144,58 +149,59 @@ module Codec =
     /// <param name="codec2">The codec for the second element of the pair.</param>
     /// <returns>A codec that encodes pairs as JSON array text frames and decodes them back to tuples.</returns>
 
-    // TODO: This function seems to be broken.
-    let compose (codec1: WebSocketCodec<'T>) (codec2: WebSocketCodec<'T1>) =
+    let compose (codec1: WebSocketCodec<'T>) (codec2: WebSocketCodec<'T1>) : WebSocketCodec<'T * 'T1> =
+        let framePart (frame: WebSocketFrame) =
+            match frame with
+            | Text str -> {| kind = "text"; value = str |}
+            | Binary bytes -> {| kind = "binary"; value = Convert.ToBase64String bytes |}
+            | Close _ -> raise (Exception "Cannot compose a close frame")
+
+        let partFrame (element: JsonElement) =
+            let kind = element.GetProperty("kind").GetString()
+            let value = element.GetProperty("value").GetString()
+
+            match kind with
+            | "text" -> Text value
+            | "binary" -> Binary(Convert.FromBase64String value)
+            | other -> raise (Exception $"Unknown composed frame kind: {other}")
+
         {
             Encode =
                 fun (a, b) ->
-                    FIO.attempt
-                        (fun () ->
-                            let jsonA = JsonSerializer.Serialize(a)
-                            let jsonB = JsonSerializer.Serialize(b)
-                            let json = JsonSerializer.Serialize [| jsonA; jsonB |]
-                            Text json)
-                        WsError.fromException
+                    fio {
+                        let! frameA = codec1.Encode a
+                        let! frameB = codec2.Encode b
+
+                        return!
+                            FIO.attempt
+                                (fun () -> Text(JsonSerializer.Serialize [| framePart frameA; framePart frameB |]))
+                                WsError.fromException
+                    }
             Decode =
                 fun frame ->
-                    match frame with
-                    | Close _ -> FIO.fail (CodecError "Cannot decode close frame as composed value")
-                    | _ ->
-                        FIO.attempt
-                            (fun () ->
-                                let json =
-                                    match frame with
-                                    | Text str -> str
-                                    | Binary bytes -> Encoding.UTF8.GetString bytes
-                                    | Close _ -> "" // Unreachable due to match above
+                    fio {
+                        let! json =
+                            match frame with
+                            | Text str -> FIO.succeed str
+                            | Binary bytes -> FIO.succeed (Encoding.UTF8.GetString bytes)
+                            | Close _ -> FIO.fail (CodecError "Cannot decode close frame as composed value")
 
-                                let doc = JsonDocument.Parse json
-                                let arr = doc.RootElement.EnumerateArray() |> Seq.toList
+                        let! frameA, frameB =
+                            FIO.attempt
+                                (fun () ->
+                                    use doc = JsonDocument.Parse json
+                                    let elements = doc.RootElement.EnumerateArray() |> Seq.toArray
 
-                                if arr.Length <> 2 then
-                                    raise (Exception $"Expected 2 elements, got {arr.Length}")
+                                    if elements.Length <> 2 then
+                                        raise (Exception $"Expected 2 composed elements, got {elements.Length}")
 
-                                let jsonA =
-                                    match arr.[0].ValueKind with
-                                    | JsonValueKind.String -> arr.[0].GetString()
-                                    | JsonValueKind.Null -> null
-                                    | _ ->
-                                        raise (Exception $"Expected string for first element, got {arr.[0].ValueKind}")
+                                    partFrame elements.[0], partFrame elements.[1])
+                                WsError.fromException
 
-                                let jsonB =
-                                    match arr.[1].ValueKind with
-                                    | JsonValueKind.String -> arr.[1].GetString()
-                                    | JsonValueKind.Null -> null
-                                    | _ ->
-                                        raise (
-                                            Exception $"Expected string for second element, got {arr.[1].ValueKind}"
-                                        )
-
-                                let a = JsonSerializer.Deserialize<'T> jsonA
-                                let b = JsonSerializer.Deserialize<'T1> jsonB
-
-                                a, b)
-                            WsError.fromException
+                        let! a = codec1.Decode frameA
+                        let! b = codec2.Decode frameB
+                        return a, b
+                    }
         }
 
     /// <summary>Creates a codec from effectful encode and decode functions.</summary>
