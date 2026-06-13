@@ -102,7 +102,7 @@ let withTestServer
     =
     let effect =
         fio {
-            let! config = ServerSocketConfig.create ("127.0.0.1", 0)
+            let! config = ServerSocketConfig.create "127.0.0.1" 0
             let! server = ServerSocket.bind config
             let! ep = ServerSocket.getLocalEndPoint server
             let port = (ep :?> IPEndPoint).Port
@@ -126,11 +126,11 @@ let withTestServer
 let withTestEchoServer (action: int -> FIO<'A, SocketError>) (runtime: FIORuntime) =
     let effect =
         fio {
-            let! config = ServerSocketConfig.create ("127.0.0.1", 0)
+            let! config = ServerSocketConfig.create "127.0.0.1" 0
             let! server = ServerSocket.bind config
             let! ep = ServerSocket.getLocalEndPoint server
             let port = (ep :?> IPEndPoint).Port
-            let! serverFiber = ServerSocket.acceptLoop(echoHandler, server).Fork()
+            let! serverFiber = (ServerSocket.acceptLoop echoHandler server).Fork()
             do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) SocketError.fromException
             let! result = action port
             do! serverFiber.InterruptNow ()

@@ -5,6 +5,7 @@ open FIO.WebSockets.Tests.Utilities
 
 open FIO.DSL
 open FIO.WebSockets
+open FIO.WebSockets.WebSocketExtensions
 
 open System.Text.Json
 

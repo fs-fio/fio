@@ -22,7 +22,7 @@ let socketClientTests =
                     noopHandler
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
 
                             Expect.isTrue (socket.IsConnected()) "Should be connected"
@@ -47,7 +47,7 @@ let socketClientTests =
             testAllRuntimes "connect fails for unreachable host" (fun runtime ->
                 let effect =
                     fio {
-                        let! config = SocketConfig.create ("127.0.0.1", 1)
+                        let! config = SocketConfig.create "127.0.0.1" 1
 
                         return!
                             SocketClient.connect(config).Map(fun _ -> None).CatchAll(fun error -> FIO.succeed (Some error))
@@ -66,7 +66,7 @@ let socketClientTests =
                     noopHandler
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
 
                             let! wasConnected =
                                 SocketClient.withConnection config (fun socket -> FIO.succeed (socket.IsConnected()))
@@ -100,7 +100,7 @@ let socketClientTests =
                     (fun socket -> fio { do! socket.SendString "hello receiveWith" })
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! result = SocketClient.receiveWith Codec.string 8192 config
                             Expect.equal result "hello receiveWith" "Should receive data"
                         })
@@ -115,7 +115,7 @@ let socketClientTests =
                         })
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             do! SocketClient.sendWith Codec.string "hello sendWith" config
                         })
                     runtime)

@@ -1,4 +1,3 @@
-/// Big benchmark — measures mailbox contention with many-to-many message passing.
 [<RequireQualifiedAccess>]
 module internal FIO.Benchmarks.Effects.Big
 
@@ -18,27 +17,22 @@ type private Actor =
     }
 
 [<TailCall>]
-let rec private sendPingsEff (actor, roundCount, ping) : FIO<unit, exn> =
+let rec private sendPingsEff (actor, roundCount, msg) : FIO<unit, exn> =
     fio {
         for chan in actor.SendingChans do
-            do! chan.Write(Ping(ping, actor.PongReceiveChan)).Unit()
+            do! chan.Write(Ping(msg, actor.PongReceiveChan)).Unit()
 
-        return! receivePingsEff (actor, roundCount, actor.SendingChans.Length, ping)
+        return! receivePingsEff (actor, roundCount, actor.SendingChans.Length, msg)
     }
 
-and private receivePingsEff (actor, rounds, receiveCount, msg) : FIO<unit, exn> =
+and private receivePingsEff (actor, roundCount, receiveCount, msg) : FIO<unit, exn> =
     fio {
         for _ in 1..receiveCount do
             match! actor.PingReceiveChan.Read() with
-            | Ping(ping, replyChan) ->
-                match! replyChan.Write(Pong(ping + 1)) with
-                | Pong _ -> ()
-                | Ping _ ->
-                    return!
-                        FIO.fail (InvalidOperationException "receivePingsEff: Received ping when pong was expected!")
+            | Ping(ping, replyChan) -> do! replyChan.Write(Pong(ping + 1)).Unit()
             | _ -> return! FIO.fail (InvalidOperationException "receivePingsEff: Received pong when ping was expected!")
 
-        return! receivePongsEff (actor, rounds, actor.SendingChans.Length, msg)
+        return! receivePongsEff (actor, roundCount, actor.SendingChans.Length, msg)
     }
 
 and private receivePongsEff (actor, roundCount, receiveCount, msg) : FIO<unit, exn> =
@@ -58,40 +52,21 @@ let private actorEff (actor, msg, roundCount, startChan: Channel<int>) : FIO<uni
         return! sendPingsEff (actor, roundCount - 1, msg)
     }
 
-[<TailCall>]
-let rec private receivingActors (actorCount, acc) =
-    match actorCount with
-    | 0 -> acc
-    | count ->
-        let actor =
-            {
-                PingReceiveChan = Channel<Message>()
-                PongReceiveChan = Channel<Message>()
-                SendingChans = []
-            }
-
-        receivingActors (count - 1, acc @ [ actor ])
-
-[<TailCall>]
-let rec private createActorsHelper (receivingActors, prevReceivingActors, acc) =
-    match receivingActors with
-    | [] -> acc
-    | ac :: acs ->
-        let otherActors = prevReceivingActors @ acs
-        let chansSend = List.map _.PingReceiveChan otherActors
-
-        let actor =
-            {
-                PingReceiveChan = ac.PingReceiveChan
-                PongReceiveChan = ac.PongReceiveChan
-                SendingChans = chansSend
-            }
-
-        createActorsHelper (acs, prevReceivingActors @ [ ac ], actor :: acc)
-
 let private createActors actorCount =
-    let receiving = receivingActors (actorCount, [])
-    createActorsHelper (receiving, [], [])
+    let baseActors =
+        [ for _ in 1..actorCount ->
+              {
+                  PingReceiveChan = Channel<Message>()
+                  PongReceiveChan = Channel<Message>()
+                  SendingChans = []
+              } ]
+
+    let pingChans = baseActors |> List.map _.PingReceiveChan |> List.toArray
+
+    baseActors
+    |> List.mapi (fun i actor ->
+        let sendingChans = [ for j in 0 .. actorCount - 1 do if j <> i then yield pingChans[j] ]
+        { actor with SendingChans = sendingChans })
 
 let private bigEff (actors: Actor list, roundCount, msg, startChan) : FIO<unit, exn> =
     let headEff = actorEff (actors.Head, msg, roundCount, startChan)
@@ -100,7 +75,7 @@ let private bigEff (actors: Actor list, roundCount, msg, startChan) : FIO<unit, 
     |> List.indexed
     |> List.fold (fun acc (i, actor) -> actorEff (actor, msg + (i + 1) * 10, roundCount, startChan) <&&> acc) headEff
 
-let effect (actorCount: int, roundCount: int) : FIO<unit, exn> =
+let effect (actorCount: int) (roundCount: int) : FIO<unit, exn> =
     fio {
         let startChan = Channel<int>()
         let actors = createActors actorCount

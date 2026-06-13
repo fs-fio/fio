@@ -28,7 +28,7 @@ module HttpHandler =
     let ok<'E> : HttpHandler<'E> =
         succeed Response.ok
 
-    let okJson (value: 'T) : HttpHandler<'E> =
+    let okJson (value: 'A) : HttpHandler<'E> =
         succeed <| Response.okJson value
 
     let text (text: string) : HttpHandler<'E> =
@@ -58,7 +58,7 @@ module HttpHandler =
     let badRequestText (message: string) : HttpHandler<'E> =
         succeed <| Response.badRequestText message
 
-    let badRequestJson (error: 'T) : HttpHandler<'E> =
+    let badRequestJson (error: 'A) : HttpHandler<'E> =
         succeed <| Response.badRequestJson error
 
     let serverError<'E> : HttpHandler<'E> =
@@ -79,18 +79,18 @@ module HttpHandler =
         else
             succeed <| Response.found location
 
-    let map (func: HttpResponse -> HttpResponse) (handler: HttpHandler<'E>) =
+    let map (mapper: HttpResponse -> HttpResponse) (handler: HttpHandler<'E>) =
         fun request ->
             fio {
                 let! response = handler request
-                return func response
+                return mapper response
             }
 
-    let bind (func: HttpResponse -> HttpHandler<'E>) (handler: HttpHandler<'E>) =
+    let bind (cont: HttpResponse -> HttpHandler<'E>) (handler: HttpHandler<'E>) =
         fun request ->
             fio {
                 let! response = handler request
-                return! func response request
+                return! cont response request
             }
 
     let zipWith
@@ -107,8 +107,8 @@ module HttpHandler =
     let orElse (handler': HttpHandler<'E>) (handler: HttpHandler<'E>) =
         fun request -> handler request <|> handler' request
 
-    let mapError (func: 'E1 -> 'E2) (handler: HttpHandler<'E1>) =
-        fun request -> (handler request).MapError func
+    let mapError (mapper: 'E -> 'E1) (handler: HttpHandler<'E>) =
+        fun request -> (handler request).MapError mapper
 
     let tap (func: HttpResponse -> FIO<unit, 'E>) (handler: HttpHandler<'E>) =
         fun request ->
@@ -126,7 +126,7 @@ module HttpHandler =
                 return response
             }
 
-    let asks (func: HttpRequest -> 'T) =
+    let asks (func: HttpRequest -> 'A) =
         fun request -> FIO.succeed <| func request
 
     let local (func: HttpRequest -> HttpRequest) (handler: HttpHandler<'E>) =
@@ -164,20 +164,20 @@ module HttpHandler =
                 result)
                 id
 
-    let jsonBody<'T, 'E> (func: 'T -> FIO<HttpResponse, 'E>) (onError: exn -> 'E) =
+    let jsonBody<'A, 'E> (func: 'A -> FIO<HttpResponse, 'E>) (onError: exn -> 'E) =
         fun request ->
             fio {
-                let! body = (parseJsonBody<'T> None request).MapError onError
+                let! body = (parseJsonBody<'A> None request).MapError onError
                 return! func body
             }
 
-    let jsonBodyWith<'T, 'E>
+    let jsonBodyWith<'A, 'E>
         (options: JsonSerializerOptions)
-        (func: 'T -> FIO<HttpResponse, 'E>)
+        (func: 'A -> FIO<HttpResponse, 'E>)
         (onError: exn -> 'E) =
         fun request ->
             fio {
-                let! body = (parseJsonBody<'T> (Some options) request).MapError onError
+                let! body = (parseJsonBody<'A> (Some options) request).MapError onError
                 return! func body
             }
 

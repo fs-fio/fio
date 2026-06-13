@@ -18,8 +18,10 @@ dotnet test --filter "Name~PropertyTests"       # Run test file/group
 # Examples (five projects: DSL, App, Http, Sockets, WebSockets)
 dotnet run --project examples/FIO.Examples.DSL
 
-# Benchmarks (Release mode)
-dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --concurrent-runtime 39 200 1 --runs 30 --pingpong 150000
+# Benchmarks (Release mode, BenchmarkDotNet)
+dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*"           # all benchmarks
+dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --list flat            # list benchmarks
+# Configure via env vars: FIO_BENCH_RUNTIMES, FIO_BENCH_ITERATIONS, FIO_BENCH_<NAME>_ROUNDS/ACTORS
 ```
 
 ## Architecture
@@ -79,7 +81,7 @@ Framework: `src/FIO/Framework/App.fs` — `FIOApp<'A,'E>` with 5-member surface 
 - Factory functions use **lowercase** F#-idiomatic style: `FIO.succeed`, `FIO.fail`, `FIO.attempt`, `FIO.sleep`, `FIO.collectAllPar`, `FIO.acquireReleaseWith`
 - Instance methods use **PascalCase**: `effect.Map(f)`, `effect.FlatMap(f)`, `effect.Fork()`, `effect.CatchAll(f)`, `effect.Ensuring(fin)`
 - Lib modules use **qualified access**: e.g. `Console.printLine "msg" id`
-- Extension libs use abbreviated module names: `Conn.OpenAsync`, `Socket.Connect`, `Ws.Send`
+- Extension libs expose `[<RequireQualifiedAccess>]` modules (`SocketClient.connect`, `ServerSocket.serve`, `WebSocketClient.connectDefault`, `Routes`, `Codec`); type-extension modules (`SocketExtensions`, `WebSocketExtensions`, `SimpleRoutes`) are opt-in (not `[<AutoOpen>]`, must be `open`ed)
 
 ### Operators
 
@@ -139,8 +141,7 @@ let main _ = MyApp().Run()
 
 ### Comments / XML Docs
 
-- Public items: XML doc comments required.
-- Non-public items (`internal`, `private`): **no** XML doc comments — strip any that exist.
+- The codebase is currently **zero-comment**: no XML doc comments on any item (public or non-public), anywhere — strip any that appear.
 - Inline `//` comments: only when the *why* isn't obvious. Never restate what the code does. No commented-out code.
 
 ## Semantic Invariants (Do Not Break)
@@ -160,7 +161,7 @@ let main _ = MyApp().Run()
 - Extension tests use `testAllRuntimes` helper wrapping `testSequenced`
 - Stack-safety canary tests in `tests/FIO.Tests/DSL/FIOTests.fs` (depth 10000) are load-bearing — do not simplify `UpcastResult`/`UpcastError`/`UpcastBoth` to plain recursion
 - `InternalsVisibleTo("FIO.Tests")` is set on the core project only; extension libs do not expose internals to their tests
-- Disabled WebSocket test files (commented out in `.fsproj`): `WebSocketServerTests.fs`, `WebSocketPoolTests.fs` (marked "THIS ONE HANGS?") — check before assuming full coverage
+- All WebSocket test files are enabled in the `.fsproj` (including `WebSocketServerTests.fs`); the suite passes (155 tests, no hang)
 
 ## CI / Release
 

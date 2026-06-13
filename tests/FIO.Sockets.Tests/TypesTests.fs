@@ -60,7 +60,7 @@ let typesTests =
                     testPropertyWithConfig fsCheckConfig "create succeeds with valid host and port"
                     <| fun (runtime: FIORuntime) ->
                         let port = abs (Random.Shared.Next()) % 65535 + 1
-                        let effect = SocketConfig.create ("localhost", port)
+                        let effect = SocketConfig.create "localhost" port
 
                         let config = runtime.Run(effect).UnsafeSuccess()
 
@@ -73,14 +73,14 @@ let typesTests =
                         Expect.equal config.LingerTimeout 0 "Default LingerTimeout should be 0"
 
                     testAllRuntimes "create fails for empty host" (fun runtime ->
-                        let effect = SocketConfig.create ("", 8080)
+                        let effect = SocketConfig.create "" 8080
                         let error = runtime.Run(effect).UnsafeError()
 
                         match error with
                         | InvalidState _ -> ()
                         | other -> failtest $"Expected InvalidState but got {other}"
 
-                        let effect2 = SocketConfig.create ("   ", 8080)
+                        let effect2 = SocketConfig.create "   " 8080
                         let err2 = runtime.Run(effect2).UnsafeError()
 
                         match err2 with
@@ -89,7 +89,7 @@ let typesTests =
 
                     testAllRuntimes "create fails for invalid port" (fun runtime ->
                         for port in [ 0; -1; 65536; 100000 ] do
-                            let effect = SocketConfig.create ("localhost", port)
+                            let effect = SocketConfig.create "localhost" port
                             let error = runtime.Run(effect).UnsafeError()
 
                             match error with
@@ -116,12 +116,12 @@ let typesTests =
 
                         let updated =
                             config
-                            |> fun c -> SocketConfig.withSendBufferSize (16384, c)
-                            |> fun c -> SocketConfig.withReceiveBufferSize (16384, c)
-                            |> fun c -> SocketConfig.withSendTimeout (5000, c)
-                            |> fun c -> SocketConfig.withReceiveTimeout (5000, c)
-                            |> fun c -> SocketConfig.withNoDelay (false, c)
-                            |> fun c -> SocketConfig.withAddressFamily (Net.Sockets.AddressFamily.InterNetworkV6, c)
+                            |> fun c -> SocketConfig.withSendBufferSize 16384 c
+                            |> fun c -> SocketConfig.withReceiveBufferSize 16384 c
+                            |> fun c -> SocketConfig.withSendTimeout 5000 c
+                            |> fun c -> SocketConfig.withReceiveTimeout 5000 c
+                            |> fun c -> SocketConfig.withNoDelay false c
+                            |> fun c -> SocketConfig.withAddressFamily Net.Sockets.AddressFamily.InterNetworkV6 c
 
                         Expect.equal updated.SendBufferSize 16384 "SendBufferSize"
                         Expect.equal updated.ReceiveBufferSize 16384 "ReceiveBufferSize"
@@ -137,7 +137,7 @@ let typesTests =
                 [
 
                     testAllRuntimes "create succeeds with valid inputs" (fun runtime ->
-                        let effect = ServerSocketConfig.create ("127.0.0.1", 9090)
+                        let effect = ServerSocketConfig.create "127.0.0.1" 9090
                         let config = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal config.BindAddress "127.0.0.1" "BindAddress"
@@ -146,25 +146,25 @@ let typesTests =
                         Expect.isNone config.AcceptedSocketConfig "Default AcceptedSocketConfig")
 
                     testAllRuntimes "create allows port 0" (fun runtime ->
-                        let effect = ServerSocketConfig.create ("127.0.0.1", 0)
+                        let effect = ServerSocketConfig.create "127.0.0.1" 0
                         let config = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal config.BindPort 0 "Port 0 should be allowed")
 
                     testAllRuntimes "create fails for invalid inputs" (fun runtime ->
-                        let effect1 = ServerSocketConfig.create ("", 8080)
+                        let effect1 = ServerSocketConfig.create "" 8080
 
                         match runtime.Run(effect1).UnsafeError() with
                         | InvalidState _ -> ()
                         | other -> failtest $"Expected InvalidState but got {other}"
 
-                        let effect2 = ServerSocketConfig.create ("127.0.0.1", -1)
+                        let effect2 = ServerSocketConfig.create "127.0.0.1" (-1)
 
                         match runtime.Run(effect2).UnsafeError() with
                         | InvalidState _ -> ()
                         | other -> failtest $"Expected InvalidState but got {other}"
 
-                        let effect3 = ServerSocketConfig.create ("127.0.0.1", 65536)
+                        let effect3 = ServerSocketConfig.create "127.0.0.1" 65536
 
                         match runtime.Run(effect3).UnsafeError() with
                         | InvalidState _ -> ()
@@ -178,11 +178,11 @@ let typesTests =
                         Expect.equal config.BindPort 8080 "Default BindPort"
                         Expect.equal config.Backlog 100 "Default Backlog"
 
-                        let updated = ServerSocketConfig.withBacklog (50, config)
+                        let updated = ServerSocketConfig.withBacklog 50 config
                         Expect.equal updated.Backlog 50 "Updated Backlog"
 
                         let updated2 =
-                            ServerSocketConfig.withAddressFamily (Net.Sockets.AddressFamily.InterNetworkV6, config)
+                            ServerSocketConfig.withAddressFamily Net.Sockets.AddressFamily.InterNetworkV6 config
 
                         Expect.equal
                             updated2.AddressFamily
@@ -209,7 +209,7 @@ let typesTests =
                                 LingerTimeout = 0
                             }
 
-                        let updated = ServerSocketConfig.withAcceptedConfig (socketConfig, config)
+                        let updated = ServerSocketConfig.withAcceptedConfig socketConfig config
 
                         Expect.isSome updated.AcceptedSocketConfig "Should have AcceptedSocketConfig"
 
@@ -269,7 +269,7 @@ let typesTests =
                         let effect =
                             fio {
                                 let! config = SocketPoolConfig.create socketConfig
-                                return! SocketPoolConfig.withMinPoolSize (-1, config)
+                                return! SocketPoolConfig.withMinPoolSize -1 config
                             }
 
                         match runtime.Run(effect).UnsafeError() with
@@ -279,7 +279,7 @@ let typesTests =
                         let effect2 =
                             fio {
                                 let! config = SocketPoolConfig.create socketConfig
-                                return! SocketPoolConfig.withMaxPoolSize (0, config)
+                                return! SocketPoolConfig.withMaxPoolSize 0 config
                             }
 
                         match runtime.Run(effect2).UnsafeError() with
@@ -311,10 +311,10 @@ let typesTests =
                                 ValidateOnAcquire = true
                             }
 
-                        let updated = SocketPoolConfig.withConnectionLifetime (600, poolConfig)
+                        let updated = SocketPoolConfig.withConnectionLifetime 600 poolConfig
                         Expect.equal updated.ConnectionLifetime 600 "ConnectionLifetime"
 
-                        let updated2 = SocketPoolConfig.withValidateOnAcquire (false, poolConfig)
+                        let updated2 = SocketPoolConfig.withValidateOnAcquire false poolConfig
                         Expect.isFalse updated2.ValidateOnAcquire "ValidateOnAcquire"
                 ]
         ]

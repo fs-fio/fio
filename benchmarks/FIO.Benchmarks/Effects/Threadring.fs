@@ -1,4 +1,3 @@
-/// Threadring benchmark — measures message passing and context switching in a ring topology.
 [<RequireQualifiedAccess>]
 module internal FIO.Benchmarks.Effects.Threadring
 
@@ -21,32 +20,24 @@ let private threadringEff (actors: Actor list, roundCount: int) =
     actors.Tail
     |> List.indexed
     |> List.fold
-        (fun acc (i, actor) ->
-            let isLastActor = i + 2 = actors.Length
+        (fun acc (index, actor) ->
+            let isLastActor = index + 2 = actors.Length
             actorEff (actor, isLastActor, roundCount) <&&> acc)
         headEff
 
-[<TailCall>]
-let rec private createActors (chans, allChans: Channel<int> list, index, acc) =
-    match chans with
-    | [] -> acc
-    | chan' :: chans' ->
-        let actor =
-            {
-                SendChan = chan'
-                ReceiveChan =
-                    if index - 1 < 0 then
-                        allChans[allChans.Length - 1]
-                    else
-                        allChans[index - 1]
-            }
+let private createActors (chans: Channel<int> list) =
+    let allChans = List.toArray chans
+    let count = allChans.Length
 
-        createActors (chans', allChans, index + 1, acc @ [ actor ])
+    chans
+    |> List.mapi (fun index chan ->
+        let receiveIndex = if index = 0 then count - 1 else index - 1
+        { SendChan = chan; ReceiveChan = allChans[receiveIndex] })
 
-let effect (actorCount: int, roundCount: int) : FIO<unit, exn> =
+let effect (actorCount: int) (roundCount: int) : FIO<unit, exn> =
     fio {
         let chans = [ for _ in 1..actorCount -> Channel<int>() ]
-        let actors = createActors (chans, chans, 0, [])
+        let actors = createActors chans
 
         do! actors.Head.ReceiveChan.Write(0).Unit()
         do! threadringEff (actors, roundCount)

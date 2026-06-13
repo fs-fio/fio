@@ -6,6 +6,7 @@ open System
 
 type Middleware<'E> = Routes<'E> -> Routes<'E>
 
+[<RequireQualifiedAccess>]
 module Middleware =
 
     let apply (middleware: Middleware<'E>) (routes: Routes<'E>) =
@@ -76,7 +77,7 @@ module Middleware =
         create <| fun handler ->
             fun request ->
                 let handlerEffect = handler request
-                let timeoutEffect = FIO.succeed(Response.requestTimeout).Delay duration onError
+                let timeoutEffect = (FIO.succeed Response.requestTimeout).Delay duration onError
                 handlerEffect.RaceFirst timeoutEffect
 
     let cors
@@ -154,7 +155,7 @@ module Middleware =
                     | _ -> return Response.unauthorizedWith "Basic realm=\"Protected\""
                 }
 
-    let bearerAuth (authenticate: string -> FIO<'User option, 'E>) =
+    let bearerAuth (authenticate: string -> FIO<'A option, 'E>) =
         create <| fun handler ->
             fun request ->
                 fio {
@@ -184,5 +185,5 @@ module MiddlewareOperators =
     let (@@) (routes: Routes<'E>) (middleware: Middleware<'E>) =
         Middleware.apply middleware routes
 
-    let (+++) (middleware1: Middleware<'E>) (middleware2: Middleware<'E>) =
-        Middleware.compose middleware1 middleware2
+    let (+++) (middleware: Middleware<'E>) (middleware': Middleware<'E>) =
+        Middleware.compose middleware middleware'

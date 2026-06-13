@@ -5,6 +5,7 @@ open FIO.Sockets.Tests.Utilities
 
 open FIO.DSL
 open FIO.Sockets
+open FIO.Sockets.SocketExtensions
 
 open System.Text.Json
 
@@ -21,7 +22,7 @@ let extensionsTests =
                     echoHandler
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
                             let options = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
                             let msg = { Id = 1; Text = "custom json" }
@@ -40,7 +41,7 @@ let extensionsTests =
                     echoHandler
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
                             let options = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
                             let msg = { Id = 2; Text = "custom json line" }

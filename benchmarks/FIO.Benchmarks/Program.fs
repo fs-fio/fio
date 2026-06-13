@@ -11,18 +11,18 @@ open System
 let private defaultWarmupCount = 3
 let private defaultIterationCount = 30
 
-let private buildConfig () =
-    let warmupCount =
-        match Environment.GetEnvironmentVariable "FIO_BENCH_WARMUP" with
-        | null
-        | "" -> defaultWarmupCount
-        | value -> int value
+let private parseCount (name: string) (minValue: int) (defaultValue: int) =
+    match Environment.GetEnvironmentVariable name with
+    | null
+    | "" -> defaultValue
+    | value ->
+        match Int32.TryParse value with
+        | true, n when n >= minValue -> n
+        | _ -> raise (ArgumentException $"Invalid {name}: '{value}' (expected an integer >= {minValue})")
 
-    let iterationCount =
-        match Environment.GetEnvironmentVariable "FIO_BENCH_ITERATIONS" with
-        | null
-        | "" -> defaultIterationCount
-        | value -> int value
+let private buildConfig () =
+    let warmupCount = parseCount "FIO_BENCH_WARMUP" 0 defaultWarmupCount
+    let iterationCount = parseCount "FIO_BENCH_ITERATIONS" 1 defaultIterationCount
 
     let job = Job.Default.WithWarmupCount(warmupCount).WithIterationCount iterationCount
 

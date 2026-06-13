@@ -32,7 +32,7 @@ let responseTests =
                             "Content-Type"
 
                         match resp.Body with
-                        | Text t -> Expect.equal t "hello" "Body"
+                        | ResponseBody.Text t -> Expect.equal t "hello" "Body"
                         | _ -> failtest "Expected Text body"
 
                     testCase "okJson returns 200 with JSON body and Content-Type"
@@ -47,7 +47,7 @@ let responseTests =
                             "Content-Type"
 
                         match resp.Body with
-                        | Json _ -> ()
+                        | ResponseBody.Json _ -> ()
                         | _ -> failtest "Expected Json body"
 
                     testCase "okHtml returns 200 with HTML Content-Type"
@@ -68,7 +68,7 @@ let responseTests =
                         Expect.equal resp.Status HttpStatusCode.OK "200"
 
                         match resp.Body with
-                        | Bytes b -> Expect.equal b.Length 2 "2 bytes"
+                        | ResponseBody.Bytes b -> Expect.equal b.Length 2 "2 bytes"
                         | _ -> failtest "Expected Bytes body"
 
                     testCase "okStream returns 200 with stream body"
@@ -79,7 +79,7 @@ let responseTests =
                         Expect.equal resp.Status HttpStatusCode.OK "200"
 
                         match resp.Body with
-                        | Stream _ -> ()
+                        | ResponseBody.Stream _ -> ()
                         | _ -> failtest "Expected Stream body"
 
                     testCase "okStream throws for null stream"
@@ -105,7 +105,7 @@ let responseTests =
                         Expect.equal resp.Status HttpStatusCode.Created "201"
 
                         match resp.Body with
-                        | Json _ -> ()
+                        | ResponseBody.Json _ -> ()
                         | _ -> failtest "Expected Json body"
 
                     testCase "accepted returns 202"
@@ -171,7 +171,7 @@ let responseTests =
                         Expect.equal resp.Status HttpStatusCode.BadRequest "400"
 
                         match resp.Body with
-                        | Text t -> Expect.equal t "invalid" "Body"
+                        | ResponseBody.Text t -> Expect.equal t "invalid" "Body"
                         | _ -> failtest "Expected Text body"
 
                     testCase "unauthorized returns 401"
@@ -264,7 +264,7 @@ let responseTests =
                         let resp = Response.statusText HttpStatusCode.OK "fine"
 
                         match resp.Body with
-                        | Text t -> Expect.equal t "fine" "Body"
+                        | ResponseBody.Text t -> Expect.equal t "fine" "Body"
                         | _ -> failtest "Expected Text body"
 
                     testCase "statusJson creates response with code and JSON"
@@ -272,7 +272,7 @@ let responseTests =
                         let resp = Response.statusJson HttpStatusCode.OK {| ok = true |}
 
                         match resp.Body with
-                        | Json _ -> ()
+                        | ResponseBody.Json _ -> ()
                         | _ -> failtest "Expected Json body"
                 ]
         ]

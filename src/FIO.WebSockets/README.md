@@ -9,12 +9,12 @@ dotnet add package FIO.WebSockets
 ```fsharp
 open FIO.DSL
 open FIO.WebSockets
+open FIO.WebSockets.WebSocketExtensions
 
 let client = fio {
-    use! ws = WebSocketClient.connect "ws://localhost:8080/ws"
-    do! WebSocket.sendText ws "Hello, server!"
-    let! response = WebSocket.receiveText ws
-    return response
+    use! ws = WebSocketClient.connectDefault "ws://localhost:8080/ws"
+    do! ws.SendString "Hello, server!"
+    return! ws.ReceiveString()
 }
 ```
 

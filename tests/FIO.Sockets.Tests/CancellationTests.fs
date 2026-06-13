@@ -39,7 +39,7 @@ let cancellationTests =
                 let effect =
                     fio {
                         // 192.0.2.0/24 (TEST-NET-1) is reserved; routable but always discards.
-                        let! config = SocketConfig.create ("192.0.2.1", 1)
+                        let! config = SocketConfig.create "192.0.2.1" 1234
 
                         let! connectFiber = (SocketClient.connect config).Fork()
                         do! sleepMs 100.0
@@ -72,7 +72,7 @@ let cancellationTests =
                         })
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
 
                             let! receiveFiber = (socket.ReceiveBytes 8192).Fork()
@@ -102,7 +102,7 @@ let cancellationTests =
                         })
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
                             let childTcs = TaskCompletionSource<Fiber<byte[] * int, SocketError>>()
 

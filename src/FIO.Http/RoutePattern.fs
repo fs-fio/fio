@@ -7,6 +7,7 @@ type RoutePath =
     | Prefix of string list
     | Pattern of (string list -> (obj list * string list) option)
 
+[<RequireQualifiedAccess>]
 module RoutePath =
 
     let exact (segments: string list) =
@@ -38,7 +39,7 @@ module RoutePath =
         else
             Exact segments
 
-    let ofString (path: string) =
+    let fromString (path: string) =
         parse path
 
     let tryMatch (routePath: RoutePath) (segments: string list) =
@@ -120,6 +121,7 @@ type RoutePattern =
         ParamExtractor: string list -> obj list option
     }
 
+[<RequireQualifiedAccess>]
 module RoutePattern =
 
     let create (method: HttpMethod) (path: RoutePath) =
@@ -166,9 +168,10 @@ module RoutePattern =
         else
             None
 
+[<RequireQualifiedAccess>]
 module Route =
 
-    let ofString (routeStr: string) =
+    let fromString (routeStr: string) =
         let parts = routeStr.Split([| ' ' |], StringSplitOptions.RemoveEmptyEntries)
         match parts with
         | [| methodStr; pathStr |] ->
@@ -176,36 +179,34 @@ module Route =
             RoutePattern.create method (RoutePath.parse pathStr)
         | _ ->
             let errorMessage =
-                sprintf
-                    "Invalid route string format: '%s'. Expected format: 'METHOD /path' (e.g., 'GET /users' or 'POST /users/:id')"
-                    routeStr
+                $"Invalid route string format: '{routeStr}'. Expected format: 'METHOD /path' (e.g., 'GET /users' or 'POST /users/:id')"
             invalidArg "routeStr" errorMessage
 
     let get (path: string) =
-        RoutePattern.get (RoutePath.ofString path)
+        RoutePattern.get (RoutePath.fromString path)
 
     let post (path: string) =
-        RoutePattern.post (RoutePath.ofString path)
+        RoutePattern.post (RoutePath.fromString path)
 
     let put (path: string) =
-        RoutePattern.put (RoutePath.ofString path)
+        RoutePattern.put (RoutePath.fromString path)
 
     let delete (path: string) =
-        RoutePattern.delete (RoutePath.ofString path)
+        RoutePattern.delete (RoutePath.fromString path)
 
     let patch (path: string) =
-        RoutePattern.patch (RoutePath.ofString path)
+        RoutePattern.patch (RoutePath.fromString path)
 
     let head (path: string) =
-        RoutePattern.head (RoutePath.ofString path)
+        RoutePattern.head (RoutePath.fromString path)
 
     let options (path: string) =
-        RoutePattern.options (RoutePath.ofString path)
+        RoutePattern.options (RoutePath.fromString path)
 
 module RouteOperators =
 
     let (=>) (method: HttpMethod) (path: string) =
-        RoutePattern.create method (RoutePath.ofString path)
+        RoutePattern.create method (RoutePath.fromString path)
 
     let get path =
         Route.get path

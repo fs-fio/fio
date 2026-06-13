@@ -7,13 +7,14 @@ open System.IO
 open System.Text
 open System.Buffers
 open System.Text.Json
+open System.Threading.Tasks
 
 open Microsoft.AspNetCore.Http
 
+[<RequireQualifiedAccess>]
 module KestrelBridge =
-    open System.Threading.Tasks
 
-    let DefaultJsonOptions =
+    let defaultJsonOptions =
         let options =
             JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
         options.TypeInfoResolver <- Serialization.Metadata.DefaultJsonTypeInfoResolver()
@@ -172,19 +173,19 @@ module KestrelBridge =
             let! bodyBytes =
                 task {
                     match response.Body with
-                    | Empty -> return None
-                    | Text text ->
+                    | ResponseBody.Empty -> return None
+                    | ResponseBody.Text text ->
                         let bytes = Encoding.UTF8.GetBytes text
                         return Some bytes
-                    | Bytes bytes -> return Some bytes
-                    | Json obj ->
+                    | ResponseBody.Bytes bytes -> return Some bytes
+                    | ResponseBody.Json obj ->
                         return Some(JsonSerializer.SerializeToUtf8Bytes(obj, jsonOptions))
-                    | Stream _ -> return None
+                    | ResponseBody.Stream _ -> return None
                 }
 
             let streamToDispose =
                 match response.Body with
-                | Stream(stream, _) when not (isNull stream) -> Some stream
+                | ResponseBody.Stream(stream, _) when not (isNull stream) -> Some stream
                 | _ -> None
 
             try
@@ -197,22 +198,22 @@ module KestrelBridge =
                 let isHead = HttpMethods.IsHead ctx.Request.Method
 
                 match response.Body with
-                | Empty -> ()
-                | Text _ ->
+                | ResponseBody.Empty -> ()
+                | ResponseBody.Text _ ->
                     match bodyBytes with
                     | Some bytes ->
                         ctx.Response.ContentLength <- int64 bytes.Length
                         if not isHead then
                             do! ctx.Response.Body.WriteAsync(bytes, 0, bytes.Length)
                     | None -> ()
-                | Bytes _ ->
+                | ResponseBody.Bytes _ ->
                     match bodyBytes with
                     | Some bytes ->
                         ctx.Response.ContentLength <- int64 bytes.Length
                         if not isHead then
                             do! ctx.Response.Body.WriteAsync(bytes, 0, bytes.Length)
                     | None -> ()
-                | Json _ ->
+                | ResponseBody.Json _ ->
                     match bodyBytes with
                     | Some bytes ->
                         if not (HeaderHelpers.contains "Content-Type" response.Headers) then
@@ -221,7 +222,7 @@ module KestrelBridge =
                         if not isHead then
                             do! ctx.Response.Body.WriteAsync(bytes, 0, bytes.Length)
                     | None -> ()
-                | Stream(stream, lengthOpt) ->
+                | ResponseBody.Stream(stream, lengthOpt) ->
                     if isNull stream then
                         invalidArg "stream" "Response stream cannot be null"
                     match lengthOpt with
@@ -239,7 +240,7 @@ module KestrelBridge =
         (response: FIO.Http.HttpResponse) =
         match jsonOptions with
         | Some options -> writeResponseWithOptions options ctx response
-        | None -> writeResponseWithOptions DefaultJsonOptions ctx response
+        | None -> writeResponseWithOptions defaultJsonOptions ctx response
 
     let writeResponse (ctx: HttpContext) (response: FIO.Http.HttpResponse) =
         writeResponseWith None ctx response
@@ -306,11 +307,11 @@ module KestrelBridge =
         (ctx: HttpContext) =
         match jsonOptions with
         | Some options -> handleRequestWithOptions runtime routes maxBodySize options ctx
-        | None -> handleRequestWithOptions runtime routes maxBodySize DefaultJsonOptions ctx
+        | None -> handleRequestWithOptions runtime routes maxBodySize defaultJsonOptions ctx
 
     let handleRequest
         (runtime: FIO.Runtime.Default.DefaultRuntime)
         (routes: Routes<exn>)
         (maxBodySize: int64)
         (ctx: HttpContext) : Task =
-        handleRequestWithOptions runtime routes maxBodySize DefaultJsonOptions ctx
+        handleRequestWithOptions runtime routes maxBodySize defaultJsonOptions ctx

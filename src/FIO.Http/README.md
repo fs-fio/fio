@@ -8,11 +8,12 @@ dotnet add package FIO.Http
 
 ```fsharp
 open FIO.Http
+open FIO.Http.SimpleRoutes
 open FIO.Http.RoutesOperators
 
 let routes =
-    GET "/" (HttpHandler.text "Hello!")
-    ++ GET "/json" (HttpHandler.okJson {| msg = "Hello" |})
+    get "/" (HttpHandler.text "Hello!")
+    ++ get "/json" (HttpHandler.okJson {| msg = "Hello" |})
 
 Server.runServer ServerConfig.defaultConfig routes
 ```

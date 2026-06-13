@@ -100,7 +100,7 @@ let middlewareTests =
                             applyMiddleware mw (HttpHandler.text "fast") (makeGetRequest "/test") runtime
 
                         match resp.Body with
-                        | Text t -> Expect.equal t "fast" "Fast response"
+                        | ResponseBody.Text t -> Expect.equal t "fast" "Fast response"
                         | _ -> failtest "Expected Text body")
 
                     testAllRuntimes "returns 408 when handler exceeds duration" (fun runtime ->
@@ -276,7 +276,7 @@ let middlewareTests =
                         let resp = applyMiddleware mw handler req runtime
 
                         match resp.Body with
-                        | Text t -> Expect.equal t "user1" "User metadata"
+                        | ResponseBody.Text t -> Expect.equal t "user1" "User metadata"
                         | _ -> failtest "Expected Text body")
 
                     testAllRuntimes "rejects invalid token" (fun runtime ->
@@ -319,7 +319,7 @@ let middlewareTests =
                 Expect.equal resp.Status HttpStatusCode.InternalServerError "500"
 
                 match resp.Body with
-                | Text t -> Expect.stringContains t "boom" "Error message"
+                | ResponseBody.Text t -> Expect.stringContains t "boom" "Error message"
                 | _ -> failtest "Expected Text body")
 
             testList

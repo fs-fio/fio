@@ -2,43 +2,34 @@ namespace FIO.Sockets
 
 open FIO.DSL
 
+open System
 open System.Net
 
-/// <summary>Creates and operates TCP server socket listeners.</summary>
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module ServerSocket =
 
-    /// <summary>Transforms a socket error into a logged-and-suppressed unit effect for use in server cleanup paths.</summary>
-    /// <param name="context">A description of the operation being cleaned up.</param>
-    /// <param name="error">The socket error to log.</param>
-    /// <returns>An effect that logs the error to standard error and succeeds with unit.</returns>
     let private logAndSuppress (context: string) (error: SocketError) =
         fio {
             let str = error.ToString()
-            do!
-                FIO.attempt
-                    (fun () -> eprintfn $"[SocketServer] Error during {context}: {str}")
+            do! FIO.attempt
+                    (fun () -> eprintfn $"SocketServer encountered error during {context}: {str}")
                     SocketError.fromException
             return ()
         }
 
-    let private resolveBindAddress (config: ServerSocketConfig) : IPAddress =
+    let private resolveBindAddress (config: ServerSocketConfig) =
         match IPAddress.TryParse config.BindAddress with
         | true, address -> address
         | _ ->
             let addresses = Dns.GetHostAddresses config.BindAddress
-
-            match addresses |> Array.tryFind (fun a -> a.AddressFamily = config.AddressFamily) with
+            match addresses |> Array.tryFind (fun address -> address.AddressFamily = config.AddressFamily) with
             | Some address -> address
             | None ->
                 match Array.tryHead addresses with
                 | Some address -> address
-                | None -> raise (System.ArgumentException $"Could not resolve bind address '{config.BindAddress}'")
+                | None -> raise (ArgumentException $"Could not resolve bind address '{config.BindAddress}'")
 
-    /// <summary>Creates an effect that binds to a local address and starts listening for TCP connections.</summary>
-    /// <param name="config">The server socket configuration specifying bind address, port, and backlog.</param>
-    /// <returns>An effect that produces a bound and listening ServerSocket, or fails with BindFailed if binding fails.</returns>
     let bind (config: ServerSocketConfig) =
         fio {
             let! netSocket =
@@ -49,64 +40,49 @@ module ServerSocket =
             let! endpoint =
                 FIO.attempt
                     (fun () -> IPEndPoint(resolveBindAddress config, config.BindPort) :> EndPoint)
-                    (fun exn -> BindFailed(config.BindAddress, config.BindPort, exn))
+                    (fun ex -> BindFailed(config.BindAddress, config.BindPort, ex))
 
             do! FIO.attempt
                     (fun () ->
                         netSocket.Bind endpoint
                         netSocket.Listen config.Backlog)
-                    (fun exn -> BindFailed(config.BindAddress, config.BindPort, exn))
+                    (fun ex -> BindFailed(config.BindAddress, config.BindPort, ex))
 
             return { NetSocket = netSocket; Config = config }
         }
 
-    /// <summary>Creates an effect that closes a server socket and releases its resources.</summary>
-    /// <param name="serverSocket">The server socket to close.</param>
-    /// <returns>An effect that shuts down the listener, suppressing any cleanup errors.</returns>
     let close (serverSocket: ServerSocket) =
         (FIO.attempt
-                (fun () ->
-                    serverSocket.NetSocket.Close()
-                    serverSocket.NetSocket.Dispose())
-                SocketError.fromException
-            ).CatchAll(logAndSuppress "server socket close")
+            (fun () ->
+                serverSocket.NetSocket.Close()
+                serverSocket.NetSocket.Dispose())
+            SocketError.fromException
+        ).CatchAll(logAndSuppress "server socket close")
 
-    /// <summary>Creates an effect that acquires a bound and listening server socket.</summary>
-    /// <param name="config">The server socket configuration specifying bind address, port, and backlog.</param>
-    /// <returns>An effect that produces a bound ServerSocket ready to accept connections.</returns>
-    let acquire (config: ServerSocketConfig) = bind config
+    let acquire (config: ServerSocketConfig) =
+        bind config
 
-    /// <summary>Creates an effect that releases a server socket by closing it.</summary>
-    /// <param name="serverSocket">The server socket to release.</param>
-    /// <returns>An effect that closes the listener, suppressing cleanup errors to avoid masking original failures.</returns>
-    let release (serverSocket: ServerSocket) = close serverSocket
+    let release (serverSocket: ServerSocket) =
+        close serverSocket
 
-    /// <summary>Builds a resource-scoped effect that binds a server socket, runs an action, and closes the listener on every outcome.</summary>
-    /// <param name="config">The server socket configuration specifying bind address, port, and backlog.</param>
-    /// <param name="action">A function from the bound server socket to the effect to run; the listener is closed after this effect completes.</param>
-    /// <returns>An effect that produces the action's result and guarantees listener cleanup.</returns>
-    let withServerSocket (config: ServerSocketConfig, action: ServerSocket -> FIO<'A, SocketError>) =
+    let withServerSocket (config: ServerSocketConfig) (action: ServerSocket -> FIO<'A, SocketError>) =
         FIO.acquireReleaseWith (acquire config) release action
 
-    /// <summary>Creates an effect that accepts a single incoming TCP connection.</summary>
-    /// <param name="serverSocket">The server socket to accept a connection from.</param>
-    /// <returns>An effect that produces a connected Socket for the accepted client, or fails with AcceptFailed.</returns>
     let accept (serverSocket: ServerSocket) =
         fio {
-            let! ct = FIO.cancellationToken ()
+            let! cancelToken = FIO.cancellationToken ()
 
             let! netSocket =
-                FIO.awaitTask (serverSocket.NetSocket.AcceptAsync(ct).AsTask()) AcceptFailed
+                FIO.awaitTask (serverSocket.NetSocket.AcceptAsync(cancelToken).AsTask()) AcceptFailed
 
             let config =
                 match serverSocket.Config.AcceptedSocketConfig with
                 | Some cfg -> cfg
                 | None ->
                     let linger = netSocket.LingerState
-
                     {
-                        Host = "" // Not applicable for accepted socket
-                        Port = 0 // Not applicable
+                        Host = ""
+                        Port = 0
                         AddressFamily = netSocket.AddressFamily
                         SocketType = netSocket.SocketType
                         ProtocolType = netSocket.ProtocolType
@@ -115,28 +91,20 @@ module ServerSocket =
                         SendTimeout = netSocket.SendTimeout
                         ReceiveTimeout = netSocket.ReceiveTimeout
                         NoDelay = netSocket.NoDelay
-                        LingerEnabled = (not (isNull linger)) && linger.Enabled
+                        LingerEnabled = not (isNull linger) && linger.Enabled
                         LingerTimeout = if isNull linger then 0 else linger.LingerTime
                     }
 
             return new Socket(netSocket, config)
         }
 
-    /// <summary>Represents the default maximum number of connection handlers that may run concurrently in an accept loop.</summary>
     [<Literal>]
     let DefaultMaxConcurrentHandlers = 1024
 
-    /// <summary>Creates an effect that continuously accepts connections and forks a bounded number of concurrent handlers until interrupted.</summary>
-    /// <param name="maxConcurrentHandlers">The maximum number of handlers allowed to run concurrently; further accepts wait until a slot frees.</param>
-    /// <param name="handler">A function from a connected socket to the effect to run for each accepted connection; each invocation runs concurrently.</param>
-    /// <param name="serverSocket">The server socket to accept connections from.</param>
-    /// <returns>An effect that loops accepting and forking handlers, tolerating transient accept errors and completing only when interrupted.</returns>
     let acceptLoopWith
-        (
-            maxConcurrentHandlers: int,
-            handler: Socket -> FIO<unit, SocketError>,
-            serverSocket: ServerSocket
-        ) : FIO<unit, SocketError> =
+        (maxConcurrentHandlers: int)
+        (handler: Socket -> FIO<unit, SocketError>)
+        (serverSocket: ServerSocket) =
         fio {
             let slots = Channel<unit>()
 
@@ -150,82 +118,50 @@ module ServerSocket =
                     let handlerWithCleanup =
                         FIO.acquireReleaseWith
                             (FIO.succeed socket)
-                            (fun s -> s.Close().CatchAll(logAndSuppress "accepted socket close"))
+                            (fun socket -> socket.Close().CatchAll(logAndSuppress "accepted socket close"))
                             handler
 
                     let! _fiber = handlerWithCleanup.Ensuring(slots.Write()).Fork()
                     return ()
-                })
-                    .CatchAll(fun error ->
-                        fio {
-                            do! logAndSuppress "accept loop iteration" error
-                            do! slots.Write()
-                            do! FIO.sleep (System.TimeSpan.FromMilliseconds 25.0) SocketError.fromException
-                        })
+                }).CatchAll(fun error ->
+                    fio {
+                        do! logAndSuppress "accept loop iteration" error
+                        do! slots.Write()
+                        do! FIO.sleep (System.TimeSpan.FromMilliseconds 25.0) SocketError.fromException
+                    })
 
             return! step.Forever()
         }
 
-    /// <summary>Creates an effect that continuously accepts connections and forks a handler for each one until interrupted.</summary>
-    /// <param name="handler">A function from a connected socket to the effect to run for each accepted connection; each invocation runs concurrently.</param>
-    /// <param name="serverSocket">The server socket to accept connections from.</param>
-    /// <returns>An effect that loops accepting and forking handlers, completing only when interrupted.</returns>
-    let acceptLoop (handler: Socket -> FIO<unit, SocketError>, serverSocket: ServerSocket) : FIO<unit, SocketError> =
-        acceptLoopWith (DefaultMaxConcurrentHandlers, handler, serverSocket)
+    let acceptLoop (handler: Socket -> FIO<unit, SocketError>) (serverSocket: ServerSocket) =
+        acceptLoopWith DefaultMaxConcurrentHandlers handler serverSocket
 
-    /// <summary>Returns the configuration of a server socket.</summary>
-    /// <param name="serverSocket">The server socket to query.</param>
-    /// <returns>The ServerSocketConfig associated with the listener.</returns>
-    let getConfig (serverSocket: ServerSocket) = serverSocket.Config
+    let getConfig (serverSocket: ServerSocket) =
+        serverSocket.Config
 
-    /// <summary>Returns the local endpoint a server socket is bound to.</summary>
-    /// <param name="serverSocket">The server socket to query.</param>
-    /// <returns>An effect that produces the local endpoint address.</returns>
     let getLocalEndPoint (serverSocket: ServerSocket) =
         FIO.attempt (fun () -> serverSocket.NetSocket.LocalEndPoint) SocketError.fromException
 
-    /// <summary>Builds a server effect that binds, accepts connections, and forks a handler for each one until interrupted.</summary>
-    /// <param name="config">The server socket configuration specifying bind address, port, and backlog.</param>
-    /// <param name="handler">A function from a connected socket to the effect to run for each accepted connection.</param>
-    /// <returns>An effect that runs the server until interrupted, closing the listener on every outcome.</returns>
-    let serve (config: ServerSocketConfig, handler: Socket -> FIO<unit, SocketError>) =
-        withServerSocket (config, fun serverSocket -> acceptLoop (handler, serverSocket))
+    let serve (config: ServerSocketConfig) (handler: Socket -> FIO<unit, SocketError>) =
+        withServerSocket config (fun serverSocket -> acceptLoop handler serverSocket)
 
-    /// <summary>Builds a server effect that decodes requests, processes them, and sends encoded responses with a configurable receive buffer size.</summary>
-    /// <param name="requestCodec">The codec for decoding incoming requests from bytes.</param>
-    /// <param name="responseCodec">The codec for encoding outgoing responses to bytes.</param>
-    /// <param name="handler">A function from a decoded request to an effect that produces the response.</param>
-    /// <param name="config">The server socket configuration specifying bind address, port, and backlog.</param>
-    /// <param name="bufferSize">The maximum number of bytes to receive per request.</param>
-    /// <returns>An effect that runs the server until interrupted, closing the listener on every outcome.</returns>
-    let serveWithBufferSize<'Req, 'Resp>
-        (
-            requestCodec: SocketCodec<'Req>,
-            responseCodec: SocketCodec<'Resp>,
-            handler: 'Req -> FIO<'Resp, SocketError>,
-            config: ServerSocketConfig,
-            bufferSize: int
-        ) =
+    let serveWithBufferSize<'A, 'A1>
+        (requestCodec: SocketCodec<'A>)
+        (responseCodec: SocketCodec<'A1>)
+        (handler: 'A -> FIO<'A1, SocketError>)
+        (config: ServerSocketConfig)
+        (bufferSize: int) =
         let connectionHandler (socket: Socket) =
             fio {
                 let! request = socket.Receive(requestCodec, bufferSize)
                 let! response = handler request
                 do! socket.Send(responseCodec, response)
             }
+        serve config connectionHandler
 
-        serve (config, connectionHandler)
-
-    /// <summary>Builds a server effect that decodes requests, processes them, and sends encoded responses using a default 8192-byte receive buffer.</summary>
-    /// <param name="requestCodec">The codec for decoding incoming requests from bytes.</param>
-    /// <param name="responseCodec">The codec for encoding outgoing responses to bytes.</param>
-    /// <param name="handler">A function from a decoded request to an effect that produces the response.</param>
-    /// <param name="config">The server socket configuration specifying bind address, port, and backlog.</param>
-    /// <returns>An effect that runs the server until interrupted, closing the listener on every outcome.</returns>
-    let serveWith<'Req, 'Resp>
-        (
-            requestCodec: SocketCodec<'Req>,
-            responseCodec: SocketCodec<'Resp>,
-            handler: 'Req -> FIO<'Resp, SocketError>,
-            config: ServerSocketConfig
-        ) =
-        serveWithBufferSize (requestCodec, responseCodec, handler, config, 8192)
+    let serveWith<'A, 'A1>
+        (requestCodec: SocketCodec<'A>)
+        (responseCodec: SocketCodec<'A1>)
+        (handler: 'A -> FIO<'A1, SocketError>)
+        (config: ServerSocketConfig) =
+        serveWithBufferSize requestCodec responseCodec handler config 8192

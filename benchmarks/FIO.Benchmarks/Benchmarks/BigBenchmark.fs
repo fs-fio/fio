@@ -14,7 +14,9 @@ type BigBenchmark() =
     let mutable runtime: FIORuntime = Unchecked.defaultof<_>
 
     member _.ActorCounts = RuntimeParam.intParams "FIO_BENCH_BIG_ACTORS" [| 10; 25 |]
+
     member _.RoundCounts = RuntimeParam.intParams "FIO_BENCH_BIG_ROUNDS" [| 100; 500 |]
+
     member _.Runtimes = RuntimeParam.runtimes ()
 
     [<ParamsSource("ActorCounts")>]
@@ -38,4 +40,4 @@ type BigBenchmark() =
 
     [<Benchmark>]
     member this.Run() =
-        runtime.Run(Big.effect (this.ActorCount, this.RoundCount)).Task()
+        RuntimeParam.run runtime (Big.effect this.ActorCount this.RoundCount)

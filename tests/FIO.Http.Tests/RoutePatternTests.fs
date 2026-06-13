@@ -75,16 +75,16 @@ let routePatternTests =
 
                         Expect.isNone result "Should not match"
 
-                    testCase "ofString parses simple path"
+                    testCase "fromString parses simple path"
                     <| fun () ->
-                        let path = RoutePath.ofString "/users/list"
+                        let path = RoutePath.fromString "/users/list"
                         let result = RoutePath.tryMatch path [ "users"; "list" ]
 
                         Expect.isSome result "Should match"
 
-                    testCase "ofString handles root path"
+                    testCase "fromString handles root path"
                     <| fun () ->
-                        let path = RoutePath.ofString "/"
+                        let path = RoutePath.fromString "/"
                         let result = RoutePath.tryMatch path []
 
                         Expect.isSome result "Root should match"
@@ -188,9 +188,9 @@ let routePatternTests =
                 "Route string parsing"
                 [
 
-                    testCase "ofString parses GET /path"
+                    testCase "fromString parses GET /path"
                     <| fun () ->
-                        let pattern = Route.ofString "GET /users"
+                        let pattern = Route.fromString "GET /users"
 
                         Expect.equal pattern.Method HttpMethod.GET "GET"
 
@@ -198,9 +198,9 @@ let routePatternTests =
 
                         Expect.isSome (RoutePattern.tryMatch pattern req) "Match"
 
-                    testCase "ofString parses route with parameter"
+                    testCase "fromString parses route with parameter"
                     <| fun () ->
-                        let pattern = Route.ofString "GET /users/:id"
+                        let pattern = Route.fromString "GET /users/:id"
                         let req = HttpRequest.create HttpMethod.GET "/users/hello"
 
                         let result = RoutePattern.tryMatch pattern req
@@ -211,8 +211,8 @@ let routePatternTests =
                             Expect.equal (params'.[0] :?> string) "hello" "String param"
                         | None -> failtest "Expected match"
 
-                    testCase "ofString throws for invalid format"
-                    <| fun () -> Expect.throws (fun () -> Route.ofString "INVALID" |> ignore) "Invalid format"
+                    testCase "fromString throws for invalid format"
+                    <| fun () -> Expect.throws (fun () -> Route.fromString "INVALID" |> ignore) "Invalid format"
 
                     testCase "Route.get/post/put/delete create from string"
                     <| fun () ->

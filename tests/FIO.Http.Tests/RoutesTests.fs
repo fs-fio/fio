@@ -5,6 +5,7 @@ open FIO.Http.Tests.Utilities
 
 open FIO.DSL
 open FIO.Http
+open FIO.Http.SimpleRoutes
 
 open Expecto
 
@@ -26,7 +27,7 @@ let routesTests =
                 Expect.equal resp.Status HttpStatusCode.OK "200"
 
                 match resp.Body with
-                | Text t -> Expect.equal t "world" "Body"
+                | ResponseBody.Text t -> Expect.equal t "world" "Body"
                 | _ -> failtest "Expected Text body")
 
             testAllRuntimes "single creates parameterized route" (fun runtime ->
@@ -41,7 +42,7 @@ let routesTests =
                 let resp = dispatchAndRun runtime routes (makeRequest HttpMethod.GET "/users/42")
 
                 match resp.Body with
-                | Text t -> Expect.equal t "user-42" "Param extracted"
+                | ResponseBody.Text t -> Expect.equal t "user-42" "Param extracted"
                 | _ -> failtest "Expected Text body")
 
             testAllRuntimes "combine merges two route sets" (fun runtime ->
@@ -53,7 +54,7 @@ let routesTests =
                 let respB = dispatchAndRun runtime combined (makeGetRequest "/b")
 
                 match respA.Body, respB.Body with
-                | Text a, Text b ->
+                | ResponseBody.Text a, ResponseBody.Text b ->
                     Expect.equal a "A" "Route A"
                     Expect.equal b "B" "Route B"
                 | _ -> failtest "Expected Text bodies")
@@ -112,7 +113,7 @@ let routesTests =
                 let resp = dispatchAndRun runtime routes (makeGetRequest "/anything")
 
                 match resp.Body with
-                | Text t -> Expect.equal t "custom 404" "Custom not found"
+                | ResponseBody.Text t -> Expect.equal t "custom 404" "Custom not found"
                 | _ -> failtest "Expected Text body")
 
             testAllRuntimes "add appends route" (fun runtime ->
@@ -122,12 +123,12 @@ let routesTests =
                 let resp = dispatchAndRun runtime routes (makeGetRequest "/added")
 
                 match resp.Body with
-                | Text t -> Expect.equal t "added" "Added route"
+                | ResponseBody.Text t -> Expect.equal t "added" "Added route"
                 | _ -> failtest "Expected Text body")
 
-            testAllRuntimes "ofList creates from pattern-handler pairs" (fun runtime ->
+            testAllRuntimes "fromList creates from pattern-handler pairs" (fun runtime ->
                 let routes =
-                    Routes.ofList
+                    Routes.fromList
                         [
                             Route.get "/one", HttpHandler.text "1"
                             Route.get "/two", HttpHandler.text "2"
@@ -137,7 +138,7 @@ let routesTests =
                 let r2 = dispatchAndRun runtime routes (makeGetRequest "/two")
 
                 match r1.Body, r2.Body with
-                | Text a, Text b ->
+                | ResponseBody.Text a, ResponseBody.Text b ->
                     Expect.equal a "1" "First"
                     Expect.equal b "2" "Second"
                 | _ -> failtest "Expected Text bodies")
@@ -169,7 +170,7 @@ let routesTests =
                         let r = dispatchAndRun runtime routes (makeGetRequest "/b")
 
                         match r.Body with
-                        | Text t -> Expect.equal t "B" "Combined"
+                        | ResponseBody.Text t -> Expect.equal t "B" "Combined"
                         | _ -> failtest "Expected Text body")
 
                     testAllRuntimes "=> creates route from pattern and handler" (fun runtime ->
@@ -178,7 +179,7 @@ let routesTests =
                         let r = dispatchAndRun runtime routes (makeGetRequest "/op")
 
                         match r.Body with
-                        | Text t -> Expect.equal t "via op" "Operator route"
+                        | ResponseBody.Text t -> Expect.equal t "via op" "Operator route"
                         | _ -> failtest "Expected Text body")
                 ]
 
@@ -193,7 +194,7 @@ let routesTests =
                         let resp = dispatchAndRun runtime routes (makeRequest HttpMethod.GET "/users/99")
 
                         match resp.Body with
-                        | Text t -> Expect.equal t "id=99" "Int param"
+                        | ResponseBody.Text t -> Expect.equal t "id=99" "Int param"
                         | _ -> failtest "Expected Text body")
 
                     testAllRuntimes "getString extracts string parameter" (fun runtime ->
@@ -204,7 +205,7 @@ let routesTests =
                             dispatchAndRun runtime routes (makeRequest HttpMethod.GET "/items/widget")
 
                         match resp.Body with
-                        | Text t -> Expect.equal t "name=widget" "String param"
+                        | ResponseBody.Text t -> Expect.equal t "name=widget" "String param"
                         | _ -> failtest "Expected Text body")
                 ]
 

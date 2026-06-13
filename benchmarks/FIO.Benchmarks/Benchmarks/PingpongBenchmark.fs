@@ -36,4 +36,4 @@ type PingpongBenchmark() =
 
     [<Benchmark>]
     member this.Run() =
-        runtime.Run(Pingpong.effect this.RoundCount).Task()
+        RuntimeParam.run runtime (Pingpong.effect this.RoundCount)

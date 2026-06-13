@@ -36,4 +36,4 @@ type ForkBenchmark() =
 
     [<Benchmark>]
     member this.Run() =
-        runtime.Run(Fork.effect this.ActorCount).Task()
+        RuntimeParam.run runtime (Fork.effect this.ActorCount)

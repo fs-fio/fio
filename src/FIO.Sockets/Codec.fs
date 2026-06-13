@@ -7,256 +7,186 @@ open System.Net
 open System.Text
 open System.Text.Json
 
-/// <summary>Represents a codec for encoding and decoding messages to and from bytes.</summary>
-/// <typeparam name="'T">The message type to encode and decode.</typeparam>
-type SocketCodec<'T> =
+type SocketCodec<'A> =
     {
-        /// <summary>Represents the encoding function from a value to bytes.</summary>
-        Encode: 'T -> FIO<byte[], SocketError>
-        /// <summary>Represents the decoding function from bytes to a value.</summary>
-        Decode: byte[] -> FIO<'T, SocketError>
+        Encode: 'A -> FIO<byte[], SocketError>
+        Decode: byte[] -> FIO<'A, SocketError>
     }
 
-/// <summary>Creates codecs for encoding and decoding socket messages.</summary>
+[<RequireQualifiedAccess>]
 module Codec =
 
-    let private writeLengthPrefix (length: int) : byte[] =
+    let private writeLengthPrefix (length: int) =
         BitConverter.GetBytes(IPAddress.HostToNetworkOrder length)
 
-    let private readLengthPrefix (bytes: byte[]) (offset: int) : int =
+    let private readLengthPrefix (bytes: byte[]) (offset: int) =
         IPAddress.NetworkToHostOrder(BitConverter.ToInt32(bytes, offset))
 
-    /// <summary>Returns the identity codec for byte arrays that passes data through unchanged.</summary>
-    /// <returns>A codec that succeeds immediately with the input bytes on both encode and decode.</returns>
-    let bytes: SocketCodec<byte[]> =
+    let bytes =
         {
             Encode = fun bytes -> FIO.succeed bytes
             Decode = fun bytes -> FIO.succeed bytes
         }
 
-    /// <summary>Returns the UTF-8 string codec.</summary>
-    /// <returns>A codec that encodes strings to UTF-8 bytes and decodes UTF-8 bytes to strings.</returns>
     let string: SocketCodec<string> =
         {
-            Encode =
-                fun str ->
-                    FIO.attempt
-                        (fun () -> Encoding.UTF8.GetBytes str)
-                        (fun exn -> CodecError("UTF-8 encoding failed", exn))
-            Decode =
-                fun bytes ->
-                    FIO.attempt
-                        (fun () -> Encoding.UTF8.GetString bytes)
-                        (fun exn -> CodecError("UTF-8 decoding failed", exn))
+            Encode = fun str ->
+                FIO.attempt
+                    (fun () -> Encoding.UTF8.GetBytes str)
+                    (fun ex -> CodecError("UTF-8 encoding failed", ex))
+            Decode = fun bytes ->
+                FIO.attempt
+                    (fun () -> Encoding.UTF8.GetString bytes)
+                    (fun ex -> CodecError("UTF-8 decoding failed", ex))
         }
 
-    /// <summary>Returns the line-delimited string codec that appends a newline on encode and trims it on decode.</summary>
-    /// <returns>A codec that frames strings with newline delimiters using UTF-8 encoding.</returns>
-    let line: SocketCodec<string> =
+    let line =
         {
-            Encode =
-                fun str ->
-                    fio {
-                        let! encoded = string.Encode(str + "\n")
-                        return encoded
-                    }
-            Decode =
-                fun bytes ->
-                    fio {
-                        let! decoded = string.Decode bytes
-                        return decoded.TrimEnd('\n', '\r')
-                    }
+            Encode = fun str ->
+                fio {
+                    let! encoded = string.Encode(str + "\n")
+                    return encoded
+                }
+            Decode = fun bytes ->
+                fio {
+                    let! decoded = string.Decode bytes
+                    return decoded.TrimEnd('\n', '\r')
+                }
         }
 
-    /// <summary>Creates a JSON codec using the specified serializer options.</summary>
-    /// <param name="options">The JSON serializer options to use for encoding and decoding.</param>
-    /// <returns>A codec that serializes values to JSON bytes and deserializes JSON bytes to values.</returns>
-    let jsonWithOptions<'T> (options: JsonSerializerOptions) =
+    let jsonWithOptions<'A> (options: JsonSerializerOptions) =
         {
-            Encode =
-                fun value ->
-                    FIO.attempt
-                        (fun () ->
-                            let json = JsonSerializer.Serialize(value, options)
-                            Encoding.UTF8.GetBytes json)
-                        (fun exn -> CodecError("JSON encoding failed", exn))
-            Decode =
-                fun bytes ->
-                    FIO.attempt
-                        (fun () ->
-                            let json = Encoding.UTF8.GetString bytes
-                            JsonSerializer.Deserialize<'T>(json, options))
-                        (fun exn -> CodecError("JSON decoding failed", exn))
+            Encode = fun value ->
+                FIO.attempt
+                    (fun () ->
+                        let json = JsonSerializer.Serialize(value, options)
+                        Encoding.UTF8.GetBytes json)
+                    (fun ex -> CodecError("JSON encoding failed", ex))
+            Decode = fun bytes ->
+                FIO.attempt
+                    (fun () ->
+                        let json = Encoding.UTF8.GetString bytes
+                        JsonSerializer.Deserialize<'A>(json, options))
+                    (fun ex -> CodecError("JSON decoding failed", ex))
         }
 
-    /// <summary>Returns the JSON codec using default serializer options.</summary>
-    /// <returns>A codec that serializes values to JSON bytes and deserializes JSON bytes to values.</returns>
-    let json<'T> = jsonWithOptions<'T> (JsonSerializerOptions())
+    let json<'A> = jsonWithOptions<'A> (JsonSerializerOptions())
 
-    /// <summary>Creates a line-delimited JSON codec that appends a newline after each JSON value.</summary>
-    /// <param name="options">Optional JSON serializer options; defaults are used when None.</param>
-    /// <returns>A codec that serializes values to newline-terminated JSON bytes and deserializes them back.</returns>
-    let jsonLine<'T> options =
+    let jsonLine<'A> options =
         let opts = defaultArg options (JsonSerializerOptions())
-
         {
-            Encode =
-                fun value ->
-                    FIO.attempt
-                        (fun () ->
-                            let json = JsonSerializer.Serialize(value, opts)
-                            Encoding.UTF8.GetBytes(json + "\n"))
-                        (fun exn -> CodecError("JSON line encoding failed", exn))
-            Decode =
-                fun bytes ->
-                    FIO.attempt
-                        (fun () ->
-                            let json = Encoding.UTF8.GetString(bytes).TrimEnd('\n', '\r')
-                            JsonSerializer.Deserialize<'T>(json, opts))
-                        (fun exn -> CodecError("JSON line decoding failed", exn))
+            Encode = fun value ->
+                FIO.attempt
+                    (fun () ->
+                        let json = JsonSerializer.Serialize(value, opts)
+                        Encoding.UTF8.GetBytes(json + "\n"))
+                    (fun ex -> CodecError("JSON line encoding failed", ex))
+            Decode = fun bytes ->
+                FIO.attempt
+                    (fun () ->
+                        let json = Encoding.UTF8.GetString(bytes).TrimEnd('\n', '\r')
+                        JsonSerializer.Deserialize<'A>(json, opts))
+                    (fun ex -> CodecError("JSON line decoding failed", ex))
         }
 
-    /// <summary>Transforms a codec to a different type using bidirectional conversion functions.</summary>
-    /// <param name="f">A function that converts a decoded value from the source type to the target type.</param>
-    /// <param name="g">A function that converts a value from the target type back to the source type for encoding.</param>
-    /// <param name="codec">The source codec to transform.</param>
-    /// <returns>A codec that encodes via <paramref name="g"/> then the source codec, and decodes via the source codec then <paramref name="f"/>.</returns>
-    let map (f: 'T -> 'T1) (g: 'T1 -> 'T) (codec: SocketCodec<'T>) =
+    let map (forward: 'A -> 'A1) (backward: 'A1 -> 'A) (codec: SocketCodec<'A>) =
         {
-            Encode = fun b -> codec.Encode(g b)
-            Decode =
-                fun bytes ->
-                    fio {
-                        let! a = codec.Decode bytes
-                        return f a
-                    }
+            Encode = fun value -> codec.Encode(backward value)
+            Decode = fun bytes ->
+                fio {
+                    let! decoded = codec.Decode bytes
+                    return forward decoded
+                }
         }
 
-    /// <summary>Combines two codecs into one that encodes and decodes pairs using length-prefixed framing.</summary>
-    /// <param name="codec1">The codec for the first element of the pair.</param>
-    /// <param name="codec2">The codec for the second element of the pair.</param>
-    /// <returns>A codec that encodes pairs as length-prefixed concatenated payloads and decodes them back into tuples.</returns>
-    let compose (codec1: SocketCodec<'T>) (codec2: SocketCodec<'T1>) =
+    let compose (codec: SocketCodec<'A>) (codec': SocketCodec<'A1>) =
         {
-            Encode =
-                fun (a, b) ->
-                    fio {
-                        let! bytes1 = codec1.Encode a
-                        let! bytes2 = codec2.Encode b
-
-                        return
-                            Array.concat
-                                [ writeLengthPrefix bytes1.Length
-                                  bytes1
-                                  writeLengthPrefix bytes2.Length
-                                  bytes2 ]
-                    }
-            Decode =
-                fun bytes ->
-                    fio {
-                        if isNull bytes || bytes.Length < 8 then
+            Encode = fun (first, second) ->
+                fio {
+                    let! bytes1 = codec.Encode first
+                    let! bytes2 = codec'.Encode second
+                    return Array.concat
+                        [ writeLengthPrefix bytes1.Length
+                          bytes1
+                          writeLengthPrefix bytes2.Length
+                          bytes2 ]
+                }
+            Decode = fun bytes ->
+                fio {
+                    if isNull bytes || bytes.Length < 8 then
+                        return! FIO.fail (CodecError(
+                            "Insufficient bytes for pair decoding (need at least 8 bytes for length prefixes)",
+                            ArgumentException "bytes"))
+                    else
+                        let len1 = readLengthPrefix bytes 0
+                        if len1 < 0 then
+                            return! FIO.fail (CodecError(
+                                $"Negative first payload length: {len1}",
+                                ArgumentOutOfRangeException "len1"))
+                        elif int64 bytes.Length < 4L + int64 len1 + 4L then
                             return!
-                                FIO.fail (
-                                    CodecError(
-                                        "Insufficient bytes for pair decoding (need at least 8 bytes for length prefixes)",
-                                        ArgumentException "bytes"
-                                    )
-                                )
+                                FIO.fail (CodecError(
+                                    $"Incomplete first payload: expected {len1} bytes plus second length prefix",
+                                    ArgumentException "bytes"))
                         else
-                            let len1 = readLengthPrefix bytes 0
-
-                            if len1 < 0 then
+                            let bytes1 = bytes[4 .. 4 + len1 - 1]
+                            let len2 = readLengthPrefix bytes (4 + len1)
+                            if len2 < 0 then
+                                return! FIO.fail (CodecError(
+                                    $"Negative second payload length: {len2}",
+                                    ArgumentOutOfRangeException "len2"))
+                            elif int64 bytes.Length < 4L + int64 len1 + 4L + int64 len2 then
                                 return!
-                                    FIO.fail (
-                                        CodecError($"Negative first payload length: {len1}", ArgumentOutOfRangeException "len1")
-                                    )
-                            elif int64 bytes.Length < 4L + int64 len1 + 4L then
-                                return!
-                                    FIO.fail (
-                                        CodecError(
-                                            $"Incomplete first payload: expected {len1} bytes plus second length prefix",
-                                            ArgumentException "bytes"
-                                        )
-                                    )
+                                    FIO.fail (CodecError(
+                                        $"Incomplete second payload: expected {len2} bytes",
+                                        ArgumentException "bytes"))
                             else
-                                let bytes1 = bytes.[4 .. 4 + len1 - 1]
-                                let len2 = readLengthPrefix bytes (4 + len1)
-
-                                if len2 < 0 then
-                                    return!
-                                        FIO.fail (
-                                            CodecError($"Negative second payload length: {len2}", ArgumentOutOfRangeException "len2")
-                                        )
-                                elif int64 bytes.Length < 4L + int64 len1 + 4L + int64 len2 then
-                                    return!
-                                        FIO.fail (
-                                            CodecError($"Incomplete second payload: expected {len2} bytes", ArgumentException "bytes")
-                                        )
-                                else
-                                    let bytes2 = bytes.[4 + len1 + 4 .. 4 + len1 + 4 + len2 - 1]
-
-                                    let! a = codec1.Decode bytes1
-                                    let! b = codec2.Decode bytes2
-                                    return a, b
-                    }
+                                let bytes2 = bytes[4 + len1 + 4 .. 4 + len1 + 4 + len2 - 1]
+                                let! first = codec.Decode bytes1
+                                let! second = codec'.Decode bytes2
+                                return first, second
+                }
         }
 
-    /// <summary>Transforms a codec by adding a four-byte length prefix to each encoded payload.</summary>
-    /// <param name="innerCodec">The codec to wrap with length-prefixed framing.</param>
-    /// <returns>A codec that prepends a four-byte length header on encode and strips it on decode.</returns>
-    let lengthPrefixed<'T> (innerCodec: SocketCodec<'T>) =
+    let lengthPrefixed<'A> (innerCodec: SocketCodec<'A>) =
         {
-            Encode =
-                fun value ->
-                    fio {
-                        let! payload = innerCodec.Encode value
-                        return Array.append (writeLengthPrefix payload.Length) payload
-                    }
-            Decode =
-                fun bytes ->
-                    fio {
-                        if isNull bytes || bytes.Length < 4 then
-                            return! FIO.fail (CodecError("Insufficient bytes for length prefix", ArgumentException "bytes"))
+            Encode = fun value ->
+                fio {
+                    let! payload = innerCodec.Encode value
+                    return Array.append (writeLengthPrefix payload.Length) payload
+                }
+            Decode = fun bytes ->
+                fio {
+                    if isNull bytes || bytes.Length < 4 then
+                        return! FIO.fail (CodecError(
+                            "Insufficient bytes for length prefix",
+                            ArgumentException "bytes"))
+                    else
+                        let length = readLengthPrefix bytes 0
+                        if length < 0 then
+                            return! FIO.fail (CodecError(
+                                $"Negative payload length: {length}",
+                                ArgumentOutOfRangeException "length"))
+                        elif int64 length > int64 bytes.Length - 4L then
+                            return! FIO.fail (CodecError(
+                                $"Incomplete payload: expected {length}, got {bytes.Length - 4}",
+                                ArgumentException "bytes"))
                         else
-                            let length = readLengthPrefix bytes 0
-
-                            if length < 0 then
-                                return!
-                                    FIO.fail (
-                                        CodecError($"Negative payload length: {length}", ArgumentOutOfRangeException "length")
-                                    )
-                            elif int64 length > int64 bytes.Length - 4L then
-                                return!
-                                    FIO.fail (
-                                        CodecError(
-                                            $"Incomplete payload: expected {length}, got {bytes.Length - 4}",
-                                            ArgumentException "bytes"
-                                        )
-                                    )
-                            else
-                                return! innerCodec.Decode bytes.[4 .. 4 + length - 1]
-                    }
+                            return! innerCodec.Decode bytes[4 .. 4 + length - 1]
+                }
         }
 
-    /// <summary>Creates a codec from effectful encode and decode functions.</summary>
-    /// <param name="encode">A function that encodes a value into a byte array effect.</param>
-    /// <param name="decode">A function that decodes a byte array into a value effect.</param>
-    /// <returns>A codec wrapping the given encode and decode functions.</returns>
-    let create (encode: 'T -> FIO<byte[], SocketError>) (decode: byte[] -> FIO<'T, SocketError>) =
+    let create (encode: 'A -> FIO<byte[], SocketError>) (decode: byte[] -> FIO<'A, SocketError>) =
         { Encode = encode; Decode = decode }
 
-    /// <summary>Creates a codec from pure encode and decode functions, wrapping exceptions as CodecError.</summary>
-    /// <param name="encode">A pure function that encodes a value into a byte array.</param>
-    /// <param name="decode">A pure function that decodes a byte array into a value.</param>
-    /// <returns>A codec that lifts the pure functions into effects with automatic error handling.</returns>
-    let createPure (encode: 'T -> byte[]) (decode: byte[] -> 'T) =
+    let createPure (encode: 'A -> byte[]) (decode: byte[] -> 'A) =
         {
             Encode = fun value ->
                 FIO.attempt
                     (fun () -> encode value)
-                    (fun exn -> CodecError("Encoding failed", exn))
+                    (fun ex -> CodecError("Encoding failed", ex))
             Decode = fun bytes ->
                 FIO.attempt
                     (fun () -> decode bytes)
-                    (fun exn -> CodecError("Decoding failed", exn))
+                    (fun ex -> CodecError("Decoding failed", ex))
         }

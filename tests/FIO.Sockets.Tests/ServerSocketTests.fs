@@ -21,7 +21,7 @@ let serverSocketTests =
             testAllRuntimes "bind succeeds on port 0" (fun runtime ->
                 let effect =
                     fio {
-                        let! config = ServerSocketConfig.create ("127.0.0.1", 0)
+                        let! config = ServerSocketConfig.create "127.0.0.1" 0
                         let! server = ServerSocket.bind config
                         let! ep = ServerSocket.getLocalEndPoint server
                         let port = (ep :?> IPEndPoint).Port
@@ -36,7 +36,7 @@ let serverSocketTests =
             testAllRuntimes "bind resolves hostname localhost" (fun runtime ->
                 let effect =
                     fio {
-                        let! config = ServerSocketConfig.create ("localhost", 0)
+                        let! config = ServerSocketConfig.create "localhost" 0
                         let! server = ServerSocket.bind config
                         let! ep = ServerSocket.getLocalEndPoint server
                         let port = (ep :?> IPEndPoint).Port
@@ -57,7 +57,7 @@ let serverSocketTests =
                         })
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
                             let! received, bytesRead = socket.ReceiveBytes 8192
                             let result = Encoding.UTF8.GetString(received, 0, bytesRead)
@@ -73,18 +73,17 @@ let serverSocketTests =
             testAllRuntimes "withServerSocket provides acquire/release" (fun runtime ->
                 let effect =
                     fio {
-                        let! config = ServerSocketConfig.create ("127.0.0.1", 0)
+                        let! config = ServerSocketConfig.create "127.0.0.1" 0
 
                         let! result =
-                            ServerSocket.withServerSocket (
-                                config,
-                                fun server ->
+                            ServerSocket.withServerSocket
+                                config
+                                (fun server ->
                                     fio {
                                         let! ep = ServerSocket.getLocalEndPoint server
                                         let port = (ep :?> IPEndPoint).Port
                                         return port > 0
-                                    }
-                            )
+                                    })
 
                         Expect.isTrue result "Should have gotten a valid port"
                     }
@@ -112,7 +111,7 @@ let serverSocketTests =
             testAllRuntimes "getConfig returns bound configuration" (fun runtime ->
                 let effect =
                     fio {
-                        let! config = ServerSocketConfig.create ("127.0.0.1", 0)
+                        let! config = ServerSocketConfig.create "127.0.0.1" 0
                         let! server = ServerSocket.bind config
                         let retrieved = ServerSocket.getConfig server
 
@@ -127,7 +126,7 @@ let serverSocketTests =
             testAllRuntimes "getLocalEndPoint returns bound endpoint" (fun runtime ->
                 let effect =
                     fio {
-                        let! config = ServerSocketConfig.create ("127.0.0.1", 0)
+                        let! config = ServerSocketConfig.create "127.0.0.1" 0
                         let! server = ServerSocket.bind config
                         let! ep = ServerSocket.getLocalEndPoint server
                         let ipEp = ep :?> IPEndPoint

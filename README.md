@@ -20,6 +20,7 @@ dotnet add package FIO
 
 ```fsharp
 open FIO.DSL
+open FIO.App
 open FIO.Console
 
 type App() =

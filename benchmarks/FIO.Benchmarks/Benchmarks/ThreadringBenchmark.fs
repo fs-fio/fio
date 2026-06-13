@@ -42,4 +42,4 @@ type ThreadringBenchmark() =
 
     [<Benchmark>]
     member this.Run() =
-        runtime.Run(Threadring.effect (this.ActorCount, this.RoundCount)).Task()
+        RuntimeParam.run runtime (Threadring.effect this.ActorCount this.RoundCount)

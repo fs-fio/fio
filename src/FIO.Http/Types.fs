@@ -10,7 +10,6 @@ module internal HeaderHelpers =
         if String.IsNullOrWhiteSpace name then
             false
         else
-            // RFC 7230 token characters
             name
             |> Seq.forall (fun c ->
                 c >= 'a' && c <= 'z'
@@ -63,6 +62,7 @@ type HttpError =
         | TimeoutError message -> $"Timeout: {message}"
         | GeneralError exn -> $"HTTP error: {exn.Message}"
 
+[<RequireQualifiedAccess>]
 module HttpError =
 
     let fromException (exn: exn) =
@@ -99,6 +99,7 @@ type HttpMethod =
         | CONNECT -> "CONNECT"
         | Custom string -> string
 
+[<RequireQualifiedAccess>]
 module HttpMethod =
 
     let fromString (str: string) =
@@ -178,6 +179,7 @@ type HttpStatusCode =
     | NotExtended = 510
     | NetworkAuthenticationRequired = 511
 
+[<RequireQualifiedAccess>]
 type RequestBody =
     | Empty
     | Bytes of byte[]
@@ -195,6 +197,7 @@ type RequestBody =
         | Text text -> text
         | Bytes bytes -> Encoding.UTF8.GetString bytes
 
+[<RequireQualifiedAccess>]
 type ResponseBody =
     | Empty
     | Stream of stream: Stream * length: int64 option
@@ -221,6 +224,7 @@ type HttpRequest =
         Metadata: Map<string, obj>
     }
 
+[<RequireQualifiedAccess>]
 module HttpRequest =
 
     let create method (path: string) =
@@ -248,9 +252,7 @@ module HttpRequest =
         if not (HeaderHelpers.isValidHeaderName name) then
             invalidArg
                 "name"
-                (sprintf
-                    "Invalid HTTP header name: '%s'. Header names must consist of visible ASCII characters (RFC 7230)."
-                    name)
+                $"Invalid HTTP header name: '{name}'. Header names must consist of visible ASCII characters (RFC 7230)."
         let values =
             request.Headers
             |> Map.tryFind name
@@ -308,12 +310,12 @@ module HttpRequest =
             let encoding = encodingFromContentType (header "Content-Type" request)
             encoding.GetString bytes
 
-    let metadata<'T> key request =
+    let metadata<'A> key request =
         request.Metadata
         |> Map.tryFind key
         |> Option.bind (fun o ->
             match o with
-            | :? 'T as t -> Some t
+            | :? 'A as value -> Some value
             | _ -> None)
 
 type HttpResponse =
@@ -323,18 +325,17 @@ type HttpResponse =
         Body: ResponseBody
     }
 
+[<RequireQualifiedAccess>]
 module HttpResponse =
 
     let create status =
-        { Status = status; Headers = Map.empty; Body = Empty }
+        { Status = status; Headers = Map.empty; Body = ResponseBody.Empty }
 
     let withHeader name value response =
         if not (HeaderHelpers.isValidHeaderName name) then
             invalidArg
                 "name"
-                (sprintf
-                    "Invalid HTTP header name: '%s'. Header names must consist of visible ASCII characters (RFC 7230)."
-                    name)
+                $"Invalid HTTP header name: '{name}'. Header names must consist of visible ASCII characters (RFC 7230)."
         let values =
             response.Headers
             |> Map.tryFind name

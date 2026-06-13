@@ -1,4 +1,3 @@
-/// Bang benchmark — measures many-to-one message passing scalability.
 [<RequireQualifiedAccess>]
 module internal FIO.Benchmarks.Effects.Bang
 
@@ -34,7 +33,7 @@ let private bangEff (receivingActor, sendingActors: Actor list, actorCount, roun
 let private createSendingActors (receiveActorChan, actorCount) =
     [ for _ in 1..actorCount -> { Chan = receiveActorChan } ]
 
-let effect (actorCount: int, roundCount: int) : FIO<unit, exn> =
+let effect (actorCount: int) (roundCount: int) : FIO<unit, exn> =
     fio {
         let startChan = Channel<int>()
         let receivingActor = { Chan = Channel<int>() }

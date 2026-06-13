@@ -1,4 +1,3 @@
-/// Pingpong benchmark — measures message delivery overhead between two actors.
 [<RequireQualifiedAccess>]
 module internal FIO.Benchmarks.Effects.Pingpong
 
@@ -6,9 +5,9 @@ open FIO.DSL
 
 type private Actor = { SendChan: Channel<int>; ReceiveChan: Channel<int> }
 
-let private pingerEff (pinger, ping, roundCount, startChan: Channel<int>) =
+let private pingerEff (pinger, roundCount, startChan: Channel<int>) =
     fio {
-        let mutable currentPing = ping
+        let mutable currentPing = 1
         do! startChan.Read().Unit()
 
         for _ in 1..roundCount do
@@ -35,6 +34,6 @@ let effect (roundCount: int) : FIO<unit, exn> =
         let ponger = { SendChan = pongSendChan; ReceiveChan = pingSendChan }
 
         do!
-            pingerEff (pinger, 1, roundCount, startChan)
+            pingerEff (pinger, roundCount, startChan)
             <&&> pongerEff (ponger, roundCount, startChan)
     }

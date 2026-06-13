@@ -41,4 +41,4 @@ type BangBenchmark() =
 
     [<Benchmark>]
     member this.Run() =
-        runtime.Run(Bang.effect (this.ActorCount, this.RoundCount)).Task()
+        RuntimeParam.run runtime (Bang.effect this.ActorCount this.RoundCount)

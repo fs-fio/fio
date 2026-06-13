@@ -23,7 +23,7 @@ let socketTests =
                     echoHandler
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
                             let data = Encoding.UTF8.GetBytes "hello echo"
                             do! socket.SendBytes data
@@ -41,7 +41,7 @@ let socketTests =
                     noopHandler
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
 
                             let! result =
@@ -64,7 +64,7 @@ let socketTests =
                         })
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
 
                             let! received, bytesRead = socket.ReceiveBytes 8192
@@ -82,7 +82,7 @@ let socketTests =
                     echoHandler
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
                             do! socket.SendString "hello string"
                             let! received = socket.ReceiveString 8192
@@ -98,7 +98,7 @@ let socketTests =
                     echoHandler
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
                             do! socket.SendLine "hello line"
                             let! received = socket.ReceiveLine 8192
@@ -116,7 +116,7 @@ let socketTests =
                     noopHandler
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
 
                             Expect.isTrue (socket.IsConnected()) "Should be connected"
@@ -130,7 +130,7 @@ let socketTests =
                     noopHandler
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
                             do! socket.Close()
 
@@ -145,7 +145,7 @@ let socketTests =
                     echoHandler
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
                             let data = Encoding.UTF8.GetBytes "exactdata!"
                             do! socket.SendBytes data
@@ -165,7 +165,7 @@ let socketTests =
                     noopHandler
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
 
                             let! result =
@@ -189,7 +189,7 @@ let socketTests =
                     echoHandler
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
                             do! socket.Send(Codec.string, "codec roundtrip")
                             let! received = socket.Receive(Codec.string, 8192)
@@ -205,7 +205,7 @@ let socketTests =
                     echoHandler
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
                             let msg = { Id = 42; Text = "json test" }
                             do! socket.SendJson msg
@@ -223,7 +223,7 @@ let socketTests =
                     echoHandler
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
                             let msg = { Id = 7; Text = "json line" }
                             do! socket.SendJsonLine msg
@@ -243,7 +243,7 @@ let socketTests =
                     noopHandler
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
                             let! ep = socket.GetRemoteEndPoint()
                             let ipEp = ep :?> IPEndPoint
@@ -259,7 +259,7 @@ let socketTests =
                     noopHandler
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
                             let! ep = socket.GetLocalEndPoint()
                             let ipEp = ep :?> IPEndPoint
@@ -275,7 +275,7 @@ let socketTests =
                     noopHandler
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
                             let cfg = socket.GetConfig()
 
@@ -291,7 +291,7 @@ let socketTests =
                     noopHandler
                     (fun port ->
                         fio {
-                            let! config = SocketConfig.create ("127.0.0.1", port)
+                            let! config = SocketConfig.create "127.0.0.1" port
                             let! socket = SocketClient.connect config
                             do! socket.Close()
 
@@ -374,8 +374,8 @@ let socketTests =
                         fio { do! FIO.sleep (System.TimeSpan.FromMilliseconds 3000.0) SocketError.fromException })
                     (fun port ->
                         fio {
-                            let! baseConfig = SocketConfig.create ("127.0.0.1", port)
-                            let config = SocketConfig.withReceiveTimeout (300, baseConfig)
+                            let! baseConfig = SocketConfig.create "127.0.0.1" port
+                            let config = SocketConfig.withReceiveTimeout 300 baseConfig
                             let! socket = SocketClient.connect config
 
                             let! result =

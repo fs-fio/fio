@@ -17,6 +17,7 @@ type Routes<'E> =
             ParameterizedRoutes: Route<'E> list
         }
 
+[<RequireQualifiedAccess>]
 module Routes =
 
     let private isExactMatch (pattern: RoutePattern) =
@@ -47,6 +48,7 @@ module Routes =
                     else Map.add key handler acc)
                 Map.empty
         index, parameterized
+
     let empty<'E> : Routes<'E> =
         {
             RouteList = []
@@ -68,18 +70,17 @@ module Routes =
     let route (pattern: RoutePattern) (handler: HttpHandler<'E>) =
         single pattern (fun _ -> handler)
 
-    /// <summary>Combines two route tables. When both define the same exact method and path, the route from <paramref name="routes1"/> takes precedence.</summary>
-    let combine (routes1: Routes<'E>) (routes2: Routes<'E>) =
+    let combine (routes: Routes<'E>) (routes': Routes<'E>) =
         let mergedIndex =
-            routes2.ExactMatchIndex
+            routes'.ExactMatchIndex
             |> Map.fold
                 (fun acc key handler -> if Map.containsKey key acc then acc else Map.add key handler acc)
-                routes1.ExactMatchIndex
+                routes.ExactMatchIndex
         {
-            RouteList = routes1.RouteList @ routes2.RouteList
-            NotFoundHandler = routes1.NotFoundHandler
+            RouteList = routes.RouteList @ routes'.RouteList
+            NotFoundHandler = routes.NotFoundHandler
             ExactMatchIndex = mergedIndex
-            ParameterizedRoutes = routes1.ParameterizedRoutes @ routes2.ParameterizedRoutes
+            ParameterizedRoutes = routes.ParameterizedRoutes @ routes'.ParameterizedRoutes
         }
 
     let withNotFound (handler: HttpHandler<'E>) (routes: Routes<'E>) =
@@ -134,7 +135,6 @@ module Routes =
                     | methods ->
                         FIO.succeed (Response.methodNotAllowed (methods |> List.map (fun m -> m.ToString())))
 
-    /// <summary>Appends a route. If an exact route with the same method and path already exists, the existing route takes precedence and the new one is ignored for matching.</summary>
     let add (pattern: RoutePattern) (handler: obj list -> HttpHandler<'E>) (routes: Routes<'E>) =
         let newRoute = { Pattern = pattern; Handler = handler }
         let updatedRoutes = routes.RouteList @ [ newRoute ]
@@ -160,7 +160,7 @@ module Routes =
     let addRoute (pattern: RoutePattern) (handler: HttpHandler<'E>) (routes: Routes<'E>) =
         add pattern (fun _ -> handler) routes
 
-    let ofList (routes: (RoutePattern * HttpHandler<'E>) list) =
+    let fromList (routes: (RoutePattern * HttpHandler<'E>) list) =
         let routeList =
             routes |> List.map (fun (pattern, handler) ->
                 { Pattern = pattern; Handler = fun _ -> handler })
@@ -210,8 +210,8 @@ module RouteBuilder =
 
 module RoutesOperators =
 
-    let (++) (routes1: Routes<'E>) (routes2: Routes<'E>) =
-        Routes.combine routes1 routes2
+    let (++) (routes: Routes<'E>) (routes': Routes<'E>) =
+        Routes.combine routes routes'
 
     let (=>) (pattern: RoutePattern) (handler: HttpHandler<'E>) =
         Routes.route pattern handler
@@ -281,7 +281,6 @@ module TypedRoutes =
             | _ ->
                 HttpHandler.badRequestText "Invalid parameters"
 
-[<AutoOpen>]
 module SimpleRoutes =
 
     let get (path: string) (handler: HttpHandler<'E>) =

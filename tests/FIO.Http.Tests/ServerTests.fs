@@ -4,9 +4,10 @@ module FIO.Http.Tests.ServerTests
 open FIO.Http.Tests.Utilities
 
 open FIO.DSL
+open FIO.Http
 open FIO.Runtime
 open FIO.Runtime.Default
-open FIO.Http
+open FIO.Http.SimpleRoutes
 
 open System.Text
 

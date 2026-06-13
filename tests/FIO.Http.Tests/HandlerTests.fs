@@ -44,7 +44,7 @@ let handlerTests =
                 let resp = runtime.Run(handler (makeGetRequest "/test")).UnsafeSuccess()
 
                 match resp.Body with
-                | Text t -> Expect.equal t "/test" "Body from path"
+                | ResponseBody.Text t -> Expect.equal t "/test" "Body from path"
                 | _ -> failtest "Expected Text body")
 
             // ─── Response builders ─────────────────────────────────────────
@@ -62,7 +62,7 @@ let handlerTests =
                 Expect.equal resp.Status HttpStatusCode.OK "200"
 
                 match resp.Body with
-                | Json _ -> ()
+                | ResponseBody.Json _ -> ()
                 | _ -> failtest "Expected Json body")
 
             testAllRuntimes "text returns 200 with text" (fun runtime ->
@@ -71,7 +71,7 @@ let handlerTests =
                 let resp = runtime.Run(handler (makeGetRequest "/")).UnsafeSuccess()
 
                 match resp.Body with
-                | Text t -> Expect.equal t "hello" "Body"
+                | ResponseBody.Text t -> Expect.equal t "hello" "Body"
                 | _ -> failtest "Expected Text body")
 
             testAllRuntimes "noContent returns 204" (fun runtime ->
@@ -137,7 +137,7 @@ let handlerTests =
                 let resp = runtime.Run(handler (makeGetRequest "/")).UnsafeSuccess()
 
                 match resp.Body with
-                | Text t -> Expect.equal t "step2" "Chained result"
+                | ResponseBody.Text t -> Expect.equal t "step2" "Chained result"
                 | _ -> failtest "Expected Text body")
 
             testAllRuntimes "orElse falls back on failure" (fun runtime ->
@@ -148,7 +148,7 @@ let handlerTests =
                 let resp = runtime.Run(handler (makeGetRequest "/")).UnsafeSuccess()
 
                 match resp.Body with
-                | Text t -> Expect.equal t "recovered" "Fallback"
+                | ResponseBody.Text t -> Expect.equal t "recovered" "Fallback"
                 | _ -> failtest "Expected Text body")
 
             testAllRuntimes "mapError transforms error type" (fun runtime ->
@@ -184,7 +184,7 @@ let handlerTests =
                 let resp = runtime.Run(handler (makeGetRequest "/")).UnsafeSuccess()
 
                 match resp.Body with
-                | Text t -> Expect.equal t "matched" "Matched"
+                | ResponseBody.Text t -> Expect.equal t "matched" "Matched"
                 | _ -> failtest "Expected Text body")
 
             testAllRuntimes "when' returns fallback when predicate is false" (fun runtime ->
@@ -208,7 +208,7 @@ let handlerTests =
                 let resp = runtime.Run(handler (makeGetRequest "/")).UnsafeSuccess()
 
                 match resp.Body with
-                | Text t -> Expect.equal t "get" "GET branch"
+                | ResponseBody.Text t -> Expect.equal t "get" "GET branch"
                 | _ -> failtest "Expected Text body")
 
             // ─── JSON parsing ─────────────────────────────────────────
@@ -245,7 +245,7 @@ let handlerTests =
                 let resp = runtime.Run(handler (makeGetRequest "/original")).UnsafeSuccess()
 
                 match resp.Body with
-                | Text t -> Expect.equal t "/modified" "Modified path"
+                | ResponseBody.Text t -> Expect.equal t "/modified" "Modified path"
                 | _ -> failtest "Expected Text body")
 
             testAllRuntimes "asks extracts value from request" (fun runtime ->
@@ -276,7 +276,7 @@ let handlerTests =
                         let resp = runtime.Run(handler (makeGetRequest "/")).UnsafeSuccess()
 
                         match resp.Body with
-                        | Text t -> Expect.equal t "ok" "Fallback via operator"
+                        | ResponseBody.Text t -> Expect.equal t "ok" "Fallback via operator"
                         | _ -> failtest "Expected Text body")
                 ]
         ]

@@ -5,32 +5,32 @@ module Response =
 
     let ok = HttpResponse.create HttpStatusCode.OK
 
-    let okJson (value: 'T) =
+    let okJson (value: 'A) =
         HttpResponse.create HttpStatusCode.OK
         |> HttpResponse.withHeader "Content-Type" "application/json; charset=utf-8"
-        |> HttpResponse.withBody (Json value)
+        |> HttpResponse.withBody (ResponseBody.Json value)
 
     let okText (text: string) =
         HttpResponse.create HttpStatusCode.OK
         |> HttpResponse.withHeader "Content-Type" "text/plain; charset=utf-8"
-        |> HttpResponse.withBody (Text text)
+        |> HttpResponse.withBody (ResponseBody.Text text)
 
     let okHtml (html: string) =
         HttpResponse.create HttpStatusCode.OK
         |> HttpResponse.withHeader "Content-Type" "text/html; charset=utf-8"
-        |> HttpResponse.withBody (Text html)
+        |> HttpResponse.withBody (ResponseBody.Text html)
 
     let okBytes (bytes: byte[]) contentType =
         HttpResponse.create HttpStatusCode.OK
         |> HttpResponse.withHeader "Content-Type" contentType
-        |> HttpResponse.withBody (Bytes bytes)
+        |> HttpResponse.withBody (ResponseBody.Bytes bytes)
 
     let okStream stream length contentType =
         if isNull stream then
             invalidArg "stream" "Stream cannot be null"
         HttpResponse.create HttpStatusCode.OK
         |> HttpResponse.withHeader "Content-Type" contentType
-        |> HttpResponse.withBody (Stream(stream, length))
+        |> HttpResponse.withBody (ResponseBody.Stream(stream, length))
 
     let created = HttpResponse.create HttpStatusCode.Created
 
@@ -38,10 +38,10 @@ module Response =
         HttpResponse.create HttpStatusCode.Created
         |> HttpResponse.withHeader "Location" location
 
-    let createdJson (value: 'T) =
+    let createdJson (value: 'A) =
         HttpResponse.create HttpStatusCode.Created
         |> HttpResponse.withHeader "Content-Type" "application/json; charset=utf-8"
-        |> HttpResponse.withBody (Json value)
+        |> HttpResponse.withBody (ResponseBody.Json value)
 
     let accepted = HttpResponse.create HttpStatusCode.Accepted
 
@@ -74,12 +74,12 @@ module Response =
     let badRequestText (message: string) =
         HttpResponse.create HttpStatusCode.BadRequest
         |> HttpResponse.withHeader "Content-Type" "text/plain; charset=utf-8"
-        |> HttpResponse.withBody (Text message)
+        |> HttpResponse.withBody (ResponseBody.Text message)
 
-    let badRequestJson (error: 'T) =
+    let badRequestJson (error: 'A) =
         HttpResponse.create HttpStatusCode.BadRequest
         |> HttpResponse.withHeader "Content-Type" "application/json; charset=utf-8"
-        |> HttpResponse.withBody (Json error)
+        |> HttpResponse.withBody (ResponseBody.Json error)
 
     let unauthorized = HttpResponse.create HttpStatusCode.Unauthorized
 
@@ -92,14 +92,14 @@ module Response =
     let forbiddenText (message: string) =
         HttpResponse.create HttpStatusCode.Forbidden
         |> HttpResponse.withHeader "Content-Type" "text/plain; charset=utf-8"
-        |> HttpResponse.withBody (Text message)
+        |> HttpResponse.withBody (ResponseBody.Text message)
 
     let notFound = HttpResponse.create HttpStatusCode.NotFound
 
     let notFoundText (message: string) =
         HttpResponse.create HttpStatusCode.NotFound
         |> HttpResponse.withHeader "Content-Type" "text/plain; charset=utf-8"
-        |> HttpResponse.withBody (Text message)
+        |> HttpResponse.withBody (ResponseBody.Text message)
 
     let methodNotAllowed allowedMethods =
         HttpResponse.create HttpStatusCode.MethodNotAllowed
@@ -112,16 +112,16 @@ module Response =
     let conflictText (message: string) =
         HttpResponse.create HttpStatusCode.Conflict
         |> HttpResponse.withHeader "Content-Type" "text/plain; charset=utf-8"
-        |> HttpResponse.withBody (Text message)
+        |> HttpResponse.withBody (ResponseBody.Text message)
 
     let unsupportedMediaType = HttpResponse.create HttpStatusCode.UnsupportedMediaType
 
     let unprocessableEntity = HttpResponse.create HttpStatusCode.UnprocessableEntity
 
-    let unprocessableEntityJson (errors: 'T) =
+    let unprocessableEntityJson (errors: 'A) =
         HttpResponse.create HttpStatusCode.UnprocessableEntity
         |> HttpResponse.withHeader "Content-Type" "application/json; charset=utf-8"
-        |> HttpResponse.withBody (Json errors)
+        |> HttpResponse.withBody (ResponseBody.Json errors)
 
     let tooManyRequests = HttpResponse.create HttpStatusCode.TooManyRequests
 
@@ -134,7 +134,7 @@ module Response =
     let internalServerErrorText (message: string) =
         HttpResponse.create HttpStatusCode.InternalServerError
         |> HttpResponse.withHeader "Content-Type" "text/plain; charset=utf-8"
-        |> HttpResponse.withBody (Text message)
+        |> HttpResponse.withBody (ResponseBody.Text message)
 
     let notImplemented = HttpResponse.create HttpStatusCode.NotImplemented
 
@@ -153,9 +153,9 @@ module Response =
     let statusText code message =
         HttpResponse.create code
         |> HttpResponse.withHeader "Content-Type" "text/plain; charset=utf-8"
-        |> HttpResponse.withBody (Text message)
+        |> HttpResponse.withBody (ResponseBody.Text message)
 
     let statusJson code value =
         HttpResponse.create code
         |> HttpResponse.withHeader "Content-Type" "application/json; charset=utf-8"
-        |> HttpResponse.withBody (Json value)
+        |> HttpResponse.withBody (ResponseBody.Json value)

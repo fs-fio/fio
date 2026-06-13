@@ -17,20 +17,21 @@ type ServerConfig =
         MaxRequestBodySize: int64
     }
 
+[<RequireQualifiedAccess>]
 module ServerConfig =
 
     let defaultConfig =
         {
             Host = "127.0.0.1"
             Port = 8080
-            MaxRequestBodySize = 30L * 1024L * 1024L // 30MB
+            MaxRequestBodySize = 30L * 1024L * 1024L
         }
 
     let create host port =
         {
             Host = host
             Port = port
-            MaxRequestBodySize = 30L * 1024L * 1024L // 30MB default
+            MaxRequestBodySize = 30L * 1024L * 1024L
         }
 
     let withMaxBodySize maxSize config =
@@ -46,6 +47,7 @@ type FIOServer =
             OwnsRuntime: bool
         }
 
+[<RequireQualifiedAccess>]
 module Server =
 
     let createWithRuntime (config: ServerConfig) (routes: Routes<exn>) (runtime: DefaultRuntime) =
