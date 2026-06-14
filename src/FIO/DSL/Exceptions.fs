@@ -1,5 +1,4 @@
-[<AutoOpen>]
-module FIO.DSL.Exceptions
+namespace FIO.DSL
 
 open System
 

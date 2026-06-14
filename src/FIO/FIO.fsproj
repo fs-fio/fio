@@ -23,7 +23,7 @@
         <Compile Include="DSL\Extensions.fs" />
         <Compile Include="DSL\Operators.fs" />
         <Compile Include="DSL\CE.fs" />
-        <Compile Include="Lib\Console.fs" />
+        <Compile Include="Console.fs" />
         <Compile Include="Runtime\Runtime.fs" />
         <Compile Include="Runtime\WorkerInfrastructure.fs" />
         <Compile Include="Runtime\InterpreterCore.fs" />
@@ -31,7 +31,7 @@
         <Compile Include="Runtime\CooperativeRuntime.fs" />
         <Compile Include="Runtime\ConcurrentRuntime.fs" />
         <Compile Include="Runtime\DefaultRuntime.fs" />
-        <Compile Include="Framework\App.fs" />
+        <Compile Include="App.fs" />
     </ItemGroup>
 
     <PropertyGroup>
@@ -54,10 +54,7 @@
             <Pack>True</Pack>
             <PackagePath>\</PackagePath>
         </None>
-        <None Include="..\..\README.md">
-            <Pack>True</Pack>
-            <PackagePath>\</PackagePath>
-        </None>
+        <None Include="README.md" Pack="true" PackagePath="\" />
     </ItemGroup>
 
 </Project>

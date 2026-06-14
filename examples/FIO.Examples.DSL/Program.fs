@@ -6,82 +6,91 @@ open FIO.Runtime.Default
 
 open System
 
+let runtime = new DefaultRuntime()
+
 let helloWorld1 () =
     let hello = FIO.succeed "Hello world! 🪻"
-    let fiber = (new DefaultRuntime()).Run hello
+    let fiber = runtime.Run hello
 
     task {
         let! result = fiber.Task()
-
         match result with
         | Succeeded result -> printfn $"Success: %s{result}"
         | Failed error -> printfn $"Error: %A{error}"
         | Interrupted ex -> printfn $"Interrupted: %s{ex.Message}"
     }
-    |> fun t -> t.GetAwaiter().GetResult()
+    |> fun task -> task.GetAwaiter().GetResult()
 
 let helloWorld2 () =
     let hello: FIO<string, obj> = FIO.succeed "Hello world! 🪻"
-    let fiber: Fiber<string, obj> = (new DefaultRuntime()).Run hello
+    let fiber: Fiber<string, obj> = runtime.Run hello
 
     task {
         let! result = fiber.Task()
-
         match result with
         | Succeeded result -> printfn $"Success: %s{result}"
         | Failed error -> printfn $"Error: %A{error}"
         | Interrupted ex -> printfn $"Interrupted: %s{ex.Message}"
     }
-    |> fun t -> t.GetAwaiter().GetResult()
+    |> fun task -> task.GetAwaiter().GetResult()
 
 let helloWorld3 () =
     let hello: FIO<obj, string> = FIO.fail "Hello world! 🪻"
-    let fiber: Fiber<obj, string> = (new DefaultRuntime()).Run hello
+    let fiber: Fiber<obj, string> = runtime.Run hello
 
     task {
         let! result = fiber.Task()
-
         match result with
         | Succeeded result -> printfn $"Success: %A{result}"
         | Failed error -> printfn $"Error: %s{error}"
         | Interrupted ex -> printfn $"Interrupted: %s{ex.Message}"
     }
-    |> fun t -> t.GetAwaiter().GetResult()
+    |> fun task -> task.GetAwaiter().GetResult()
 
 let helloWorld4 () =
     let hello = FIO.succeed "Hello world! 🪻"
-    let fiber = (new DefaultRuntime()).Run hello
+    let fiber = runtime.Run hello
     fiber.UnsafePrintResult()
 
 let concurrency1 () =
     let concurrent =
-        FIO.succeed("Hello, concurrency! 🚀").Fork().FlatMap(fun f -> f.Join())
+        FIO.succeed("Hello, concurrency! 🚀")
+            .Fork().FlatMap <| fun fiber -> fiber.Join()
 
-    let fiber = (new DefaultRuntime()).Run concurrent
+    let fiber = runtime.Run concurrent
     fiber.UnsafePrintResult()
 
 let concurrency2 () =
-    let concurrent = FIO.succeed("Hello, concurrency! 🚀").Fork() >>= fun f -> f.Join()
-    let fiber = (new DefaultRuntime()).Run concurrent
+    let concurrent = 
+        FIO.succeed("Hello, concurrency! 🚀").Fork() 
+        >>= fun fiber -> fiber.Join()
+    
+    let fiber = runtime.Run concurrent
     fiber.UnsafePrintResult()
 
 let concurrency3 () =
     let taskA = FIO.succeed "Task A completed! ✅"
     let taskB = FIO.succeed (200, "Task B OK ✅")
     let concurrent = taskA <&> taskB
-    let fiber = (new DefaultRuntime()).Run concurrent
+    let fiber = runtime.Run concurrent
     fiber.UnsafePrintResult()
 
 let computationExpression1 () =
-    let hello: FIO<string, obj> = fio { return "Hello world! 🪻" }
+    let hello: FIO<string, obj> =
+        fio {
+            return "Hello world! 🪻" 
+        }
 
-    let fiber = (new DefaultRuntime()).Run hello
+    let fiber = runtime.Run hello
     fiber.UnsafePrintResult()
 
 let computationExpression2 () =
-    let hello: FIO<obj, string> = fio { return! FIO.fail "Hello world! 🪻" }
+    let hello: FIO<obj, string> =
+        fio {
+            return! FIO.fail "Hello world! 🪻"
+        }
 
-    let fiber = (new DefaultRuntime()).Run hello
+    let fiber = runtime.Run hello
     fiber.UnsafePrintResult()
 
 let computationExpression3 () =
@@ -92,7 +101,7 @@ let computationExpression3 () =
             do! Console.printLine $"Hello, %s{name}! Welcome to FIO! 🪻💜" id
         }
 
-    let fiber = (new DefaultRuntime()).Run welcome
+    let fiber = runtime.Run welcome
     fiber.UnsafePrintResult()
 
 let interruptFiber () =
@@ -112,9 +121,18 @@ let interruptFiber () =
             do! Console.printLine "Interrupted long-running task." id
         }
 
-    let fiber = (new DefaultRuntime()).Run interrupter
+    let fiber = runtime.Run interrupter
     fiber.UnsafePrintResult()
 
+let operatorsTour () =
+    let run label effect =
+        printf $"{label}: "
+        (runtime.Run effect).UnsafePrintResult()
+
+    run "map (<!>)" ((+) 10 <!> FIO.succeed 1)
+    run "zipRight (*>)" (FIO.succeed "ignored" *> FIO.succeed "kept")
+    run "zipPar (<&>)" (FIO.succeed 1 <&> FIO.succeed 2)
+    run "orElse (<|>)" (FIO.fail (exn "boom") <|> FIO.succeed "recovered")
 
 let examples =
     [
@@ -129,16 +147,18 @@ let examples =
         nameof computationExpression2, computationExpression2
         nameof computationExpression3, computationExpression3
         nameof interruptFiber, interruptFiber
+        nameof operatorsTour, operatorsTour
     ]
 
-examples
-|> List.iteri (fun i (name, example) ->
-    printfn $"🔥 Running example: {name}\n"
+examples |> List.iteri (fun index (name, example) ->
+    printfn $"Running example: {name}\n"
     example ()
 
-    if i < examples.Length - 1 then
-        System.Console.WriteLine "\n⏩ Press Enter to run next example..."
-        System.Console.ReadLine() |> ignore)
+    if index < examples.Length - 1 then
+        printfn "\nPress Enter to run next example..."
+        Console.ReadLine() |> ignore)
 
-System.Console.WriteLine "\n✅ All examples completed. Press Enter to exit."
-System.Console.ReadLine() |> ignore
+printfn "\nAll examples completed. Press Enter to exit."
+Console.ReadLine() |> ignore
+
+(runtime :> IDisposable).Dispose()

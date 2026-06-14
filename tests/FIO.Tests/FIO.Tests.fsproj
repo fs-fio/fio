@@ -8,7 +8,6 @@
         <GenerateProgramFile>false</GenerateProgramFile>
     </PropertyGroup>
 
-
     <ItemGroup>
         <!-- Utils -->
         <Compile Include="Utils/Utilities.fs" />

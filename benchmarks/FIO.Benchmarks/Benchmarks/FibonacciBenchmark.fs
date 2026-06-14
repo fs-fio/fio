@@ -11,24 +11,24 @@ open System
 
 [<MemoryDiagnoser>]
 [<RankColumn>]
-type BigBenchmark() =
+type FibonacciBenchmark() =
     let mutable runtime: FIORuntime = Unchecked.defaultof<_>
     let mutable effect = Unchecked.defaultof<_>
 
-    member _.ActorCounts =
-        RuntimeParam.intParams "FIO_BENCH_BIG_ACTORS" [| 10; 25 |]
+    member _.Ns =
+        RuntimeParam.intParams "FIO_BENCH_FIBONACCI_N" [| 25; 30 |]
 
-    member _.RoundCounts =
-        RuntimeParam.intParams "FIO_BENCH_BIG_ROUNDS" [| 100; 500 |]
+    member _.Thresholds =
+        RuntimeParam.intParams "FIO_BENCH_FIBONACCI_THRESHOLD" [| 12 |]
 
     member _.Runtimes =
         RuntimeParam.runtimes ()
 
-    [<ParamsSource("ActorCounts")>]
-    member val ActorCount = 0 with get, set
+    [<ParamsSource("Ns")>]
+    member val N = 0 with get, set
 
-    [<ParamsSource("RoundCounts")>]
-    member val RoundCount = 0 with get, set
+    [<ParamsSource("Thresholds")>]
+    member val Threshold = 0 with get, set
 
     [<ParamsSource("Runtimes")>]
     member val Runtime = "" with get, set
@@ -36,7 +36,7 @@ type BigBenchmark() =
     [<GlobalSetup>]
     member this.Setup () =
         runtime <- RuntimeParam.create this.Runtime
-        effect <- Big.effect this.ActorCount this.RoundCount
+        effect <- Fibonacci.effect this.N this.Threshold
 
     [<GlobalCleanup>]
     member _.Cleanup () =

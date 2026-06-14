@@ -52,8 +52,8 @@ Core DSL (`src/FIO/DSL/`), compile order matters:
 - `Operators.fs` - Infix operators (`>>=`, `<!>`, `<&>`, `<|>`, etc.)
 - `CE.fs` - `fio { }` computation expression builder
 
-Lib modules (`src/FIO/Lib/`):
-- `Console.fs` - Console I/O (`print`, `printLine`, `readLine`, `write`, `writeLine`, `clear`) wrapping `System.Console` directly via `FIO.attempt`. Module is `FIO.Console.Console` (`[<RequireQualifiedAccess>]`); each function takes an `onError: exn -> 'E` argument.
+Console I/O (`src/FIO/Console.fs`):
+- `print`, `printLine`, `readLine`, `write`, `writeLine`, `clear` wrap `System.Console` directly via `FIO.attempt`. Namespace `FIO.Console`, module `Console` (`[<RequireQualifiedAccess>]`); each function takes an `onError: exn -> 'E` argument.
 
 Runtime (`src/FIO/Runtime/`):
 - `Runtime.fs` - `FIORuntime` (abstract base), `WorkerConfig`, `ContStackPool`, `WorkItemPool`
@@ -64,7 +64,7 @@ Runtime (`src/FIO/Runtime/`):
 - `ConcurrentRuntime.fs` - Custom fibers, constant-time blocked handling (event-driven, uses `EvaluationWorker` + `BlockingWorker`)
 - `DefaultRuntime.fs` - Type alias: `DefaultRuntime = ConcurrentRuntime`
 
-Framework (`src/FIO/Framework/`):
+Framework (`src/FIO/App.fs`):
 - `App.fs` - `FIOApp<'A,'E>` abstract base class. 5-member surface: `effect`, `runtime`, `onShutdown`, `onShutdownTimeout`, `mapExitCode` over `AppResult<'A,'E>` (`AppSucceeded`/`AppFailed`/`AppInterrupted`/`AppFatalError`).
 
 Extension libs expose `[<RequireQualifiedAccess>]` modules named after their domain (e.g. `SocketClient.connect`, `ServerSocket.serve`, `WebSocketClient.connectDefault`, `Routes`, `Codec`). Type-extension modules (`SocketExtensions`, `WebSocketExtensions`, `SimpleRoutes`) are **opt-in** — they are not `[<AutoOpen>]` and must be `open`ed explicitly.
@@ -119,7 +119,7 @@ Worker config fields: **EvaluationWorkers** (evaluation worker count), **Evaluat
 
 ### Concurrency Primitives
 
-Concurrency is built on the core types: **Fiber<'A,'E>** (green threads via `.Fork()`/`.Join()`) and **Channel<'A>** (typed message passing). There are currently no higher-level primitive modules (Promise/Ref/Semaphore) in `src/FIO/Lib/` — `Console` is the only Lib module.
+Concurrency is built on the core types: **Fiber<'A,'E>** (green threads via `.Fork()`/`.Join()`) and **Channel<'A>** (typed message passing). There are currently no higher-level primitive modules (Promise/Ref/Semaphore); `Console` is the only library module.
 
 ### Operator Reference
 
@@ -179,7 +179,7 @@ Factory functions use **lowercase** F#-idiomatic style: `FIO.succeed`, `FIO.fail
 
 Instance methods use **PascalCase**: `effect.Map(f)`, `effect.FlatMap(f)`, `effect.Fork()`, `effect.CatchAll(f)`, `effect.Ensuring(fin)`, `effect.ZipRight(eff)`.
 
-Lib modules use **qualified access**: e.g. `Console.printLine "msg" id`.
+Library modules use **qualified access**: e.g. `Console.printLine "msg" id`.
 
 ## Semantic Invariants (Do Not Break)
 

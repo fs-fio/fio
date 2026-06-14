@@ -1,5 +1,4 @@
-[<AutoOpen>]
-module FIO.DSL.Core
+namespace FIO.DSL
 
 open System
 open System.Threading

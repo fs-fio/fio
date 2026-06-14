@@ -1,5 +1,6 @@
 namespace FIO.Benchmarks.Benchmarks
 
+open FIO.DSL
 open FIO.Runtime
 open FIO.Benchmarks
 open FIO.Benchmarks.Effects
@@ -12,6 +13,7 @@ open System
 [<RankColumn>]
 type PingpongBenchmark() =
     let mutable runtime: FIORuntime = Unchecked.defaultof<_>
+    let mutable effect = Unchecked.defaultof<_>
 
     member _.RoundCounts =
         RuntimeParam.intParams "FIO_BENCH_PINGPONG_ROUNDS" [| 10_000; 50_000; 150_000 |]
@@ -25,15 +27,16 @@ type PingpongBenchmark() =
     member val Runtime = "" with get, set
 
     [<GlobalSetup>]
-    member this.Setup() =
+    member this.Setup () =
         runtime <- RuntimeParam.create this.Runtime
+        effect <- Pingpong.effect this.RoundCount
 
     [<GlobalCleanup>]
-    member _.Cleanup() =
+    member _.Cleanup () =
         match box runtime with
         | :? IDisposable as d -> d.Dispose()
         | _ -> ()
 
     [<Benchmark>]
-    member this.Run() =
-        RuntimeParam.run runtime (Pingpong.effect this.RoundCount)
+    member _.Run () =
+        RuntimeParam.run runtime effect

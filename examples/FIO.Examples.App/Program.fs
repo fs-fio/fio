@@ -7,12 +7,13 @@ open FIO.Runtime.Concurrent
 
 open System
 open System.IO
+open System.Net.Http
 open System.Globalization
 
 type WelcomeApp() =
     inherit FIOApp<unit, exn>()
 
-    override _.effect: FIO<unit, exn> =
+    override _.effect =
         fio {
             do! Console.printLine "Hello! What is your name?" id
             let! name = Console.readLine id
@@ -89,22 +90,29 @@ type GuessNumberApp() =
         fio {
             let! numberToGuess = FIO.attempt (fun () -> Random.Shared.Next(1, 101)) id
             let mutable guess = -1
+            let mutable aborted = false
 
-            while guess <> numberToGuess do
+            while guess <> numberToGuess && not aborted do
                 do! Console.print "Guess a number: " id
                 let! input = Console.readLine id
 
-                match Int32.TryParse input with
-                | true, parsedInput ->
-                    guess <- parsedInput
+                match input with
+                | null
+                | "" ->
+                    aborted <- true
+                    do! Console.printLine "No input available (EOF). Aborting the guessing game." id
+                | _ ->
+                    match Int32.TryParse input with
+                    | true, parsedInput ->
+                        guess <- parsedInput
 
-                    if guess < numberToGuess then
-                        do! Console.printLine "Too low! Try again." id
-                    elif guess > numberToGuess then
-                        do! Console.printLine "Too high! Try again." id
-                    else
-                        do! Console.printLine "Congratulations! You guessed the number!" id
-                | _ -> do! Console.printLine "Invalid input. Please enter a number." id
+                        if guess < numberToGuess then
+                            do! Console.printLine "Too low! Try again." id
+                        elif guess > numberToGuess then
+                            do! Console.printLine "Too high! Try again." id
+                        else
+                            do! Console.printLine "Congratulations! You guessed the number!" id
+                    | _ -> do! Console.printLine "Invalid input. Please enter a number." id
 
             return guess
         }
@@ -112,260 +120,268 @@ type GuessNumberApp() =
 type PingPongApp() =
     inherit FIOApp<unit, exn>()
 
-    let pinger (chan1: Channel<string>) (chan2: Channel<string>) =
-        chan1.Write "ping"
-        >>= fun ping ->
-            Console.printLine $"pinger sent: %s{ping}" id
-            >>= fun _ ->
-                chan2.Read()
-                >>= fun pong -> Console.printLine $"pinger received: %s{pong}" id >>= fun _ -> FIO.unit ()
+    let pinger (pingChannel: Channel<string>) (pongChannel: Channel<string>) =
+        pingChannel.Write "ping" >>= fun ping ->
+        Console.printLine $"pinger sent: %s{ping}" id >>= fun _ ->
+        pongChannel.Read() >>= fun pong ->
+        Console.printLine $"pinger received: %s{pong}" id >>= fun _ ->
+        FIO.unit ()
 
-    let ponger (chan1: Channel<string>) (chan2: Channel<string>) =
-        chan1.Read()
-        >>= fun ping ->
-            Console.printLine $"ponger received: %s{ping}" id
-            >>= fun _ ->
-                chan2.Write "pong"
-                >>= fun pong -> Console.printLine $"ponger sent: %s{pong}" id >>= fun _ -> FIO.unit ()
+    let ponger (pingChannel: Channel<string>) (pongChannel: Channel<string>) =
+        pingChannel.Read() >>= fun ping ->
+        Console.printLine $"ponger received: %s{ping}" id >>= fun _ ->
+        pongChannel.Write "pong" >>= fun pong ->
+        Console.printLine $"ponger sent: %s{pong}" id >>= fun _ ->
+        FIO.unit ()
 
     override _.effect =
-        let chan1 = Channel<string>()
-        let chan2 = Channel<string>()
-        pinger chan1 chan2 <&&> ponger chan1 chan2
+        let pingChannel = Channel<string>()
+        let pongChannel = Channel<string>()
+        pinger pingChannel pongChannel <&&> ponger pingChannel pongChannel
 
 type PingPongCEApp() =
     inherit FIOApp<unit, exn>()
 
-    let pinger (chan1: Channel<string>) (chan2: Channel<string>) =
+    let pinger (pingChannel: Channel<string>) (pongChannel: Channel<string>) =
         fio {
-            let! ping = chan1.Write "ping"
+            let! ping = pingChannel.Write "ping"
             do! Console.printLine $"pinger sent: %s{ping}" id
-            let! pong = chan2.Read()
+            let! pong = pongChannel.Read()
             do! Console.printLine $"pinger received: %s{pong}" id
         }
 
-    let ponger (chan1: Channel<string>) (chan2: Channel<string>) =
+    let ponger (pingChannel: Channel<string>) (pongChannel: Channel<string>) =
         fio {
-            let! ping = chan1.Read()
+            let! ping = pingChannel.Read()
             do! Console.printLine $"ponger received: %s{ping}" id
-            let! pong = chan2.Write "pong"
+            let! pong = pongChannel.Write "pong"
             do! Console.printLine $"ponger sent: %s{pong}" id
         }
 
     override _.effect =
         fio {
-            let chan1 = Channel<string>()
-            let chan2 = Channel<string>()
-            do! pinger chan1 chan2 <&&> ponger chan1 chan2
+            let pingChannel = Channel<string>()
+            let pongChannel = Channel<string>()
+            do! pinger pingChannel pongChannel <&&> ponger pingChannel pongChannel
         }
 
 type Message =
-    | PingMsg
-    | PongMsg
+    | Ping
+    | Pong
 
 type PingPongMatchApp() =
     inherit FIOApp<unit, string>()
 
-    let pinger (chan1: Channel<Message>) (chan2: Channel<Message>) =
+    let pinger (pingChannel: Channel<Message>) (pongChannel: Channel<Message>) =
         fio {
-            let! ping = chan1.Write PingMsg
+            let! ping = pingChannel.Write Ping
             do! Console.printLine $"pinger sent: %A{ping}" _.Message
 
-            match! chan2.Read() with
-            | PongMsg -> do! Console.printLine $"pinger received: %A{PongMsg}" _.Message
-            | PingMsg -> return! FIO.fail $"pinger received %A{PingMsg} when %A{PongMsg} was expected!"
+            match! pongChannel.Read() with
+            | Pong -> do! Console.printLine $"pinger received: %A{Pong}" _.Message
+            | Ping -> return! FIO.fail $"pinger received %A{Ping} when %A{Pong} was expected!"
         }
 
-    let ponger (chan1: Channel<Message>) (chan2: Channel<Message>) =
+    let ponger (pingChannel: Channel<Message>) (pongChannel: Channel<Message>) =
         fio {
-            match! chan1.Read() with
-            | PingMsg -> do! Console.printLine $"ponger received: %A{PingMsg}" _.Message
-            | PongMsg -> return! FIO.fail $"ponger received %A{PongMsg} when %A{PingMsg} was expected!"
+            match! pingChannel.Read() with
+            | Ping -> do! Console.printLine $"ponger received: %A{Ping}" _.Message
+            | Pong -> return! FIO.fail $"ponger received %A{Pong} when %A{Ping} was expected!"
 
-            let! sentMsg =
+            let! sentMessage =
                 fio {
                     match! FIO.attempt (fun () -> Random.Shared.Next(0, 2)) _.Message with
-                    | 0 -> do! chan2.Write PongMsg
-                    | _ -> do! chan2.Write PingMsg
+                    | 0 -> return! pongChannel.Write Pong
+                    | _ -> return! pongChannel.Write Ping
                 }
 
-            do! Console.printLine $"ponger sent: %A{sentMsg}" _.Message
+            do! Console.printLine $"ponger sent: %A{sentMessage}" _.Message
         }
 
     override _.effect =
         fio {
-            let chan1 = Channel<Message>()
-            let chan2 = Channel<Message>()
-            do! pinger chan1 chan2 <&&> ponger chan1 chan2
+            let pingChannel = Channel<Message>()
+            let pongChannel = Channel<Message>()
+            do! pinger pingChannel pongChannel <&&> ponger pingChannel pongChannel
         }
 
-type Error =
+type AppError =
     | DbError of bool
-    | WsError of int
+    | WebServiceError of int
     | GeneralError of string
 
 type ErrorHandlingApp() =
-    inherit FIOApp<string * char, Error>()
+    inherit FIOApp<string * char, AppError>()
 
     let readFromDatabase: FIO<string, bool> =
         fio {
-            let! rand = FIO.attempt (fun () -> Random().Next(0, 2)) (fun _ -> true)
-            if rand = 0 then return "data" else return! FIO.fail false
+            let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> true)
+            if rand = 0 then return "data"
+            else return! FIO.fail false
         }
 
     let awaitWebservice: FIO<char, int> =
         fio {
-            let! rand = FIO.attempt (fun () -> Random().Next(0, 2)) (fun _ -> -1)
-            if rand = 1 then return 'S' else return! FIO.fail 404
+            let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> -1)
+            if rand = 1 then return 'S'
+            else return! FIO.fail 404
         }
 
-    let databaseResult: FIO<string, Error> =
-        fio { return! readFromDatabase.CatchAll(fun error -> FIO.fail (DbError error)) }
+    let databaseResult: FIO<string, AppError> =
+        fio {
+            return! readFromDatabase
+                .CatchAll(fun error -> FIO.fail (DbError error))
+        }
 
-    let webserviceResult: FIO<char, Error> =
-        fio { return! awaitWebservice.CatchAll(fun error -> FIO.fail (WsError error)) }
+    let webserviceResult: FIO<char, AppError> =
+        fio {
+            return! awaitWebservice
+                .CatchAll(fun error -> FIO.fail (WebServiceError error))
+        }
 
     override _.effect =
-        fio { return! (databaseResult <*> webserviceResult).OrElseSucceed ("default", 'D') }
+        fio {
+            return! (databaseResult <*> webserviceResult)
+                .OrElseSucceed("default", 'D')
+        }
 
 type ErrorHandlingWithRetryApp() =
-    inherit FIOApp<string * char, Error>()
+    inherit FIOApp<string * char, AppError>()
 
     let readFromDatabase: FIO<string, bool> =
         fio {
-            let! rand = FIO.attempt (fun () -> Random().Next(0, 2)) (fun _ -> true)
-            if rand = 0 then return "data" else return! FIO.fail false
+            let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> true)
+            if rand = 0 then return "data"
+            else return! FIO.fail false
         }
 
     let awaitWebservice: FIO<char, int> =
         fio {
-            let! rand = FIO.attempt (fun () -> Random().Next(0, 2)) (fun _ -> -1)
-            if rand = 1 then return 'S' else return! FIO.fail 404
+            let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> -1)
+            if rand = 1 then return 'S'
+            else return! FIO.fail 404
         }
 
-    let databaseResult: FIO<string, Error> =
+    let databaseResult: FIO<string, AppError> =
         fio {
             let onEachRetry (error, retry, maxRetries) =
                 (Console.printLine $"Database read failed with error: %A{error}. Retry attempt %d{retry} of %d{maxRetries}..." id)
                     .OrElseFail false
 
-            return! (readFromDatabase.Retry 4 onEachRetry).CatchAll(fun error -> FIO.fail (DbError error))
+            return! (readFromDatabase.Retry 4 onEachRetry)
+                .CatchAll(fun error -> FIO.fail (DbError error))
         }
 
-    let webserviceResult: FIO<char, Error> =
+    let webserviceResult: FIO<char, AppError> =
         fio {
             let onEachRetry (error, retry, maxRetries) =
                 (Console.printLine $"Webservice read failed with error: %A{error}. Retry attempt %d{retry} of %d{maxRetries}..." id)
                     .OrElseFail 400
 
-            return! (awaitWebservice.Retry 4 onEachRetry).CatchAll(fun error -> FIO.fail (WsError error))
+            return! (awaitWebservice.Retry 4 onEachRetry)
+                .CatchAll(fun error -> FIO.fail (WebServiceError error))
         }
 
     override _.effect =
-        fio { return! (databaseResult <*> webserviceResult).OrElseSucceed ("default", 'D') }
+        fio {
+            return! (databaseResult <*> webserviceResult)
+                .OrElseSucceed("default", 'D')
+        }
 
 type AsyncErrorHandlingApp() =
-    inherit FIOApp<string * int, Error>()
+    inherit FIOApp<string * int, AppError>()
 
     let databaseReadTask: Async<string> =
         async {
             do printfn $"Reading from database..."
 
-            if Random().Next(0, 2) = 0 then
+            if Random.Shared.Next(0, 2) = 0 then
                 return "data"
             else
-                raise (Exception "Database error!")
-                return "error data"
+                return raise (Exception "Database error!")
         }
 
     let webserviceAwaitTask: Async<int> =
         async {
             do printfn $"Awaiting webservice..."
 
-            if Random().Next(0, 2) = 0 then
+            if Random.Shared.Next(0, 2) = 0 then
                 return 200
             else
-                raise (Exception "Webservice error!")
-                return 400
+                return raise (Exception "Webservice error!")
         }
 
-    let databaseResult: FIO<string, Error> =
-        (FIO.awaitAsync databaseReadTask id).CatchAll(fun ex -> FIO.fail (GeneralError ex.Message))
+    let databaseResult: FIO<string, AppError> =
+        (FIO.awaitAsync databaseReadTask id)
+            .CatchAll(fun ex -> FIO.fail (GeneralError ex.Message))
 
-    let webserviceResult: FIO<int, Error> =
-        (FIO.awaitAsync webserviceAwaitTask id).CatchAll(fun ex -> FIO.fail (GeneralError ex.Message))
+    let webserviceResult: FIO<int, AppError> =
+        (FIO.awaitAsync webserviceAwaitTask id)
+            .CatchAll(fun ex -> FIO.fail (GeneralError ex.Message))
 
-    override _.effect = fio { return! databaseResult <&> webserviceResult }
+    override _.effect =
+        fio {
+            return! databaseResult <&> webserviceResult
+        }
 
 type HighlyConcurrentApp() =
     inherit FIOApp<unit, exn>()
 
-    let sender (chan: Channel<int>) id =
+    let sender (channel: Channel<int>) senderId =
         fio {
-            let! msg =
-                FIO.attempt
-                    (fun () -> Random.Shared.Next(100, 501))
-                    Operators.id
-            do! chan.Write(msg).Unit()
-            do! Console.printLine $"Sender[%i{id}] sent: %i{msg}" Operators.id
+            let! message = FIO.attempt (fun () -> Random.Shared.Next(100, 501)) id
+            do! channel.Write(message).Unit()
+            do! Console.printLine $"Sender[%i{senderId}] sent: %i{message}" id
         }
 
-    let rec receiver (chan: Channel<int>) count (max: int) =
+    let rec receiver (channel: Channel<int>) count (max: int) =
         fio {
             if count = 0 then
-                let! maxFibers = FIO.succeed (max.ToString("N0", CultureInfo "en-US"))
-                do! Console.printLine $"Successfully received a message from all %s{maxFibers} fibers!" Operators.id
+                let maxFibers = max.ToString("N0", CultureInfo "en-US")
+                do! Console.printLine $"Successfully received a message from all %s{maxFibers} fibers!" id
             else
-                let! msg = chan.Read()
-                do! Console.printLine $"Receiver received: %i{msg}" Operators.id
-                return! receiver chan (count - 1) max
-        }
-
-    let rec create chan count acc =
-        fio {
-            if count = 0 then
-                return! acc
-            else
-                let newAcc = sender chan count <&&> acc
-                return! create chan (count - 1) newAcc
+                let! msg = channel.Read()
+                do! Console.printLine $"Receiver received: %i{msg}" id
+                return! receiver channel (count - 1) max
         }
 
     override _.effect =
         fio {
-            let fiberCount = 1_000_000
+            let fiberCount = 100_000
             let chan = Channel<int>()
-            let acc = sender chan fiberCount <&&> receiver chan fiberCount fiberCount
-            return! create chan (fiberCount - 1) acc
+
+            do!
+                FIO.forEachParDiscard (seq { 1..fiberCount }) (sender chan)
+                <&&> receiver chan fiberCount fiberCount
         }
+
+let fib n =
+    let mutable a = 0L
+    let mutable b = 1L
+    let mutable i = 0L
+
+    while i < n do
+        let temp = a + b
+        a <- b
+        b <- temp
+        i <- i + 1L
+
+    a
 
 type FiberFromTaskApp() =
     inherit FIOApp<unit, exn>()
 
     let fibonacci n =
-        FIO.forkTask
-            (fun () ->
-                task {
-                    let fib (n: int64) =
-                        let mutable a = 0L
-                        let mutable b = 1L
-                        let mutable i = 0L
-
-                        while i < n do
-                            let temp = a + b
-                            a <- b
-                            b <- temp
-                            i <- i + 1L
-
-                        a
-
-                    printfn $"Task computing Fibonacci of %i{n}..."
-                    let value = fib n
-                    printfn $"Fibonacci of %i{n} is %i{value}"
-                    return ()
-                })
+        FIO.forkTask (fun () ->
+            task {
+                printfn $"Task computing Fibonacci of %i{n}..."
+                let value = fib n
+                printfn $"Fibonacci of %i{n} is %i{value}"
+                return ()
+            })
             id
 
-    override _.effect: FIO<unit, exn> =
+    override _.effect =
         let await (fiber: Fiber<unit, exn>) =
             fio {
                 do! fiber.Join()
@@ -384,29 +400,15 @@ type FiberFromGenericTaskApp() =
     inherit FIOApp<unit, exn>()
 
     let fibonacci n =
-        FIO.forkTask
-            (fun () ->
-                task {
-                    let fib (n: int64) =
-                        let mutable a = 0L
-                        let mutable b = 1L
-                        let mutable i = 0L
-
-                        while i < n do
-                            let temp = a + b
-                            a <- b
-                            b <- temp
-                            i <- i + 1L
-
-                        a
-
-                    printfn $"Task computing Fibonacci of %i{n}..."
-                    let value = fib n
-                    return $"Fibonacci of %i{n} is %i{value}"
-                })
+        FIO.forkTask (fun () ->
+            task {
+                printfn $"Task computing Fibonacci of %i{n}..."
+                let value = fib n
+                return $"Fibonacci of %i{n} is %i{value}"
+            })
             id
 
-    override _.effect: FIO<unit, exn> =
+    override _.effect =
         let awaitAndPrint (fiber: Fiber<string, exn>) =
             fio {
                 let! value = fiber.Join()
@@ -457,7 +459,8 @@ type CustomRuntimeApp() =
 type ShutdownApp() =
     inherit FIOApp<unit, exn>()
 
-    override _.onShutdownTimeout = TimeSpan.FromSeconds 5.0
+    override _.onShutdownTimeout =
+        TimeSpan.FromSeconds 5.0
 
     override _.onShutdown() =
         fio {
@@ -489,8 +492,10 @@ type CustomExitCodeApp() =
         | AppFailed error ->
             printfn $"Failed with error code: {error}"
             error
-        | AppInterrupted _ -> 130
-        | AppFatalError _ -> 2
+        | AppInterrupted _ ->
+            130
+        | AppFatalError _ ->
+            2
 
     override _.effect =
         fio {
@@ -501,6 +506,102 @@ type CustomExitCodeApp() =
             | true, 0 -> return 0
             | true, n when n > 0 && n <= 5 -> return! FIO.fail n
             | _ -> return! FIO.fail 99
+        }
+
+type RaceTimeoutApp() =
+    inherit FIOApp<unit, exn>()
+
+    let delayed label ms value =
+        fio {
+            do! FIO.sleep (TimeSpan.FromMilliseconds(float ms)) id
+            do! Console.printLine $"{label} finished" id
+            return value
+        }
+
+    override _.effect =
+        fio {
+            let! winner = (delayed "fast (100ms)" 100 "fast").Race(delayed "slow (500ms)" 500 "slow")
+            do! Console.printLine $"Race winner: {winner}" id
+
+            match! (delayed "long task (800ms)" 800 42).Timeout (TimeSpan.FromMilliseconds 200.0) id with
+            | Some value -> do! Console.printLine $"Completed with {value}" id
+            | None -> do! Console.printLine "Timed out after 200ms (as expected)" id
+        }
+
+type ResourceApp() =
+    inherit FIOApp<unit, exn>()
+
+    override _.effect =
+        FIO.acquireReleaseWith
+            (FIO.attempt (fun () -> new StreamWriter(Path.GetTempFileName())) id)
+            (fun writer ->
+                fio {
+                    do! FIO.attempt (fun () -> writer.Dispose()) id
+                    do! Console.printLine "Resource released (writer disposed)." id
+                })
+            (fun writer ->
+                fio {
+                    do! FIO.attempt (fun () -> writer.WriteLine "Hello from FIO!") id
+                    do! Console.printLine "Acquired resource and wrote to a temp file." id
+                })
+
+type ParallelMapApp() =
+    inherit FIOApp<unit, exn>()
+
+    override _.effect =
+        fio {
+            let work n =
+                fio {
+                    do! FIO.sleep (TimeSpan.FromMilliseconds 100.0) id
+                    return n * n
+                }
+
+            let! results = FIO.forEachPar [ 1..8 ] work
+            do! Console.printLine $"Squares (computed in parallel): %A{results}" id
+        }
+
+type AccountMessage =
+    | Deposit of int
+    | Withdraw of int
+    | Balance of Channel<int>
+
+type StatefulActorApp() =
+    inherit FIOApp<unit, exn>()
+
+    let account (inbox: Channel<AccountMessage>) =
+        let rec loop balance =
+            inbox.Read().FlatMap(function
+            | Deposit amount -> loop (balance + amount)
+            | Withdraw amount -> loop (balance - amount)
+            | Balance reply -> reply.Write(balance).Unit().FlatMap(fun () -> loop balance))
+        loop 0
+
+    override _.effect =
+        fio {
+            let inbox = Channel<AccountMessage>()
+            let reply = Channel<int>()
+            let! actor = (account inbox).Fork()
+
+            do! inbox.Write(Deposit 100).Unit()
+            do! inbox.Write(Withdraw 30).Unit()
+            do! inbox.Write(Balance reply).Unit()
+
+            let! balance = reply.Read()
+            do! Console.printLine $"Account balance: {balance}" id
+            do! actor.Interrupt ExplicitInterrupt "done"
+        }
+
+type HttpClientApp() =
+    inherit FIOApp<unit, exn>()
+
+    override _.effect =
+        fio {
+            use client = new HttpClient()
+            let fetch = FIO.awaitTask (client.GetStringAsync "https://example.com") id
+
+            match! fetch.Timeout (TimeSpan.FromSeconds 5.0) id with
+            | Some body -> do! Console.printLine $"Fetched {body.Length} characters from example.com" id
+            | None -> do! Console.printLine "Request timed out" id
         }
 
 let examples =
@@ -525,17 +626,21 @@ let examples =
         nameof CustomRuntimeApp, fun () -> CustomRuntimeApp().Run()
         nameof ShutdownApp, fun () -> ShutdownApp().Run()
         nameof CustomExitCodeApp, fun () -> CustomExitCodeApp().Run()
+        nameof RaceTimeoutApp, fun () -> RaceTimeoutApp().Run()
+        nameof ResourceApp, fun () -> ResourceApp().Run()
+        nameof ParallelMapApp, fun () -> ParallelMapApp().Run()
+        nameof StatefulActorApp, fun () -> StatefulActorApp().Run()
+        nameof HttpClientApp, fun () -> HttpClientApp().Run()
     ]
 
-examples
-|> List.iteri (fun i (name, example) ->
-    printfn $"🔥 Running example: {name}\n"
+examples |> List.iteri (fun index (name, example) ->
+    printfn $"Running example: {name}\n"
     let exitCode = example ()
-    printfn $"\n🏁 Example '{name}' completed with exit code: %d{exitCode}"
+    printfn $"\nExample '{name}' completed with exit code: %d{exitCode}"
 
-    if i < examples.Length - 1 then
-        System.Console.WriteLine "\n⏩ Press Enter to run next example..."
-        System.Console.ReadLine() |> ignore)
+    if index < examples.Length - 1 then
+        printfn "\nPress Enter to run next example..."
+        Console.ReadLine() |> ignore)
 
-System.Console.WriteLine "\n✅ All examples completed. Press Enter to exit."
-System.Console.ReadLine() |> ignore
+printfn "\nAll examples completed. Press Enter to exit."
+Console.ReadLine() |> ignore

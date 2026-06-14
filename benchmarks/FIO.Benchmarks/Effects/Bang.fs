@@ -3,44 +3,36 @@ module internal FIO.Benchmarks.Effects.Bang
 
 open FIO.DSL
 
-type private Actor = { Chan: Channel<int> }
+type private Actor =
+    {
+        Channel: Channel<int> 
+    }
 
-let private sendingActorEff (actor, roundCount, msg, startChan: Channel<int>) =
+let private sendingActorEffect actor roundCount message =
     fio {
-        do! startChan.Read().Unit()
-
         for _ in 1..roundCount do
-            do! actor.Chan.Write(msg).Unit()
+            do! actor.Channel.Write(message).Unit()
     }
 
-let private receivingActorEff (actor, totalMessages, startChan: Channel<int>) =
+let private receivingActorEffect actor totalMessages =
     fio {
-        do! startChan.Read().Unit()
-
         for _ in 1..totalMessages do
-            let! _ = actor.Chan.Read()
-            ()
+            do! actor.Channel.Read().Unit()
     }
 
-let private bangEff (receivingActor, sendingActors: Actor list, actorCount, roundCount, msg, startChan) =
-    let receiverEff =
-        receivingActorEff (receivingActor, actorCount * roundCount, startChan)
+let private createSendingActors receivingActorChannel actorCount =
+    [ for _ in 1..actorCount -> { Channel = receivingActorChannel } ]
 
-    sendingActors
-    |> List.indexed
-    |> List.fold (fun acc (i, actor) -> sendingActorEff (actor, roundCount, msg + i, startChan) <&&> acc) receiverEff
-
-let private createSendingActors (receiveActorChan, actorCount) =
-    [ for _ in 1..actorCount -> { Chan = receiveActorChan } ]
-
-let effect (actorCount: int) (roundCount: int) : FIO<unit, exn> =
+let effect actorCount roundCount : FIO<unit, exn> =
     fio {
-        let startChan = Channel<int>()
-        let receivingActor = { Chan = Channel<int>() }
-        let sendingActors = createSendingActors (receivingActor.Chan, actorCount)
+        let receivingActor = { Channel = Channel<int>() }
+        let sendingActors = createSendingActors receivingActor.Channel actorCount
+        let receiverEffect = receivingActorEffect receivingActor (actorCount * roundCount)
 
-        for _ in 1 .. (actorCount + 1) do
-            do! startChan.Write(0).Unit()
+        let sendingEffects =
+            sendingActors
+            |> List.mapi (fun index actor ->
+                sendingActorEffect actor roundCount (index + 1))
 
-        do! bangEff (receivingActor, sendingActors, actorCount, roundCount, 1, startChan)
+        do! FIO.collectAllParDiscard (receiverEffect :: sendingEffects)
     }

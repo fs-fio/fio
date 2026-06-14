@@ -11,21 +11,21 @@ open System
 
 [<MemoryDiagnoser>]
 [<RankColumn>]
-type BigBenchmark() =
+type PhilosophersBenchmark() =
     let mutable runtime: FIORuntime = Unchecked.defaultof<_>
     let mutable effect = Unchecked.defaultof<_>
 
-    member _.ActorCounts =
-        RuntimeParam.intParams "FIO_BENCH_BIG_ACTORS" [| 10; 25 |]
+    member _.PhilosopherCounts =
+        RuntimeParam.intParams "FIO_BENCH_PHILOSOPHERS_COUNT" [| 20 |]
 
     member _.RoundCounts =
-        RuntimeParam.intParams "FIO_BENCH_BIG_ROUNDS" [| 100; 500 |]
+        RuntimeParam.intParams "FIO_BENCH_PHILOSOPHERS_ROUNDS" [| 10_000 |]
 
     member _.Runtimes =
         RuntimeParam.runtimes ()
 
-    [<ParamsSource("ActorCounts")>]
-    member val ActorCount = 0 with get, set
+    [<ParamsSource("PhilosopherCounts")>]
+    member val PhilosopherCount = 0 with get, set
 
     [<ParamsSource("RoundCounts")>]
     member val RoundCount = 0 with get, set
@@ -36,7 +36,7 @@ type BigBenchmark() =
     [<GlobalSetup>]
     member this.Setup () =
         runtime <- RuntimeParam.create this.Runtime
-        effect <- Big.effect this.ActorCount this.RoundCount
+        effect <- Philosophers.effect this.PhilosopherCount this.RoundCount
 
     [<GlobalCleanup>]
     member _.Cleanup () =

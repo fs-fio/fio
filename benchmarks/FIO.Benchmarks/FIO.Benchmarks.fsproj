@@ -8,16 +8,28 @@
 
     <ItemGroup>
         <Compile Include="RuntimeParam.fs" />
+        <Compile Include="Effects\Bang.fs" />
+        <Compile Include="Effects\Big.fs" />
+        <Compile Include="Effects\BoundedBuffer.fs" />
+        <Compile Include="Effects\Chameneos.fs" />
+        <Compile Include="Effects\Counting.fs" />
+        <Compile Include="Effects\Fibonacci.fs" />
+        <Compile Include="Effects\Fork.fs" />
+        <Compile Include="Effects\Philosophers.fs" />
         <Compile Include="Effects\Pingpong.fs" />
         <Compile Include="Effects\Threadring.fs" />
-        <Compile Include="Effects\Big.fs" />
-        <Compile Include="Effects\Bang.fs" />
-        <Compile Include="Effects\Fork.fs" />
+        <Compile Include="Effects\Trapezoidal.fs" />
+        <Compile Include="Benchmarks\BangBenchmark.fs" />
+        <Compile Include="Benchmarks\BigBenchmark.fs" />
+        <Compile Include="Benchmarks\BoundedBufferBenchmark.fs" />
+        <Compile Include="Benchmarks\ChameneosBenchmark.fs" />
+        <Compile Include="Benchmarks\CountingBenchmark.fs" />
+        <Compile Include="Benchmarks\FibonacciBenchmark.fs" />
+        <Compile Include="Benchmarks\ForkBenchmark.fs" />
+        <Compile Include="Benchmarks\PhilosophersBenchmark.fs" />
         <Compile Include="Benchmarks\PingpongBenchmark.fs" />
         <Compile Include="Benchmarks\ThreadringBenchmark.fs" />
-        <Compile Include="Benchmarks\BigBenchmark.fs" />
-        <Compile Include="Benchmarks\BangBenchmark.fs" />
-        <Compile Include="Benchmarks\ForkBenchmark.fs" />
+        <Compile Include="Benchmarks\TrapezoidalBenchmark.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 

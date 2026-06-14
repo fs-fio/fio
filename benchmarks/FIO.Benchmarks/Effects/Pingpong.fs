@@ -3,37 +3,48 @@ module internal FIO.Benchmarks.Effects.Pingpong
 
 open FIO.DSL
 
-type private Actor = { SendChan: Channel<int>; ReceiveChan: Channel<int> }
+type private Actor =
+    {
+        SendChannel: Channel<int>
+        ReceiveChannel: Channel<int>
+    }
 
-let private pingerEff (pinger, roundCount, startChan: Channel<int>) =
+let private pingerEffect pinger roundCount (startChannel: Channel<int>) =
     fio {
         let mutable currentPing = 1
-        do! startChan.Read().Unit()
-
+        do! startChannel.Read().Unit()
         for _ in 1..roundCount do
-            do! pinger.SendChan.Write(currentPing).Unit()
-            let! pong = pinger.ReceiveChan.Read()
+            do! pinger.SendChannel.Write(currentPing).Unit()
+            let! pong = pinger.ReceiveChannel.Read()
             currentPing <- pong + 1
     }
 
-let private pongerEff (ponger, roundCount, startChan: Channel<int>) =
+let private pongerEffect ponger roundCount (startChannel: Channel<int>) =
     fio {
-        do! startChan.Write(0).Unit()
-
+        do! startChannel.Write(0).Unit()
         for _ in 1..roundCount do
-            let! ping = ponger.ReceiveChan.Read()
-            do! ponger.SendChan.Write(ping + 1).Unit()
+            let! ping = ponger.ReceiveChannel.Read()
+            do! ponger.SendChannel.Write(ping + 1).Unit()
     }
 
-let effect (roundCount: int) : FIO<unit, exn> =
+let effect roundCount : FIO<unit, exn> =
     fio {
-        let startChan = Channel<int>()
-        let pingSendChan = Channel<int>()
-        let pongSendChan = Channel<int>()
-        let pinger = { SendChan = pingSendChan; ReceiveChan = pongSendChan }
-        let ponger = { SendChan = pongSendChan; ReceiveChan = pingSendChan }
+        let startChannel = Channel<int>()
+        let pingSendChannel = Channel<int>()
+        let pongSendChannel = Channel<int>()
 
-        do!
-            pingerEff (pinger, roundCount, startChan)
-            <&&> pongerEff (ponger, roundCount, startChan)
+        let pinger =
+            {
+                SendChannel = pingSendChannel
+                ReceiveChannel = pongSendChannel
+            }
+
+        let ponger =
+            {
+                SendChannel = pongSendChannel
+                ReceiveChannel = pingSendChannel
+            }
+
+        do! pingerEffect pinger roundCount startChannel
+            <&&> pongerEffect ponger roundCount startChannel
     }

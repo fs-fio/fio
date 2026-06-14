@@ -1,5 +1,4 @@
-[<AutoOpen>]
-module FIO.DSL.Factories
+namespace FIO.DSL
 
 open System
 open System.Threading

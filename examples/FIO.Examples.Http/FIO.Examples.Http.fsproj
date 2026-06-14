@@ -6,7 +6,6 @@
         <WarningsAsErrors>true</WarningsAsErrors>
     </PropertyGroup>
 
-
     <ItemGroup>
         <Compile Include="Program.fs" />
     </ItemGroup>

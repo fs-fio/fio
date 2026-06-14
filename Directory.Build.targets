@@ -2,10 +2,6 @@
 
     <!--
         Centralized FSharp.Core pin for every F# project in the repository.
-
-        This lives in Directory.Build.targets (not .props) so it is imported
-        after the F# SDK has added its implicit FSharp.Core reference; otherwise
-        the Update has nothing to match and the pin silently has no effect.
     -->
     <ItemGroup>
         <PackageReference Update="FSharp.Core" Version="10.1.301" />

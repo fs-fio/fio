@@ -10,7 +10,7 @@
         the tag is the authoritative published version.
     -->
     <PropertyGroup>
-        <Version>0.0.40-alpha</Version>
+        <Version>0.1.0-alpha</Version>
     </PropertyGroup>
 
     <!--
@@ -30,7 +30,7 @@
          publishable packages are actually packed). -->
     <PropertyGroup>
         <Authors>Daniel Larsen</Authors>
-        <Copyright>Copyright (c) 2022-2026 Daniel Larsen and Technical University of Denmark (DTU)</Copyright>
+        <Copyright>Copyright (c) 2022-2026 Daniel Larsen</Copyright>
         <RepositoryUrl>https://github.com/fs-fio/fio</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PackageProjectUrl>https://github.com/fs-fio/fio</PackageProjectUrl>

@@ -8,14 +8,14 @@ open FIO.Runtime.Cooperative
 open FIO.Runtime.Concurrent
 
 open System
-open System.Threading.Tasks
 
 let private defaultRuntimes =
     [| "Direct"; "Cooperative-12-200-1"; "Concurrent-12-200-1" |]
 
 let private parseWorker (spec: string) (part: string) =
     match Int32.TryParse part with
-    | true, value -> value
+    | true, value when value > 0 -> value
+    | true, _ -> raise (ArgumentException $"Worker count must be greater than 0 in runtime spec '{spec}': '{part}'")
     | _ -> raise (ArgumentException $"Invalid worker count '{part}' in runtime spec '{spec}'")
 
 let create (spec: string) : FIORuntime =
@@ -55,11 +55,10 @@ let intParams (envVar: string) (defaults: int array) =
             | _ ->
                 raise (ArgumentException $"Invalid integer '{part}' in {envVar} (expected comma-separated integers)"))
 
-let run (runtime: FIORuntime) (effect: FIO<unit, exn>) : Task =
-    (task {
+let run (runtime: FIORuntime) effect =
+    task {
         match! runtime.Run(effect).Task() with
         | Succeeded _ -> ()
         | Failed error -> raise error
         | Interrupted ex -> raise ex
-    })
-    :> Task
+    }

@@ -11,24 +11,24 @@ open System
 
 [<MemoryDiagnoser>]
 [<RankColumn>]
-type BigBenchmark() =
+type ChameneosBenchmark() =
     let mutable runtime: FIORuntime = Unchecked.defaultof<_>
     let mutable effect = Unchecked.defaultof<_>
 
-    member _.ActorCounts =
-        RuntimeParam.intParams "FIO_BENCH_BIG_ACTORS" [| 10; 25 |]
+    member _.CreatureCounts =
+        RuntimeParam.intParams "FIO_BENCH_CHAMENEOS_CREATURES" [| 100 |]
 
-    member _.RoundCounts =
-        RuntimeParam.intParams "FIO_BENCH_BIG_ROUNDS" [| 100; 500 |]
+    member _.MeetingCounts =
+        RuntimeParam.intParams "FIO_BENCH_CHAMENEOS_MEETINGS" [| 100_000 |]
 
     member _.Runtimes =
         RuntimeParam.runtimes ()
 
-    [<ParamsSource("ActorCounts")>]
-    member val ActorCount = 0 with get, set
+    [<ParamsSource("CreatureCounts")>]
+    member val CreatureCount = 0 with get, set
 
-    [<ParamsSource("RoundCounts")>]
-    member val RoundCount = 0 with get, set
+    [<ParamsSource("MeetingCounts")>]
+    member val MeetingCount = 0 with get, set
 
     [<ParamsSource("Runtimes")>]
     member val Runtime = "" with get, set
@@ -36,7 +36,7 @@ type BigBenchmark() =
     [<GlobalSetup>]
     member this.Setup () =
         runtime <- RuntimeParam.create this.Runtime
-        effect <- Big.effect this.ActorCount this.RoundCount
+        effect <- Chameneos.effect this.CreatureCount this.MeetingCount
 
     [<GlobalCleanup>]
     member _.Cleanup () =

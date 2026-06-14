@@ -3,42 +3,41 @@ module internal FIO.Benchmarks.Effects.Threadring
 
 open FIO.DSL
 
-type private Actor = { SendChan: Channel<int>; ReceiveChan: Channel<int> }
-
-let private actorEff (actor, isLastActor, roundCount) =
-    fio {
-        for round in 1..roundCount do
-            let! receivedMsg = actor.ReceiveChan.Read()
-
-            if not (isLastActor && round = roundCount) then
-                do! actor.SendChan.Write(receivedMsg + 1).Unit()
+type private Actor =
+    {
+        SendChannel: Channel<int>
+        ReceiveChannel: Channel<int>
     }
 
-let private threadringEff (actors: Actor list, roundCount: int) =
-    let headEff = actorEff (actors.Head, false, roundCount)
-
-    actors.Tail
-    |> List.indexed
-    |> List.fold
-        (fun acc (index, actor) ->
-            let isLastActor = index + 2 = actors.Length
-            actorEff (actor, isLastActor, roundCount) <&&> acc)
-        headEff
-
-let private createActors (chans: Channel<int> list) =
-    let allChans = List.toArray chans
-    let count = allChans.Length
-
-    chans
-    |> List.mapi (fun index chan ->
-        let receiveIndex = if index = 0 then count - 1 else index - 1
-        { SendChan = chan; ReceiveChan = allChans[receiveIndex] })
-
-let effect (actorCount: int) (roundCount: int) : FIO<unit, exn> =
+let private actorEffect actor isLastActor roundCount =
     fio {
-        let chans = [ for _ in 1..actorCount -> Channel<int>() ]
-        let actors = createActors chans
+        for round in 1..roundCount do
+            let! receivedMessage = actor.ReceiveChannel.Read()
+            if not (isLastActor && round = roundCount) then
+                do! actor.SendChannel.Write(receivedMessage + 1).Unit()
+    }
 
-        do! actors.Head.ReceiveChan.Write(0).Unit()
-        do! threadringEff (actors, roundCount)
+let private threadringEffect actors roundCount =
+    let lastIndex = List.length actors - 1
+    FIO.forEachParDiscard (List.indexed actors) (fun (index, actor) ->
+        actorEffect actor (index = lastIndex) roundCount)
+
+let private createActors channels =
+    let allChannels = List.toArray channels
+    let count = allChannels.Length
+    channels |> List.mapi (fun index channel ->
+        let receiveIndex =
+            if index = 0 then count - 1
+            else index - 1
+        {
+            SendChannel = channel
+            ReceiveChannel = allChannels[receiveIndex]
+        })
+
+let effect actorCount roundCount : FIO<unit, exn> =
+    fio {
+        let channels = [ for _ in 1..actorCount -> Channel<int>() ]
+        let actors = createActors channels
+        do! actors.Head.ReceiveChannel.Write(0).Unit()
+        do! threadringEffect actors roundCount
     }
