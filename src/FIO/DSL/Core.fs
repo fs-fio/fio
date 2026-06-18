@@ -35,25 +35,45 @@ and internal BlockingItem =
     | BlockingChannel of channel: Channel<obj> * waitingWorkItem: WorkItem
     | BlockingFiber of fiberContext: FiberContext * waitingWorkItem: WorkItem
 
+/// The outcome of running a fiber to completion: success, failure, or interruption.
 and FiberResult<'A, 'E> =
+    /// The fiber completed successfully with a value.
     | Succeeded of value: 'A
+    /// The fiber failed with a typed error.
     | Failed of error: 'E
+    /// The fiber was interrupted before producing a result.
     | Interrupted of ex: FiberInterruptedException
 
 and [<Sealed; AllowNullLiteral>] internal MailboxQueue<'A>() =
     let channel = Channel.CreateUnbounded<'A>()
+    let mutable count = 0
 
     member internal _.Count =
-        channel.Reader.Count
+        Interlocked.Add(&count, 0)
 
     member internal _.WriteAsync value =
-        channel.Writer.WriteAsync value
+        let task = channel.Writer.WriteAsync value
+        Interlocked.Increment &count |> ignore
+        task
 
     member internal _.ReadAsync () =
-        channel.Reader.ReadAsync()
+        let valueTask = channel.Reader.ReadAsync()
+        if valueTask.IsCompletedSuccessfully then
+            Interlocked.Decrement &count |> ignore
+            valueTask
+        else
+            ValueTask<'A>(task {
+                let! value = valueTask
+                Interlocked.Decrement &count |> ignore
+                return value
+            })
 
     member internal _.TryRead (value: byref<'A>) =
-        channel.Reader.TryRead &value
+        if channel.Reader.TryRead &value then
+            Interlocked.Decrement &count |> ignore
+            true
+        else
+            false
 
     member internal _.WaitToReadAsync (cancelToken: CancellationToken) =
         channel.Reader.WaitToReadAsync cancelToken
@@ -61,7 +81,7 @@ and [<Sealed; AllowNullLiteral>] internal MailboxQueue<'A>() =
     member internal _.Clear () =
         let mutable value = Unchecked.defaultof<'A>
         while channel.Reader.TryRead &value do
-            ()
+            Interlocked.Decrement &count |> ignore
 
 and [<Sealed>] internal BlockingWorkItemSlot() =
 
@@ -235,15 +255,19 @@ and [<Sealed>] internal FiberContext() =
             this.Dispose true
             GC.SuppressFinalize this
 
+/// A running fiber (green thread) executing an effect. Join, await, interrupt, or poll it for its result.
 and [<Sealed>] Fiber<'A, 'E> internal () =
     let fiberContext = new FiberContext()
 
+    /// This fiber's unique identifier.
     member _.Id =
         fiberContext.Id
 
+    /// A cancellation token tied to this fiber's lifetime; cancelled when the fiber is interrupted.
     member _.CancellationToken =
         fiberContext.CancellationToken
 
+    /// Returns a task that completes with this fiber's result, for interop with task-based code.
     member _.Task () =
         task {
             match! fiberContext.Task with
@@ -257,25 +281,32 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
                     return Failed(error :?> 'E)
         }
 
+    /// Returns an effect that waits for this fiber to complete and yields its success value.
     member _.Join () : FIO<'A, 'E> =
         JoinFiber fiberContext
 
+    /// Returns an effect that interrupts this fiber with the given cause and message.
     member _.Interrupt (cause: InterruptionCause) (message: string) : FIO<unit, 'E> =
         Action((fun () -> fiberContext.Interrupt(cause, message)), Rethrow<_>.Instance)
 
+    /// Returns an effect that interrupts this fiber with an explicit-interrupt cause.
     member this.InterruptNow () : FIO<unit, 'E> =
         this.Interrupt ExplicitInterrupt "Fiber interrupted"
 
+    /// Returns an effect that waits for this fiber and yields its full result (success, failure, or interruption).
     member this.Await<'E2> () : FIO<FiberResult<'A, 'E>, 'E2> =
         AwaitTask(boxTask (this.Task()), Rethrow<_>.Instance)
 
+    /// Returns an effect that interrupts this fiber, then waits for and yields its result.
     member this.InterruptAwait<'E2> (cause: InterruptionCause) (message: string) : FIO<FiberResult<'A, 'E>, 'E2> =
         Action((fun () -> fiberContext.Interrupt(cause, message)), Rethrow<_>.Instance)
             .FlatMap <| fun () -> this.Await()
 
+    /// Returns an effect that interrupts this fiber with an explicit-interrupt cause, then yields its result.
     member this.InterruptAwaitNow<'E2> () : FIO<FiberResult<'A, 'E>, 'E2> =
         this.InterruptAwait ExplicitInterrupt "Fiber interrupted"
 
+    /// Returns an effect that yields this fiber's result if it has completed, or None if it is still running.
     member _.Poll<'E2> () : FIO<FiberResult<'A, 'E> option, 'E2> =
         Action((fun () ->
             if not (fiberContext.IsTerminal()) then
@@ -292,6 +323,7 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
                         Some(Failed(error :?> 'E))),
             Rethrow<_>.Instance)
 
+    /// Returns an effect that waits for this fiber and continues with the matching handler for success, failure, or interruption.
     member this.JoinWith<'A1, 'E1>
         (onSucceeded: 'A -> FIO<'A1, 'E1>)
         (onFailed: 'E -> FIO<'A1, 'E1>)
@@ -303,20 +335,25 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
             | Failed error -> onFailed error
             | Interrupted ex -> onInterrupted ex
 
+    /// Returns true if this fiber ran to completion (success or failure), as opposed to being interrupted.
     member _.IsCompleted () =
         fiberContext.IsCompleted()
 
+    /// Returns true if this fiber was interrupted.
     member _.IsInterrupted () =
         fiberContext.IsInterrupted()
 
+    /// Returns true if this fiber is no longer running — either completed or interrupted.
     member _.IsTerminal () =
         fiberContext.IsTerminal()
 
+    /// Blocks the calling thread until this fiber completes and returns its result. Prefer Await inside effects.
     member this.UnsafeResult () =
         this.Task()
         |> Async.AwaitTask
         |> Async.RunSynchronously
 
+    /// Blocks the calling thread until this fiber completes and returns its success value, raising if it failed or was interrupted.
     member this.UnsafeSuccess () =
         match this.UnsafeResult() with
         | Succeeded value ->
@@ -326,6 +363,7 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
         | Interrupted ex ->
             raise (InvalidOperationException $"Fiber was interrupted: {ex.Message}")
 
+    /// Blocks the calling thread until this fiber completes and returns its error, raising if it succeeded or was interrupted.
     member this.UnsafeError () =
         match this.UnsafeResult() with
         | Succeeded value ->
@@ -335,6 +373,7 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
         | Interrupted ex ->
             raise (InvalidOperationException $"Fiber was interrupted: {ex.Message}")
 
+    /// Blocks the calling thread until this fiber completes and prints its result.
     member this.UnsafePrintResult () =
         printfn "%A" (this.UnsafeResult())
 
@@ -349,6 +388,7 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
         member _.Dispose () =
             (fiberContext :> IDisposable).Dispose()
 
+/// A typed, asynchronous channel for passing messages between fibers.
 and [<Sealed; AllowNullLiteral>] Channel<'A> private
     (id: Guid,
     valueQueue: MailboxQueue<obj>,
@@ -358,17 +398,22 @@ and [<Sealed; AllowNullLiteral>] Channel<'A> private
 
     let mutable signalProcessing = 0
 
+    /// Creates a new, empty channel.
     new() = Channel(Guid.NewGuid(), MailboxQueue<obj>(), BlockingWorkItemSlot())
 
+    /// This channel's unique identifier.
     member _.Id =
         id
 
+    /// The number of messages currently buffered in this channel.
     member _.Count =
         valueQueue.Count
 
+    /// Returns an effect that writes a message to this channel, yielding the written message.
     member this.Write<'E> message : FIO<'A, 'E> =
         WriteChan(message, this)
 
+    /// Returns an effect that reads the next message from this channel, suspending the fiber until one is available.
     member this.Read<'E> () : FIO<'A, 'E> =
         ReadChan this
 
@@ -418,6 +463,7 @@ and [<Sealed; AllowNullLiteral>] Channel<'A> private
     member internal _.Upcast () =
         initIfNull &upcastChannel (fun () -> Channel<obj>(id, valueQueue, blockingSlot))
 
+/// A lazy, type-safe description of an effect that, when run, either succeeds with a value or fails with a typed error.
 and FIO<'A, 'E> =
     internal
     | Success of value: 'A
@@ -436,43 +482,53 @@ and FIO<'A, 'E> =
     | FiberCancellationToken
     | Suspend of thunk: (unit -> FIO<'A, 'E>)
 
+    /// Returns an effect that passes this effect's success value into the given function.
     member this.FlatMap<'A1> (cont: 'A -> FIO<'A1, 'E>) : FIO<'A1, 'E> =
         ChainSuccess(this.UpcastResult(), fun value -> cont (value :?> 'A))
 
+    /// Returns an effect that recovers from this effect's error with the given handler.
     member this.CatchAll<'E1> (onError: 'E -> FIO<'A, 'E1>) : FIO<'A, 'E1> =
         ChainError(this.UpcastError(), fun error -> onError (error :?> 'E))
 
+    /// Returns an effect that runs the given finalizer after this effect on success, failure, and interruption alike.
     member this.Ensuring (finalizer: FIO<unit, 'E>) : FIO<'A, 'E> =
         OnFinalize(this, finalizer.UpcastBoth())
 
+    /// Returns an effect that runs this effect on a new fiber, yielding the fiber's handle.
     member this.Fork<'E1> () : FIO<Fiber<'A, 'E>, 'E1> =
         let fiber = new Fiber<'A, 'E>()
         ForkEffect(this.UpcastBoth(), fiber, fiber.Context)
 
+    /// Returns an effect that applies the given function to this effect's success value.
     member this.Map<'A1> (mapper: 'A -> 'A1) : FIO<'A1, 'E> =
         this.FlatMap <| fun value -> Success (mapper value)
 
+    /// Returns an effect that applies the given function to this effect's error.
     member this.MapError<'E1> (mapper: 'E -> 'E1) : FIO<'A, 'E1> =
         this.CatchAll <| fun error -> Failure (mapper error)
 
+    /// Returns an effect that maps this effect's success value and error with the two given functions.
     member this.MapBoth<'A1, 'E1> (successMapper: 'A -> 'A1) (errorMapper: 'E -> 'E1) : FIO<'A1, 'E1> =
         ChainBoth(
             this.UpcastBoth(),
             (fun value -> Success (successMapper (value :?> 'A))),
             (fun error -> Failure (errorMapper (error :?> 'E))))
 
+    /// Returns an effect that always succeeds, capturing this effect's outcome as a Result.
     member this.Result<'E1> () : FIO<Result<'A, 'E>, 'E1> =
         ChainBoth(
             this.UpcastBoth(),
             (fun value -> Success (Ok (value :?> 'A))),
             (fun error -> Success (Error (error :?> 'E))))
 
+    /// Returns an effect that always succeeds, yielding Some on success and None on failure.
     member this.Option<'E1> () : FIO<'A option, 'E1> =
         ChainBoth(
             this.UpcastBoth(),
             (fun value -> Success (Some (value :?> 'A))),
             (fun _ -> Success (None : 'A option)))
 
+    /// Returns an effect that always succeeds, capturing this effect's outcome as a Choice.
     member this.Choice<'E1> () : FIO<Choice<'A, 'E>, 'E1> =
         ChainBoth(
             this.UpcastBoth(),

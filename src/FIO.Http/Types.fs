@@ -39,15 +39,25 @@ module internal HeaderHelpers =
     let contains (name: string) (map: Map<string, string list>) =
         map |> Map.exists (fun key _ -> String.Equals(key, name, StringComparison.OrdinalIgnoreCase))
 
+/// An error produced by the HTTP server or a route handler.
 type HttpError =
+    /// The request did not match any registered route.
     | InvalidRoute of pattern: string
+    /// Parsing the request failed.
     | ParsingFailed of message: string * exn
+    /// A route handler raised an exception.
     | HandlerFailed of path: string * exn
+    /// A middleware raised an exception.
     | MiddlewareFailed of name: string * exn
+    /// The server failed to start or run.
     | ServerFailed of exn
+    /// Reading the request body failed.
     | BodyReadFailed of exn
+    /// JSON serialization or deserialization failed.
     | JsonFailed of exn
+    /// The request timed out.
     | TimeoutError of message: string
+    /// An otherwise-unclassified error.
     | GeneralError of exn
 
     override this.ToString () =
@@ -65,14 +75,17 @@ type HttpError =
 [<RequireQualifiedAccess>]
 module HttpError =
 
+    /// Wraps an exception as a general HTTP error.
     let fromException (exn: exn) =
         GeneralError exn
 
+    /// Converts an HTTP error back into an exception.
     let toException (error: HttpError) =
         match error with
         | GeneralError exn -> exn
         | _ -> Exception <| error.ToString()
 
+/// An HTTP request method.
 [<RequireQualifiedAccess>]
 type HttpMethod =
     | GET
@@ -102,6 +115,7 @@ type HttpMethod =
 [<RequireQualifiedAccess>]
 module HttpMethod =
 
+    /// Parses an HTTP method from a string, treating unknown values as Custom.
     let fromString (str: string) =
         match str.ToUpperInvariant() with
         | "GET" -> HttpMethod.GET
@@ -115,6 +129,7 @@ module HttpMethod =
         | "CONNECT" -> HttpMethod.CONNECT
         | str -> HttpMethod.Custom str
 
+/// An HTTP response status code.
 [<RequireQualifiedAccess>]
 type HttpStatusCode =
     | Continue = 100
@@ -179,32 +194,45 @@ type HttpStatusCode =
     | NotExtended = 510
     | NetworkAuthenticationRequired = 511
 
+/// The body of an HTTP request.
 [<RequireQualifiedAccess>]
 type RequestBody =
+    /// No body.
     | Empty
+    /// A raw byte body.
     | Bytes of byte[]
+    /// A text body.
     | Text of string
 
+    /// Returns the body as a byte array.
     member this.AsBytes () =
         match this with
         | Empty -> Array.empty
         | Bytes bytes -> bytes
         | Text text -> Encoding.UTF8.GetBytes text
 
+    /// Returns the body as a string.
     member this.AsString () =
         match this with
         | Empty -> ""
         | Text text -> text
         | Bytes bytes -> Encoding.UTF8.GetString bytes
 
+/// The body of an HTTP response.
 [<RequireQualifiedAccess>]
 type ResponseBody =
+    /// No body.
     | Empty
+    /// A streamed body, with an optional known length.
     | Stream of stream: Stream * length: int64 option
+    /// A raw byte body.
     | Bytes of byte[]
+    /// A text body.
     | Text of string
+    /// A value to be serialized as JSON.
     | Json of obj
 
+    /// The body's content length in bytes, if known.
     member this.ContentLength =
         match this with
         | Empty -> Some 0L
@@ -213,20 +241,29 @@ type ResponseBody =
         | Stream(_, length) -> length
         | Json _ -> None
 
+/// An incoming HTTP request.
 type HttpRequest =
     {
+        /// The request method.
         Method: HttpMethod
+        /// The request path.
         Path: string
+        /// The path split into non-empty segments.
         PathSegments: string list
+        /// Query-string parameters, each mapping to its values.
         QueryParams: Map<string, string list>
+        /// Request headers, each mapping to its values.
         Headers: Map<string, string list>
+        /// The request body.
         Body: RequestBody
+        /// Arbitrary per-request metadata.
         Metadata: Map<string, obj>
     }
 
 [<RequireQualifiedAccess>]
 module HttpRequest =
 
+    /// Creates a request with the given method and path.
     let create method (path: string) =
         {
             Method = method
@@ -238,6 +275,7 @@ module HttpRequest =
             Metadata = Map.empty
         }
 
+    /// Adds a query parameter value to a request.
     let withQueryParam name value request =
         let values =
             request.QueryParams
@@ -248,6 +286,7 @@ module HttpRequest =
             QueryParams = Map.add name values request.QueryParams
         }
 
+    /// Adds a header value to a request.
     let withHeader name value request =
         if not (HeaderHelpers.isValidHeaderName name) then
             invalidArg
@@ -262,28 +301,34 @@ module HttpRequest =
             Headers = Map.add name values request.Headers
         }
 
+    /// Sets a request's body.
     let withBody body request =
         { request with Body = body }
 
+    /// Attaches a metadata value to a request.
     let withMetadata key value request =
         { request with
             Metadata = Map.add key value request.Metadata
         }
 
+    /// Returns the first value of a query parameter, if present.
     let queryParam name request =
         request.QueryParams
         |> Map.tryFind name
         |> Option.bind List.tryHead
 
+    /// Returns all values of a query parameter.
     let queryParams name request =
         request.QueryParams
         |> Map.tryFind name
         |> Option.defaultValue []
 
+    /// Returns the first value of a header, if present.
     let header name request =
         HeaderHelpers.tryFind name request.Headers
         |> Option.bind List.tryHead
 
+    /// Returns all values of a header.
     let headers name request =
         HeaderHelpers.tryFind name request.Headers
         |> Option.defaultValue []
@@ -302,6 +347,7 @@ module HttpRequest =
             |> Option.defaultValue Encoding.UTF8
         | None -> Encoding.UTF8
 
+    /// Returns the request body decoded as text.
     let bodyText (request: HttpRequest) =
         match request.Body with
         | RequestBody.Empty -> ""
@@ -310,6 +356,7 @@ module HttpRequest =
             let encoding = encodingFromContentType (header "Content-Type" request)
             encoding.GetString bytes
 
+    /// Returns a typed metadata value, if present and of the expected type.
     let metadata<'A> key request =
         request.Metadata
         |> Map.tryFind key
@@ -318,19 +365,25 @@ module HttpRequest =
             | :? 'A as value -> Some value
             | _ -> None)
 
+/// An outgoing HTTP response.
 type HttpResponse =
     {
+        /// The response status code.
         Status: HttpStatusCode
+        /// Response headers, each mapping to its values.
         Headers: Map<string, string list>
+        /// The response body.
         Body: ResponseBody
     }
 
 [<RequireQualifiedAccess>]
 module HttpResponse =
 
+    /// Creates a response with the given status and an empty body.
     let create status =
         { Status = status; Headers = Map.empty; Body = ResponseBody.Empty }
 
+    /// Adds a header value to a response.
     let withHeader name value response =
         if not (HeaderHelpers.isValidHeaderName name) then
             invalidArg
@@ -345,16 +398,20 @@ module HttpResponse =
             Headers = Map.add name values response.Headers
         }
 
+    /// Sets a response's body.
     let withBody (body: ResponseBody) (response: HttpResponse) =
         { response with Body = body }
 
+    /// Sets a response's status code.
     let withStatus status response =
         { response with Status = status }
 
+    /// Returns the first value of a header, if present.
     let header name response =
         HeaderHelpers.tryFind name response.Headers
         |> Option.bind List.tryHead
 
+    /// Returns all values of a header.
     let headers name response =
         HeaderHelpers.tryFind name response.Headers
         |> Option.defaultValue []

@@ -1,4 +1,3 @@
-/// <summary>Provides tests that verify FIO.WebSockets cooperates with fiber cancellation through the running fiber's CancellationToken.</summary>
 module FIO.WebSockets.Tests.CancellationTests
 
 open FIO.WebSockets.Tests.Utilities
@@ -7,16 +6,14 @@ open FIO.DSL
 open FIO.WebSockets
 
 open System
-open System.Diagnostics
 open System.Threading
+open System.Diagnostics
 
 open Expecto
 
-/// <summary>Returns a sleep effect that maps any exception to the supplied WsError, so it can sit inside fio { } blocks.</summary>
 let private sleepMs (ms: float) =
     FIO.sleep (TimeSpan.FromMilliseconds ms) WsError.fromException
 
-/// <summary>Polls the fiber state until it terminates or the timeout elapses, returning whether it terminated within the budget.</summary>
 let private waitForTerminal (fiber: Fiber<'A, 'E>) (budgetMs: int) =
     fio {
         let stopwatch = Stopwatch.StartNew()

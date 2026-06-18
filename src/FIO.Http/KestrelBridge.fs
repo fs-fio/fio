@@ -14,6 +14,7 @@ open Microsoft.AspNetCore.Http
 [<RequireQualifiedAccess>]
 module KestrelBridge =
 
+    /// The default JSON serializer options (camelCase).
     let defaultJsonOptions =
         let options =
             JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
@@ -29,6 +30,7 @@ module KestrelBridge =
             || segment.Contains '\\'
         )
 
+    /// Converts a Kestrel HttpContext into an HttpRequest, enforcing the maximum body size.
     let convertRequestAsync (ctx: HttpContext) (maxBodySize: int64) =
         task {
             if
@@ -165,6 +167,7 @@ module KestrelBridge =
                             }
         }
 
+    /// Writes an HttpResponse to the Kestrel context using the given JSON options.
     let writeResponseWithOptions
         (jsonOptions: JsonSerializerOptions)
         (ctx: HttpContext)
@@ -234,6 +237,7 @@ module KestrelBridge =
                 streamToDispose |> Option.iter (fun stream -> stream.Dispose())
         }
 
+    /// Writes an HttpResponse to the Kestrel context, using the given JSON options or the defaults.
     let writeResponseWith
         (jsonOptions: JsonSerializerOptions option)
         (ctx: HttpContext)
@@ -242,6 +246,7 @@ module KestrelBridge =
         | Some options -> writeResponseWithOptions options ctx response
         | None -> writeResponseWithOptions defaultJsonOptions ctx response
 
+    /// Writes an HttpResponse to the Kestrel context using the default JSON options.
     let writeResponse (ctx: HttpContext) (response: FIO.Http.HttpResponse) =
         writeResponseWith None ctx response
 
@@ -262,6 +267,7 @@ module KestrelBridge =
 
         Console.Error.WriteLine(builder.ToString())
 
+    /// Handles a Kestrel request end-to-end with the given runtime, routes, body limit, and JSON options.
     let handleRequestWithOptions
         (runtime: FIO.Runtime.Default.DefaultRuntime)
         (routes: Routes<exn>)
@@ -299,6 +305,7 @@ module KestrelBridge =
                 do! writeStatusBody 500 "Internal Server Error"
         }
 
+    /// Handles a Kestrel request end-to-end, using the given JSON options or the defaults.
     let handleRequestWith
         (runtime: FIO.Runtime.Default.DefaultRuntime)
         (routes: Routes<exn>)
@@ -309,6 +316,7 @@ module KestrelBridge =
         | Some options -> handleRequestWithOptions runtime routes maxBodySize options ctx
         | None -> handleRequestWithOptions runtime routes maxBodySize defaultJsonOptions ctx
 
+    /// Handles a Kestrel request end-to-end using the default JSON options.
     let handleRequest
         (runtime: FIO.Runtime.Default.DefaultRuntime)
         (routes: Routes<exn>)

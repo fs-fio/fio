@@ -1,4 +1,3 @@
-/// <summary>Provides tests for WebSocket codec encode and decode operations.</summary>
 module FIO.WebSockets.Tests.CodecTests
 
 open FIO.WebSockets.Tests.Utilities
@@ -6,13 +5,12 @@ open FIO.WebSockets.Tests.Utilities.FsCheckProperties
 
 open FIO.DSL
 open FIO.Runtime
+open FIO.WebSockets
 
-open System.Net.WebSockets
 open System.Text.Json
+open System.Net.WebSockets
 
 open Expecto
-
-open FIO.WebSockets
 
 [<Tests>]
 let codecTests =

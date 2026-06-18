@@ -1,4 +1,3 @@
-/// <summary>Provides property-based tests for FIO effect factory functions such as attempt, fromResult, fromOption, and sleep.</summary>
 module FIO.Tests.FactoryTests
 
 open FIO.Tests.Utilities.FsCheckProperties
@@ -6,8 +5,8 @@ open FIO.Tests.Utilities.FsCheckProperties
 open FIO.DSL
 open FIO.Runtime
 open FIO.Runtime.Direct
-open FIO.Runtime.Cooperative
-open FIO.Runtime.Concurrent
+open FIO.Runtime.Polling
+open FIO.Runtime.Signaling
 
 open Expecto
 open FsCheck
@@ -20,8 +19,8 @@ open System.Threading.Tasks
 let private runtimes () =
     [
         new DirectRuntime() :> FIORuntime
-        new CooperativeRuntime() :> FIORuntime
-        new ConcurrentRuntime() :> FIORuntime
+        new PollingRuntime() :> FIORuntime
+        new SignalingRuntime() :> FIORuntime
     ]
 
 let private testAllRuntimes name (f: FIORuntime -> unit) =
@@ -420,7 +419,7 @@ let factoryTests =
                                     executed <- true
                                     Task.CompletedTask)
                                 id
-                        
+
                         let! result = fiber.Join()
                         return executed, result
                     }
@@ -610,7 +609,7 @@ let factoryTests =
 
             testCase "async - delayed callback completes correctly"
             <| fun () ->
-                let runtime: FIORuntime = new ConcurrentRuntime() :> FIORuntime
+                let runtime: FIORuntime = new SignalingRuntime() :> FIORuntime
                 let effect =
                     FIO.async (fun cb ->
                         let _ = Task.Run(fun () ->
@@ -625,7 +624,7 @@ let factoryTests =
 
             testCase "async - subsequent callback invocations are ignored"
             <| fun () ->
-                let runtime: FIORuntime = new ConcurrentRuntime() :> FIORuntime
+                let runtime: FIORuntime = new SignalingRuntime() :> FIORuntime
                 let effect =
                     FIO.async (fun cb ->
                         cb (Ok 1)
@@ -820,7 +819,7 @@ let factoryTests =
                         acquire1
                         release1
                         (fun _ -> FIO.acquireReleaseWith acquire2 release2 (fun _ -> FIO.succeed 42))
-                    
+
                 let _ =
                     runtime.Run(effect).UnsafeSuccess()
                 Expect.equal releaseOrder [ 2; 1 ] "Nested resources should release in reverse order"
@@ -917,7 +916,7 @@ let factoryTests =
 
                 let f i =
                     (FIO.attempt
-                        (fun () -> 
+                        (fun () ->
                             Interlocked.Increment(&callCount) |> ignore)
                         (fun ex -> ex.Message)
                     ).FlatMap(fun () ->
@@ -970,7 +969,7 @@ let factoryTests =
 
                 let result =
                     runtime.Run(effect).UnsafeSuccess()
-            
+
                 Expect.equal result xs "forEachPar should preserve input order"
 
             testCase "forEachPar - fails with one of the errors and interrupts peers"
@@ -1062,10 +1061,10 @@ let factoryTests =
                 let effects = xs |> List.map FIO.succeed
 
                 let effect = FIO.collectAllParDiscard effects
-                
+
                 let result =
                     runtime.Run(effect).UnsafeSuccess()
-                
+
                 Expect.equal result () "collectAllParDiscard should complete with unit"
 
             // ─── Repetition ─────────────────────────────────────────
@@ -1073,10 +1072,10 @@ let factoryTests =
             testPropertyWithConfig fsCheckConfig "replicateFIO - zero iterations yields empty list"
             <| fun (runtime: FIORuntime) ->
                 let effect = FIO.replicateFIO 0 (FIO.succeed 42)
-                
+
                 let result =
                     runtime.Run(effect).UnsafeSuccess()
-                
+
                 Expect.equal result [] "replicateFIO 0 should yield []"
 
             testPropertyWithConfig fsCheckConfig "replicateFIO - negative iterations clamp to empty list"
@@ -1085,7 +1084,7 @@ let factoryTests =
 
                 let effect =
                     FIO.attempt
-                        (fun () -> 
+                        (fun () ->
                             Interlocked.Increment(&callCount) |> ignore)
                         id
 
@@ -1102,7 +1101,7 @@ let factoryTests =
 
                 let result =
                     runtime.Run(effect).UnsafeSuccess()
-                
+
                 Expect.equal result (List.replicate n 7) "replicateFIO should yield n copies of the result"
 
             testPropertyWithConfig fsCheckConfig "replicateFIO - short-circuits on first failure"
@@ -1127,10 +1126,10 @@ let factoryTests =
             <| fun () ->
                 for runtime in runtimes () do
                     let effect = FIO.replicateFIO 10000 (FIO.unit ())
-                    
+
                     let result =
                         runtime.Run(effect).UnsafeSuccess()
-                    
+
                     Expect.equal (List.length result) 10000 $"replicateFIO on {runtime.GetType().Name} should handle 10000 iterations"
 
             testPropertyWithConfig fsCheckConfig "replicateFIODiscard - zero iterations yields unit"
@@ -1139,7 +1138,7 @@ let factoryTests =
 
                 let result =
                     runtime.Run(effect).UnsafeSuccess()
-                
+
                 Expect.equal result () "replicateFIODiscard 0 should yield ()"
 
             testPropertyWithConfig fsCheckConfig "replicateFIODiscard - negative iterations clamp to unit"
@@ -1147,7 +1146,7 @@ let factoryTests =
                 let mutable callCount = 0
                 let effect =
                     FIO.attempt
-                        (fun () -> 
+                        (fun () ->
                             Interlocked.Increment(&callCount) |> ignore)
                         id
 
@@ -1164,7 +1163,7 @@ let factoryTests =
 
                 let effect =
                     FIO.attempt
-                        (fun () -> 
+                        (fun () ->
                             Interlocked.Increment(&callCount) |> ignore)
                         id
 
@@ -1178,7 +1177,7 @@ let factoryTests =
                 let mutable callCount = 0
                 let effect =
                     (FIO.attempt
-                        (fun () -> 
+                        (fun () ->
                             Interlocked.Increment(&callCount))
                         (fun ex -> ex.Message)
                     ).FlatMap(fun count ->
@@ -1212,7 +1211,7 @@ let factoryTests =
                             Interlocked.Increment(&callCount) |> ignore
                             s)
                         id
-                    
+
                 let result =
                     runtime.Run(FIO.loop 0 (fun _ -> false) ((+) 1) body).UnsafeSuccess()
 
@@ -1223,10 +1222,10 @@ let factoryTests =
             <| fun (runtime: FIORuntime) ->
                 let effect =
                     FIO.loop 0 (fun s -> s < 5) ((+) 1) (fun s -> FIO.succeed (s * 2))
-                
+
                 let result =
                     runtime.Run(effect).UnsafeSuccess()
-                
+
                 Expect.equal result [ 0; 2; 4; 6; 8 ] "loop should collect body results in iteration order"
 
             testPropertyWithConfig fsCheckConfig "loop - short-circuits on first failure"
@@ -1263,10 +1262,10 @@ let factoryTests =
                 let mutable callCount = 0
                 let body _ =
                     FIO.attempt
-                        (fun () -> 
+                        (fun () ->
                             Interlocked.Increment(&callCount) |> ignore)
                         id
-                    
+
                 let result =
                     runtime.Run(FIO.loopDiscard 0 (fun _ -> false) ((+) 1) body).UnsafeSuccess()
 
@@ -1279,7 +1278,7 @@ let factoryTests =
                 let mutable callCount = 0
                 let body _ =
                     FIO.attempt
-                        (fun () -> 
+                        (fun () ->
                             Interlocked.Increment(&callCount) |> ignore)
                         id
 
@@ -1386,7 +1385,7 @@ let factoryTests =
             <| fun (runtime: FIORuntime, xs: int list) ->
                 let effects = xs |> List.map FIO.succeed
                 let effect = FIO.mergeAll effects 0 (+)
-                
+
                 let result =
                     runtime.Run(effect).UnsafeSuccess()
 
@@ -1425,10 +1424,10 @@ let factoryTests =
             testPropertyWithConfig fsCheckConfig "mergeAllPar - empty input yields zero"
             <| fun (runtime: FIORuntime, zero: int) ->
                 let effect = FIO.mergeAllPar [] zero (+)
-                
+
                 let result =
                     runtime.Run(effect).UnsafeSuccess()
-                
+
                 Expect.equal result zero "mergeAllPar over an empty seq should yield zero"
 
             testPropertyWithConfig fsCheckConfig "mergeAllPar - folds successful results in source order"
@@ -1648,7 +1647,7 @@ let factoryTests =
                         ).FlatMap(fun () ->
                             if i = 0 then FIO.fail "boom"
                             else FIO.succeed i)
-                    
+
                     let effect = FIO.partitionPar [ 0 .. n - 1 ] f
 
                     let errs, oks =
@@ -1839,10 +1838,10 @@ let factoryTests =
             testPropertyWithConfig fsCheckConfig "ifFIO - true predicate runs onTrue branch"
             <| fun (runtime: FIORuntime, x: int, y: int) ->
                 let effect = FIO.ifFIO (FIO.succeed true) (FIO.succeed x) (FIO.succeed y)
-                
+
                 let result =
                     runtime.Run(effect).UnsafeSuccess()
-                
+
                 Expect.equal result x "ifFIO with true predicate should yield onTrue's result"
 
             testPropertyWithConfig fsCheckConfig "ifFIO - false predicate runs onFalse branch"
@@ -2053,7 +2052,7 @@ let factoryTests =
 
             testCase "firstSuccessOf - only evaluates effects up to the first success"
             <| fun () ->
-                let runtime: FIORuntime = new ConcurrentRuntime() :> FIORuntime
+                let runtime: FIORuntime = new SignalingRuntime() :> FIORuntime
                 let mutable evaluated = 0
                 let bump effect =
                     FIO.suspend (fun () ->

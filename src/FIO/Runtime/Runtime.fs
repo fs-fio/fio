@@ -93,18 +93,23 @@ type internal WorkItemPool private () =
             workItem.InterruptionSuppressed <- 0
             pool.Push workItem
 
+/// Base class for a FIO runtime that runs effects into fibers.
 [<AbstractClass>]
 type FIORuntime internal () =
 
+    /// The runtime's name.
     abstract member Name: string
 
+    /// A display string describing the runtime and its configuration.
     abstract member ConfigString: string
 
     default this.ConfigString =
         this.Name
 
+    /// Runs the given effect, returning a fiber for its eventual result.
     abstract member Run<'A, 'E> : FIO<'A, 'E> -> Fiber<'A, 'E>
 
+    /// Returns a filesystem-safe form of this runtime's configuration string.
     member this.ToFileString () =
         this.ToString()
             .ToLowerInvariant()
@@ -116,13 +121,18 @@ type FIORuntime internal () =
     override this.ToString () =
         this.ConfigString
 
+/// Worker counts and scheduling parameters for a worker-based runtime.
 type WorkerConfig =
     {
+        /// Number of workers that evaluate effects.
         EvaluationWorkers: int
+        /// Number of evaluation steps a work item runs before being rescheduled.
         EvaluationSteps: int
+        /// Number of workers that handle blocking operations.
         BlockingWorkers: int
     }
 
+    /// The default configuration, sized to the current machine.
     static member Default =
         {
             EvaluationWorkers = WorkerRuntimeDefaults.ComputeEvaluationWorkerCount()

@@ -7,9 +7,12 @@ open System.Net
 open System.Text
 open System.Text.Json
 
+/// Encodes and decodes values of a given type to and from bytes for transmission over a socket.
 type SocketCodec<'A> =
     {
+        /// Encodes a value into bytes.
         Encode: 'A -> FIO<byte[], SocketError>
+        /// Decodes a value from bytes.
         Decode: byte[] -> FIO<'A, SocketError>
     }
 
@@ -22,12 +25,14 @@ module Codec =
     let private readLengthPrefix (bytes: byte[]) (offset: int) =
         IPAddress.NetworkToHostOrder(BitConverter.ToInt32(bytes, offset))
 
+    /// A codec that passes raw bytes through unchanged.
     let bytes =
         {
             Encode = fun bytes -> FIO.succeed bytes
             Decode = fun bytes -> FIO.succeed bytes
         }
 
+    /// A codec for UTF-8 encoded strings.
     let string: SocketCodec<string> =
         {
             Encode = fun str ->
@@ -40,6 +45,7 @@ module Codec =
                     (fun ex -> CodecError("UTF-8 decoding failed", ex))
         }
 
+    /// A codec for newline-terminated UTF-8 strings.
     let line =
         {
             Encode = fun str ->
@@ -54,6 +60,7 @@ module Codec =
                 }
         }
 
+    /// Creates a JSON codec using the given serializer options.
     let jsonWithOptions<'A> (options: JsonSerializerOptions) =
         {
             Encode = fun value ->
@@ -70,8 +77,10 @@ module Codec =
                     (fun ex -> CodecError("JSON decoding failed", ex))
         }
 
+    /// A JSON codec using default serializer options.
     let json<'A> = jsonWithOptions<'A> (JsonSerializerOptions())
 
+    /// A newline-terminated JSON codec, optionally using the given serializer options.
     let jsonLine<'A> options =
         let opts = defaultArg options (JsonSerializerOptions())
         {
@@ -89,6 +98,7 @@ module Codec =
                     (fun ex -> CodecError("JSON line decoding failed", ex))
         }
 
+    /// Adapts a codec to a new type using forward and backward conversions.
     let map (forward: 'A -> 'A1) (backward: 'A1 -> 'A) (codec: SocketCodec<'A>) =
         {
             Encode = fun value -> codec.Encode(backward value)
@@ -99,6 +109,7 @@ module Codec =
                 }
         }
 
+    /// Combines two codecs into a length-prefixed codec for pairs of values.
     let compose (codec: SocketCodec<'A>) (codec': SocketCodec<'A1>) =
         {
             Encode = fun (first, second) ->
@@ -148,6 +159,7 @@ module Codec =
                 }
         }
 
+    /// Wraps a codec so each message is framed with a 4-byte length prefix.
     let lengthPrefixed<'A> (innerCodec: SocketCodec<'A>) =
         {
             Encode = fun value ->
@@ -176,9 +188,11 @@ module Codec =
                 }
         }
 
+    /// Creates a codec from effectful encode and decode functions.
     let create (encode: 'A -> FIO<byte[], SocketError>) (decode: byte[] -> FIO<'A, SocketError>) =
         { Encode = encode; Decode = decode }
 
+    /// Creates a codec from pure encode and decode functions, mapping thrown exceptions to codec errors.
     let createPure (encode: 'A -> byte[]) (decode: byte[] -> 'A) =
         {
             Encode = fun value ->

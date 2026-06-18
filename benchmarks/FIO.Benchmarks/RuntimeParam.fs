@@ -4,13 +4,13 @@ module internal FIO.Benchmarks.RuntimeParam
 open FIO.DSL
 open FIO.Runtime
 open FIO.Runtime.Direct
-open FIO.Runtime.Cooperative
-open FIO.Runtime.Concurrent
+open FIO.Runtime.Polling
+open FIO.Runtime.Signaling
 
 open System
 
 let private defaultRuntimes =
-    [| "Direct"; "Cooperative-12-200-1"; "Concurrent-12-200-1" |]
+    [| "Direct"; "Polling-12-200-1"; "Signaling-12-200-1" |]
 
 let private parseWorker (spec: string) (part: string) =
     match Int32.TryParse part with
@@ -21,15 +21,15 @@ let private parseWorker (spec: string) (part: string) =
 let create (spec: string) : FIORuntime =
     match spec.Split '-' with
     | [| "Direct" |] -> new DirectRuntime()
-    | [| "Cooperative"; ewc; ews; bwc |] ->
-        new CooperativeRuntime
+    | [| "Polling"; ewc; ews; bwc |] ->
+        new PollingRuntime
             {
                 EvaluationWorkers = parseWorker spec ewc
                 EvaluationSteps = parseWorker spec ews
                 BlockingWorkers = parseWorker spec bwc
             }
-    | [| "Concurrent"; ewc; ews; bwc |] ->
-        new ConcurrentRuntime
+    | [| "Signaling"; ewc; ews; bwc |] ->
+        new SignalingRuntime
             {
                 EvaluationWorkers = parseWorker spec ewc
                 EvaluationSteps = parseWorker spec ews

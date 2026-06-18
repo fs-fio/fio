@@ -1,4 +1,3 @@
-/// <summary>Provides tests for socket domain types and error representations.</summary>
 module FIO.Sockets.Tests.TypesTests
 
 open FIO.Sockets.Tests.Utilities

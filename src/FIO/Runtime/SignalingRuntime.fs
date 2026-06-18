@@ -1,4 +1,4 @@
-module FIO.Runtime.Concurrent
+module FIO.Runtime.Signaling
 
 open FIO.DSL
 open FIO.Runtime.InterpreterCore
@@ -8,7 +8,7 @@ open System.Threading.Tasks
 
 type private EvaluationWorkerConfig =
     {
-        Runtime: ConcurrentRuntime
+        Runtime: SignalingRuntime
         ActiveWorkItemQueue: MailboxQueue<WorkItem>
         BlockingWorker: BlockingWorker
         EvaluationSteps: int
@@ -102,7 +102,8 @@ and private BlockingWorker(config: BlockingWorkerConfig, workerId: int) =
             cancelSource.Cancel()
             cancelSource.Dispose()
 
-and ConcurrentRuntime(config: WorkerConfig) as this =
+/// A multi-threaded, event-driven runtime with custom fibers and constant-time handling of blocked fibers. The default runtime.
+and SignalingRuntime(config: WorkerConfig) as this =
     inherit FIOWorkerRuntime(config)
 
     let activeWorkItemQueue = MailboxQueue<WorkItem>()
@@ -146,7 +147,7 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
                 ))
 
     override _.Name =
-        "ConcurrentRuntime"
+        "SignalingRuntime"
 
     interface IDisposable with
 
@@ -154,7 +155,8 @@ and ConcurrentRuntime(config: WorkerConfig) as this =
             blockingWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
             evaluationWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
 
-    new() = new ConcurrentRuntime(WorkerConfig.Default)
+    /// Creates the runtime with the default worker configuration.
+    new() = new SignalingRuntime(WorkerConfig.Default)
 
     [<TailCall>]
     member internal _.InterpretAsync

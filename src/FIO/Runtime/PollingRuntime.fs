@@ -1,4 +1,4 @@
-module FIO.Runtime.Cooperative
+module FIO.Runtime.Polling
 
 open FIO.DSL
 open FIO.Runtime.InterpreterCore
@@ -8,7 +8,7 @@ open System.Threading
 open System.Threading.Tasks
 open System.Collections.Generic
 
-module private CooperativePolling =
+module private PollingTuning =
     let BatchSize = 256
     let PendingQueueCapacityMultiplier = 2
     let ChannelSpinWaitIterations = 256
@@ -16,16 +16,10 @@ module private CooperativePolling =
     let ChannelYieldMissThreshold = 65_536
     let FiberSpinWaitIterations = 128
     let FiberSpinMissThreshold = 512
-    let FiberYieldMissThreshold = 8_192
-    let FiberDelayStep1MissThreshold = 16_384
-    let FiberDelayStep2MissThreshold = 32_768
-    let FiberDelayStep1Ms = 1
-    let FiberDelayStep2Ms = 2
-    let FiberDelayStep3Ms = 4
 
 type private EvaluationWorkerConfig =
     {
-        Runtime: CooperativeRuntime
+        Runtime: PollingRuntime
         ActiveWorkItemQueue: MailboxQueue<WorkItem>
         BlockingWorker: BlockingWorker
         EvaluationSteps: int
@@ -82,10 +76,10 @@ and private EvaluationWorker(config: EvaluationWorkerConfig, workerId: int) =
 
 and internal BlockingWorker(config: BlockingWorkerConfig, workerId: int) =
 
-    let batchSize = CooperativePolling.BatchSize
+    let batchSize = PollingTuning.BatchSize
 
     let pendingQueueCapacity =
-        batchSize * CooperativePolling.PendingQueueCapacityMultiplier
+        batchSize * PollingTuning.PendingQueueCapacityMultiplier
 
     let mutable preferChannelFirst = true
 
@@ -141,27 +135,17 @@ and internal BlockingWorker(config: BlockingWorkerConfig, workerId: int) =
     let applyBackoff (maxChannelMiss: int, maxFiberMiss: int) =
         task {
             if maxChannelMiss > 0 then
-                if maxChannelMiss < CooperativePolling.ChannelSpinMissThreshold then
-                    Thread.SpinWait CooperativePolling.ChannelSpinWaitIterations
-                elif maxChannelMiss < CooperativePolling.ChannelYieldMissThreshold then
+                if maxChannelMiss < PollingTuning.ChannelSpinMissThreshold then
+                    Thread.SpinWait PollingTuning.ChannelSpinWaitIterations
+                elif maxChannelMiss < PollingTuning.ChannelYieldMissThreshold then
                     Thread.Yield() |> ignore
                 else
                     do! Task.Yield()
             elif maxFiberMiss > 0 then
-                if maxFiberMiss < CooperativePolling.FiberSpinMissThreshold then
-                    Thread.SpinWait CooperativePolling.FiberSpinWaitIterations
-                elif maxFiberMiss < CooperativePolling.FiberYieldMissThreshold then
-                    do! Task.Yield()
+                if maxFiberMiss < PollingTuning.FiberSpinMissThreshold then
+                    Thread.SpinWait PollingTuning.FiberSpinWaitIterations
                 else
-                    let delayMs =
-                        if maxFiberMiss < CooperativePolling.FiberDelayStep1MissThreshold then
-                            CooperativePolling.FiberDelayStep1Ms
-                        elif maxFiberMiss < CooperativePolling.FiberDelayStep2MissThreshold then
-                            CooperativePolling.FiberDelayStep2Ms
-                        else
-                            CooperativePolling.FiberDelayStep3Ms
-
-                    do! Task.Delay delayMs
+                    do! Task.Yield()
         }
 
     let processBatch () =
@@ -248,7 +232,8 @@ and internal BlockingWorker(config: BlockingWorkerConfig, workerId: int) =
     member internal _.RescheduleForBlocking blockingItem =
         config.BlockingEntryQueue.WriteAsync { Item = blockingItem; MissCount = 0 }
 
-and CooperativeRuntime(config: WorkerConfig) as this =
+/// A multi-threaded runtime with custom fibers and linear-time handling of blocked fibers (polling).
+and PollingRuntime(config: WorkerConfig) as this =
     inherit FIOWorkerRuntime(config)
 
     let activeWorkItemQueue = MailboxQueue<WorkItem>()
@@ -282,7 +267,7 @@ and CooperativeRuntime(config: WorkerConfig) as this =
                     i
                 ))
 
-    override _.Name = "CooperativeRuntime"
+    override _.Name = "PollingRuntime"
 
     interface IDisposable with
 
@@ -290,7 +275,8 @@ and CooperativeRuntime(config: WorkerConfig) as this =
             blockingWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
             evaluationWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
 
-    new() = new CooperativeRuntime(WorkerConfig.Default)
+    /// Creates the runtime with the default worker configuration.
+    new() = new PollingRuntime(WorkerConfig.Default)
 
     [<TailCall>]
     member internal _.InterpretAsync

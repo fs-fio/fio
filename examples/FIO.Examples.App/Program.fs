@@ -3,7 +3,7 @@ module private FIO.Examples.App
 open FIO.DSL
 open FIO.App
 open FIO.Console
-open FIO.Runtime.Concurrent
+open FIO.Runtime.Signaling
 
 open System
 open System.IO
@@ -442,7 +442,7 @@ type CustomRuntimeApp() =
     inherit FIOApp<unit, exn>()
 
     override _.runtime =
-        new ConcurrentRuntime {
+        new SignalingRuntime {
             EvaluationWorkers = Environment.ProcessorCount * 2
             EvaluationSteps = 500
             BlockingWorkers = 2
@@ -450,7 +450,7 @@ type CustomRuntimeApp() =
 
     override _.effect =
         fio {
-            do! Console.printLine "Running with custom ConcurrentRuntime configuration:" id
+            do! Console.printLine "Running with custom SignalingRuntime configuration:" id
             do! Console.printLine $" - Evaluation Workers: %d{Environment.ProcessorCount * 2}" id
             do! Console.printLine " - Evaluation Steps: 500" id
             do! Console.printLine " - Blocking Workers: 2" id

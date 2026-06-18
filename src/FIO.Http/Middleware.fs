@@ -4,20 +4,25 @@ open FIO.DSL
 
 open System
 
+/// A transformation applied to a route collection.
 type Middleware<'E> = Routes<'E> -> Routes<'E>
 
 [<RequireQualifiedAccess>]
 module Middleware =
 
+    /// Applies a middleware to a route collection.
     let apply (middleware: Middleware<'E>) (routes: Routes<'E>) =
         middleware routes
 
+    /// Composes two middlewares, running the inner one first.
     let compose (outer: Middleware<'E>) (inner: Middleware<'E>) =
         fun routes -> outer (inner routes)
 
+    /// Creates a middleware that transforms every handler in a route collection.
     let create (transform: HttpHandler<'E> -> HttpHandler<'E>) =
         fun routes -> Routes.transform transform routes
 
+    /// Creates a middleware that runs an effect before each handler.
     let before (effect: HttpRequest -> FIO<unit, 'E>) =
         create <| fun handler ->
             fun request ->
@@ -26,6 +31,7 @@ module Middleware =
                     return! handler request
                 }
 
+    /// Creates a middleware that runs an effect after each handler, given the request and response.
     let after (effect: HttpRequest -> HttpResponse -> FIO<unit, 'E>) =
         create <| fun handler ->
             fun request ->
@@ -35,9 +41,11 @@ module Middleware =
                     return response
                 }
 
+    /// Creates a middleware that wraps each handler with the given function.
     let wrap (wrapper: HttpHandler<'E> -> HttpHandler<'E>) =
         create wrapper
 
+    /// Creates a middleware that adds a header to every response.
     let addHeader (name: string) (value: string) =
         create <| fun handler ->
             fun request ->
@@ -46,6 +54,7 @@ module Middleware =
                     return HttpResponse.withHeader name value response
                 }
 
+    /// Creates a middleware that adds several headers to every response.
     let addHeaders (headers: (string * string) list) =
         create <| fun handler ->
             fun request ->
@@ -57,12 +66,15 @@ module Middleware =
                     return withHeaders
                 }
 
+    /// Creates a middleware that logs each request.
     let logging (logger: HttpRequest -> FIO<unit, 'E>) =
         before logger
 
+    /// Creates a middleware that logs each request and its response.
     let loggingFull (logger: HttpRequest -> HttpResponse -> FIO<unit, 'E>) =
         after logger
 
+    /// Creates a middleware that assigns a request id and echoes it in an X-Request-ID header.
     let requestId (generator: unit -> string) =
         create <| fun handler ->
             fun request ->
@@ -73,6 +85,7 @@ module Middleware =
                     return HttpResponse.withHeader "X-Request-ID" reqId response
                 }
 
+    /// Creates a middleware that fails over to 408 Request Timeout if a handler exceeds the duration.
     let timeout (duration: TimeSpan) (onError: exn -> 'E) =
         create <| fun handler ->
             fun request ->
@@ -80,6 +93,7 @@ module Middleware =
                 let timeoutEffect = (FIO.succeed Response.requestTimeout).Delay duration onError
                 handlerEffect.RaceFirst timeoutEffect
 
+    /// Creates a middleware that applies CORS headers and handles preflight requests.
     let cors
         (allowedOrigins: string list)
         (allowedMethods: string list)
@@ -125,6 +139,7 @@ module Middleware =
                         return withCors
                     }
 
+    /// Creates a middleware that enforces HTTP Basic authentication.
     let basicAuth (authenticate: string -> string -> FIO<bool, 'E>) =
         create <| fun handler ->
             fun request ->
@@ -155,6 +170,7 @@ module Middleware =
                     | _ -> return Response.unauthorizedWith "Basic realm=\"Protected\""
                 }
 
+    /// Creates a middleware that enforces Bearer-token authentication, attaching the authenticated user to the request.
     let bearerAuth (authenticate: string -> FIO<'A option, 'E>) =
         create <| fun handler ->
             fun request ->
@@ -175,6 +191,7 @@ module Middleware =
                     | _ -> return Response.unauthorized
                 }
 
+    /// Creates a middleware that converts handler errors into responses.
     let errorHandler (handleError: 'E -> HttpResponse) =
         create <| fun handler -> 
             fun request -> 
@@ -182,8 +199,10 @@ module Middleware =
 
 module MiddlewareOperators =
 
+    /// Applies a middleware to a route collection. Operator form of <c>Middleware.apply</c>.
     let (@@) (routes: Routes<'E>) (middleware: Middleware<'E>) =
         Middleware.apply middleware routes
 
+    /// Composes two middlewares. Operator form of <c>Middleware.compose</c>.
     let (+++) (middleware: Middleware<'E>) (middleware': Middleware<'E>) =
         Middleware.compose middleware middleware'

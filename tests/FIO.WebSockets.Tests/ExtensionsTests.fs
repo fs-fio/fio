@@ -1,4 +1,3 @@
-/// <summary>Provides tests for WebSocket extension methods.</summary>
 module FIO.WebSockets.Tests.ExtensionsTests
 
 open FIO.WebSockets.Tests.Utilities

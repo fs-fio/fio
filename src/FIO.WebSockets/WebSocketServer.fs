@@ -20,6 +20,7 @@ module WebSocketServer =
             return ()
         }
 
+    /// Starts an HTTP listener bound to the given URL prefix for accepting WebSocket connections.
     let start (url: string) =
         fio {
             let! listener =
@@ -35,14 +36,17 @@ module WebSocketServer =
             return listener
         }
 
+    /// Starts an HTTP listener bound to the given URL prefix. Alias for start.
     let startDefault (url: string) =
         start url
 
+    /// Stops a listener, gracefully completing in-flight requests.
     let close (listener: HttpListener) =
         FIO.attempt
             (fun () -> listener.Stop())
             WsError.fromException
 
+    /// Aborts a listener immediately, dropping in-flight requests.
     let abort (listener: HttpListener) =
         FIO.attempt
             (fun () -> listener.Abort())
@@ -89,6 +93,7 @@ module WebSocketServer =
                 return None
         }
 
+    /// Accepts the next WebSocket connection, optionally negotiating the given subprotocol.
     let accept (listener: HttpListener) (config: WebSocketConfig) (subProtocol: string option) =
         fio {
             match! tryAccept listener config subProtocol with
@@ -96,9 +101,11 @@ module WebSocketServer =
             | None -> return! FIO.fail (WsError.fromException <| Exception "Not a WebSocket request")
         }
 
+    /// Accepts the next WebSocket connection without negotiating a subprotocol.
     let acceptDefault (listener: HttpListener) (config: WebSocketConfig) =
         accept listener config None
 
+    /// Continuously accepts connections, forking the handler for each.
     let acceptLoop (listener: HttpListener) (config: WebSocketConfig) (handler: WebSocket -> FIO<unit, WsError>) =
         let handleConnection (ws: WebSocket) =
             (handler ws)
@@ -117,12 +124,14 @@ module WebSocketServer =
 
         step.Forever()
 
+    /// Starts a listener, accepts connections, and runs the handler for each until interrupted, then stops it.
     let serve (url: string) (config: WebSocketConfig) (handler: WebSocket -> FIO<unit, WsError>) =
         FIO.acquireReleaseWith
             (start url)
             (fun listener -> close listener)
             (fun listener -> acceptLoop listener config handler)
 
+    /// Serves a request/response protocol, decoding each request and encoding each reply with the given codecs.
     let serveWith<'A, 'A1>
         (url: string)
         (config: WebSocketConfig)

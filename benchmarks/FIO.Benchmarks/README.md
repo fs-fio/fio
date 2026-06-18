@@ -40,7 +40,7 @@ dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Fork*" -
 dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Fork*" --exporters GitHub
 ```
 
-The default run (no `--filter`) executes all 11 benchmarks × all parameter combinations × 3 runtimes × 30 iterations. This produces a comprehensive performance profile across Direct, Cooperative, and Concurrent runtimes.
+The default run (no `--filter`) executes all 11 benchmarks × all parameter combinations × 3 runtimes × 30 iterations. This produces a comprehensive performance profile across Direct, Polling, and Signaling runtimes.
 
 > Passing `--job` on the command line (e.g. `--job Dry` or `--job Short`) **overrides** the
 > env-var-configured job — only the CLI job runs. Omit `--job` to honor `FIO_BENCH_WARMUP` /
@@ -55,12 +55,12 @@ All parameters are configurable via environment variables. If unset, sensible de
 ### Runtimes
 
 ```bash
-FIO_BENCH_RUNTIMES="Direct,Concurrent-8-100-2"
+FIO_BENCH_RUNTIMES="Direct,Signaling-8-100-2"
 ```
 
-Default: `Direct,Cooperative-12-200-1,Concurrent-12-200-1`
+Default: `Direct,Polling-12-200-1,Signaling-12-200-1`
 
-Runtime spec format: `Direct` | `Cooperative-{EWC}-{EWS}-{BWC}` | `Concurrent-{EWC}-{EWS}-{BWC}`
+Runtime spec format: `Direct` | `Polling-{EWC}-{EWS}-{BWC}` | `Signaling-{EWC}-{EWS}-{BWC}`
 
 | Param | Meaning | Recommended |
 |-------|---------|-------------|
@@ -77,13 +77,13 @@ Runtime spec format: `Direct` | `Cooperative-{EWC}-{EWS}-{BWC}` | `Concurrent-{E
 
 | Cores | Recommended spec |
 |:-----:|-----------------|
-| 4 | `Concurrent-2-200-1` |
-| 8 | `Concurrent-6-200-1` |
-| 10 | `Concurrent-8-200-1` |
-| 14 | `Concurrent-12-200-1` |
-| 16 | `Concurrent-14-200-1` |
-| 32 | `Concurrent-30-200-1` |
-| 64 | `Concurrent-62-200-1` |
+| 4 | `Signaling-2-200-1` |
+| 8 | `Signaling-6-200-1` |
+| 10 | `Signaling-8-200-1` |
+| 14 | `Signaling-12-200-1` |
+| 16 | `Signaling-14-200-1` |
+| 32 | `Signaling-30-200-1` |
+| 64 | `Signaling-62-200-1` |
 
 ### Benchmark Parameters
 
@@ -116,7 +116,7 @@ Runtime spec format: `Direct` | `Cooperative-{EWC}-{EWS}-{BWC}` | `Concurrent-{E
 ### Full Example
 
 ```bash
-FIO_BENCH_RUNTIMES="Concurrent-12-200-1" FIO_BENCH_FORK_ACTORS="5000,25000" \
+FIO_BENCH_RUNTIMES="Signaling-12-200-1" FIO_BENCH_FORK_ACTORS="5000,25000" \
   dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Fork*"
 ```
 
@@ -124,7 +124,7 @@ FIO_BENCH_RUNTIMES="Concurrent-12-200-1" FIO_BENCH_FORK_ACTORS="5000,25000" \
 
 - **Runtime crossover:** at small parameter sizes `DirectRuntime` (built on .NET tasks) often
   *outperforms* the fiber runtimes, whose fixed scheduling overhead dominates when there is little work.
-  `CooperativeRuntime` / `ConcurrentRuntime` are designed to win at scale — compare runtimes at realistic
+  `PollingRuntime` / `SignalingRuntime` are designed to win at scale — compare runtimes at realistic
   (large) parameter sizes, not at smoke-test sizes.
 - **Direct + huge fork counts:** a large `FIO_BENCH_FORK_ACTORS` (e.g. `50000`) spawns one .NET task per
   actor under `Direct` and is correspondingly heavy on time/memory. Lower the count when profiling
@@ -132,7 +132,7 @@ FIO_BENCH_RUNTIMES="Concurrent-12-200-1" FIO_BENCH_FORK_ACTORS="5000,25000" \
 - **Allocations and boxing:** every benchmark except **Big** passes `int` messages, which the channel
   implementation boxes to `obj`. The `Allocated` column therefore includes per-message boxing as well as
   scheduling allocations; **Big** uses reference-typed messages and does not box.
-- **Reading the `Allocated` column for fiber runtimes:** `Cooperative` and `Concurrent` keep worker
+- **Reading the `Allocated` column for fiber runtimes:** `Polling` and `Signaling` keep worker
   threads alive continuously, and those workers perform small scheduler-housekeeping allocations
   proportional to *wall-clock time*, not to the workload. For short iterations this inflates the per-op
   `Allocated` number. The Job is configured with `MinIterationTime = 100ms` to dilute this noise, but

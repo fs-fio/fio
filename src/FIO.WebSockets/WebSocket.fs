@@ -9,6 +9,7 @@ open System.Threading
 open System.Net.WebSockets
 open System.Threading.Tasks
 
+/// An open WebSocket connection for sending and receiving typed messages.
 type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConfig) =
 
     let sendLock = new SemaphoreSlim(1, 1)
@@ -32,6 +33,7 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
     let awaitTask (task: Task<'A>) =
         FIO.awaitTask task WsError.fromException
 
+    /// Receives the next complete message, using the given cancellation token.
     member _.ReceiveMessage (cancelToken: CancellationToken) =
         fio {
             let! state = attempt <| fun () -> socket.State
@@ -128,12 +130,14 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
             return! (computation.CatchAll remapTimeout).Ensuring finalizer
         }
 
+    /// Receives the next complete message, using the fiber's cancellation token.
     member this.ReceiveMessage () =
         fio {
             let! cancelToken = FIO.cancellationToken ()
             return! this.ReceiveMessage cancelToken
         }
 
+    /// Sends a frame, using the given cancellation token.
     member _.SendFrame (frame: WebSocketFrame, cancelToken: CancellationToken) =
         fio {
             let! state = attempt <| fun () -> socket.State
@@ -218,42 +222,50 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
             return! (computation.CatchAll remapTimeout).Ensuring finalizer
         }
 
+    /// Sends a frame, using the fiber's cancellation token.
     member this.SendFrame (frame: WebSocketFrame) =
         fio {
             let! cancelToken = FIO.cancellationToken ()
             return! this.SendFrame(frame, cancelToken)
         }
 
+    /// Sends a text message, using the given cancellation token.
     member this.SendText (text: string, cancelToken: CancellationToken) =
         this.SendFrame(Text text, cancelToken)
 
+    /// Sends a text message, using the fiber's cancellation token.
     member this.SendText (text: string) =
         fio {
             let! cancelToken = FIO.cancellationToken ()
             return! this.SendText(text, cancelToken)
         }
 
+    /// Sends a binary message, using the given cancellation token.
     member this.SendBinary (data: byte[], cancelToken: CancellationToken) =
         this.SendFrame(Binary data, cancelToken)
 
+    /// Sends a binary message, using the fiber's cancellation token.
     member this.SendBinary (data: byte[]) =
         fio {
             let! cancelToken = FIO.cancellationToken ()
             return! this.SendBinary(data, cancelToken)
         }
 
+    /// Sends a value encoded with the given codec, using the given cancellation token.
     member this.Send<'A> (codec: WebSocketCodec<'A>, value: 'A, cancelToken: CancellationToken) =
         fio {
             let! frameResult = codec.Encode value
             do! this.SendFrame(frameResult, cancelToken)
         }
 
+    /// Sends a value encoded with the given codec, using the fiber's cancellation token.
     member this.Send<'A> (codec: WebSocketCodec<'A>, value: 'A) =
         fio {
             let! cancelToken = FIO.cancellationToken ()
             return! this.Send(codec, value, cancelToken)
         }
 
+    /// Receives and decodes a value with the given codec, using the given cancellation token.
     member this.Receive<'A> (codec: WebSocketCodec<'A>, cancelToken: CancellationToken) =
         fio {
             match! this.ReceiveMessage cancelToken with
@@ -264,12 +276,14 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
                     (Exception $"Connection closed. Status: {status}, Description: {desc}"))
         }
 
+    /// Receives and decodes a value with the given codec, using the fiber's cancellation token.
     member this.Receive<'A> (codec: WebSocketCodec<'A>) =
         fio {
             let! cancelToken = FIO.cancellationToken ()
             return! this.Receive(codec, cancelToken)
         }
 
+    /// Closes the connection with the given status and description, using the given cancellation token.
     member _.Close (closeStatus: WebSocketCloseStatus, statusDescription: string, cancelToken: CancellationToken) =
         fio {
             let! sendLockTask = attempt <| fun () ->
@@ -303,21 +317,25 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
             return! closeOp.Ensuring finalizer
         }
 
+    /// Closes the connection with the given status and description, using the fiber's cancellation token.
     member this.Close (closeStatus: WebSocketCloseStatus, statusDescription: string) =
         fio {
             let! cancelToken = FIO.cancellationToken ()
             return! this.Close(closeStatus, statusDescription, cancelToken)
         }
 
+    /// Closes the connection normally, using the given cancellation token.
     member this.Close (cancelToken: CancellationToken) =
         this.Close(WebSocketCloseStatus.NormalClosure, "Normal closure", cancelToken)
 
+    /// Closes the connection normally, using the fiber's cancellation token.
     member this.Close () =
         fio {
             let! cancelToken = FIO.cancellationToken ()
             return! this.Close cancelToken
         }
 
+    /// Closes the outgoing side of the connection with the given status, using the given cancellation token.
     member _.CloseOutput (closeStatus: WebSocketCloseStatus, statusDescription: string, cancelToken: CancellationToken) =
         fio {
             let! sendLockTask = attempt <| fun () ->
@@ -339,40 +357,48 @@ type WebSocket internal (socket: Net.WebSockets.WebSocket, config: WebSocketConf
             return! closeOp.Ensuring finalizer
         }
 
+    /// Closes the outgoing side of the connection with the given status, using the fiber's cancellation token.
     member this.CloseOutput (closeStatus: WebSocketCloseStatus, statusDescription: string) =
         fio {
             let! cancelToken = FIO.cancellationToken ()
             return! this.CloseOutput(closeStatus, statusDescription, cancelToken)
         }
 
+    /// Closes the outgoing side of the connection normally.
     member this.CloseOutput () =
         this.CloseOutput(WebSocketCloseStatus.NormalClosure, "Normal closure")
 
+    /// Aborts the connection immediately without a closing handshake.
     member _.Abort () =
         fio {
             do! attempt <| fun () -> socket.Abort()
         }
 
+    /// Gets the current connection state.
     member _.State () =
         fio {
             return! attempt <| fun () -> socket.State
         }
 
+    /// Gets the close status, if the connection has closed.
     member _.CloseStatus () =
         fio {
             return! attempt <| fun () -> Option.ofNullable socket.CloseStatus
         }
 
+    /// Gets the close status description, if any.
     member _.CloseStatusDescription () =
         fio {
             return! attempt <| fun () -> socket.CloseStatusDescription
         }
 
+    /// Gets the negotiated subprotocol, if any.
     member _.Subprotocol () =
         fio {
             return! attempt <| fun () -> socket.SubProtocol
         }
 
+    /// Releases the resources held by this connection.
     member _.Dispose () =
         fio {
             do! attempt(fun () -> socket.Dispose())

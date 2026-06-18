@@ -1,17 +1,13 @@
-/// <summary>Provides tests for core WebSocket send, receive, and lifecycle operations.</summary>
 module FIO.WebSockets.Tests.WebSocketTests
 
 open FIO.WebSockets.Tests.Utilities
 
 open FIO.DSL
+open FIO.WebSockets
 
-open System
 open System.Net.WebSockets
-open System.Text
 
 open Expecto
-
-open FIO.WebSockets
 
 [<Tests>]
 let webSocketTests =

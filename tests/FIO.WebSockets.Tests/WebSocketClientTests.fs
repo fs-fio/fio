@@ -1,17 +1,15 @@
-/// <summary>Provides tests for WebSocket client connection and communication.</summary>
 module FIO.WebSockets.Tests.WebSocketClientTests
 
 open FIO.WebSockets.Tests.Utilities
 
 open FIO.DSL
+open FIO.WebSockets
 
 open System
-open System.Net.WebSockets
 open System.Threading
+open System.Net.WebSockets
 
 open Expecto
-
-open FIO.WebSockets
 
 [<Tests>]
 let webSocketClientTests =

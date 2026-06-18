@@ -1,3 +1,4 @@
 namespace FIO.Runtime.Default
 
-type DefaultRuntime = FIO.Runtime.Concurrent.ConcurrentRuntime
+/// The recommended runtime — an alias for the signaling runtime.
+type DefaultRuntime = FIO.Runtime.Signaling.SignalingRuntime

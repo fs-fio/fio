@@ -1,13 +1,11 @@
-/// <summary>Provides tests for WebSocket server accept and connection handling.</summary>
 module FIO.WebSockets.Tests.WebSocketServerTests
 
 open FIO.WebSockets.Tests.Utilities
 
 open FIO.DSL
+open FIO.WebSockets
 
 open Expecto
-
-open FIO.WebSockets
 
 [<Tests>]
 let webSocketServerTests =

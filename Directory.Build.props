@@ -2,7 +2,7 @@
 
     <!--
         Single source of truth for FIO's lockstep package version and shared
-        package metadata. See docs/versioning-strategy.md.
+        package metadata.
 
         The four published packages (FIO, FIO.Http, FIO.Sockets, FIO.WebSockets)
         are versioned in lockstep: bump <Version> here once. At release time the
@@ -26,6 +26,18 @@
         <Version>$(PackageReleaseVersion)</Version>
     </PropertyGroup>
 
+    <!-- Only the four src/ library projects publish NuGet packages. Everything
+         else (tests, benchmarks, examples) stays non-packable; each library opts
+         back in with <IsPackable>true</IsPackable>. -->
+    <PropertyGroup>
+        <IsPackable>false</IsPackable>
+    </PropertyGroup>
+
+    <!-- Promote all compiler warnings to errors across every project. -->
+    <PropertyGroup>
+        <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    </PropertyGroup>
+
     <!-- Shared NuGet package metadata (applied to every project; only the
          publishable packages are actually packed). -->
     <PropertyGroup>
@@ -34,7 +46,26 @@
         <RepositoryUrl>https://github.com/fs-fio/fio</RepositoryUrl>
         <RepositoryType>git</RepositoryType>
         <PackageProjectUrl>https://github.com/fs-fio/fio</PackageProjectUrl>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
         <PackageRequireLicenseAcceptance>True</PackageRequireLicenseAcceptance>
+        <PackageIcon>fio_logo_wide.png</PackageIcon>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <DebugType>embedded</DebugType>
+        <EmbedUntrackedSources>true</EmbedUntrackedSources>
     </PropertyGroup>
+
+    <!--
+        FSharp.Core is version-pinned centrally (Directory.Packages.props). Disable
+        the SDK's implicit reference and add an explicit, version-less one so the
+        central PackageVersion applies under Central Package Management and wins
+        over any transitively-resolved FSharp.Core.
+    -->
+    <PropertyGroup>
+        <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <PackageReference Include="FSharp.Core" />
+    </ItemGroup>
 
 </Project>

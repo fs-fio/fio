@@ -91,4 +91,5 @@ module CE =
         member inline _.MergeSources<'A, 'A1, 'E> (effect: FIO<'A, 'E>, effect': FIO<'A1, 'E>) : FIO<'A * 'A1, 'E> =
             effect.ZipPar effect'
 
+    /// Builds effects with `let!`, `do!`, `return`, `for`, `while`, `use`, and `try/with`/`try/finally`.
     let fio = FIOBuilder()

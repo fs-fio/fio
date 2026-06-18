@@ -10,6 +10,7 @@ module WebSocketExtensions =
 
     type WebSocket with
 
+        /// Sends a value as JSON text, optionally using the given serializer options and cancellation token.
         member this.SendJson<'A> (value: 'A, ?options: JsonSerializerOptions, ?cancelToken: CancellationToken) =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
@@ -27,6 +28,7 @@ module WebSocketExtensions =
                 do! this.SendText(jsonString, cancelToken)
             }
 
+        /// Receives a JSON value, optionally using the given serializer options and cancellation token.
         member this.ReceiveJson<'A> (?options: JsonSerializerOptions, ?cancelToken: CancellationToken) =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
@@ -53,9 +55,11 @@ module WebSocketExtensions =
                         Exception $"Connection closed. Status: {status}, Description: {desc}"))
             }
 
+        /// Sends a text message.
         member this.SendString (text: string) =
             this.SendText text
 
+        /// Receives a text message, failing if the next frame is not text.
         member this.ReceiveString () =
             fio {
                 match! this.ReceiveMessage() with
@@ -72,9 +76,11 @@ module WebSocketExtensions =
                         Exception $"Connection closed. Status: {status}, Description: {desc}"))
             }
 
+        /// Sends a binary message.
         member this.SendBytes (data: byte[]) =
             this.SendBinary data
 
+        /// Receives a binary message, failing if the next frame is not binary.
         member this.ReceiveBytes () =
             fio {
                 match! this.ReceiveMessage() with

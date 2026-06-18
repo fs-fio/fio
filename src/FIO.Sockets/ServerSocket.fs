@@ -30,6 +30,7 @@ module ServerSocket =
                 | Some address -> address
                 | None -> raise (ArgumentException $"Could not resolve bind address '{config.BindAddress}'")
 
+    /// Binds and starts listening on the given configuration, returning an open server socket.
     let bind (config: ServerSocketConfig) =
         fio {
             let! netSocket =
@@ -51,6 +52,7 @@ module ServerSocket =
             return { NetSocket = netSocket; Config = config }
         }
 
+    /// Closes a server socket, suppressing errors.
     let close (serverSocket: ServerSocket) =
         (FIO.attempt
             (fun () ->
@@ -59,15 +61,19 @@ module ServerSocket =
             SocketError.fromException
         ).CatchAll(logAndSuppress "server socket close")
 
+    /// Binds a server socket for use as a resource acquisition. Alias for bind.
     let acquire (config: ServerSocketConfig) =
         bind config
 
+    /// Closes a server socket for use as a resource release. Alias for close.
     let release (serverSocket: ServerSocket) =
         close serverSocket
 
+    /// Binds a server socket, runs an action with it, then closes it.
     let withServerSocket (config: ServerSocketConfig) (action: ServerSocket -> FIO<'A, SocketError>) =
         FIO.acquireReleaseWith (acquire config) release action
 
+    /// Accepts the next incoming connection, returning a socket for the accepted client.
     let accept (serverSocket: ServerSocket) =
         fio {
             let! cancelToken = FIO.cancellationToken ()
@@ -98,9 +104,11 @@ module ServerSocket =
             return new Socket(netSocket, config)
         }
 
+    /// The default maximum number of concurrently running connection handlers.
     [<Literal>]
     let DefaultMaxConcurrentHandlers = 1024
 
+    /// Continuously accepts connections, running the handler for each with bounded concurrency.
     let acceptLoopWith
         (maxConcurrentHandlers: int)
         (handler: Socket -> FIO<unit, SocketError>)
@@ -133,18 +141,23 @@ module ServerSocket =
             return! step.Forever()
         }
 
+    /// Continuously accepts connections, running the handler for each using the default concurrency limit.
     let acceptLoop (handler: Socket -> FIO<unit, SocketError>) (serverSocket: ServerSocket) =
         acceptLoopWith DefaultMaxConcurrentHandlers handler serverSocket
 
+    /// Gets the configuration a server socket was created with.
     let getConfig (serverSocket: ServerSocket) =
         serverSocket.Config
 
+    /// Gets the local endpoint a server socket is bound to.
     let getLocalEndPoint (serverSocket: ServerSocket) =
         FIO.attempt (fun () -> serverSocket.NetSocket.LocalEndPoint) SocketError.fromException
 
+    /// Binds, accepts connections, and runs the handler for each until interrupted, then closes the server.
     let serve (config: ServerSocketConfig) (handler: Socket -> FIO<unit, SocketError>) =
         withServerSocket config (fun serverSocket -> acceptLoop handler serverSocket)
 
+    /// Serves a request/response protocol, decoding each request and encoding each reply with the given buffer size.
     let serveWithBufferSize<'A, 'A1>
         (requestCodec: SocketCodec<'A>)
         (responseCodec: SocketCodec<'A1>)
@@ -159,6 +172,7 @@ module ServerSocket =
             }
         serve config connectionHandler
 
+    /// Serves a request/response protocol, decoding each request and encoding each reply using a default buffer size.
     let serveWith<'A, 'A1>
         (requestCodec: SocketCodec<'A>)
         (responseCodec: SocketCodec<'A1>)

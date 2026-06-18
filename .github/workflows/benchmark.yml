@@ -43,23 +43,23 @@ jobs:
             --save true \
             --savepath ./benchmark-direct.csv
 
-      - name: Run benchmarks (CooperativeRuntime)
+      - name: Run benchmarks (PollingRuntime)
         run: |
           dotnet run -c Release --project benchmarks/FIO.Benchmarks -- \
-            --cooperative-runtime 4 200 1 \
+            --polling-runtime 4 200 1 \
             --runs 5 \
             --pingpong 50000 \
             --save true \
-            --savepath ./benchmark-cooperative.csv
+            --savepath ./benchmark-polling.csv
 
-      - name: Run benchmarks (ConcurrentRuntime)
+      - name: Run benchmarks (SignalingRuntime)
         run: |
           dotnet run -c Release --project benchmarks/FIO.Benchmarks -- \
-            --concurrent-runtime 4 200 1 \
+            --signaling-runtime 4 200 1 \
             --runs 5 \
             --pingpong 50000 \
             --save true \
-            --savepath ./benchmark-concurrent.csv
+            --savepath ./benchmark-signaling.csv
 
       - name: Display benchmark summary
         run: |
@@ -70,14 +70,14 @@ jobs:
           cat ./benchmark-direct.csv >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### CooperativeRuntime" >> $GITHUB_STEP_SUMMARY
+          echo "### PollingRuntime" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          cat ./benchmark-cooperative.csv >> $GITHUB_STEP_SUMMARY
+          cat ./benchmark-polling.csv >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### ConcurrentRuntime" >> $GITHUB_STEP_SUMMARY
+          echo "### SignalingRuntime" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          cat ./benchmark-concurrent.csv >> $GITHUB_STEP_SUMMARY
+          cat ./benchmark-signaling.csv >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
 
       - name: Convert results to benchmark JSON
@@ -90,13 +90,13 @@ jobs:
           direct_avg=$(awk -F',' 'NR==2 {gsub(/[[:space:]]/, "", $4); print $4}' ./benchmark-direct.csv)
           echo "  { \"name\": \"DirectRuntime - Pingpong\", \"unit\": \"ms\", \"value\": $direct_avg }," >> benchmark-results.json
 
-          # CooperativeRuntime
-          coop_avg=$(awk -F',' 'NR==2 {gsub(/[[:space:]]/, "", $4); print $4}' ./benchmark-cooperative.csv)
-          echo "  { \"name\": \"CooperativeRuntime - Pingpong\", \"unit\": \"ms\", \"value\": $coop_avg }," >> benchmark-results.json
+          # PollingRuntime
+          polling_avg=$(awk -F',' 'NR==2 {gsub(/[[:space:]]/, "", $4); print $4}' ./benchmark-polling.csv)
+          echo "  { \"name\": \"PollingRuntime - Pingpong\", \"unit\": \"ms\", \"value\": $polling_avg }," >> benchmark-results.json
 
-          # ConcurrentRuntime
-          conc_avg=$(awk -F',' 'NR==2 {gsub(/[[:space:]]/, "", $4); print $4}' ./benchmark-concurrent.csv)
-          echo "  { \"name\": \"ConcurrentRuntime - Pingpong\", \"unit\": \"ms\", \"value\": $conc_avg }" >> benchmark-results.json
+          # SignalingRuntime
+          signaling_avg=$(awk -F',' 'NR==2 {gsub(/[[:space:]]/, "", $4); print $4}' ./benchmark-signaling.csv)
+          echo "  { \"name\": \"SignalingRuntime - Pingpong\", \"unit\": \"ms\", \"value\": $signaling_avg }" >> benchmark-results.json
 
           echo "]" >> benchmark-results.json
 

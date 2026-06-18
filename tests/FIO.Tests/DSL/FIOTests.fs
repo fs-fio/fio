@@ -1,4 +1,3 @@
-/// <summary>Provides property-based tests for core FIO effects including succeed, fail, action, and stack safety.</summary>
 module FIO.Tests.FIOTests
 
 open FIO.Tests.Utilities.FsCheckProperties
@@ -6,8 +5,8 @@ open FIO.Tests.Utilities.FsCheckProperties
 open FIO.DSL
 open FIO.Runtime
 open FIO.Runtime.Direct
-open FIO.Runtime.Cooperative
-open FIO.Runtime.Concurrent
+open FIO.Runtime.Polling
+open FIO.Runtime.Signaling
 
 open Expecto
 
@@ -17,8 +16,8 @@ open System.Threading
 let private runtimes () =
     [
         new DirectRuntime() :> FIORuntime
-        new CooperativeRuntime() :> FIORuntime
-        new ConcurrentRuntime() :> FIORuntime
+        new PollingRuntime() :> FIORuntime
+        new SignalingRuntime() :> FIORuntime
     ]
 
 let private testAllRuntimes name (f: FIORuntime -> unit) =
@@ -440,7 +439,7 @@ let fioTests =
                 let originalExn = InvalidOperationException "original"
 
                 let effect =
-                    FIO.attempt 
+                    FIO.attempt
                         (fun () -> raise originalExn)
                         (fun _ -> failwith "onError also throws")
 

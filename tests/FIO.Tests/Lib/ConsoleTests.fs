@@ -1,12 +1,11 @@
-/// <summary>Provides tests for console I/O effects using <c>Console.SetOut</c>/<c>SetIn</c> for deterministic capture.</summary>
 module FIO.Tests.ConsoleTests
 
 open FIO.DSL
 open FIO.Console
 open FIO.Runtime
 open FIO.Runtime.Direct
-open FIO.Runtime.Cooperative
-open FIO.Runtime.Concurrent
+open FIO.Runtime.Polling
+open FIO.Runtime.Signaling
 
 open Expecto
 
@@ -27,8 +26,8 @@ type private ThrowingReader(message: string) =
 let private runtimes () =
     [
         new DirectRuntime() :> FIORuntime
-        new CooperativeRuntime() :> FIORuntime
-        new ConcurrentRuntime() :> FIORuntime
+        new PollingRuntime() :> FIORuntime
+        new SignalingRuntime() :> FIORuntime
     ]
 
 type private Capture =

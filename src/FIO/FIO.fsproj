@@ -2,13 +2,13 @@
 
     <PropertyGroup>
         <TargetFramework>net10.0</TargetFramework>
-        <WarningsAsErrors>true</WarningsAsErrors>
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <WarnOn>3390</WarnOn>
+        <IsPackable>true</IsPackable>
+        <PackageId>FIO</PackageId>
         <Title>FIO</Title>
         <Description>A type-safe, purely functional effect system for F#. IO monad + fibers for building concurrent F# applications. Core package: composable effects with typed errors, fibers, channels, runtimes, the fio { } computation expression, the FIOApp framework, and Console I/O.</Description>
         <PackageTags>fsharp;effects;async;concurrent;functional;zio;fibers</PackageTags>
-        <PackageIcon>fio_logo_wide.png</PackageIcon>
-        <PackageReadmeFile>README.md</PackageReadmeFile>
     </PropertyGroup>
 
     <ItemGroup>
@@ -28,25 +28,14 @@
         <Compile Include="Runtime\WorkerInfrastructure.fs" />
         <Compile Include="Runtime\InterpreterCore.fs" />
         <Compile Include="Runtime\DirectRuntime.fs" />
-        <Compile Include="Runtime\CooperativeRuntime.fs" />
-        <Compile Include="Runtime\ConcurrentRuntime.fs" />
+        <Compile Include="Runtime\PollingRuntime.fs" />
+        <Compile Include="Runtime\SignalingRuntime.fs" />
         <Compile Include="Runtime\DefaultRuntime.fs" />
         <Compile Include="App.fs" />
     </ItemGroup>
 
-    <PropertyGroup>
-        <!--
-        Ensure debugging information is easily found, so that editors can locate the source code locations for your library.
-        This slightly increases the size of your package, but the usability benefits are worth it.
-        -->
-        <DebugType>embedded</DebugType>
-        <!-- Ensure that files that are generated during the build by the .NET SDK are also included in your compiled library. -->
-        <EmbedUntrackedSources>true</EmbedUntrackedSources>
-        <PackageLicenseFile>LICENSE.md</PackageLicenseFile>
-    </PropertyGroup>
-
     <ItemGroup>
-        <None Include="..\..\assets\images\fio_logo_wide.png">
+        <None Include="..\..\assets\fio_logo_wide.png">
             <Pack>True</Pack>
             <PackagePath>\</PackagePath>
         </None>
@@ -54,7 +43,7 @@
             <Pack>True</Pack>
             <PackagePath>\</PackagePath>
         </None>
-        <None Include="..\..\README.md " Pack="true" PackagePath="\" />
+        <None Include="..\..\README.md" Pack="true" PackagePath="\" />
     </ItemGroup>
 
 </Project>

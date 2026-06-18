@@ -1,11 +1,10 @@
-/// <summary>Provides tests for the FIO.cancellationToken factory and its interaction with fiber interruption.</summary>
 module FIO.Tests.CancellationTokenTests
 
 open FIO.DSL
 open FIO.Runtime
 open FIO.Runtime.Direct
-open FIO.Runtime.Cooperative
-open FIO.Runtime.Concurrent
+open FIO.Runtime.Polling
+open FIO.Runtime.Signaling
 
 open Expecto
 
@@ -14,8 +13,8 @@ open System
 let private runtimes () =
     [
         new DirectRuntime() :> FIORuntime
-        new CooperativeRuntime() :> FIORuntime
-        new ConcurrentRuntime() :> FIORuntime
+        new PollingRuntime() :> FIORuntime
+        new SignalingRuntime() :> FIORuntime
     ]
 
 let private testAllRuntimes name (f: FIORuntime -> unit) =

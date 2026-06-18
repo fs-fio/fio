@@ -1,4 +1,3 @@
-/// <summary>Provides tests for HTTP response builder functions and status codes.</summary>
 module FIO.Http.Tests.ResponseTests
 
 open FIO.Http

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 FIO is a type-safe, purely functional effect system for F#. IO monad + fibers (green threads) for concurrent/async apps.
 
-**Target:** .NET 10, F# 10 (LangVersion=preview), `.slnx` solution format
+**Target:** .NET 10, F# 10, `.slnx` solution format
 
 ## Build Commands
 
@@ -60,9 +60,9 @@ Runtime (`src/FIO/Runtime/`):
 - `WorkerInfrastructure.fs` - `FIOWorkerRuntime` (adds EvaluationWorkers/EvaluationSteps/BlockingWorkers params), `WorkerLifecycle`
 - `InterpreterCore.fs` - Shared interpreter logic (`InterpreterState` struct, `processOutcome`/`processResult`/`handleSharedCase`, `Outcome` DU, `RuntimeCase` DU for runtime-specific dispatch)
 - `DirectRuntime.fs` - .NET Tasks, waits for blocked fibers
-- `CooperativeRuntime.fs` - Custom fibers, linear-time blocked handling
-- `ConcurrentRuntime.fs` - Custom fibers, constant-time blocked handling (event-driven, uses `EvaluationWorker` + `BlockingWorker`)
-- `DefaultRuntime.fs` - Type alias: `DefaultRuntime = ConcurrentRuntime`
+- `PollingRuntime.fs` - Custom fibers, linear-time blocked handling
+- `SignalingRuntime.fs` - Custom fibers, constant-time blocked handling (event-driven, uses `EvaluationWorker` + `BlockingWorker`)
+- `DefaultRuntime.fs` - Type alias: `DefaultRuntime = SignalingRuntime`
 
 Framework (`src/FIO/App.fs`):
 - `App.fs` - `FIOApp<'A,'E>` abstract base class. 5-member surface: `effect`, `runtime`, `onShutdown`, `onShutdownTimeout`, `mapExitCode` over `AppResult<'A,'E>` (`AppSucceeded`/`AppFailed`/`AppInterrupted`/`AppFatalError`).
@@ -94,17 +94,17 @@ The DU cases are `internal` — external code uses factory functions (`FIO.succe
 FIORuntime (abstract)
 ├── DirectRuntime
 └── FIOWorkerRuntime (abstract, adds WorkerConfig: EvaluationWorkers/EvaluationSteps/BlockingWorkers)
-    ├── CooperativeRuntime
-    └── ConcurrentRuntime (= DefaultRuntime)
+    ├── PollingRuntime
+    └── SignalingRuntime (= DefaultRuntime)
 ```
 
 - **DirectRuntime** - .NET Tasks, waits for blocked fibers
-- **CooperativeRuntime** - Custom fibers, linear-time blocked handling (polling `BlockingItem` list)
-- **ConcurrentRuntime** - Custom fibers, constant-time blocked handling (event-driven via `Channel.TryRescheduleNextBlockingWorkItem` / `FiberContext.CompleteAndReschedule`)
+- **PollingRuntime** - Custom fibers, linear-time blocked handling (polling `BlockingItem` list)
+- **SignalingRuntime** - Custom fibers, constant-time blocked handling (event-driven via `Channel.TryRescheduleNextBlockingWorkItem` / `FiberContext.CompleteAndReschedule`)
 
-**DefaultRuntime = ConcurrentRuntime** (recommended)
+**DefaultRuntime = SignalingRuntime** (recommended)
 
-Worker config fields: **EvaluationWorkers** (evaluation worker count), **EvaluationSteps** (eval steps per work item before rescheduling), **BlockingWorkers** (blocking worker count). The `EWC`/`EWS`/`BWC` acronyms are retained only as the `ConfigString` display labels and the benchmark spec shorthand (`Concurrent-{EWC}-{EWS}-{BWC}`).
+Worker config fields: **EvaluationWorkers** (evaluation worker count), **EvaluationSteps** (eval steps per work item before rescheduling), **BlockingWorkers** (blocking worker count). The `EWC`/`EWS`/`BWC` acronyms are retained only as the `ConfigString` display labels and the benchmark spec shorthand (`Signaling-{EWC}-{EWS}-{BWC}`).
 
 ### Key Internal Types
 
@@ -193,7 +193,7 @@ Library modules use **qualified access**: e.g. `Console.printLine "msg" id`.
 ## Testing
 
 - **Expecto + FsCheck** for property-based testing; test runner config: `Parallel`, `Summary`, `Colours 256`
-- Custom FsCheck `Generators` type in `tests/FIO.Tests/Utils/Utilities.fs` provides `Arb` for all three runtimes — tests run against `DirectRuntime`, `CooperativeRuntime`, and `ConcurrentRuntime`
+- Custom FsCheck `Generators` type in `tests/FIO.Tests/Utils/Utilities.fs` provides `Arb` for all three runtimes — tests run against `DirectRuntime`, `PollingRuntime`, and `SignalingRuntime`
 - Console tests use `System.Console.SetOut`/`SetIn` with `StringWriter`/`StringReader` for deterministic capture — must use `testSequenced` (not parallel) because `System.Console` has process-global state
 - Four test projects:
   - `FIO.Tests` — core library, organized into `DSL/`, `Lib/`, `Framework/` subfolders
@@ -210,10 +210,11 @@ Library modules use **qualified access**: e.g. `Console.printLine "msg" id`.
 - **New effect constructor**: update `Core.fs` (FIO DU + `UpcastResult`/`UpcastError`/`UpcastBoth`), `Factories.fs`, `Extensions.fs`, `Operators.fs`, and `CE.fs` as needed
 - **New shared effect case**: add handling to `handleSharedCase` in `InterpreterCore.fs`
 - **New runtime-specific effect case**: add to `RuntimeCase` DU in `InterpreterCore.fs`, route from `handleSharedCase`, update all three runtime `RuntimeCase` matches
-- **New runtime DU case**: update `Core.fs` and all three runtime interpreters (`DirectRuntime.fs`, `CooperativeRuntime.fs`, `ConcurrentRuntime.fs`)
+- **New runtime DU case**: update `Core.fs` and all three runtime interpreters (`DirectRuntime.fs`, `PollingRuntime.fs`, `SignalingRuntime.fs`)
 - **Runtime change**: update interpreter logic, add tests, and validate benchmarks
 - **Extension change**: update error model, DSL surface, and extension README
 - **Behavior change**: update examples and tests to match new semantics
+- **New public API**: add a concise XML doc comment per [`docs/COMMENT_STYLE.md`](docs/COMMENT_STYLE.md)
 
 ## CI
 
@@ -227,13 +228,16 @@ Short, sentence-style messages (e.g., "Fix benchmark output", "Improve App.fs").
 
 ## Comment Style
 
-The codebase is currently **zero-comment**: no XML documentation comments on public or non-public items anywhere (`src/`, the extensions, benchmarks, examples) — strip any that appear.
+Two tiers — see [`docs/COMMENT_STYLE.md`](docs/COMMENT_STYLE.md) for the full guide and per-construct examples:
 
-Inline `//` comments: use sparingly, only when the *why* isn't obvious from the code. Never restate what the code does. No commented-out code (use git history).
+- **Public, user-facing API** (callable from a referencing package): a concise, ZIO-style XML doc comment (`///`). One verb-first summary line by default; "this effect" voice; describe behavior, not the signature. Document internal/private items, the `FIO` DU cases, runtime internals, and the `FIOBuilder` CE methods — **never**.
+- **Internals**: comment-free. Use an inline `//` only when the *why* isn't obvious from the code. Never restate what the code does. No commented-out code (use git history).
+
+Keep doc comments well-formed XML: rephrase types out of prose ("an effect") or escape them (`FIO&lt;'A,'E&gt;`). The public, user-facing API across all four packages is now documented; `WarnOn 3390` is enabled so malformed doc XML fails the build. Internals remain bare by design — keep them that way, and add `///` docs to any new public members you introduce.
 
 ## Important Notes
 
-- **WarningsAsErrors=true** on all projects — fix all warnings
+- **TreatWarningsAsErrors=true** — set once in `Directory.Build.props`, applies to every project; fix all warnings (use `TreatWarningsAsErrors`, not `WarningsAsErrors`, which the F# SDK reads as a warning-number list)
 - F# `ParallelCompilation` and `Deterministic` use SDK defaults (no project-level overrides)
 - F# compile order matters — file order in `.fsproj` is the compilation order
 - 4-space indentation, match existing style in `src/` and `tests/`

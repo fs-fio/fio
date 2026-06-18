@@ -1,14 +1,12 @@
-/// <summary>Provides tests for WebSocket domain types and error representations.</summary>
 module FIO.WebSockets.Tests.TypesTests
 
 open FIO.DSL
+open FIO.WebSockets
 
 open System
 open System.Net.WebSockets
 
 open Expecto
-
-open FIO.WebSockets
 
 [<Tests>]
 let typesTests =

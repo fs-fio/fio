@@ -1,4 +1,3 @@
-/// <summary>Provides tests for HTTP domain types including HttpError, HttpMethod, and HttpStatusCode.</summary>
 module FIO.Http.Tests.TypesTests
 
 open FIO.Http

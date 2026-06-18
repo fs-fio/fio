@@ -9,12 +9,18 @@ open System.Threading
 
 type private SysConsole = System.Console
 
+/// The outcome of running a FIOApp.
 type AppResult<'A, 'E> =
+    /// The application's effect succeeded with a value.
     | AppSucceeded of value: 'A
+    /// The application's effect failed with a typed error.
     | AppFailed of error: 'E
+    /// The application's effect was interrupted.
     | AppInterrupted of ex: FiberInterruptedException
+    /// The application crashed with an unexpected exception.
     | AppFatalError of ex: exn
 
+/// Base class for a FIO application. Override `effect`; optionally override the rest.
 [<AbstractClass>]
 type FIOApp<'A, 'E>() as this =
 
@@ -29,17 +35,22 @@ type FIOApp<'A, 'E>() as this =
     [<VolatileField>]
     let mutable runStarted = 0
 
+    /// The effect this application runs. Override this.
     abstract member effect: FIO<'A, 'E>
 
+    /// The runtime used to run the effect. Defaults to the recommended runtime.
     abstract member runtime: FIORuntime
     default _.runtime = new DefaultRuntime()
 
+    /// An effect run on shutdown, before the process exits. Defaults to no-op.
     abstract member onShutdown: unit -> FIO<unit, 'E>
     default _.onShutdown () = FIO.unit ()
 
+    /// How long to wait for the shutdown effect before forcing exit. Defaults to 10 seconds.
     abstract member onShutdownTimeout: TimeSpan
     default _.onShutdownTimeout = TimeSpan.FromSeconds 10.0
 
+    /// Maps the application's outcome to a process exit code.
     abstract member mapExitCode: AppResult<'A, 'E> -> int
     default _.mapExitCode outcome =
         match outcome with
@@ -48,9 +59,11 @@ type FIOApp<'A, 'E>() as this =
         | AppInterrupted _ -> 130
         | AppFatalError _ -> 2
 
+    /// Returns true while the application's effect is running.
     member _.IsRunning =
         Option.isSome (Volatile.Read &runningFiber)
 
+    /// Requests shutdown, interrupting the running effect.
     member _.Stop () =
         match Volatile.Read &runningFiber with
         | Some fiber when tryClaim &shutdownRequested ->
@@ -95,6 +108,7 @@ type FIOApp<'A, 'E>() as this =
             | None -> ()
         }
 
+    /// Runs the application asynchronously and returns its process exit code.
     member this.RunAsync () =
         if not <| tryClaim &runStarted then
             invalidOp "FIOApp is already running; concurrent Run on a single instance is not supported."
@@ -165,5 +179,6 @@ type FIOApp<'A, 'E>() as this =
                     | _ -> ()
         }
 
+    /// Runs the application and returns its process exit code.
     member this.Run () =
         this.RunAsync().GetAwaiter().GetResult()

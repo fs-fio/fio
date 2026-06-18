@@ -6,6 +6,7 @@ open FIO.Runtime.InterpreterCore
 open System
 open System.Threading.Tasks
 
+/// A single-threaded runtime that runs effects synchronously, waiting on blocked fibers. Handy for tests and simple programs.
 type DirectRuntime() =
     inherit FIORuntime()
 

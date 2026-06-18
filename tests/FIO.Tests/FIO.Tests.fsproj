@@ -4,7 +4,6 @@
         <TargetFramework>net10.0</TargetFramework>
         <IsPackable>false</IsPackable>
         <IsTestProject>true</IsTestProject>
-        <WarningsAsErrors>true</WarningsAsErrors>
         <GenerateProgramFile>false</GenerateProgramFile>
     </PropertyGroup>
 
@@ -36,15 +35,15 @@
     </ItemGroup>
 
     <ItemGroup>
-        <PackageReference Include="coverlet.collector" Version="10.0.1">
+        <PackageReference Include="coverlet.collector">
             <PrivateAssets>all</PrivateAssets>
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
         </PackageReference>
-        <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.6.0" />
-        <PackageReference Include="Expecto" Version="10.2.3" />
-        <PackageReference Include="Expecto.FsCheck" Version="10.2.3" />
-        <PackageReference Include="FsCheck" Version="2.16.6" />
-        <PackageReference Include="YoloDev.Expecto.TestSdk" Version="0.15.6" />
+        <PackageReference Include="Microsoft.NET.Test.Sdk" />
+        <PackageReference Include="Expecto" />
+        <PackageReference Include="Expecto.FsCheck" />
+        <PackageReference Include="FsCheck" />
+        <PackageReference Include="YoloDev.Expecto.TestSdk" />
     </ItemGroup>
 
 </Project>

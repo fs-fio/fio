@@ -1,4 +1,3 @@
-/// <summary>Provides tests for server socket accept and connection handling.</summary>
 module FIO.Sockets.Tests.ServerSocketTests
 
 open FIO.Sockets.Tests.Utilities

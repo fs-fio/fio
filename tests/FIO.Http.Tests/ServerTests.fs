@@ -1,4 +1,3 @@
-/// <summary>Provides integration tests for the HTTP server startup and request handling.</summary>
 module FIO.Http.Tests.ServerTests
 
 open FIO.Http.Tests.Utilities

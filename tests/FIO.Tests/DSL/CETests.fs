@@ -1,4 +1,3 @@
-/// <summary>Provides property-based tests for the fio computation expression including let!, do!, return, and control flow.</summary>
 module FIO.Tests.CETests
 
 open FIO.Tests.Utilities.FsCheckProperties
@@ -6,16 +5,13 @@ open FIO.Tests.Utilities.FsCheckProperties
 open FIO.DSL
 open FIO.Runtime
 open FIO.Runtime.Direct
-open FIO.Runtime.Cooperative
-open FIO.Runtime.Concurrent
+open FIO.Runtime.Polling
+open FIO.Runtime.Signaling
 
 open Expecto
 
 open System
 
-/// <summary>
-/// Simple IDisposable for testing use/use! keywords.
-/// </summary>
 type TestDisposable() =
     let mutable disposed = false
 
@@ -27,8 +23,8 @@ type TestDisposable() =
 let private runtimes () =
     [
         new DirectRuntime() :> FIORuntime
-        new CooperativeRuntime() :> FIORuntime
-        new ConcurrentRuntime() :> FIORuntime
+        new PollingRuntime() :> FIORuntime
+        new SignalingRuntime() :> FIORuntime
     ]
 
 let private testAllRuntimes name (f: FIORuntime -> unit) =

@@ -1,9 +1,8 @@
-/// <summary>Provides tests for FIOApp run lifecycle, shutdown behavior, and exit-code mapping.</summary>
 module FIO.Tests.AppTests
 
 open FIO.App
 open FIO.DSL
-open FIO.Runtime.Concurrent
+open FIO.Runtime.Signaling
 
 open System
 open System.IO
@@ -90,11 +89,11 @@ let appTests =
         [
             // ─── Runtime & Run basics ─────────────────────────────────────────
 
-            testCase "runtime - defaults to ConcurrentRuntime"
+            testCase "runtime - defaults to SignalingRuntime"
             <| fun () ->
                 let app = MinimalApp(FIO.succeed 1)
 
-                Expect.isTrue (app.runtime :? ConcurrentRuntime) "Default runtime should be ConcurrentRuntime"
+                Expect.isTrue (app.runtime :? SignalingRuntime) "Default runtime should be SignalingRuntime"
 
             testCase "Run - success effect returns exit code 0 by default"
             <| fun () ->

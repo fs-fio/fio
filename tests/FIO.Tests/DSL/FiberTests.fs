@@ -1,4 +1,3 @@
-/// <summary>Provides property-based tests for fiber fork, join, and interruption semantics.</summary>
 module FIO.Tests.FiberTests
 
 open FIO.Tests.Utilities.FsCheckProperties
@@ -6,8 +5,8 @@ open FIO.Tests.Utilities.FsCheckProperties
 open FIO.DSL
 open FIO.Runtime
 open FIO.Runtime.Direct
-open FIO.Runtime.Cooperative
-open FIO.Runtime.Concurrent
+open FIO.Runtime.Polling
+open FIO.Runtime.Signaling
 
 open Expecto
 
@@ -17,8 +16,8 @@ open System.IO
 let private runtimes () =
     [
         new DirectRuntime() :> FIORuntime
-        new CooperativeRuntime() :> FIORuntime
-        new ConcurrentRuntime() :> FIORuntime
+        new PollingRuntime() :> FIORuntime
+        new SignalingRuntime() :> FIORuntime
     ]
 
 let private testAllRuntimes name (f: FIORuntime -> unit) =
@@ -134,7 +133,7 @@ let fiberTests =
                                 return fiber.IsInterrupted()
                             }
 
-                        let interrupted = 
+                        let interrupted =
                             runtime.Run(effect).UnsafeSuccess()
 
                         Expect.isFalse interrupted "Interrupted should be false for successful fiber"

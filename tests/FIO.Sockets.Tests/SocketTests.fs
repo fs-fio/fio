@@ -1,4 +1,3 @@
-/// <summary>Provides tests for core socket read, write, and lifecycle operations.</summary>
 module FIO.Sockets.Tests.SocketTests
 
 open FIO.Sockets.Tests.Utilities

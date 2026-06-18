@@ -5,6 +5,7 @@ open System.Threading
 open System.Globalization
 open System.Threading.Tasks
 
+/// Base class for worker-based FIO runtimes, configured with a worker configuration.
 [<AbstractClass>]
 type FIOWorkerRuntime internal (config: WorkerConfig) as this =
     inherit FIORuntime()
@@ -17,6 +18,7 @@ type FIOWorkerRuntime internal (config: WorkerConfig) as this =
 
     do validateWorkerConfiguration ()
 
+    /// The worker configuration this runtime was created with.
     member _.WorkerConfig =
         config
 

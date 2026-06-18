@@ -2,7 +2,7 @@
 
 FIO is a type-safe, purely functional effect system for F#. IO monad + fibers (green threads) for concurrent/async apps.
 
-**Target:** .NET 10, F# 10 (`LangVersion=preview`), `.slnx` solution format
+**Target:** .NET 10, F# 10, `.slnx` solution format
 
 ## Build & Test
 
@@ -38,11 +38,11 @@ Key DU cases: `Success`/`Failure` (terminal), `Interrupt` (self-interrupt), `Act
 FIORuntime (abstract)
 ├── DirectRuntime              — .NET Tasks, waits for blocked fibers
 └── FIOWorkerRuntime (abstract, adds WorkerConfig: EvaluationWorkers/EvaluationSteps/BlockingWorkers)
-    ├── CooperativeRuntime     — Custom fibers, linear-time blocked handling
-    └── ConcurrentRuntime      — Custom fibers, constant-time blocked handling (event-driven)
+    ├── PollingRuntime         — Custom fibers, linear-time blocked handling
+    └── SignalingRuntime       — Custom fibers, constant-time blocked handling (event-driven)
 ```
 
-`DefaultRuntime = ConcurrentRuntime` (recommended). Worker config fields: **EvaluationWorkers** (evaluation worker count), **EvaluationSteps** (eval steps per work item before rescheduling), **BlockingWorkers** (blocking worker count). The `EWC`/`EWS`/`BWC` acronyms remain as the `ConfigString` display labels and benchmark spec shorthand.
+`DefaultRuntime = SignalingRuntime` (recommended). Worker config fields: **EvaluationWorkers** (evaluation worker count), **EvaluationSteps** (eval steps per work item before rescheduling), **BlockingWorkers** (blocking worker count). The `EWC`/`EWS`/`BWC` acronyms remain as the `ConfigString` display labels and benchmark spec shorthand.
 
 ### Key Files (compile order matters)
 
@@ -50,18 +50,18 @@ Core DSL (`src/FIO/DSL/`):
 - `Core.fs` — `FIO<'A,'E>` DU, `Fiber`, `Channel`, `FiberContext`, `WorkItem`, `ContStack`. Hosts primitive instance members: `FlatMap`, `CatchAll`, `Ensuring`, `Fork` plus the transformation cluster (`Map`/`MapError`/`MapBoth`/`Result`/`Option`) derived from `Success`/`Failure` + the four primitives.
 - `Factories.fs` / `Extensions.fs` / `Operators.fs` / `CE.fs` — public surface built on Core.
 
-Lib (`src/FIO/Lib/`):
-- `Console.fs` — `FIO.Console.Console` (`[<RequireQualifiedAccess>]`): `print`, `printLine`, `readLine`, `write`, `writeLine`, `clear`, each taking `onError: exn -> 'E`. Only Lib module.
+Console I/O (`src/FIO/Console.fs`):
+- `FIO.Console.Console` (`[<RequireQualifiedAccess>]`): `print`, `printLine`, `readLine`, `write`, `writeLine`, `clear`, each taking `onError: exn -> 'E`.
 
 Runtime (`src/FIO/Runtime/`):
 - `Runtime.fs` — `FIORuntime` base, `WorkerConfig`, `ContStackPool`, `WorkItemPool`
 - `WorkerInfrastructure.fs` — `FIOWorkerRuntime`, `WorkerLifecycle`
 - `InterpreterCore.fs` — shared interpreter (`InterpreterState`, `processOutcome`/`processResult`/`handleSharedCase`, `Outcome` DU, `RuntimeCase` DU for runtime-specific dispatch)
-- `DirectRuntime.fs` / `CooperativeRuntime.fs` / `ConcurrentRuntime.fs` / `DefaultRuntime.fs`
+- `DirectRuntime.fs` / `PollingRuntime.fs` / `SignalingRuntime.fs` / `DefaultRuntime.fs`
 
-Framework: `src/FIO/Framework/App.fs` — `FIOApp<'A,'E>` with 5-member surface (`effect`, `runtime`, `onShutdown`, `onShutdownTimeout`, `mapExitCode`) over `AppResult` (`AppSucceeded`/`AppFailed`/`AppInterrupted`/`AppFatalError`).
+Framework (`src/FIO/App.fs`): `FIOApp<'A,'E>` with 5-member surface (`effect`, `runtime`, `onShutdown`, `onShutdownTimeout`, `mapExitCode`) over `AppResult` (`AppSucceeded`/`AppFailed`/`AppInterrupted`/`AppFatalError`).
 
-### Concurrency Primitives (`src/FIO/Lib/`)
+### Concurrency Primitives
 
 - **Fiber<'A,'E>** — green thread via `.Fork()` / `.Join()`
 - **Channel<'A>** — typed message passing between fibers
@@ -133,7 +133,7 @@ let main _ = MyApp().Run()
 
 ### Style
 
-- **WarningsAsErrors=true** on all projects — fix all warnings
+- **TreatWarningsAsErrors=true** (in `Directory.Build.props`, applies to all projects) — fix all warnings
 - 4-space indentation
 - F# compile order matters — file order in `.fsproj` is the compilation order
 - Short, sentence-style commit messages (e.g., "Fix benchmark output", "Improve App.fs")
@@ -141,8 +141,12 @@ let main _ = MyApp().Run()
 
 ### Comments / XML Docs
 
-- The codebase is currently **zero-comment**: no XML doc comments on any item (public or non-public), anywhere — strip any that appear.
-- Inline `//` comments: only when the *why* isn't obvious. Never restate what the code does. No commented-out code.
+Two tiers — see [`docs/COMMENT_STYLE.md`](../docs/COMMENT_STYLE.md):
+
+- **Public, user-facing API** (callable from a referencing package): a concise, ZIO-style `///` XML doc comment — one verb-first summary line, "this effect" voice, describe behavior not signature. The public surface is already fully documented; keep it in sync and add a `///` to any new public member. Never document internal/private items, the `FIO` DU cases, runtime internals, or the `FIOBuilder` CE methods.
+- **Internals**: comment-free. Inline `//` only when the *why* isn't obvious — never restate what the code does. No commented-out code.
+
+`WarnOn 3390` is enabled, so malformed doc XML fails the build.
 
 ## Semantic Invariants (Do Not Break)
 
@@ -156,7 +160,7 @@ let main _ = MyApp().Run()
 ## Testing
 
 - **Expecto + FsCheck** for property-based testing
-- Core tests use a `Generators` type (`tests/FIO.Tests/Utils/Utilities.fs`) that provides FsCheck `Arb` for all three runtimes — every property test runs against `DirectRuntime`, `CooperativeRuntime`, and `ConcurrentRuntime`
+- Core tests use a `Generators` type (`tests/FIO.Tests/Utils/Utilities.fs`) that provides FsCheck `Arb` for all three runtimes — every property test runs against `DirectRuntime`, `PollingRuntime`, and `SignalingRuntime`
 - Console tests use `System.Console.SetOut`/`SetIn` with `StringWriter`/`StringReader` for deterministic capture — must use `testSequenced` (not parallel) because `System.Console` has process-global state
 - Extension tests use `testAllRuntimes` helper wrapping `testSequenced`
 - Stack-safety canary tests in `tests/FIO.Tests/DSL/FIOTests.fs` (depth 10000) are load-bearing — do not simplify `UpcastResult`/`UpcastError`/`UpcastBoth` to plain recursion
@@ -172,6 +176,6 @@ let main _ = MyApp().Run()
 ## Architecture Change Checklist
 
 - **New effect constructor**: update `Core.fs` (FIO DU + `UpcastResult`/`UpcastError`/`UpcastBoth`), `Factories.fs`, `Extensions.fs`, `Operators.fs`, and `CE.fs`
-- **New runtime DU case**: update `Core.fs` and all three runtime interpreters (`DirectRuntime.fs`, `CooperativeRuntime.fs`, `ConcurrentRuntime.fs`)
+- **New runtime DU case**: update `Core.fs` and all three runtime interpreters (`DirectRuntime.fs`, `PollingRuntime.fs`, `SignalingRuntime.fs`)
 - **Runtime change**: update interpreter logic, add tests, validate benchmarks
 - **Extension change**: update error model, DSL surface, and extension README

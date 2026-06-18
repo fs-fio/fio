@@ -1,4 +1,3 @@
-/// <summary>Provides tests for HTTP middleware pipeline composition and execution.</summary>
 module FIO.Http.Tests.MiddlewareTests
 
 open FIO.Http.Tests.Utilities
@@ -106,7 +105,7 @@ let middlewareTests =
                     testAllRuntimes "returns 408 when handler exceeds duration" (fun runtime ->
                         let slowHandler =
                             fun _ ->
-                                (FIO.sleep (TimeSpan.FromSeconds 10.0) id)   
+                                (FIO.sleep (TimeSpan.FromSeconds 10.0) id)
                                     .FlatMap(fun () -> FIO.succeed (Response.okText "slow"))
 
                         let mw = Middleware.timeout (TimeSpan.FromMilliseconds 100.0) id

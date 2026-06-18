@@ -1,4 +1,3 @@
-/// <summary>Provides property-based tests for FIO extension methods</summary>
 module FIO.Tests.ExtensionTests
 
 open FIO.Tests.Utilities.FsCheckProperties
@@ -6,8 +5,8 @@ open FIO.Tests.Utilities.FsCheckProperties
 open FIO.DSL
 open FIO.Runtime
 open FIO.Runtime.Direct
-open FIO.Runtime.Concurrent
-open FIO.Runtime.Cooperative
+open FIO.Runtime.Polling
+open FIO.Runtime.Signaling
 
 open Expecto
 
@@ -18,8 +17,8 @@ open System.Diagnostics
 let private runtimes () =
     [
         new DirectRuntime() :> FIORuntime
-        new CooperativeRuntime() :> FIORuntime
-        new ConcurrentRuntime() :> FIORuntime
+        new PollingRuntime() :> FIORuntime
+        new SignalingRuntime() :> FIORuntime
     ]
 
 let private testAllRuntimes name (func: FIORuntime -> unit) =
@@ -212,7 +211,7 @@ let extensionTests =
                     runtime.Run(effect.Result ()).UnsafeSuccess()
 
                 Expect.equal result (Error error) "Result should convert error to Error"
-    
+
             testPropertyWithConfig fsCheckConfig "Option - converts success to Some"
             <| fun (runtime: FIORuntime, value: int) ->
                 let effect = FIO.succeed value
@@ -1217,8 +1216,8 @@ let extensionTests =
             <| fun (runtime: FIORuntime, value: int) ->
                 let mutable attempts = 0
 
-                let effect = 
-                    FIO.attempt 
+                let effect =
+                    FIO.attempt
                         (fun () ->
                             attempts <- attempts + 1
                             value)
@@ -1319,7 +1318,7 @@ let extensionTests =
                 Expect.equal result errValue "RetryUntil should fail with the original error"
 
             testCase "RetryUntil - stack safety with 10000 iterations" <| fun () ->
-                let runtime = new ConcurrentRuntime() :> FIORuntime
+                let runtime = new SignalingRuntime() :> FIORuntime
                 let mutable count = 0
 
                 let effect =
@@ -1387,7 +1386,7 @@ let extensionTests =
                 Expect.equal result 5 "RetryWhile should fail with the error that failed the predicate"
 
             testCase "RetryWhile - stack safety with 10000 iterations" <| fun () ->
-                let runtime = new ConcurrentRuntime() :> FIORuntime
+                let runtime = new SignalingRuntime() :> FIORuntime
                 let mutable count = 0
 
                 let effect =
@@ -1441,7 +1440,7 @@ let extensionTests =
                 Expect.equal count 5 "Eventually should retry until success")
 
             testCase "Eventually - stack safety with 10000 iterations" <| fun () ->
-                let runtime = new ConcurrentRuntime() :> FIORuntime
+                let runtime = new SignalingRuntime() :> FIORuntime
                 let mutable count = 0
 
                 let effect =
@@ -1464,12 +1463,12 @@ let extensionTests =
                 let mutable count = 0
 
                 let effect =
-                    FIO.attempt 
+                    FIO.attempt
                         (fun () ->
                             count <- count + 1
                             count)
                         id
-                    
+
                 let result =
                     runtime.Run(effect.RepeatN 5).UnsafeSuccess()
 
@@ -1486,7 +1485,7 @@ let extensionTests =
                             count <- count + 1
                             value)
                         id
-                    
+
                 let result =
                     runtime.Run(effect.RepeatN 1).UnsafeSuccess()
 
@@ -1503,7 +1502,7 @@ let extensionTests =
                             count <- count + 1
                             count)
                         id
-                    
+
                 let result =
                     runtime.Run(effect.RepeatUntil(fun r -> r >= 3)).UnsafeSuccess()
 
@@ -1528,7 +1527,7 @@ let extensionTests =
                 Expect.equal result value "RepeatUntil should return the first result"
 
             testCase "RepeatUntil - stack safety with 10000 iterations" <| fun () ->
-                let runtime = new ConcurrentRuntime() :> FIORuntime
+                let runtime = new SignalingRuntime() :> FIORuntime
                 let mutable count = 0
 
                 let effect =
@@ -1600,7 +1599,7 @@ let extensionTests =
                 Expect.equal result 5 "RepeatWhile should return the value that failed the predicate"
 
             testCase "RepeatWhile - stack safety with 10000 iterations" <| fun () ->
-                let runtime = new ConcurrentRuntime() :> FIORuntime
+                let runtime = new SignalingRuntime() :> FIORuntime
                 let mutable count = 0
 
                 let effect =
@@ -1636,7 +1635,7 @@ let extensionTests =
 
                 Expect.equal result.Message "pred-error" "RepeatWhileFIO should propagate predicate error"
                 Expect.equal count 2 "RepeatWhileFIO should stop on predicate failure"
-    
+
             testAllRuntimes "Forever - loops until interrupted by Timeout" (fun runtime ->
                 let mutable count = 0
 
@@ -1667,7 +1666,7 @@ let extensionTests =
 
                 let result =
                     runtime.Run(effect.Delay (TimeSpan.FromMilliseconds 50.0) id).UnsafeSuccess()
-                
+
                 sw.Stop()
 
                 Expect.equal result 7 "Delay should return the underlying effect's result"
@@ -1722,7 +1721,7 @@ let extensionTests =
 
             testCase "TimeoutTo - timeout fires returns default value"
             <| fun () ->
-                let runtime = new ConcurrentRuntime() :> FIORuntime
+                let runtime = new SignalingRuntime() :> FIORuntime
                 let defaultValue = -1
                 let effect =
                     (FIO.sleep (TimeSpan.FromSeconds 5.0) (fun ex -> ex.Message)).FlatMap(fun () -> FIO.succeed 0)
@@ -1791,7 +1790,7 @@ let extensionTests =
                     runtime.Run(effect).UnsafeSuccess()
 
                 Expect.equal result (Choice2Of2 "slow") "RaceEither should wait for a peer success when the first racer fails")
-                
+
             testAllRuntimes "Race - both succeed, fastest wins" (fun runtime ->
                 let fast = FIO.succeed 1
                 let slow = (FIO.sleep (TimeSpan.FromSeconds 10.0) id).FlatMap(fun () -> FIO.succeed 2)
@@ -1873,7 +1872,7 @@ let extensionTests =
             <| fun (runtime: FIORuntime, value: int) ->
                 let effect = FIO.succeed(value).CatchAll(fun _ -> FIO.succeed 0)
 
-                let actual =    
+                let actual =
                     runtime.Run(effect).UnsafeSuccess()
 
                 Expect.equal actual value "CatchAll should not affect success"
