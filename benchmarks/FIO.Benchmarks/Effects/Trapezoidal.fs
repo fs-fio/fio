@@ -5,6 +5,7 @@ open FIO.DSL
 
 open System
 
+// Integrates one contiguous slice of the interval with the trapezoidal rule.
 let private partialEffect a h lo hi =
     FIO.attempt
         (fun () ->
@@ -15,6 +16,7 @@ let private partialEffect a h lo hi =
             acc)
         id
 
+// Builds the Trapezoidal workload: parallel numerical integration approximating pi.
 let effect workerCount pointCount : FIO<unit, exn> =
     fio {
         let a, b = 0.0, 1.0

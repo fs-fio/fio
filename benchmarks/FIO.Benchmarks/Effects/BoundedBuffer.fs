@@ -9,6 +9,7 @@ type private BufferMessage =
     | Put of item: int * ackChannel: Channel<unit>
     | Get of reply: Channel<int>
 
+// Splits a total item count as evenly as possible across the given parts.
 let private distribute total parts =
     let baseCount = total / parts
     let remainder = total % parts
@@ -16,6 +17,7 @@ let private distribute total parts =
         if index < remainder then baseCount + 1
         else baseCount ]
 
+// The bounded-buffer actor: parks producers and consumers and matches them up to capacity.
 let private bufferEffect (bufferChannel: Channel<BufferMessage>) capacity totalItems =
     let items = Queue<int>()
     let waitingProducers = Queue<int * Channel<unit>>()
@@ -55,6 +57,7 @@ let private bufferEffect (bufferChannel: Channel<BufferMessage>) capacity totalI
 
     loop ()
 
+// Puts a run of items into the buffer, awaiting an ack for each.
 let private producerEffect (bufferChannel: Channel<BufferMessage>) count firstItem =
     fio {
         let ackChannel = Channel<unit>()
@@ -63,6 +66,7 @@ let private producerEffect (bufferChannel: Channel<BufferMessage>) count firstIt
             do! ackChannel.Read().Unit()
     }
 
+// Gets the given number of items from the buffer.
 let private consumerEffect (bufferChannel: Channel<BufferMessage>) count =
     fio {
         let replyChannel = Channel<int>()
@@ -71,6 +75,7 @@ let private consumerEffect (bufferChannel: Channel<BufferMessage>) count =
             do! replyChannel.Read().Unit()
     }
 
+// Builds the bounded-buffer workload: producers and consumers sharing one capped buffer.
 let effect producerCount consumerCount capacity itemsPerProducer : FIO<unit, exn> =
     fio {
         let bufferChannel = Channel<BufferMessage>()

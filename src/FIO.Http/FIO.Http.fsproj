@@ -8,7 +8,7 @@
 
     <PropertyGroup>
         <IsPackable>true</IsPackable>
-        <PackageId>FIO.Http</PackageId>
+        <PackageId>FSharp.FIO.Http</PackageId>
         <Title>FIO.Http</Title>
         <Description>HTTP server for FIO, built on Kestrel. Composable routes, functional handlers, middleware, and path parameters.</Description>
         <PackageTags>fsharp;effect;http;web;kestrel;server;functional</PackageTags>

@@ -56,8 +56,11 @@ see [For AI agents & contributors](#for-ai-agents--contributors).
 - The `FIOBuilder` computation-expression *methods* (`Bind`, `Return`, `Delay`,
   …). They're infrastructure the user never calls by name. Document the `fio`
   value instead.
-- Test, benchmark, and example projects. Examples may keep minimal teaching
-  `//` comments; they ship no XML docs.
+- Test, benchmark, and example projects — they ship no XML docs. Examples and
+  benchmarks carry concise `//` teaching comments (one per app/benchmark and key
+  helper); tests rely on their Expecto labels and stay otherwise comment-free.
+- `System.Object` overrides (`ToString`, `Finalize`, `Equals`, `GetHashCode`) —
+  conventional, left bare uniformly.
 
 When in doubt: if a consumer of the NuGet package can *call it*, document it. If
 they can't, leave it bare.
@@ -258,7 +261,7 @@ type HttpHandler<'E> = HttpRequest -> FIO<HttpResponse, 'E>
 - The computation expression: document the `fio` value, not the builder methods.
 
 ```fsharp
-/// Builds effects with `let!`, `do!`, `return`, `for`, `use`, and `try/finally`.
+/// Builds effects with `let!`, `do!`, `return`, `for`, `while`, `use`, and `try/with`/`try/finally`.
 let fio = FIOBuilder()
 ```
 
@@ -315,5 +318,8 @@ When you touch the public API, follow these rules:
 5. **Keep the XML well-formed.** Rephrase types out of prose ("an effect"), or
    escape (`FIO&lt;'A,'E&gt;`, `&amp;`). Cross-reference with `<c>Name</c>`, not
    `<see cref>`. `dotnet build` must stay green.
-6. **Don't bulk-add docs to internals, tests, or examples**, and don't
-   "tidy" by adding comments the existing code deliberately omits.
+6. **Don't bulk-add `///` API docs to internals, tests, or examples**, and don't
+   "tidy" by adding comments the existing code deliberately omits. (The example
+   apps and benchmarks do carry one concise `//` teaching comment per app/benchmark
+   and key helper — just not `///` API docs, since these projects are non-shipping
+   and produce no documentation file.)

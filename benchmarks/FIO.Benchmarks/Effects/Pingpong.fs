@@ -9,6 +9,7 @@ type private Actor =
         ReceiveChannel: Channel<int>
     }
 
+// Waits for the start signal, then sends a ping and awaits the pong each round.
 let private pingerEffect pinger roundCount (startChannel: Channel<int>) =
     fio {
         let mutable currentPing = 1
@@ -19,6 +20,7 @@ let private pingerEffect pinger roundCount (startChannel: Channel<int>) =
             currentPing <- pong + 1
     }
 
+// Fires the start signal, then echoes each received ping back as a pong.
 let private pongerEffect ponger roundCount (startChannel: Channel<int>) =
     fio {
         do! startChannel.Write(0).Unit()
@@ -27,6 +29,7 @@ let private pongerEffect ponger roundCount (startChannel: Channel<int>) =
             do! ponger.SendChannel.Write(ping + 1).Unit()
     }
 
+// Builds the Pingpong workload: two fibers exchanging messages over channels.
 let effect roundCount : FIO<unit, exn> =
     fio {
         let startChannel = Channel<int>()

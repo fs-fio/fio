@@ -8,7 +8,7 @@
 
     <PropertyGroup>
         <IsPackable>true</IsPackable>
-        <PackageId>FIO.Sockets</PackageId>
+        <PackageId>FSharp.FIO.Sockets</PackageId>
         <Title>FIO.Sockets</Title>
         <Description>TCP sockets for FIO. Client connections, server accept, and custom codecs.</Description>
         <PackageTags>fsharp;effect;sockets;tcp;networking;functional</PackageTags>

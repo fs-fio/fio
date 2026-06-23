@@ -10,6 +10,7 @@ open System.IO
 open System.Net.Http
 open System.Globalization
 
+// Prompts for a name and prints a personalized welcome using the fio CE.
 type WelcomeApp() =
     inherit FIOApp<unit, exn>()
 
@@ -20,6 +21,7 @@ type WelcomeApp() =
             do! Console.printLine $"Hello, %s{name}! Welcome to FIO! 🪻💜" id
         }
 
+// Reads a line, parses it as an integer, and fails on invalid input.
 type EnterNumberApp() =
     inherit FIOApp<string, exn>()
 
@@ -33,6 +35,7 @@ type EnterNumberApp() =
             | false, _ -> return! FIO.fail (IOException "You entered an invalid number!")
         }
 
+// Demonstrates try/with in the CE: catches a failed effect and re-fails with its error.
 type TryWithApp() =
     inherit FIOApp<string, int>()
 
@@ -45,6 +48,7 @@ type TryWithApp() =
                 return! FIO.fail errorCode
         }
 
+// Demonstrates try/finally in the CE: the finalizer always runs, even on failure.
 type TryFinallyApp() =
     inherit FIOApp<string, int>()
 
@@ -57,6 +61,7 @@ type TryFinallyApp() =
                 Console.printLine "Running finalizer, always executes" (fun _ -> -2)
         }
 
+// Combines try/with and try/finally in a single computation expression.
 type TryWithFinallyApp() =
     inherit FIOApp<string, int>()
 
@@ -72,6 +77,7 @@ type TryWithFinallyApp() =
                 Console.printLine "Running finalizer, always executes" (fun _ -> -2)
         }
 
+// Iterates 1..10 with a for loop, printing whether each number is even or odd.
 type ForApp() =
     inherit FIOApp<unit, exn>()
 
@@ -83,6 +89,7 @@ type ForApp() =
                 | false -> do! Console.printLine $"%i{number} is odd!" id
         }
 
+// A number-guessing game driven by a while loop over console input.
 type GuessNumberApp() =
     inherit FIOApp<int, exn>()
 
@@ -117,9 +124,11 @@ type GuessNumberApp() =
             return guess
         }
 
+// Two fibers exchange ping/pong over a pair of channels, wired with >>= operators.
 type PingPongApp() =
     inherit FIOApp<unit, exn>()
 
+    // Sends "ping", then awaits and prints the "pong" reply.
     let pinger (pingChannel: Channel<string>) (pongChannel: Channel<string>) =
         pingChannel.Write "ping" >>= fun ping ->
         Console.printLine $"pinger sent: %s{ping}" id >>= fun _ ->
@@ -127,6 +136,7 @@ type PingPongApp() =
         Console.printLine $"pinger received: %s{pong}" id >>= fun _ ->
         FIO.unit ()
 
+    // Awaits "ping", then replies with "pong".
     let ponger (pingChannel: Channel<string>) (pongChannel: Channel<string>) =
         pingChannel.Read() >>= fun ping ->
         Console.printLine $"ponger received: %s{ping}" id >>= fun _ ->
@@ -139,9 +149,11 @@ type PingPongApp() =
         let pongChannel = Channel<string>()
         pinger pingChannel pongChannel <&&> ponger pingChannel pongChannel
 
+// The same ping/pong exchange, expressed with the fio computation expression.
 type PingPongCEApp() =
     inherit FIOApp<unit, exn>()
 
+    // Sends "ping", then awaits and prints the "pong" reply.
     let pinger (pingChannel: Channel<string>) (pongChannel: Channel<string>) =
         fio {
             let! ping = pingChannel.Write "ping"
@@ -150,6 +162,7 @@ type PingPongCEApp() =
             do! Console.printLine $"pinger received: %s{pong}" id
         }
 
+    // Awaits "ping", then replies with "pong".
     let ponger (pingChannel: Channel<string>) (pongChannel: Channel<string>) =
         fio {
             let! ping = pingChannel.Read()
@@ -169,9 +182,11 @@ type Message =
     | Ping
     | Pong
 
+// Ping/pong over typed Message channels, pattern-matching on what was received.
 type PingPongMatchApp() =
     inherit FIOApp<unit, string>()
 
+    // Sends Ping, then expects a Pong reply and fails the effect otherwise.
     let pinger (pingChannel: Channel<Message>) (pongChannel: Channel<Message>) =
         fio {
             let! ping = pingChannel.Write Ping
@@ -182,6 +197,7 @@ type PingPongMatchApp() =
             | Ping -> return! FIO.fail $"pinger received %A{Ping} when %A{Pong} was expected!"
         }
 
+    // Awaits Ping, then replies with a randomly chosen Ping or Pong.
     let ponger (pingChannel: Channel<Message>) (pongChannel: Channel<Message>) =
         fio {
             match! pingChannel.Read() with
@@ -210,9 +226,11 @@ type AppError =
     | WebServiceError of int
     | GeneralError of string
 
+// Recovers from failing database/webservice effects, falling back to a default result.
 type ErrorHandlingApp() =
     inherit FIOApp<string * char, AppError>()
 
+    // Simulates a database read that randomly succeeds with data or fails.
     let readFromDatabase: FIO<string, bool> =
         fio {
             let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> true)
@@ -220,6 +238,7 @@ type ErrorHandlingApp() =
             else return! FIO.fail false
         }
 
+    // Simulates a webservice call that randomly succeeds or fails with a 404.
     let awaitWebservice: FIO<char, int> =
         fio {
             let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> -1)
@@ -227,12 +246,14 @@ type ErrorHandlingApp() =
             else return! FIO.fail 404
         }
 
+    // Maps a database failure into a domain AppError.
     let databaseResult: FIO<string, AppError> =
         fio {
             return! readFromDatabase
                 .CatchAll(fun error -> FIO.fail (DbError error))
         }
 
+    // Maps a webservice failure into a domain AppError.
     let webserviceResult: FIO<char, AppError> =
         fio {
             return! awaitWebservice
@@ -245,9 +266,11 @@ type ErrorHandlingApp() =
                 .OrElseSucceed("default", 'D')
         }
 
+// Like ErrorHandlingApp, but retries each failing effect before falling back.
 type ErrorHandlingWithRetryApp() =
     inherit FIOApp<string * char, AppError>()
 
+    // Simulates a database read that randomly succeeds with data or fails.
     let readFromDatabase: FIO<string, bool> =
         fio {
             let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> true)
@@ -255,6 +278,7 @@ type ErrorHandlingWithRetryApp() =
             else return! FIO.fail false
         }
 
+    // Simulates a webservice call that randomly succeeds or fails with a 404.
     let awaitWebservice: FIO<char, int> =
         fio {
             let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> -1)
@@ -262,6 +286,7 @@ type ErrorHandlingWithRetryApp() =
             else return! FIO.fail 404
         }
 
+    // Retries the database read up to four times before mapping the failure.
     let databaseResult: FIO<string, AppError> =
         fio {
             let onEachRetry (error, retry, maxRetries) =
@@ -272,6 +297,7 @@ type ErrorHandlingWithRetryApp() =
                 .CatchAll(fun error -> FIO.fail (DbError error))
         }
 
+    // Retries the webservice call up to four times before mapping the failure.
     let webserviceResult: FIO<char, AppError> =
         fio {
             let onEachRetry (error, retry, maxRetries) =
@@ -288,9 +314,11 @@ type ErrorHandlingWithRetryApp() =
                 .OrElseSucceed("default", 'D')
         }
 
+// Wraps failing F# async computations as effects and recovers from their exceptions.
 type AsyncErrorHandlingApp() =
     inherit FIOApp<string * int, AppError>()
 
+    // An async that randomly returns data or raises a database error.
     let databaseReadTask: Async<string> =
         async {
             do printfn $"Reading from database..."
@@ -301,6 +329,7 @@ type AsyncErrorHandlingApp() =
                 return raise (Exception "Database error!")
         }
 
+    // An async that randomly returns 200 or raises a webservice error.
     let webserviceAwaitTask: Async<int> =
         async {
             do printfn $"Awaiting webservice..."
@@ -311,10 +340,12 @@ type AsyncErrorHandlingApp() =
                 return raise (Exception "Webservice error!")
         }
 
+    // Awaits the async database read as an effect, recovering from exceptions.
     let databaseResult: FIO<string, AppError> =
         (FIO.awaitAsync databaseReadTask id)
             .CatchAll(fun ex -> FIO.fail (GeneralError ex.Message))
 
+    // Awaits the async webservice call as an effect, recovering from exceptions.
     let webserviceResult: FIO<int, AppError> =
         (FIO.awaitAsync webserviceAwaitTask id)
             .CatchAll(fun ex -> FIO.fail (GeneralError ex.Message))
@@ -324,9 +355,11 @@ type AsyncErrorHandlingApp() =
             return! databaseResult <&> webserviceResult
         }
 
+// Forks 100,000 sender fibers that each write to a single receiver over one channel.
 type HighlyConcurrentApp() =
     inherit FIOApp<unit, exn>()
 
+    // Sends one random number to the shared channel.
     let sender (channel: Channel<int>) senderId =
         fio {
             let! message = FIO.attempt (fun () -> Random.Shared.Next(100, 501)) id
@@ -334,6 +367,7 @@ type HighlyConcurrentApp() =
             do! Console.printLine $"Sender[%i{senderId}] sent: %i{message}" id
         }
 
+    // Reads the expected number of messages, then reports completion.
     let rec receiver (channel: Channel<int>) count (max: int) =
         fio {
             if count = 0 then
@@ -355,6 +389,7 @@ type HighlyConcurrentApp() =
                 <&&> receiver chan fiberCount fiberCount
         }
 
+// Computes the nth Fibonacci number iteratively.
 let fib n =
     let mutable a = 0L
     let mutable b = 1L
@@ -368,9 +403,11 @@ let fib n =
 
     a
 
+// Forks .NET tasks computing Fibonacci numbers and awaits them concurrently.
 type FiberFromTaskApp() =
     inherit FIOApp<unit, exn>()
 
+    // Forks a task that computes the nth Fibonacci number for its side effect.
     let fibonacci n =
         FIO.forkTask (fun () ->
             task {
@@ -396,9 +433,11 @@ type FiberFromTaskApp() =
             do! await fiber35 <&&> await fiber40 <&&> await fiber45
         }
 
+// Like FiberFromTaskApp, but the tasks return values that are joined and printed.
 type FiberFromGenericTaskApp() =
     inherit FIOApp<unit, exn>()
 
+    // Forks a task that computes the nth Fibonacci number and returns it as a string.
     let fibonacci n =
         FIO.forkTask (fun () ->
             task {
@@ -423,6 +462,7 @@ type FiberFromGenericTaskApp() =
             do! awaitAndPrint fiber35 <&&> awaitAndPrint fiber40 <&&> awaitAndPrint fiber45
         }
 
+// Prints the command-line arguments the app was started with.
 type CommandLineArgsApp(args: string array) =
     inherit FIOApp<unit, exn>()
 
@@ -438,6 +478,7 @@ type CommandLineArgsApp(args: string array) =
                     do! Console.printLine $"  Arg[%d{i}]: %s{args[i]}" id
         }
 
+// Overrides the runtime to use a SignalingRuntime with custom worker configuration.
 type CustomRuntimeApp() =
     inherit FIOApp<unit, exn>()
 
@@ -456,6 +497,7 @@ type CustomRuntimeApp() =
             do! Console.printLine " - Blocking Workers: 2" id
         }
 
+// Demonstrates the shutdown hook that runs when the app is interrupted with Ctrl+C.
 type ShutdownApp() =
     inherit FIOApp<unit, exn>()
 
@@ -481,6 +523,7 @@ type ShutdownApp() =
             do! Console.printLine "Completed normally (no Ctrl+C)" id
         }
 
+// Maps the app outcome to a custom process exit code via mapExitCode.
 type CustomExitCodeApp() =
     inherit FIOApp<int, int>()
 
@@ -508,9 +551,11 @@ type CustomExitCodeApp() =
             | _ -> return! FIO.fail 99
         }
 
+// Races two effects and applies a timeout, demonstrating Race and Timeout.
 type RaceTimeoutApp() =
     inherit FIOApp<unit, exn>()
 
+    // Produces a value after a delay, used to drive the race and the timeout.
     let delayed label ms value =
         fio {
             do! FIO.sleep (TimeSpan.FromMilliseconds(float ms)) id
@@ -528,6 +573,7 @@ type RaceTimeoutApp() =
             | None -> do! Console.printLine "Timed out after 200ms (as expected)" id
         }
 
+// Safely acquires and releases a file resource with acquireReleaseWith.
 type ResourceApp() =
     inherit FIOApp<unit, exn>()
 
@@ -545,6 +591,7 @@ type ResourceApp() =
                     do! Console.printLine "Acquired resource and wrote to a temp file." id
                 })
 
+// Squares a list of numbers in parallel with forEachPar.
 type ParallelMapApp() =
     inherit FIOApp<unit, exn>()
 
@@ -565,9 +612,11 @@ type AccountMessage =
     | Withdraw of int
     | Balance of Channel<int>
 
+// A bank-account actor that keeps its state in a recursive loop over an inbox channel.
 type StatefulActorApp() =
     inherit FIOApp<unit, exn>()
 
+    // Folds deposits and withdrawals into a running balance and replies to balance queries.
     let account (inbox: Channel<AccountMessage>) =
         let rec loop balance =
             inbox.Read().FlatMap(function
@@ -591,6 +640,7 @@ type StatefulActorApp() =
             do! actor.Interrupt ExplicitInterrupt "done"
         }
 
+// Fetches a URL with HttpClient as an effect, bounded by a timeout.
 type HttpClientApp() =
     inherit FIOApp<unit, exn>()
 

@@ -8,6 +8,7 @@ open System
 
 let runtime = new DefaultRuntime()
 
+// Runs a successful effect and prints the result by manually awaiting the fiber's task.
 let helloWorld1 () =
     let hello = FIO.succeed "Hello world! 🪻"
     let fiber = runtime.Run hello
@@ -21,6 +22,7 @@ let helloWorld1 () =
     }
     |> fun task -> task.GetAwaiter().GetResult()
 
+// Same as helloWorld1, but spells out the explicit FIO and Fiber type annotations.
 let helloWorld2 () =
     let hello: FIO<string, obj> = FIO.succeed "Hello world! 🪻"
     let fiber: Fiber<string, obj> = runtime.Run hello
@@ -34,6 +36,7 @@ let helloWorld2 () =
     }
     |> fun task -> task.GetAwaiter().GetResult()
 
+// Runs a failing effect and shows the Failed branch of the result.
 let helloWorld3 () =
     let hello: FIO<obj, string> = FIO.fail "Hello world! 🪻"
     let fiber: Fiber<obj, string> = runtime.Run hello
@@ -47,11 +50,13 @@ let helloWorld3 () =
     }
     |> fun task -> task.GetAwaiter().GetResult()
 
+// Same effect as helloWorld1, printed with the UnsafePrintResult convenience helper.
 let helloWorld4 () =
     let hello = FIO.succeed "Hello world! 🪻"
     let fiber = runtime.Run hello
     fiber.UnsafePrintResult()
 
+// Forks an effect onto its own fiber and joins it back, wired with .Fork().FlatMap.
 let concurrency1 () =
     let concurrent =
         FIO.succeed("Hello, concurrency! 🚀")
@@ -60,14 +65,16 @@ let concurrency1 () =
     let fiber = runtime.Run concurrent
     fiber.UnsafePrintResult()
 
+// The same fork/join, expressed with the >>= bind operator instead.
 let concurrency2 () =
-    let concurrent = 
-        FIO.succeed("Hello, concurrency! 🚀").Fork() 
+    let concurrent =
+        FIO.succeed("Hello, concurrency! 🚀").Fork()
         >>= fun fiber -> fiber.Join()
     
     let fiber = runtime.Run concurrent
     fiber.UnsafePrintResult()
 
+// Runs two effects in parallel with <&> and collects both results as a tuple.
 let concurrency3 () =
     let taskA = FIO.succeed "Task A completed! ✅"
     let taskB = FIO.succeed (200, "Task B OK ✅")
@@ -75,15 +82,17 @@ let concurrency3 () =
     let fiber = runtime.Run concurrent
     fiber.UnsafePrintResult()
 
+// Builds a successful effect with the fio { } computation expression.
 let computationExpression1 () =
     let hello: FIO<string, obj> =
         fio {
-            return "Hello world! 🪻" 
+            return "Hello world! 🪻"
         }
 
     let fiber = runtime.Run hello
     fiber.UnsafePrintResult()
 
+// Fails from inside a computation expression with return! FIO.fail.
 let computationExpression2 () =
     let hello: FIO<obj, string> =
         fio {
@@ -93,6 +102,7 @@ let computationExpression2 () =
     let fiber = runtime.Run hello
     fiber.UnsafePrintResult()
 
+// Sequences console reads and writes inside a computation expression.
 let computationExpression3 () =
     let welcome =
         fio {
@@ -104,6 +114,7 @@ let computationExpression3 () =
     let fiber = runtime.Run welcome
     fiber.UnsafePrintResult()
 
+// Forks a long-running fiber and interrupts it on user input.
 let interruptFiber () =
     let longRunning =
         fio {
@@ -124,6 +135,7 @@ let interruptFiber () =
     let fiber = runtime.Run interrupter
     fiber.UnsafePrintResult()
 
+// A quick tour of the core operators: map, zipRight, zipPar, and orElse.
 let operatorsTour () =
     let run label effect =
         printf $"{label}: "

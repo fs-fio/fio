@@ -4,20 +4,128 @@ open FIO.DSL
 open FIO.Runtime.InterpreterCore
 
 open System
+open System.Threading
 open System.Threading.Tasks
+
+[<Literal>]
+let private SpinAttempts = 32
+
+[<Literal>]
+let private SpinWaitIterations = 48
+
+[<Literal>]
+let private BackstopMs = 1000
+
+[<Literal>]
+let private GlobalCheckInterval = 61
+
+[<Literal>]
+let private DequeCapacity = 256
+
+// The work-stealing scheduler state, kept as a standalone object that is fully constructed before
+// any worker starts. Workers therefore touch only this (already-initialized) object on their hot
+// path, never the half-initialized SignalingRuntime — which avoids the F# recursive-initialization
+// trap when worker threads launch from inside the runtime's constructor.
+type internal Scheduler(workerCount: int) =
+    let globalQueue = MailboxQueue<WorkItem>()
+    let runNext: WorkItem[] = Array.zeroCreate workerCount
+    let deques: WorkStealingDeque[] = Array.init workerCount (fun _ -> WorkStealingDeque(DequeCapacity))
+    let tick: int[] = Array.zeroCreate workerCount
+    let workGate = new SemaphoreSlim(0)
+    let mutable waitingWorkers = 0
+
+    // Wakes one parked worker, but only when one is actually parked. Gating on the waiter count
+    // keeps the (unbounded) semaphore's permit count bounded and avoids SemaphoreFullException as
+    // control flow on the hot signalling path.
+    let signalWork () =
+        if Volatile.Read &waitingWorkers > 0 then
+            workGate.Release() |> ignore
+
+    member _.GlobalQueue =
+        globalQueue
+
+    member _.SignalWork () =
+        signalWork ()
+
+    // Schedules a work item onto the running worker's local structures: the freshest item goes to
+    // the runNext slot, evicting any previous occupant to the deque. A parked worker is woken so it
+    // can steal the item if the owner stays busy.
+    member _.ScheduleLocal (workerId: int, workItem: WorkItem) =
+        let previous = Interlocked.Exchange(&runNext.[workerId], workItem)
+        if not (obj.ReferenceEquals(previous, null)) then
+            deques.[workerId].PushBottom previous
+        signalWork ()
+
+    // Finds the next work item: own runNext, own deque, the global queue, then steals from a random
+    // peer's runNext/deque. A periodic global-first check keeps the global queue from starving.
+    member _.TryGetWork (workerId: int, workItem: byref<WorkItem>) : bool =
+        tick.[workerId] <- tick.[workerId] + 1
+        if tick.[workerId] % GlobalCheckInterval = 0 && globalQueue.TryRead &workItem then
+            true
+        else
+            let next = Interlocked.Exchange(&runNext.[workerId], Unchecked.defaultof<_>)
+            if not (obj.ReferenceEquals(next, null)) then
+                workItem <- next
+                true
+            elif deques.[workerId].TryPopBottom &workItem then
+                true
+            elif globalQueue.TryRead &workItem then
+                true
+            else
+                let start = Random.Shared.Next workerCount
+                let mutable offset = 0
+                let mutable found = false
+                while not found && offset < workerCount do
+                    let victimId = (start + offset) % workerCount
+                    if victimId <> workerId then
+                        // Cheap lock-free probes first, so idle peers are skipped without an atomic
+                        // exchange or a deque lock — this keeps stealing cheap on low-parallelism
+                        // workloads where only one peer ever has work.
+                        if not (obj.ReferenceEquals(Volatile.Read &runNext.[victimId], null)) then
+                            let stolen = Interlocked.Exchange(&runNext.[victimId], Unchecked.defaultof<_>)
+                            if not (obj.ReferenceEquals(stolen, null)) then
+                                workItem <- stolen
+                                found <- true
+                        if not found && not deques.[victimId].IsEmptyApprox && deques.[victimId].TrySteal &workItem then
+                            found <- true
+                    offset <- offset + 1
+                found
+
+    member _.HasOtherWork (workerId: int) =
+        not deques.[workerId].IsEmpty || globalQueue.Count > 0
+
+    member _.RegisterWaiter () =
+        Interlocked.Increment &waitingWorkers |> ignore
+
+    member _.UnregisterWaiter () =
+        Interlocked.Decrement &waitingWorkers |> ignore
+
+    // Blocks until signalWork releases a permit, or a long backstop elapses. The register-then-
+    // recheck protocol in the worker makes a missed signal impossible in normal operation, so the
+    // backstop is pure insurance; idle workers otherwise sleep at zero CPU.
+    member _.WaitForWork (cancelToken: CancellationToken) : Task =
+        task {
+            let! _ = workGate.WaitAsync(BackstopMs, cancelToken)
+            ()
+        }
+
+    member _.Reset () =
+        globalQueue.Clear()
+        for i in 0 .. workerCount - 1 do
+            Interlocked.Exchange(&runNext.[i], Unchecked.defaultof<_>) |> ignore
+            let mutable drained = Unchecked.defaultof<WorkItem>
+            while deques.[i].TryPopBottom &drained do
+                ()
+
+    member _.Dispose () =
+        workGate.Dispose()
 
 type private EvaluationWorkerConfig =
     {
+        Scheduler: Scheduler
         Runtime: SignalingRuntime
-        ActiveWorkItemQueue: MailboxQueue<WorkItem>
-        BlockingWorker: BlockingWorker
+        WorkerId: int
         EvaluationSteps: int
-    }
-
-and private BlockingWorkerConfig =
-    {
-        ActiveWorkItemQueue: MailboxQueue<WorkItem>
-        BlockingSignalQueue: MailboxQueue<Channel<obj>>
     }
 
 and [<Struct>] private CompletionAction =
@@ -25,75 +133,57 @@ and [<Struct>] private CompletionAction =
     | CompleteSuccess of successValue: obj
     | CompleteFailure of failureError: obj
 
-and private EvaluationWorker(config: EvaluationWorkerConfig, workerId: int) =
+// A unified work-stealing worker. It evaluates work items from its own runNext slot and deque first
+// (so a just-unblocked rendezvous partner stays hot and is reclaimed without a wakeup), then the
+// global queue, then steals from peers. There is no dedicated blocking worker: channel unblocks are
+// scheduled like any other work and either reclaimed by the signalling worker or stolen by an idle
+// peer — the choice self-adapts to whether the signalling fiber blocks next.
+and private Worker(config: EvaluationWorkerConfig) =
 
-    let processWorkItem workItem =
-        config.Runtime.InterpretAsync workItem config.EvaluationSteps config.ActiveWorkItemQueue
+    let scheduler = config.Scheduler
+    let runtime = config.Runtime
+    let workerId = config.WorkerId
 
-    let struct (cancelSource, _workerTask) =
-        WorkerLifecycle.startWorker $"EvaluationWorker-{workerId}" <| fun cancelToken ->
-            task {
-                let mutable loop = true
-                while loop && not cancelToken.IsCancellationRequested do
-                    let! hasWorkItem = config.ActiveWorkItemQueue.WaitToReadAsync cancelToken
-                    if not hasWorkItem || cancelToken.IsCancellationRequested then
-                        loop <- false
-                    else
-                        let! workItem = config.ActiveWorkItemQueue.ReadAsync()
-                        if not (workItem.FiberContext.IsTerminal()) then
-                            try
-                                do! processWorkItem workItem
-                            with exn ->
-                                try
-                                    do!
-                                        workItem.FiberContext.CompleteAndReschedule(
-                                            Error(exn :> obj),
-                                            config.ActiveWorkItemQueue)
-                                with _ ->
-                                    ()
-                                raise exn
-            }
-
-    interface IDisposable with
-
-        member _.Dispose () =
-            cancelSource.Cancel()
-            cancelSource.Dispose()
-
-and private BlockingWorker(config: BlockingWorkerConfig, workerId: int) =
-
-    let processBlockingChannel (blockingChannel: Channel<obj>) =
+    let runItem (workItem: WorkItem) =
         task {
-            try
-                let mutable keepProcessing = true
-                while keepProcessing do
-                    let! rescheduled =
-                        blockingChannel.TryRescheduleNextBlockingWorkItem config.ActiveWorkItemQueue
-                    let hasPendingMessages = blockingChannel.Count > 0
-                    let hasBlockedWorkItems = blockingChannel.BlockingWorkItemCount > 0
-                    keepProcessing <- rescheduled && hasPendingMessages && hasBlockedWorkItems
-            finally
-                blockingChannel.EndSignalProcessing()
-
-            if
-                blockingChannel.Count > 0
-                && blockingChannel.BlockingWorkItemCount > 0
-                && blockingChannel.TryBeginSignalProcessing()
-            then
-                do! config.BlockingSignalQueue.WriteAsync blockingChannel
+            if not (workItem.FiberContext.IsTerminal()) then
+                try
+                    do! runtime.InterpretAsync workItem config.EvaluationSteps workerId
+                with exn ->
+                    try
+                        do! workItem.FiberContext.CompleteAndReschedule(Error(exn :> obj), scheduler.GlobalQueue)
+                        scheduler.SignalWork()
+                    with _ ->
+                        ()
+                    raise exn
         }
 
     let struct (cancelSource, _workerTask) =
-        WorkerLifecycle.startWorker $"BlockingWorker-{workerId}" <| fun cancelToken ->
+        WorkerLifecycle.startWorker $"Worker-{workerId}" <| fun cancelToken ->
             task {
-                let mutable loop = true
-                while loop && not cancelToken.IsCancellationRequested do
-                    let! hasBlockingItem = config.BlockingSignalQueue.WaitToReadAsync cancelToken
-                    if not hasBlockingItem || cancelToken.IsCancellationRequested then
-                        loop <- false
+                while not cancelToken.IsCancellationRequested do
+                    let mutable workItem = Unchecked.defaultof<WorkItem>
+                    if scheduler.TryGetWork(workerId, &workItem) then
+                        do! runItem workItem
                     else
-                        let! blockingSignal = config.BlockingSignalQueue.ReadAsync()
-                        do! processBlockingChannel blockingSignal
+                        let mutable got = false
+                        let mutable spins = 0
+                        while not got && spins < SpinAttempts && not cancelToken.IsCancellationRequested do
+                            Thread.SpinWait SpinWaitIterations
+                            got <- scheduler.TryGetWork(workerId, &workItem)
+                            spins <- spins + 1
+                        if got then
+                            do! runItem workItem
+                        elif not cancelToken.IsCancellationRequested then
+                            // Publish as a waiter, then re-check (so a producer's signalWork cannot
+                            // be missed), then block until signalled. Parked workers use no CPU.
+                            scheduler.RegisterWaiter()
+                            if scheduler.TryGetWork(workerId, &workItem) then
+                                scheduler.UnregisterWaiter()
+                                do! runItem workItem
+                            else
+                                do! scheduler.WaitForWork cancelToken
+                                scheduler.UnregisterWaiter()
             }
 
     interface IDisposable with
@@ -102,49 +192,26 @@ and private BlockingWorker(config: BlockingWorkerConfig, workerId: int) =
             cancelSource.Cancel()
             cancelSource.Dispose()
 
-/// A multi-threaded, event-driven runtime with custom fibers and constant-time handling of blocked fibers. The default runtime.
+/// A multi-threaded, work-stealing runtime with custom fibers. The default runtime.
 and SignalingRuntime(config: WorkerConfig) as this =
     inherit FIOWorkerRuntime(config)
 
-    let activeWorkItemQueue = MailboxQueue<WorkItem>()
-    let blockingSignalQueue = MailboxQueue<Channel<obj>>()
-
-    let signalBlockingWorkerIfPending (channel: Channel<obj>) : ValueTask =
-        if
-            channel.Count > 0
-            && channel.BlockingWorkItemCount > 0
-            && channel.TryBeginSignalProcessing()
-        then
-            blockingSignalQueue.WriteAsync channel
-        else
-            ValueTask.CompletedTask
+    let workerCount = config.EvaluationWorkers
+    let scheduler = Scheduler(workerCount)
 
     let mutable currentFiber: FiberContext option = None
 
     let runLock = obj ()
 
-    let struct (blockingWorkers, evaluationWorkers) =
-        WorkerBuilders.buildPairedWorkers
-            config.BlockingWorkers
-            config.EvaluationWorkers
-            (fun i ->
-                new BlockingWorker(
-                    {
-                        ActiveWorkItemQueue = activeWorkItemQueue
-                        BlockingSignalQueue = blockingSignalQueue
-                    },
-                    i
-                ))
-            (fun i blockingWorker ->
-                new EvaluationWorker(
-                    {
-                        Runtime = this
-                        ActiveWorkItemQueue = activeWorkItemQueue
-                        BlockingWorker = blockingWorker
-                        EvaluationSteps = config.EvaluationSteps
-                    },
-                    i
-                ))
+    let workers =
+        List.init workerCount (fun i ->
+            new Worker(
+                {
+                    Scheduler = scheduler
+                    Runtime = this
+                    WorkerId = i
+                    EvaluationSteps = config.EvaluationSteps
+                }))
 
     override _.Name =
         "SignalingRuntime"
@@ -152,8 +219,8 @@ and SignalingRuntime(config: WorkerConfig) as this =
     interface IDisposable with
 
         member _.Dispose () =
-            blockingWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
-            evaluationWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
+            workers |> List.iter (fun w -> (w :> IDisposable).Dispose())
+            scheduler.Dispose()
 
     /// Creates the runtime with the default worker configuration.
     new() = new SignalingRuntime(WorkerConfig.Default)
@@ -162,7 +229,7 @@ and SignalingRuntime(config: WorkerConfig) as this =
     member internal _.InterpretAsync
         (workItem: WorkItem)
         (evaluationSteps: int)
-        (activeWorkItemQueue: MailboxQueue<WorkItem>) =
+        (workerId: int) =
         let mutable state =
             InterpreterState(workItem.Effect, workItem.ContStack, workItem.FiberContext, workItem.InterruptionSuppressed)
 
@@ -194,10 +261,10 @@ and SignalingRuntime(config: WorkerConfig) as this =
                                 onErrorComplete
                                 (OutcomeInterrupted error)
                     elif currentEvaluationSteps = 0 then
-                        if activeWorkItemQueue.Count > 0 then
+                        if scheduler.HasOtherWork workerId then
                             let newWorkItem = WorkItemPool.Rent(state.Effect, currentFiberContext, state.ContStack)
                             newWorkItem.InterruptionSuppressed <- state.InterruptionSuppressed
-                            do! activeWorkItemQueue.WriteAsync newWorkItem
+                            scheduler.ScheduleLocal(workerId, newWorkItem)
                             state.Completed <- true
                         else
                             currentEvaluationSteps <- evaluationSteps
@@ -211,7 +278,16 @@ and SignalingRuntime(config: WorkerConfig) as this =
                                 let writeTask = channel.WriteAsync message
                                 if not writeTask.IsCompletedSuccessfully then
                                     do! writeTask
-                                do! signalBlockingWorkerIfPending channel
+                                // Direct hand-off: reschedule a blocked reader onto this worker's
+                                // local structures. The signalling worker reclaims it if it blocks
+                                // next (latency-bound chains); otherwise an idle peer steals it
+                                // (throughput-bound producers). Guard with the cheap blocked-count
+                                // read so a producer racing ahead of its consumer pays nothing per
+                                // write when no reader is parked.
+                                if channel.BlockingWorkItemCount > 0 then
+                                    let mutable blockedReader = Unchecked.defaultof<WorkItem>
+                                    if channel.TryDequeueBlockingWorkItem &blockedReader then
+                                        scheduler.ScheduleLocal(workerId, blockedReader)
                                 processOutcome
                                     &state
                                     onSuccessComplete
@@ -230,12 +306,17 @@ and SignalingRuntime(config: WorkerConfig) as this =
                                         WorkItemPool.Rent(state.Effect, currentFiberContext, state.ContStack)
                                     newWorkItem.InterruptionSuppressed <- state.InterruptionSuppressed
                                     do! channel.AddBlockingWorkItem newWorkItem
-                                    do! signalBlockingWorkerIfPending channel
+                                    // Close the lost-wakeup window: a message may have arrived
+                                    // between the failed TryRead and parking.
+                                    if channel.Count > 0 then
+                                        let mutable blockedReader = Unchecked.defaultof<WorkItem>
+                                        if channel.TryDequeueBlockingWorkItem &blockedReader then
+                                            scheduler.ScheduleLocal(workerId, blockedReader)
                                     state.Completed <- true
                             | HandleForkEffect(effect, fiber, fiberContext) ->
                                 let _ = setupForkRegistration currentFiberContext fiberContext
-                                let workItem = WorkItemPool.Rent(effect, fiberContext, ContStackPool.Rent())
-                                do! activeWorkItemQueue.WriteAsync workItem
+                                let forkedWorkItem = WorkItemPool.Rent(effect, fiberContext, ContStackPool.Rent())
+                                scheduler.ScheduleLocal(workerId, forkedWorkItem)
                                 processOutcome
                                     &state
                                     onSuccessComplete
@@ -254,15 +335,17 @@ and SignalingRuntime(config: WorkerConfig) as this =
                                         WorkItemPool.Rent(state.Effect, currentFiberContext, state.ContStack)
                                     newWorkItem.InterruptionSuppressed <- state.InterruptionSuppressed
                                     do! fiberContext.AddBlockingWorkItem newWorkItem
-                                    let! _ = fiberContext.TryRescheduleBlockingWorkItems activeWorkItemQueue
+                                    let! rescheduled = fiberContext.TryRescheduleBlockingWorkItems scheduler.GlobalQueue
+                                    if rescheduled then
+                                        scheduler.SignalWork()
                                     state.Completed <- true
-                            | HandleAwaitTask(task, onError) ->
+                            | HandleAwaitTask(awaited, onError) ->
                                 try
                                     let! value =
                                         if state.InterruptionSuppressed > 0 then
-                                            task
+                                            awaited
                                         else
-                                            task.WaitAsync currentFiberContext.CancellationToken
+                                            awaited.WaitAsync currentFiberContext.CancellationToken
                                     processOutcome
                                         &state
                                         onSuccessComplete
@@ -289,9 +372,11 @@ and SignalingRuntime(config: WorkerConfig) as this =
 
                 match completionAction with
                 | CompleteSuccess value ->
-                    do! currentFiberContext.CompleteAndReschedule(Ok value, activeWorkItemQueue)
+                    do! currentFiberContext.CompleteAndReschedule(Ok value, scheduler.GlobalQueue)
+                    scheduler.SignalWork()
                 | CompleteFailure error ->
-                    do! currentFiberContext.CompleteAndReschedule(Error error, activeWorkItemQueue)
+                    do! currentFiberContext.CompleteAndReschedule(Error error, scheduler.GlobalQueue)
+                    scheduler.SignalWork()
                 | NoCompletion -> ()
 
                 return ()
@@ -303,8 +388,7 @@ and SignalingRuntime(config: WorkerConfig) as this =
         }
 
     member private _.Reset () =
-        activeWorkItemQueue.Clear()
-        blockingSignalQueue.Clear()
+        scheduler.Reset()
 
     override _.Run<'A, 'E> (effect: FIO<'A, 'E>) : Fiber<'A, 'E> =
         lock runLock (fun () ->
@@ -324,6 +408,7 @@ and SignalingRuntime(config: WorkerConfig) as this =
             let workItem =
                 WorkItemPool.Rent(effect.UpcastBoth(), fiber.Context, ContStackPool.Rent())
 
-            activeWorkItemQueue.WriteAsync workItem |> ignore
+            scheduler.GlobalQueue.WriteAsync workItem |> ignore
+            scheduler.SignalWork()
 
             fiber)

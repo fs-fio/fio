@@ -93,6 +93,74 @@ type internal WorkItemPool private () =
             workItem.InterruptionSuppressed <- 0
             pool.Push workItem
 
+// A lock-based work-stealing deque. The owning worker pushes/pops at the bottom (LIFO, so the
+// freshest item — e.g. a just-unblocked reader — is reclaimed first), while other workers steal
+// from the top (FIFO). The lock (rather than a lock-free Chase-Lev deque) is deliberate: FIO's
+// workers run as async continuations that hop threads, so "owner" operations are not single-threaded
+// and require mutual exclusion. Capacity must be a power of two.
+type internal WorkStealingDeque(initialCapacity: int) =
+    let mutable items: WorkItem[] = Array.zeroCreate initialCapacity
+    let mutable mask = initialCapacity - 1
+    let mutable bottom = 0
+    let mutable top = 0
+    let gate = obj ()
+
+    member _.IsEmpty =
+        System.Threading.Monitor.Enter gate
+        try
+            bottom = top
+        finally
+            System.Threading.Monitor.Exit gate
+
+    // A lock-free, best-effort emptiness check used to skip locking idle deques while stealing. A
+    // stale read can only cause a missed steal opportunity (recovered by another thief or the
+    // backstop), never incorrect behaviour.
+    member _.IsEmptyApprox =
+        bottom = top
+
+    member _.PushBottom (workItem: WorkItem) =
+        System.Threading.Monitor.Enter gate
+        try
+            if bottom - top >= items.Length then
+                let count = bottom - top
+                let grown: WorkItem[] = Array.zeroCreate (items.Length * 2)
+                for i in 0 .. count - 1 do
+                    grown.[i] <- items.[(top + i) &&& mask]
+                items <- grown
+                mask <- grown.Length - 1
+                top <- 0
+                bottom <- count
+            items.[bottom &&& mask] <- workItem
+            bottom <- bottom + 1
+        finally
+            System.Threading.Monitor.Exit gate
+
+    member _.TryPopBottom (workItem: byref<WorkItem>) =
+        System.Threading.Monitor.Enter gate
+        try
+            if bottom = top then
+                false
+            else
+                bottom <- bottom - 1
+                workItem <- items.[bottom &&& mask]
+                items.[bottom &&& mask] <- Unchecked.defaultof<_>
+                true
+        finally
+            System.Threading.Monitor.Exit gate
+
+    member _.TrySteal (workItem: byref<WorkItem>) =
+        System.Threading.Monitor.Enter gate
+        try
+            if bottom = top then
+                false
+            else
+                workItem <- items.[top &&& mask]
+                items.[top &&& mask] <- Unchecked.defaultof<_>
+                top <- top + 1
+                true
+        finally
+            System.Threading.Monitor.Exit gate
+
 /// Base class for a FIO runtime that runs effects into fibers.
 [<AbstractClass>]
 type FIORuntime internal () =

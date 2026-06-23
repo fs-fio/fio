@@ -145,19 +145,27 @@ FIO_BENCH_RUNTIMES="Signaling-12-200-1" FIO_BENCH_FORK_ACTORS="5000,25000" \
 
 ## Plotting Results
 
-After running benchmarks, generate interactive HTML charts comparing runtimes:
+After running benchmarks, generate charts comparing runtimes. By default the script writes both
+interactive HTML **and** static images (PNG + SVG), so the results are ready to view offline without
+a browser or network:
 
 ```bash
-pip install pandas plotly
+pip install pandas plotly kaleido
 python benchmarks/plot.py
-# self-test the parsers without touching artifacts:
+# choose static formats (png, svg, pdf), or disable static export with an empty value / "none":
+python benchmarks/plot.py --image-formats png,svg,pdf
+python benchmarks/plot.py --image-formats none
+# self-test the parsers without touching artifacts (no kaleido needed):
 python benchmarks/plot.py --self-test
 # or point at non-default locations:
 python benchmarks/plot.py --results-dir path/to/results --output-dir path/to/plots
 ```
 
-This reads all `*-report.csv` files from `BenchmarkDotNet.Artifacts/results/` and writes interactive
-HTMLs to `BenchmarkDotNet.Artifacts/plots/`. Two outputs are produced:
+`kaleido` is what renders the static images; if it is missing the script still writes the HTML and
+prints a one-line notice. This reads all `*-report.csv` files from
+`BenchmarkDotNet.Artifacts/results/` and writes to `BenchmarkDotNet.Artifacts/plots/` — an
+interactive `.html` (loads Plotly from a CDN, needs network to render) plus `.png`/`.svg` static
+images per output. Two outputs are produced:
 
 - **`<Benchmark>.html`** (one per benchmark): three stacked subplots — mean time, mean ± StdDev, and
   allocated memory — grouped by runtime across parameter combinations. Y axes auto-switch to log scale

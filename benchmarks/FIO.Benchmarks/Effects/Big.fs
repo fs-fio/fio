@@ -17,6 +17,7 @@ type private Actor =
         SendingCount: int
     }
 
+// Sends a ping to every peer, then awaits their pongs.
 let rec private sendPingsEffect actor roundCount message =
     fio {
         for channel in actor.SendingChannels do
@@ -24,6 +25,7 @@ let rec private sendPingsEffect actor roundCount message =
         return! receivePingsEffect actor roundCount actor.SendingCount message
     }
 
+// Receives pings from peers and replies to each with a pong.
 and private receivePingsEffect actor roundCount receiveCount message =
     fio {
         for _ in 1..receiveCount do
@@ -36,6 +38,7 @@ and private receivePingsEffect actor roundCount receiveCount message =
         return! receivePongsEffect actor roundCount actor.SendingCount message
     }
 
+// Receives the expected pongs, then starts the next round if any remain.
 and private receivePongsEffect actor roundCount receiveCount message =
     fio {
         for _ in 1..receiveCount do
@@ -49,9 +52,11 @@ and private receivePongsEffect actor roundCount receiveCount message =
             return! sendPingsEffect actor (roundCount - 1) message
     }
 
+// Runs one actor through all of its ping/pong rounds.
 let private actorEffect actor message roundCount =
     sendPingsEffect actor (roundCount - 1) message
 
+// Builds a fully-connected mesh of actors wired to each other's ping channels.
 let private createActors actorCount =
     let baseActors =
         [ for _ in 1..actorCount ->
@@ -72,6 +77,7 @@ let private createActors actorCount =
         let sendingChannels = [ for targetIndex in 0 .. actorCount - 1 do if targetIndex <> index then yield pingChannels[targetIndex] ]
         { actor with SendingChannels = sendingChannels; SendingCount = List.length sendingChannels })
 
+// Builds the Big workload: all-to-all ping/pong across a mesh of actors.
 let effect actorCount roundCount : FIO<unit, exn> =
     fio {
         let actors = createActors actorCount

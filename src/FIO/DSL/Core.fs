@@ -451,6 +451,13 @@ and [<Sealed; AllowNullLiteral>] Channel<'A> private
                     return false
         }
 
+    member internal _.TryDequeueBlockingWorkItem (workItem: byref<WorkItem>) : bool =
+        let channel = blockingSlot.TryGet()
+        if isNull channel then
+            false
+        else
+            channel.TryRead &workItem
+
     member internal _.TryBeginSignalProcessing () =
         tryClaim &signalProcessing
 

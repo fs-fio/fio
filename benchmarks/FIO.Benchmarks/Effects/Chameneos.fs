@@ -18,6 +18,7 @@ type private Request =
         ReplyChannel: Channel<Response>
     }
 
+// Returns the resulting color when two creatures of the given colors meet.
 let private complement = function
     | Red, Red -> Red
     | Yellow, Yellow -> Yellow
@@ -29,6 +30,7 @@ let private complement = function
     | Yellow, Blue
     | Blue, Yellow -> Red
 
+// The meeting-place actor: pairs up arriving creatures until the meeting budget runs out.
 let private mallEffect (mallChannel: Channel<Request>) meetingCount creatureCount =
     let mutable meetingsLeft = meetingCount
     let mutable waiter: Request option = None
@@ -57,6 +59,7 @@ let private mallEffect (mallChannel: Channel<Request>) meetingCount creatureCoun
 
     loop ()
 
+// A creature that repeatedly visits the mall and recolors on each meeting until told to stop.
 let private creatureEffect (mallChannel: Channel<Request>) initialColor =
     let replyChannel = Channel<Response>()
 
@@ -72,6 +75,7 @@ let private creatureEffect (mallChannel: Channel<Request>) initialColor =
 
     loop initialColor
 
+// Builds the Chameneos-Redux workload: creatures rendezvousing at a shared mall.
 let effect creatureCount meetingCount : FIO<unit, exn> =
     fio {
         let mallChannel = Channel<Request>()

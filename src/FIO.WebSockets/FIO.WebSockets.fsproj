@@ -8,7 +8,7 @@
 
     <PropertyGroup>
         <IsPackable>true</IsPackable>
-        <PackageId>FIO.WebSockets</PackageId>
+        <PackageId>FSharp.FIO.WebSockets</PackageId>
         <Title>FIO.WebSockets</Title>
         <Description>WebSockets for FIO. Client and server connections, and custom codecs.</Description>
         <PackageTags>fsharp;effect;websockets;realtime;networking;functional</PackageTags>

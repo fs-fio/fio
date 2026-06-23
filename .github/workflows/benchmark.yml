@@ -34,76 +34,71 @@ jobs:
       - name: Restore dependencies
         run: dotnet restore ./FIO.slnx
 
-      - name: Run benchmarks (DirectRuntime)
-        run: |
-          dotnet run -c Release --project benchmarks/FIO.Benchmarks -- \
-            --direct-runtime \
-            --runs 5 \
-            --pingpong 50000 \
-            --save true \
-            --savepath ./benchmark-direct.csv
+      - name: Smoke test (all benchmarks × all runtimes, tiny params — fail fast on hang/throw)
+        timeout-minutes: 10
+        env:
+          FIO_BENCH_RUNTIMES: "Direct,Polling-2-200-1,Signaling-2-200-1"
+          FIO_BENCH_BANG_ACTORS: "4"
+          FIO_BENCH_BANG_ROUNDS: "10"
+          FIO_BENCH_BIG_ACTORS: "4"
+          FIO_BENCH_BIG_ROUNDS: "5"
+          FIO_BENCH_BOUNDEDBUFFER_ITEMS: "200"
+          FIO_BENCH_CHAMENEOS_CREATURES: "6"
+          FIO_BENCH_CHAMENEOS_MEETINGS: "50"
+          FIO_BENCH_COUNTING_MESSAGES: "500"
+          FIO_BENCH_FORK_ACTORS: "200"
+          FIO_BENCH_PHILOSOPHERS_COUNT: "5"
+          FIO_BENCH_PHILOSOPHERS_ROUNDS: "20"
+          FIO_BENCH_PINGPONG_ROUNDS: "200"
+          FIO_BENCH_THREADRING_ACTORS: "10"
+          FIO_BENCH_THREADRING_ROUNDS: "20"
+          FIO_BENCH_FIBONACCI_N: "20"
+          FIO_BENCH_TRAPEZOIDAL_WORKERS: "2"
+          FIO_BENCH_TRAPEZOIDAL_POINTS: "10000"
+        # --job Dry runs a warmup + target invocation per case, so this also exercises
+        # effect re-runnability; main returns non-zero if any benchmark throws or fails to run.
+        run: dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*" --job Dry
 
-      - name: Run benchmarks (PollingRuntime)
+      - name: Run Pingpong benchmark (all runtimes)
+        env:
+          # EWC = runner cores - 2 (ubuntu-latest is ~4 vCPU): leaves a core for the blocking
+          # worker and one for the OS/BDN harness. See benchmarks/FIO.Benchmarks/README.md.
+          FIO_BENCH_RUNTIMES: "Direct,Polling-2-200-1,Signaling-2-200-1"
+          FIO_BENCH_PINGPONG_ROUNDS: "50000"
+          FIO_BENCH_WARMUP: "1"
+          FIO_BENCH_ITERATIONS: "5"
         run: |
           dotnet run -c Release --project benchmarks/FIO.Benchmarks -- \
-            --polling-runtime 4 200 1 \
-            --runs 5 \
-            --pingpong 50000 \
-            --save true \
-            --savepath ./benchmark-polling.csv
-
-      - name: Run benchmarks (SignalingRuntime)
-        run: |
-          dotnet run -c Release --project benchmarks/FIO.Benchmarks -- \
-            --signaling-runtime 4 200 1 \
-            --runs 5 \
-            --pingpong 50000 \
-            --save true \
-            --savepath ./benchmark-signaling.csv
+            --filter "*Pingpong*" \
+            --exporters json github
 
       - name: Display benchmark summary
         run: |
-          echo "## Benchmark Results" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### DirectRuntime" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          cat ./benchmark-direct.csv >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### PollingRuntime" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          cat ./benchmark-polling.csv >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### SignalingRuntime" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          cat ./benchmark-signaling.csv >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          report_md=$(ls BenchmarkDotNet.Artifacts/results/*PingpongBenchmark-report-github.md | head -1)
+          {
+            echo "## Benchmark Results — Pingpong"
+            echo ""
+            echo '```'
+            cat "$report_md"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Convert results to benchmark JSON
+      - name: Convert results to tracking JSON
         run: |
-          # Extract average execution times from each runtime's CSV and create JSON for tracking
-          # Format: [{ "name": "Runtime - Benchmark", "unit": "ms", "value": avg_time }]
-          echo "[" > benchmark-results.json
-
-          # DirectRuntime
-          direct_avg=$(awk -F',' 'NR==2 {gsub(/[[:space:]]/, "", $4); print $4}' ./benchmark-direct.csv)
-          echo "  { \"name\": \"DirectRuntime - Pingpong\", \"unit\": \"ms\", \"value\": $direct_avg }," >> benchmark-results.json
-
-          # PollingRuntime
-          polling_avg=$(awk -F',' 'NR==2 {gsub(/[[:space:]]/, "", $4); print $4}' ./benchmark-polling.csv)
-          echo "  { \"name\": \"PollingRuntime - Pingpong\", \"unit\": \"ms\", \"value\": $polling_avg }," >> benchmark-results.json
-
-          # SignalingRuntime
-          signaling_avg=$(awk -F',' 'NR==2 {gsub(/[[:space:]]/, "", $4); print $4}' ./benchmark-signaling.csv)
-          echo "  { \"name\": \"SignalingRuntime - Pingpong\", \"unit\": \"ms\", \"value\": $signaling_avg }" >> benchmark-results.json
-
-          echo "]" >> benchmark-results.json
-
-          echo "### Benchmark JSON for tracking:" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`json" >> $GITHUB_STEP_SUMMARY
-          cat benchmark-results.json >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          report_json=$(ls BenchmarkDotNet.Artifacts/results/*PingpongBenchmark-report-full-compressed.json | head -1)
+          # BenchmarkDotNet's full report stores Statistics.Mean in nanoseconds and the runtime in
+          # the Parameters string (e.g. "RoundCount=50000&Runtime=Signaling-2-200-1"; the separator
+          # is '&'). Emit one "smaller is better" metric per runtime, in milliseconds.
+          jq '[ .Benchmarks[]
+                | { name: ("Pingpong - " + (.Parameters | capture("Runtime=(?<r>[^,&]+)") | .r)),
+                    unit: "ms",
+                    value: (.Statistics.Mean / 1000000) } ]' "$report_json" > benchmark-results.json
+          {
+            echo "### Benchmark JSON for tracking:"
+            echo '```json'
+            cat benchmark-results.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Store benchmark results
         uses: benchmark-action/github-action-benchmark@v1
@@ -122,5 +117,5 @@ jobs:
         with:
           name: benchmark-results
           path: |
-            ./benchmark-*.csv
-            ./benchmark-results.json
+            BenchmarkDotNet.Artifacts/results/*Pingpong*
+            benchmark-results.json
