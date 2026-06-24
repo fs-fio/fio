@@ -4,7 +4,7 @@ open FIO.DSL
 open FIO.Runtime
 open FIO.Runtime.Direct
 open FIO.Runtime.Polling
-open FIO.Runtime.Signaling
+open FIO.Runtime.WorkStealing
 
 open Expecto
 
@@ -14,7 +14,7 @@ let private runtimes () =
     [
         new DirectRuntime() :> FIORuntime
         new PollingRuntime() :> FIORuntime
-        new SignalingRuntime() :> FIORuntime
+        new WorkStealingRuntime() :> FIORuntime
     ]
 
 let private testAllRuntimes name (f: FIORuntime -> unit) =

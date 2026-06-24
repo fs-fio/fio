@@ -3,7 +3,7 @@ module private FIO.Examples.App
 open FIO.DSL
 open FIO.App
 open FIO.Console
-open FIO.Runtime.Signaling
+open FIO.Runtime.WorkStealing
 
 open System
 open System.IO
@@ -478,12 +478,12 @@ type CommandLineArgsApp(args: string array) =
                     do! Console.printLine $"  Arg[%d{i}]: %s{args[i]}" id
         }
 
-// Overrides the runtime to use a SignalingRuntime with custom worker configuration.
+// Overrides the runtime to use a WorkStealingRuntime with custom worker configuration.
 type CustomRuntimeApp() =
     inherit FIOApp<unit, exn>()
 
     override _.runtime =
-        new SignalingRuntime {
+        new WorkStealingRuntime {
             EvaluationWorkers = Environment.ProcessorCount * 2
             EvaluationSteps = 500
             BlockingWorkers = 2
@@ -491,7 +491,7 @@ type CustomRuntimeApp() =
 
     override _.effect =
         fio {
-            do! Console.printLine "Running with custom SignalingRuntime configuration:" id
+            do! Console.printLine "Running with custom WorkStealingRuntime configuration:" id
             do! Console.printLine $" - Evaluation Workers: %d{Environment.ProcessorCount * 2}" id
             do! Console.printLine " - Evaluation Steps: 500" id
             do! Console.printLine " - Blocking Workers: 2" id

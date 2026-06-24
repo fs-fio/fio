@@ -6,7 +6,7 @@ open FIO.DSL
 open FIO.Runtime
 open FIO.Runtime.Direct
 open FIO.Runtime.Polling
-open FIO.Runtime.Signaling
+open FIO.Runtime.WorkStealing
 
 open Expecto
 
@@ -16,7 +16,7 @@ let private runtimes () =
     [
         new DirectRuntime() :> FIORuntime
         new PollingRuntime() :> FIORuntime
-        new SignalingRuntime() :> FIORuntime
+        new WorkStealingRuntime() :> FIORuntime
     ]
 
 let private testAllRuntimes name (f: FIORuntime -> unit) =
@@ -388,7 +388,7 @@ let channelTests =
 
                 Expect.equal result messages "FIFO order should be preserved for 1000 messages"
 
-            // Stress test targeting the signal protocol re-check in SignalingRuntime's
+            // Stress test targeting the signal protocol re-check in WorkStealingRuntime's
             // processBlockingChannel. Many blocked receivers + many
             // concurrent senders maximises the chance of TryBeginSignalProcessing failures
             // that rely on the finally-block re-check to avoid lost signals.
@@ -398,7 +398,7 @@ let channelTests =
                 let iterations = 20
 
                 for _ in 1..iterations do
-                    use runtime = new SignalingRuntime()
+                    use runtime = new WorkStealingRuntime()
 
                     let effect =
                         fio {
@@ -428,7 +428,7 @@ let channelTests =
                         [ 1..receiverCount ]
                         "All blocked receivers must be rescheduled (no lost signals)"
 
-            // Regression test for the SignalingRuntime signal-protocol lost-wakeup race
+            // Regression test for the WorkStealingRuntime signal-protocol lost-wakeup race
             // (check-then-CAS anti-pattern). Mirrors the FIO.Benchmarks BoundedBuffer pattern
             // at sufficient volume to surface the race if signalBlockingWorkerIfPending or the
             // processBlockingChannel post-finally re-check ever revert to lazy gating reads
@@ -441,7 +441,7 @@ let channelTests =
                 let itemsPerProducer = 100_000
                 let totalItems = producerCount * itemsPerProducer
 
-                use runtime = new SignalingRuntime()
+                use runtime = new WorkStealingRuntime()
 
                 let effect =
                     fio {

@@ -6,7 +6,7 @@ open FIO.DSL
 open FIO.Runtime
 open FIO.Runtime.Direct
 open FIO.Runtime.Polling
-open FIO.Runtime.Signaling
+open FIO.Runtime.WorkStealing
 
 open Expecto
 
@@ -18,7 +18,7 @@ let private runtimes () =
     [
         new DirectRuntime() :> FIORuntime
         new PollingRuntime() :> FIORuntime
-        new SignalingRuntime() :> FIORuntime
+        new WorkStealingRuntime() :> FIORuntime
     ]
 
 let private testAllRuntimes name (func: FIORuntime -> unit) =
@@ -1318,7 +1318,7 @@ let extensionTests =
                 Expect.equal result errValue "RetryUntil should fail with the original error"
 
             testCase "RetryUntil - stack safety with 10000 iterations" <| fun () ->
-                let runtime = new SignalingRuntime() :> FIORuntime
+                let runtime = new WorkStealingRuntime() :> FIORuntime
                 let mutable count = 0
 
                 let effect =
@@ -1386,7 +1386,7 @@ let extensionTests =
                 Expect.equal result 5 "RetryWhile should fail with the error that failed the predicate"
 
             testCase "RetryWhile - stack safety with 10000 iterations" <| fun () ->
-                let runtime = new SignalingRuntime() :> FIORuntime
+                let runtime = new WorkStealingRuntime() :> FIORuntime
                 let mutable count = 0
 
                 let effect =
@@ -1440,7 +1440,7 @@ let extensionTests =
                 Expect.equal count 5 "Eventually should retry until success")
 
             testCase "Eventually - stack safety with 10000 iterations" <| fun () ->
-                let runtime = new SignalingRuntime() :> FIORuntime
+                let runtime = new WorkStealingRuntime() :> FIORuntime
                 let mutable count = 0
 
                 let effect =
@@ -1527,7 +1527,7 @@ let extensionTests =
                 Expect.equal result value "RepeatUntil should return the first result"
 
             testCase "RepeatUntil - stack safety with 10000 iterations" <| fun () ->
-                let runtime = new SignalingRuntime() :> FIORuntime
+                let runtime = new WorkStealingRuntime() :> FIORuntime
                 let mutable count = 0
 
                 let effect =
@@ -1599,7 +1599,7 @@ let extensionTests =
                 Expect.equal result 5 "RepeatWhile should return the value that failed the predicate"
 
             testCase "RepeatWhile - stack safety with 10000 iterations" <| fun () ->
-                let runtime = new SignalingRuntime() :> FIORuntime
+                let runtime = new WorkStealingRuntime() :> FIORuntime
                 let mutable count = 0
 
                 let effect =
@@ -1721,7 +1721,7 @@ let extensionTests =
 
             testCase "TimeoutTo - timeout fires returns default value"
             <| fun () ->
-                let runtime = new SignalingRuntime() :> FIORuntime
+                let runtime = new WorkStealingRuntime() :> FIORuntime
                 let defaultValue = -1
                 let effect =
                     (FIO.sleep (TimeSpan.FromSeconds 5.0) (fun ex -> ex.Message)).FlatMap(fun () -> FIO.succeed 0)

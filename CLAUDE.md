@@ -11,7 +11,7 @@ FIO is a type-safe, purely functional effect system for F#. IO monad + fibers (g
 
 **Target:** .NET 10, F# 10, `.slnx` solution format (`FIO.slnx`). SDK pinned to `10.0.301` via `global.json` (`rollForward: latestMinor`).
 
-Repository: <https://github.com/fs-fio/fio> · License: MIT · Baseline version: `0.1.0-alpha` (single source of truth in `Directory.Build.props`).
+Repository: <https://github.com/fs-fio/fio> · License: MIT · Baseline version: `0.1.10-alpha` (single source of truth in `Directory.Build.props`).
 
 ## Build Commands
 
@@ -77,8 +77,9 @@ Runtime (`src/FIO/Runtime/`):
 - `InterpreterCore.fs` - Shared interpreter logic (`InterpreterState` struct, `processOutcome`/`processResult`/`handleSharedCase`, `Outcome` DU, `RuntimeCase` DU for runtime-specific dispatch)
 - `DirectRuntime.fs` - .NET Tasks, waits for blocked fibers
 - `PollingRuntime.fs` - Custom fibers, linear-time blocked handling
-- `SignalingRuntime.fs` - Custom fibers, constant-time blocked handling (event-driven, uses `EvaluationWorker` + `BlockingWorker`)
-- `DefaultRuntime.fs` - Type alias: `DefaultRuntime = SignalingRuntime`
+- `SignalingRuntime.fs` - Custom fibers, event-driven blocked handling (dedicated `BlockingWorker` + signal queue; constant-time reschedule). A comparison/legacy runtime — superseded as the default by `WorkStealingRuntime`
+- `WorkStealingRuntime.fs` - Custom fibers, work-stealing scheduler (per-worker `runNext` slot + work-stealing deque + shared global queue; at-most-one-waker async parking). The default runtime — full design in [`docs/WORK_STEALING_RUNTIME.md`](docs/WORK_STEALING_RUNTIME.md)
+- `DefaultRuntime.fs` - Type alias: `DefaultRuntime = WorkStealingRuntime`
 
 Framework (`src/FIO/App.fs`):
 - `App.fs` - `FIOApp<'A,'E>` abstract base class. 5-member surface: `effect`, `runtime`, `onShutdown`, `onShutdownTimeout`, `mapExitCode` over `AppResult<'A,'E>` (`AppSucceeded`/`AppFailed`/`AppInterrupted`/`AppFatalError`).
@@ -111,16 +112,18 @@ FIORuntime (abstract)
 ├── DirectRuntime
 └── FIOWorkerRuntime (abstract, adds WorkerConfig: EvaluationWorkers/EvaluationSteps/BlockingWorkers)
     ├── PollingRuntime
-    └── SignalingRuntime (= DefaultRuntime)
+    ├── SignalingRuntime
+    └── WorkStealingRuntime (= DefaultRuntime)
 ```
 
 - **DirectRuntime** - .NET Tasks, waits for blocked fibers
 - **PollingRuntime** - Custom fibers, linear-time blocked handling (polling `BlockingItem` list)
-- **SignalingRuntime** - Custom fibers, constant-time blocked handling (event-driven via `Channel.TryRescheduleNextBlockingWorkItem` / `FiberContext.CompleteAndReschedule`)
+- **SignalingRuntime** - Custom fibers, event-driven blocked handling: a dedicated `BlockingWorker` reschedules blocked fibers via a signal queue (constant-time). Kept as a comparison runtime; superseded as the default by WorkStealingRuntime.
+- **WorkStealingRuntime** - Custom fibers, **work-stealing** scheduler: per-worker local queues (a `runNext` slot + a work-stealing deque) with work-stealing across idle workers, at-most-one-waker wakeups, and async parking. Full design in [`docs/WORK_STEALING_RUNTIME.md`](docs/WORK_STEALING_RUNTIME.md).
 
-**DefaultRuntime = SignalingRuntime** (recommended)
+**DefaultRuntime = WorkStealingRuntime** (recommended)
 
-Worker config fields: **EvaluationWorkers** (evaluation worker count), **EvaluationSteps** (eval steps per work item before rescheduling), **BlockingWorkers** (blocking worker count). The `EWC`/`EWS`/`BWC` acronyms are retained only as the `ConfigString` display labels and the benchmark spec shorthand (`Signaling-{EWC}-{EWS}-{BWC}`).
+Worker config fields: **EvaluationWorkers** (worker count), **EvaluationSteps** (interpreter steps per work item before a fiber yields), **BlockingWorkers** (used by `PollingRuntime`; **ignored by `WorkStealingRuntime`**, which has no dedicated blocking worker). The `EWC`/`EWS`/`BWC` acronyms are the `ConfigString` display labels and the benchmark spec shorthand (`WorkStealing-{EWC}-{EWS}-{BWC}`).
 
 ### Key Internal Types
 
@@ -204,7 +207,7 @@ Library modules use **qualified access**: e.g. `Console.printLine "msg" id`.
 Macro benchmarks live in `benchmarks/FIO.Benchmarks/` (BenchmarkDotNet 0.15.8). Eleven workloads:
 **Bang, Big, BoundedBuffer, Chameneos, Counting, Fibonacci, Fork, Philosophers, Pingpong, Threadring, Trapezoidal**. Each is `[<MemoryDiagnoser>]` + `[<RankColumn>]`, sweeping its parameters × the configured runtimes, so every run reports **execution time and allocated memory**.
 
-- **Runtimes:** spec format `Direct | Polling-{EWC}-{EWS}-{BWC} | Signaling-{EWC}-{EWS}-{BWC}`. Set via `FIO_BENCH_RUNTIMES` (default `Direct,Polling-12-200-1,Signaling-12-200-1`). Recommended `EWC = CPU cores − 2`.
+- **Runtimes:** spec format `Direct | Polling-{EWC}-{EWS}-{BWC} | WorkStealing-{EWC}-{EWS}-{BWC}`. Set via `FIO_BENCH_RUNTIMES` (default `Direct,Polling-12-200-1,WorkStealing-12-200-1`). Recommended `EWC = CPU cores − 2`.
 - **Iteration control:** `FIO_BENCH_WARMUP` (default 3), `FIO_BENCH_ITERATIONS` (default 30). A CLI `--job` (e.g. `--job Dry`, `--job Short`) **overrides** these env vars.
 - **Per-benchmark params:** `FIO_BENCH_<NAME>_<PARAM>` (e.g. `FIO_BENCH_PINGPONG_ROUNDS`, `FIO_BENCH_FORK_ACTORS`, `FIO_BENCH_BOUNDEDBUFFER_PRODUCERS`). Full table in `benchmarks/FIO.Benchmarks/README.md`.
 - **Output:** BenchmarkDotNet writes CSV/GitHub-markdown/HTML reports to `BenchmarkDotNet.Artifacts/results/` (git-ignored).
@@ -215,16 +218,16 @@ Macro benchmarks live in `benchmarks/FIO.Benchmarks/` (BenchmarkDotNet 0.15.8). 
 ## Testing
 
 - **Expecto + FsCheck** for property-based testing; test runner config: `Parallel`, `Summary`, `Colours 256`. Pinned versions (`Directory.Packages.props`): Expecto 10.2.3, FsCheck 2.16.6.
-- Custom FsCheck `Generators` type in `tests/FIO.Tests/Utils/Utilities.fs` provides `Arb` for all three runtimes — tests run against `DirectRuntime`, `PollingRuntime`, and `SignalingRuntime`
+- Custom FsCheck `Generators` type in `tests/FIO.Tests/Utils/Utilities.fs` provides `Arb` for all four runtimes — tests run against `DirectRuntime`, `PollingRuntime`, `SignalingRuntime`, and `WorkStealingRuntime`
 - Console tests use `System.Console.SetOut`/`SetIn` with `StringWriter`/`StringReader` for deterministic capture — must use `testSequenced` (not parallel) because `System.Console` has process-global state
 - Four test projects:
   - `FIO.Tests` — core library, organized into `DSL/`, `Lib/`, `Framework/` subfolders
   - `FIO.Sockets.Tests` — TCP sockets, flat structure with `testAllRuntimes` + `withTestServer`/`withTestEchoServer` helpers
   - `FIO.WebSockets.Tests` — WebSockets, flat structure
   - `FIO.Http.Tests` — HTTP server tests
-- Core tests use `Generators` type for FsCheck Arb across all 3 runtimes; extension tests use `testAllRuntimes` helper wrapping `testSequenced`
+- Core tests use `Generators` type for FsCheck Arb across all 4 runtimes; extension tests use `testAllRuntimes` helper wrapping `testSequenced`
 - `InternalsVisibleTo("FIO.Tests")` is set on the core project only (extension libs do not expose internals to tests)
-- All WebSocket test files are enabled in the `.fsproj` (including `WebSocketServerTests.fs`); the suite passes (155 tests, no hang)
+- All WebSocket test files are enabled in the `.fsproj` (including `WebSocketServerTests.fs`); the suite passes (no hang)
 - Stack-safety canaries live in `tests/FIO.Tests/DSL/FIOTests.fs` — the three "Stack safety - deep left-chained FlatMap/CatchAll/Ensuring" tests at depth 10000 are load-bearing for the iterative-flattening design of `UpcastResult`/`UpcastError`/`UpcastBoth`. Do not "simplify" those methods to plain recursion.
 
 ## Semantic Invariants (Do Not Break)
@@ -240,8 +243,8 @@ Macro benchmarks live in `benchmarks/FIO.Benchmarks/` (BenchmarkDotNet 0.15.8). 
 
 - **New effect constructor**: update `Core.fs` (FIO DU + `UpcastResult`/`UpcastError`/`UpcastBoth`), `Factories.fs`, `Extensions.fs`, `Operators.fs`, and `CE.fs` as needed
 - **New shared effect case**: add handling to `handleSharedCase` in `InterpreterCore.fs`
-- **New runtime-specific effect case**: add to `RuntimeCase` DU in `InterpreterCore.fs`, route from `handleSharedCase`, update all three runtime `RuntimeCase` matches
-- **New runtime DU case**: update `Core.fs` and all three runtime interpreters (`DirectRuntime.fs`, `PollingRuntime.fs`, `SignalingRuntime.fs`)
+- **New runtime-specific effect case**: add to `RuntimeCase` DU in `InterpreterCore.fs`, route from `handleSharedCase`, update all four runtime `RuntimeCase` matches
+- **New runtime DU case**: update `Core.fs` and all four runtime interpreters (`DirectRuntime.fs`, `PollingRuntime.fs`, `SignalingRuntime.fs`, `WorkStealingRuntime.fs`)
 - **Runtime change**: update interpreter logic, add tests, and validate benchmarks
 - **Extension change**: update error model, DSL surface, and extension README
 - **Behavior change**: update examples and tests to match new semantics

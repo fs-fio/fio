@@ -26,7 +26,7 @@ BYTE_UNITS = {
     "MB": 1024.0 ** 2,
     "GB": 1024.0 ** 3,
 }
-RUNTIME_PATTERN = re.compile(r"^(Direct|Polling|Signaling)(-\d+-\d+-\d+)?$")
+RUNTIME_PATTERN = re.compile(r"^(Direct|Polling|Signaling|WorkStealing)(-\d+-\d+-\d+)?$")
 LOG_SCALE_THRESHOLD = 10.0
 
 
@@ -106,13 +106,16 @@ def runtime_sort_key(rt: str) -> tuple[int, str]:
         return (0, rt)
     if "Polling" in rt:
         return (1, rt)
-    return (2, rt)
+    if "Signaling" in rt:
+        return (2, rt)
+    return (3, rt)
 
 
 RUNTIME_COLORS = {
     "Direct": "#636EFA",
     "Polling": "#EF553B",
-    "Signaling": "#00CC96",
+    "Signaling": "#FFA15A",
+    "WorkStealing": "#00CC96",
 }
 
 
@@ -412,19 +415,20 @@ def self_test() -> None:
     assert normalize_to_ms("3.850 ms") == 3.850
     assert abs(normalize_to_ms("1,111.87 ms") - 1111.87) < 1e-6
 
-    # Runtime-column detection must recognise the current runtime names — regression guard for
-    # the Cooperative/Concurrent -> Polling/Signaling rename (the formatted path was silently
-    # broken before because this case was untested).
+    # Runtime-column detection must recognise the current runtime names (Direct, Polling, Signaling,
+    # WorkStealing) — regression guard for the formatted path.
     runtime_frame = pd.DataFrame({
-        "RoundCount": [10000, 10000, 10000],
-        "Runtime": ["Direct", "Polling-4-200-1", "Signaling-4-200-1"],
-        "Mean": ["1.0 ms", "2.0 ms", "3.0 ms"],
+        "RoundCount": [10000, 10000, 10000, 10000],
+        "Runtime": ["Direct", "Polling-4-200-1", "Signaling-4-200-1", "WorkStealing-4-200-1"],
+        "Mean": ["1.0 ms", "2.0 ms", "3.0 ms", "4.0 ms"],
     })
     assert find_fio_runtime_col(runtime_frame) == "Runtime"
     assert runtime_sort_key("Direct")[0] == 0
     assert runtime_sort_key("Polling-4-200-1")[0] == 1
     assert runtime_sort_key("Signaling-4-200-1")[0] == 2
-    assert runtime_color("Signaling-4-200-1") == "#00CC96"
+    assert runtime_sort_key("WorkStealing-4-200-1")[0] == 3
+    assert runtime_color("Signaling-4-200-1") == "#FFA15A"
+    assert runtime_color("WorkStealing-4-200-1") == "#00CC96"
 
     assert parse_image_formats("png, svg ,pdf") == ["png", "svg", "pdf"]
     assert parse_image_formats("PNG,png,svg") == ["png", "svg"]

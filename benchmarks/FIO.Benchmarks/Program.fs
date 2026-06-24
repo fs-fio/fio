@@ -6,6 +6,7 @@ open BenchmarkDotNet.Jobs
 open BenchmarkDotNet.Running
 open BenchmarkDotNet.Configs
 open BenchmarkDotNet.Engines
+open BenchmarkDotNet.Reports
 
 open Perfolizer.Horology
 
@@ -13,6 +14,9 @@ open System
 
 let private defaultWarmupCount = 3
 let private defaultIterationCount = 30
+
+let private summaryStyle =
+    SummaryStyle.Default.WithMaxParameterColumnWidth 40
 
 // Parses an integer env var with a minimum, falling back to a default.
 let private parseCount (name: string) (minValue: int) (defaultValue: int) =
@@ -38,7 +42,7 @@ let private buildConfig () =
             .WithGcServer(true)
             .WithGcConcurrent true
 
-    ManualConfig.Create(DefaultConfig.Instance).AddJob job
+    ManualConfig.Create(DefaultConfig.Instance).AddJob(job).WithSummaryStyle summaryStyle
 
 // Runs the benchmark switcher, using a CLI --job config when one is supplied.
 [<EntryPoint>]
@@ -47,7 +51,7 @@ let main args =
         args |> Array.exists (fun arg -> arg = "--job")
 
     let config =
-        if hasCliJob then ManualConfig.Create DefaultConfig.Instance
+        if hasCliJob then (ManualConfig.Create DefaultConfig.Instance).WithSummaryStyle summaryStyle
         else buildConfig ()
 
     let summaries =

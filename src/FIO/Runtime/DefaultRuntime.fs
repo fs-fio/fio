@@ -1,4 +1,4 @@
 namespace FIO.Runtime.Default
 
-/// The recommended runtime — an alias for the signaling runtime.
-type DefaultRuntime = FIO.Runtime.Signaling.SignalingRuntime
+/// The recommended runtime — an alias for the work-stealing runtime.
+type DefaultRuntime = FIO.Runtime.WorkStealing.WorkStealingRuntime

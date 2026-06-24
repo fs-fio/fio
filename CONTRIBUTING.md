@@ -49,7 +49,7 @@ dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*"
 - Effect construction must be lazy (no side effects until run).
 - Sequential operators (`>>=`, `<*>`, `*>`, `<*`) preserve left-to-right order.
 - Parallel operators (`<&>`, `&>`, `<&`, `<&&>`) must be genuinely concurrent.
-- Interruption propagates consistently across all three runtimes.
+- Interruption propagates consistently across all runtimes.
 - `Ensuring` finalizers run on success, error, **and** interruption.
 - Extensions must not leak raw exceptions as public errors.
 

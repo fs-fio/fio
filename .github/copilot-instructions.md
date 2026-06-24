@@ -38,11 +38,12 @@ Key DU cases: `Success`/`Failure` (terminal), `Interrupt` (self-interrupt), `Act
 FIORuntime (abstract)
 ├── DirectRuntime              — .NET Tasks, waits for blocked fibers
 └── FIOWorkerRuntime (abstract, adds WorkerConfig: EvaluationWorkers/EvaluationSteps/BlockingWorkers)
-    ├── PollingRuntime         — Custom fibers, linear-time blocked handling
-    └── SignalingRuntime       — Custom fibers, constant-time blocked handling (event-driven)
+    ├── PollingRuntime         — Custom fibers, linear-time blocked handling (polling)
+    ├── SignalingRuntime       — Custom fibers, event-driven blocked handling (dedicated BlockingWorker + signal queue; constant-time). Comparison/legacy runtime
+    └── WorkStealingRuntime    — Custom fibers, work-stealing scheduler (per-worker queues + work-stealing). The default
 ```
 
-`DefaultRuntime = SignalingRuntime` (recommended). Worker config fields: **EvaluationWorkers** (evaluation worker count), **EvaluationSteps** (eval steps per work item before rescheduling), **BlockingWorkers** (blocking worker count). The `EWC`/`EWS`/`BWC` acronyms remain as the `ConfigString` display labels and benchmark spec shorthand.
+`DefaultRuntime = WorkStealingRuntime` (recommended) — full design in [`docs/WORK_STEALING_RUNTIME.md`](../docs/WORK_STEALING_RUNTIME.md). Worker config fields: **EvaluationWorkers** (evaluation worker count), **EvaluationSteps** (eval steps per work item before rescheduling), **BlockingWorkers** (used by `PollingRuntime`; **ignored by `WorkStealingRuntime`**). The `EWC`/`EWS`/`BWC` acronyms remain as the `ConfigString` display labels and benchmark spec shorthand.
 
 ### Key Files (compile order matters)
 
@@ -57,7 +58,7 @@ Runtime (`src/FIO/Runtime/`):
 - `Runtime.fs` — `FIORuntime` base, `WorkerConfig`, `ContStackPool`, `WorkItemPool`
 - `WorkerInfrastructure.fs` — `FIOWorkerRuntime`, `WorkerLifecycle`
 - `InterpreterCore.fs` — shared interpreter (`InterpreterState`, `processOutcome`/`processResult`/`handleSharedCase`, `Outcome` DU, `RuntimeCase` DU for runtime-specific dispatch)
-- `DirectRuntime.fs` / `PollingRuntime.fs` / `SignalingRuntime.fs` / `DefaultRuntime.fs`
+- `DirectRuntime.fs` / `PollingRuntime.fs` / `SignalingRuntime.fs` / `WorkStealingRuntime.fs` / `DefaultRuntime.fs` (alias for `WorkStealingRuntime`)
 
 Framework (`src/FIO/App.fs`): `FIOApp<'A,'E>` with 5-member surface (`effect`, `runtime`, `onShutdown`, `onShutdownTimeout`, `mapExitCode`) over `AppResult` (`AppSucceeded`/`AppFailed`/`AppInterrupted`/`AppFatalError`).
 
@@ -137,7 +138,6 @@ let main _ = MyApp().Run()
 - 4-space indentation
 - F# compile order matters — file order in `.fsproj` is the compilation order
 - Short, sentence-style commit messages (e.g., "Fix benchmark output", "Improve App.fs")
-- Experimental compile-time flags: `DETECT_DEADLOCK`, `MONITOR` (in `Runtime.Tools/`)
 
 ### Comments / XML Docs
 
@@ -160,12 +160,12 @@ Two tiers — see [`docs/COMMENT_STYLE.md`](../docs/COMMENT_STYLE.md):
 ## Testing
 
 - **Expecto + FsCheck** for property-based testing
-- Core tests use a `Generators` type (`tests/FIO.Tests/Utils/Utilities.fs`) that provides FsCheck `Arb` for all three runtimes — every property test runs against `DirectRuntime`, `PollingRuntime`, and `SignalingRuntime`
+- Core tests use a `Generators` type (`tests/FIO.Tests/Utils/Utilities.fs`) that provides FsCheck `Arb` for all four runtimes — every property test runs against `DirectRuntime`, `PollingRuntime`, `SignalingRuntime`, and `WorkStealingRuntime`
 - Console tests use `System.Console.SetOut`/`SetIn` with `StringWriter`/`StringReader` for deterministic capture — must use `testSequenced` (not parallel) because `System.Console` has process-global state
 - Extension tests use `testAllRuntimes` helper wrapping `testSequenced`
 - Stack-safety canary tests in `tests/FIO.Tests/DSL/FIOTests.fs` (depth 10000) are load-bearing — do not simplify `UpcastResult`/`UpcastError`/`UpcastBoth` to plain recursion
 - `InternalsVisibleTo("FIO.Tests")` is set on the core project only; extension libs do not expose internals to their tests
-- All WebSocket test files are enabled in the `.fsproj` (including `WebSocketServerTests.fs`); the suite passes (155 tests, no hang)
+- All WebSocket test files are enabled in the `.fsproj` (including `WebSocketServerTests.fs`); the suite passes (no hang)
 
 ## CI / Release
 
@@ -176,6 +176,6 @@ Two tiers — see [`docs/COMMENT_STYLE.md`](../docs/COMMENT_STYLE.md):
 ## Architecture Change Checklist
 
 - **New effect constructor**: update `Core.fs` (FIO DU + `UpcastResult`/`UpcastError`/`UpcastBoth`), `Factories.fs`, `Extensions.fs`, `Operators.fs`, and `CE.fs`
-- **New runtime DU case**: update `Core.fs` and all three runtime interpreters (`DirectRuntime.fs`, `PollingRuntime.fs`, `SignalingRuntime.fs`)
+- **New runtime DU case**: update `Core.fs` and all four runtime interpreters (`DirectRuntime.fs`, `PollingRuntime.fs`, `SignalingRuntime.fs`, `WorkStealingRuntime.fs`)
 - **Runtime change**: update interpreter logic, add tests, validate benchmarks
 - **Extension change**: update error model, DSL surface, and extension README

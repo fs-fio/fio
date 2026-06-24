@@ -6,11 +6,12 @@ open FIO.Runtime
 open FIO.Runtime.Direct
 open FIO.Runtime.Polling
 open FIO.Runtime.Signaling
+open FIO.Runtime.WorkStealing
 
 open System
 
 let private defaultRuntimes =
-    [| "Direct"; "Polling-12-200-1"; "Signaling-12-200-1" |]
+    [| "Direct"; "Polling-12-200-1"; "Signaling-12-200-1"; "WorkStealing-12-200-1" |]
 
 // Parses a positive worker count from a runtime spec, raising on invalid input.
 let private parseWorker (spec: string) (part: string) =
@@ -19,7 +20,7 @@ let private parseWorker (spec: string) (part: string) =
     | true, _ -> raise (ArgumentException $"Worker count must be greater than 0 in runtime spec '{spec}': '{part}'")
     | _ -> raise (ArgumentException $"Invalid worker count '{part}' in runtime spec '{spec}'")
 
-// Creates a runtime from a spec string like "Direct" or "Signaling-12-200-1".
+// Creates a runtime from a spec string like "Direct" or "WorkStealing-12-200-1".
 let create (spec: string) : FIORuntime =
     match spec.Split '-' with
     | [| "Direct" |] -> new DirectRuntime()
@@ -32,6 +33,13 @@ let create (spec: string) : FIORuntime =
             }
     | [| "Signaling"; ewc; ews; bwc |] ->
         new SignalingRuntime
+            {
+                EvaluationWorkers = parseWorker spec ewc
+                EvaluationSteps = parseWorker spec ews
+                BlockingWorkers = parseWorker spec bwc
+            }
+    | [| "WorkStealing"; ewc; ews; bwc |] ->
+        new WorkStealingRuntime
             {
                 EvaluationWorkers = parseWorker spec ewc
                 EvaluationSteps = parseWorker spec ews

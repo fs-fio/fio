@@ -37,7 +37,7 @@ jobs:
       - name: Smoke test (all benchmarks × all runtimes, tiny params — fail fast on hang/throw)
         timeout-minutes: 10
         env:
-          FIO_BENCH_RUNTIMES: "Direct,Polling-2-200-1,Signaling-2-200-1"
+          FIO_BENCH_RUNTIMES: "Direct,Polling-2-200-1,Signaling-2-200-1,WorkStealing-2-200-1"
           FIO_BENCH_BANG_ACTORS: "4"
           FIO_BENCH_BANG_ROUNDS: "10"
           FIO_BENCH_BIG_ACTORS: "4"
@@ -63,7 +63,7 @@ jobs:
         env:
           # EWC = runner cores - 2 (ubuntu-latest is ~4 vCPU): leaves a core for the blocking
           # worker and one for the OS/BDN harness. See benchmarks/FIO.Benchmarks/README.md.
-          FIO_BENCH_RUNTIMES: "Direct,Polling-2-200-1,Signaling-2-200-1"
+          FIO_BENCH_RUNTIMES: "Direct,Polling-2-200-1,Signaling-2-200-1,WorkStealing-2-200-1"
           FIO_BENCH_PINGPONG_ROUNDS: "50000"
           FIO_BENCH_WARMUP: "1"
           FIO_BENCH_ITERATIONS: "5"
@@ -87,7 +87,7 @@ jobs:
         run: |
           report_json=$(ls BenchmarkDotNet.Artifacts/results/*PingpongBenchmark-report-full-compressed.json | head -1)
           # BenchmarkDotNet's full report stores Statistics.Mean in nanoseconds and the runtime in
-          # the Parameters string (e.g. "RoundCount=50000&Runtime=Signaling-2-200-1"; the separator
+          # the Parameters string (e.g. "RoundCount=50000&Runtime=WorkStealing-2-200-1"; the separator
           # is '&'). Emit one "smaller is better" metric per runtime, in milliseconds.
           jq '[ .Benchmarks[]
                 | { name: ("Pingpong - " + (.Parameters | capture("Runtime=(?<r>[^,&]+)") | .r)),

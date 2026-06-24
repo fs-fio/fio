@@ -3,7 +3,7 @@
 WebSockets for [FIO](https://github.com/fs-fio/fio).
 
 ```bash
-dotnet add package FIO.WebSockets
+dotnet add package FSharp.FIO.WebSockets
 ```
 
 ```fsharp

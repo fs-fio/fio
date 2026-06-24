@@ -2,7 +2,7 @@ module FIO.Tests.AppTests
 
 open FIO.App
 open FIO.DSL
-open FIO.Runtime.Signaling
+open FIO.Runtime.WorkStealing
 
 open System
 open System.IO
@@ -89,11 +89,11 @@ let appTests =
         [
             // ─── Runtime & Run basics ─────────────────────────────────────────
 
-            testCase "runtime - defaults to SignalingRuntime"
+            testCase "runtime - defaults to WorkStealingRuntime"
             <| fun () ->
                 let app = MinimalApp(FIO.succeed 1)
 
-                Expect.isTrue (app.runtime :? SignalingRuntime) "Default runtime should be SignalingRuntime"
+                Expect.isTrue (app.runtime :? WorkStealingRuntime) "Default runtime should be WorkStealingRuntime"
 
             testCase "Run - success effect returns exit code 0 by default"
             <| fun () ->

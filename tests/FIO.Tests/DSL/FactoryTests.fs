@@ -6,7 +6,7 @@ open FIO.DSL
 open FIO.Runtime
 open FIO.Runtime.Direct
 open FIO.Runtime.Polling
-open FIO.Runtime.Signaling
+open FIO.Runtime.WorkStealing
 
 open Expecto
 open FsCheck
@@ -20,7 +20,7 @@ let private runtimes () =
     [
         new DirectRuntime() :> FIORuntime
         new PollingRuntime() :> FIORuntime
-        new SignalingRuntime() :> FIORuntime
+        new WorkStealingRuntime() :> FIORuntime
     ]
 
 let private testAllRuntimes name (f: FIORuntime -> unit) =
@@ -609,7 +609,7 @@ let factoryTests =
 
             testCase "async - delayed callback completes correctly"
             <| fun () ->
-                let runtime: FIORuntime = new SignalingRuntime() :> FIORuntime
+                let runtime: FIORuntime = new WorkStealingRuntime() :> FIORuntime
                 let effect =
                     FIO.async (fun cb ->
                         let _ = Task.Run(fun () ->
@@ -624,7 +624,7 @@ let factoryTests =
 
             testCase "async - subsequent callback invocations are ignored"
             <| fun () ->
-                let runtime: FIORuntime = new SignalingRuntime() :> FIORuntime
+                let runtime: FIORuntime = new WorkStealingRuntime() :> FIORuntime
                 let effect =
                     FIO.async (fun cb ->
                         cb (Ok 1)
@@ -2052,7 +2052,7 @@ let factoryTests =
 
             testCase "firstSuccessOf - only evaluates effects up to the first success"
             <| fun () ->
-                let runtime: FIORuntime = new SignalingRuntime() :> FIORuntime
+                let runtime: FIORuntime = new WorkStealingRuntime() :> FIORuntime
                 let mutable evaluated = 0
                 let bump effect =
                     FIO.suspend (fun () ->

@@ -3,7 +3,7 @@
 HTTP server for [FIO](https://github.com/fs-fio/fio), built on Kestrel.
 
 ```bash
-dotnet add package FIO.Http
+dotnet add package FSharp.FIO.Http
 ```
 
 ```fsharp

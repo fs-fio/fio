@@ -13,7 +13,7 @@ IO monad + fibers for building concurrent F# applications.
 ## Install
 
 ```bash
-dotnet add package FIO
+dotnet add package FSharp.FIO
 ```
 
 ## Quick Start
@@ -50,10 +50,10 @@ More in [examples/](examples/).
 
 | Package | Description |
 |---------|-------------|
-| [`FIO`](https://www.nuget.org/packages/FIO) | Core — effects, fibers, channels, runtimes |
-| [`FIO.Http`](https://www.nuget.org/packages/FIO.Http) | HTTP server (Kestrel) |
-| [`FIO.Sockets`](https://www.nuget.org/packages/FIO.Sockets) | TCP sockets |
-| [`FIO.WebSockets`](https://www.nuget.org/packages/FIO.WebSockets) | WebSockets |
+| [`FSharp.FIO`](https://www.nuget.org/packages/FSharp.FIO) | Core — effects, fibers, channels, runtimes |
+| [`FSharp.FIO.Http`](https://www.nuget.org/packages/FSharp.FIO.Http) | HTTP server (Kestrel) |
+| [`FSharp.FIO.Sockets`](https://www.nuget.org/packages/FSharp.FIO.Sockets) | TCP sockets |
+| [`FSharp.FIO.WebSockets`](https://www.nuget.org/packages/FSharp.FIO.WebSockets) | WebSockets |
 
 ## Contributing
 

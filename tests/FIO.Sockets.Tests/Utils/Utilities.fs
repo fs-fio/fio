@@ -6,6 +6,7 @@ open FIO.Runtime
 open FIO.Runtime.Direct
 open FIO.Runtime.Polling
 open FIO.Runtime.Signaling
+open FIO.Runtime.WorkStealing
 
 open System
 open System.Net
@@ -22,6 +23,7 @@ module FsCheckProperties =
                     Gen.constant (new DirectRuntime() :> FIORuntime)
                     Gen.constant (new PollingRuntime() :> FIORuntime)
                     Gen.constant (new SignalingRuntime() :> FIORuntime)
+                    Gen.constant (new WorkStealingRuntime() :> FIORuntime)
                 ]
             |> Arb.fromGen
 
@@ -39,6 +41,7 @@ let runtimes () =
         new DirectRuntime() :> FIORuntime
         new PollingRuntime() :> FIORuntime
         new SignalingRuntime() :> FIORuntime
+        new WorkStealingRuntime() :> FIORuntime
     ]
 
 let private disposeRuntime (runtime: FIORuntime) =
