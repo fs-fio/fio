@@ -242,7 +242,9 @@ and private Worker(config: EvaluationWorkerConfig) =
                         else
                             scheduler.EndSearch()
 
-                    if hasWork && not (workItem.FiberContext.IsTerminal()) then
+                    // Completed (success/failure) fibers have nothing left to run, but an interrupted
+                    // fiber may still need to unwind finalizers, so it must not be gated out here.
+                    if hasWork && not (workItem.FiberContext.IsCompleted()) then
                         try
                             do! runtime.InterpretAsync workItem config.EvaluationSteps workerId
                         with exn ->
@@ -400,35 +402,58 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                                         scheduler.SignalWork()
                                     state.Completed <- true
                             | HandleAwaitTask(awaited, onError) ->
-                                try
-                                    let! value =
-                                        if state.InterruptionSuppressed > 0 then
-                                            awaited
-                                        else
-                                            awaited.WaitAsync currentFiberContext.CancellationToken
+                                let waited =
+                                    if state.InterruptionSuppressed > 0 then
+                                        awaited
+                                    else
+                                        awaited.WaitAsync currentFiberContext.CancellationToken
+
+                                if waited.IsCompletedSuccessfully then
                                     processOutcome
                                         &state
                                         onSuccessComplete
                                         onErrorComplete
-                                        (OutcomeSucceeded value)
-                                with
-                                | :? OperationCanceledException when
-                                    currentFiberContext.CancellationToken.IsCancellationRequested ->
-                                    processOutcome
-                                        &state
-                                        onSuccessComplete
-                                        onErrorComplete
-                                        (OutcomeInterrupted (FiberInterruptedException(
-                                            currentFiberContext.Id,
-                                            ExplicitInterrupt,
-                                            "Task has been cancelled."
-                                        )))
-                                | exn ->
-                                    processOutcome
-                                        &state
-                                        onSuccessComplete
-                                        onErrorComplete
-                                        (OutcomeFailed (onError exn))
+                                        (OutcomeSucceeded waited.Result)
+                                else
+                                    // Park asynchronously rather than blocking this worker for the
+                                    // duration of the task: when the task completes, reschedule the
+                                    // fiber onto the global queue. The continuation may run on a
+                                    // foreign thread, so it must not touch the per-worker pools or
+                                    // deque (only the thread-safe global queue and wake signal).
+                                    let fiberContext = currentFiberContext
+                                    let suppressed = state.InterruptionSuppressed
+                                    let contStack = state.ContStack
+
+                                    let resume () =
+                                        let resumeEffect =
+                                            if waited.IsCompletedSuccessfully then
+                                                Success waited.Result
+                                            elif waited.IsCanceled
+                                                 && fiberContext.CancellationToken.IsCancellationRequested then
+                                                Interrupt(ExplicitInterrupt, "Task has been cancelled.")
+                                            else
+                                                let exn =
+                                                    match waited.Exception with
+                                                    | null -> OperationCanceledException() :> exn
+                                                    | aggregate ->
+                                                        match aggregate.InnerException with
+                                                        | null -> aggregate :> exn
+                                                        | inner -> inner
+                                                Failure(onError exn)
+
+                                        let resumeWorkItem =
+                                            {
+                                                Effect = resumeEffect
+                                                FiberContext = fiberContext
+                                                ContStack = contStack
+                                                InterruptionSuppressed = suppressed
+                                            }
+
+                                        scheduler.GlobalQueue.WriteAsync resumeWorkItem |> ignore
+                                        scheduler.SignalWork()
+
+                                    waited.GetAwaiter().OnCompleted(Action resume)
+                                    state.Completed <- true
 
                 match completionAction with
                 | CompleteSuccess value ->
