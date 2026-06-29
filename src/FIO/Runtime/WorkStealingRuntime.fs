@@ -369,7 +369,11 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                                     let newWorkItem =
                                         scheduler.RentWorkItem(workerId, state.Effect, currentFiberContext, state.ContStack)
                                     newWorkItem.InterruptionSuppressed <- state.InterruptionSuppressed
-                                    do! channel.AddBlockingWorkItem newWorkItem
+                                    let waiter =
+                                        parkBlockingWaiter currentFiberContext state.InterruptionSuppressed newWorkItem (fun wi ->
+                                            scheduler.GlobalQueue.WriteAsync wi |> ignore
+                                            scheduler.SignalWork())
+                                    do! channel.AddBlockingWorkItem waiter
                                     if channel.Count > 0 then
                                         let mutable blockedReader = Unchecked.defaultof<WorkItem>
                                         if channel.TryDequeueBlockingWorkItem &blockedReader then
@@ -396,7 +400,11 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                                     let newWorkItem =
                                         scheduler.RentWorkItem(workerId, state.Effect, currentFiberContext, state.ContStack)
                                     newWorkItem.InterruptionSuppressed <- state.InterruptionSuppressed
-                                    do! fiberContext.AddBlockingWorkItem newWorkItem
+                                    let waiter =
+                                        parkBlockingWaiter currentFiberContext state.InterruptionSuppressed newWorkItem (fun wi ->
+                                            scheduler.GlobalQueue.WriteAsync wi |> ignore
+                                            scheduler.SignalWork())
+                                    do! fiberContext.AddBlockingWorkItem waiter
                                     let! rescheduled = fiberContext.TryRescheduleBlockingWorkItems scheduler.GlobalQueue
                                     if rescheduled then
                                         scheduler.SignalWork()
@@ -439,7 +447,10 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                                                         match aggregate.InnerException with
                                                         | null -> aggregate :> exn
                                                         | inner -> inner
-                                                Failure(onError exn)
+                                                let error =
+                                                    try onError exn
+                                                    with _ -> exn :> obj
+                                                Failure error
 
                                         let resumeWorkItem =
                                             {
@@ -449,8 +460,11 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                                                 InterruptionSuppressed = suppressed
                                             }
 
-                                        scheduler.GlobalQueue.WriteAsync resumeWorkItem |> ignore
-                                        scheduler.SignalWork()
+                                        try
+                                            scheduler.GlobalQueue.WriteAsync resumeWorkItem |> ignore
+                                            scheduler.SignalWork()
+                                        with _ ->
+                                            ()
 
                                     waited.GetAwaiter().OnCompleted(Action resume)
                                     state.Completed <- true

@@ -56,7 +56,7 @@ and private EvaluationWorker(config: EvaluationWorkerConfig, workerId: int) =
                     else
                         let! workItem = config.ActiveWorkItemQueue.ReadAsync()
 
-                        if not (workItem.FiberContext.IsTerminal()) then
+                        if not (workItem.FiberContext.IsCompleted()) then
                             try
                                 do! processWorkItem workItem
                             with exn ->
@@ -161,10 +161,11 @@ and internal BlockingWorker(config: BlockingWorkerConfig, workerId: int) =
 
                 if hasEntry then
                     processed <- processed + 1
+                    let blockedFiber = (getWorkItem entry).FiberContext
 
-                    if (getWorkItem entry).FiberContext.IsTerminal() then
+                    if blockedFiber.IsCompleted() then
                         ()
-                    elif isReady entry then
+                    elif blockedFiber.IsInterrupted() || isReady entry then
                         do! queueActive (getWorkItem entry)
                     else
                         let missed = { entry with MissCount = entry.MissCount + 1 }
@@ -379,36 +380,59 @@ and PollingRuntime(config: WorkerConfig) as this =
                                     newWorkItem.InterruptionSuppressed <- state.InterruptionSuppressed
                                     do! blockingWorker.RescheduleForBlocking <| BlockingFiber(fiberContext, newWorkItem)
                                     state.Completed <- true
-                            | HandleAwaitTask(task, onError) ->
-                                try
-                                    let! value =
-                                        if state.InterruptionSuppressed > 0 then
-                                            task
-                                        else
-                                            task.WaitAsync currentFiberContext.CancellationToken
+                            | HandleAwaitTask(awaited, onError) ->
+                                let waited =
+                                    if state.InterruptionSuppressed > 0 then
+                                        awaited
+                                    else
+                                        awaited.WaitAsync currentFiberContext.CancellationToken
+
+                                if waited.IsCompletedSuccessfully then
                                     processOutcome
                                         &state
                                         onSuccessComplete
                                         onErrorComplete
-                                        (OutcomeSucceeded value)
-                                with
-                                | :? OperationCanceledException when
-                                    currentFiberContext.CancellationToken.IsCancellationRequested ->
-                                    processOutcome
-                                        &state
-                                        onSuccessComplete
-                                        onErrorComplete
-                                        (OutcomeInterrupted (FiberInterruptedException(
-                                            currentFiberContext.Id,
-                                            ExplicitInterrupt,
-                                            "Task has been cancelled."
-                                        )))
-                                | ex ->
-                                    processOutcome
-                                        &state
-                                        onSuccessComplete
-                                        onErrorComplete
-                                        (OutcomeFailed (onError ex))
+                                        (OutcomeSucceeded waited.Result)
+                                else
+                                    let fiberContext = currentFiberContext
+                                    let suppressed = state.InterruptionSuppressed
+                                    let contStack = state.ContStack
+
+                                    let resume () =
+                                        let resumeEffect =
+                                            if waited.IsCompletedSuccessfully then
+                                                Success waited.Result
+                                            elif waited.IsCanceled
+                                                 && fiberContext.CancellationToken.IsCancellationRequested then
+                                                Interrupt(ExplicitInterrupt, "Task has been cancelled.")
+                                            else
+                                                let exn =
+                                                    match waited.Exception with
+                                                    | null -> OperationCanceledException() :> exn
+                                                    | aggregate ->
+                                                        match aggregate.InnerException with
+                                                        | null -> aggregate :> exn
+                                                        | inner -> inner
+                                                let error =
+                                                    try onError exn
+                                                    with _ -> exn :> obj
+                                                Failure error
+
+                                        let resumeWorkItem =
+                                            {
+                                                Effect = resumeEffect
+                                                FiberContext = fiberContext
+                                                ContStack = contStack
+                                                InterruptionSuppressed = suppressed
+                                            }
+
+                                        try
+                                            activeWorkItemQueue.WriteAsync resumeWorkItem |> ignore
+                                        with _ ->
+                                            ()
+
+                                    waited.GetAwaiter().OnCompleted(Action resume)
+                                    state.Completed <- true
                 return ()
             finally
                 if not state.Completed then
