@@ -33,13 +33,23 @@ module internal WorkerLifecycle =
     let startWorker (workerName: string) (innerLoop: CancellationToken -> Task<unit>)
         : struct (CancellationTokenSource * Task) =
         let cancelSource = new CancellationTokenSource()
+        // Capture the token now, before the worker task is scheduled. A slow-to-start worker can race
+        // runtime Dispose, and reading cancelSource.Token after the source is disposed throws
+        // ObjectDisposedException; the captured token stays usable (IsCancellationRequested) past disposal.
+        let cancelToken = cancelSource.Token
         let workerTask =
             Task.Factory.StartNew(Func<Task>(fun () ->
                 task {
                     try
-                        do! innerLoop cancelSource.Token
+                        do! innerLoop cancelToken
                     with
+                    // Cancellation and disposal are the normal stop signals during teardown: a worker can
+                    // race runtime Dispose and touch an already-disposed CancellationTokenSource or scheduler
+                    // SemaphoreSlim. Both mean "shutting down" -> stop cleanly instead of crashing the host.
+                    // (A worker-loop ObjectDisposedException only ever originates from teardown; user-effect
+                    // exceptions are handled per-work-item inside the interpreter.)
                     | :? OperationCanceledException -> ()
+                    | :? ObjectDisposedException -> ()
                     | ex ->
                         Console.Error.WriteLine $"FIO Worker '{workerName}' encountered an unhandled exception: {ex}"
                         raise ex

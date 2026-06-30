@@ -7,6 +7,7 @@ open FIO.Runtime
 open FIO.Runtime.Direct
 open FIO.Runtime.Polling
 open FIO.Runtime.Signaling
+open FIO.Runtime.WorkStealing
 
 open Expecto
 
@@ -17,11 +18,22 @@ let private runtimes () =
     [
         new DirectRuntime() :> FIORuntime
         new PollingRuntime() :> FIORuntime
-        new SignalingRuntime() :> FIORuntime
+        new WorkStealingRuntime() :> FIORuntime
     ]
 
 let private testAllRuntimes name (f: FIORuntime -> unit) =
     testList name [ for rt in runtimes () -> testCase (rt.GetType().Name) (fun () -> f rt) ]
+
+let private allFourRuntimes () =
+    [
+        new DirectRuntime() :> FIORuntime
+        new PollingRuntime() :> FIORuntime
+        new SignalingRuntime() :> FIORuntime
+        new WorkStealingRuntime() :> FIORuntime
+    ]
+
+let private testAllFourRuntimes name (f: FIORuntime -> unit) =
+    testList name [ for rt in allFourRuntimes () -> testCase (rt.GetType().Name) (fun () -> f rt) ]
 
 [<Tests>]
 let fioTests =
@@ -305,6 +317,54 @@ let fioTests =
 
                 Expect.isTrue flag1.Value "Inner finalizer should run on interrupt"
                 Expect.isTrue flag2.Value "Outer finalizer should run on interrupt"
+
+            testAllFourRuntimes "Ensuring - finalizer runs on interruption while blocked on channel read"
+            <| fun (runtime: FIORuntime) ->
+                let flag = ref false
+                let channel = Channel<int>()
+
+                let effect =
+                    fio {
+                        let! fiber =
+                            channel
+                                .Read()
+                                .Unit()
+                                .Ensuring(FIO.attempt (fun () -> flag.Value <- true) id)
+                                .Fork()
+
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) id
+                        do! fiber.InterruptNow ()
+                        do! fiber.Join().CatchAll(fun _ -> FIO.unit ())
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) id
+                    }
+
+                runtime.Run(effect).UnsafeSuccess() |> ignore
+
+                Expect.isTrue flag.Value "Finalizer should run when interrupted while blocked on a channel read"
+
+            testAllFourRuntimes "Ensuring - finalizer runs on interruption while blocked on fiber join"
+            <| fun (runtime: FIORuntime) ->
+                let flag = ref false
+
+                let effect =
+                    fio {
+                        let! target = (FIO.sleep (TimeSpan.FromSeconds 60.0) id).Fork()
+
+                        let! joiner =
+                            target
+                                .Join()
+                                .Ensuring(FIO.attempt (fun () -> flag.Value <- true) id)
+                                .Fork()
+
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) id
+                        do! joiner.InterruptNow ()
+                        do! joiner.Join().CatchAll(fun _ -> FIO.unit ())
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) id
+                    }
+
+                runtime.Run(effect).UnsafeSuccess() |> ignore
+
+                Expect.isTrue flag.Value "Finalizer should run when interrupted while blocked on a fiber join"
 
             testAllRuntimes "Ensuring - result is still interrupted when finalizer fails"
             <| fun (runtime: FIORuntime) ->

@@ -7,11 +7,14 @@ open FIO.WebSockets
 
 open System.Net
 
+// A WebSocket echo server and an interactive client running concurrently in one app.
 type WebSocketApp(host, port) =
     inherit FIOApp<unit, WsError>()
 
+    // Starts the listener, signals readiness, then accepts and serves one client.
     let server (readyChannel: Channel<unit>) =
 
+        // Echoes each text message back until the client sends "quit" or closes.
         let handleClient (webSocket: WebSocket) (listener: HttpListener) =
             fio {
                 do! Console.printLine "Client connected" WsError.fromException
@@ -49,6 +52,7 @@ type WebSocketApp(host, port) =
             do! handleClient webSocket listener
         }
 
+    // Waits for the server, connects, and relays console input over the socket.
     let client (readyChannel: Channel<unit>) =
         fio {
             do! readyChannel.Read().Unit()

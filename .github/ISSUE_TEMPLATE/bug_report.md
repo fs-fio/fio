@@ -35,7 +35,7 @@ assignees: ""
 ## Environment
 
 - FIO version:
-- Runtime used (DirectRuntime / PollingRuntime / SignalingRuntime):
+- Runtime used (DirectRuntime / PollingRuntime / WorkStealingRuntime):
 - .NET SDK version (`dotnet --version`):
 - OS:
 

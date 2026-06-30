@@ -5,7 +5,7 @@
         <GenerateDocumentationFile>true</GenerateDocumentationFile>
         <WarnOn>3390</WarnOn>
         <IsPackable>true</IsPackable>
-        <PackageId>FIO</PackageId>
+        <PackageId>FSharp.FIO</PackageId>
         <Title>FIO</Title>
         <Description>A type-safe, purely functional effect system for F#. IO monad + fibers for building concurrent F# applications. Core package: composable effects with typed errors, fibers, channels, runtimes, the fio { } computation expression, the FIOApp framework, and Console I/O.</Description>
         <PackageTags>fsharp;effects;async;concurrent;functional;zio;fibers</PackageTags>
@@ -30,6 +30,7 @@
         <Compile Include="Runtime\DirectRuntime.fs" />
         <Compile Include="Runtime\PollingRuntime.fs" />
         <Compile Include="Runtime\SignalingRuntime.fs" />
+        <Compile Include="Runtime\WorkStealingRuntime.fs" />
         <Compile Include="Runtime\DefaultRuntime.fs" />
         <Compile Include="App.fs" />
     </ItemGroup>

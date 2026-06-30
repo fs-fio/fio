@@ -10,17 +10,22 @@ open FIO.Http.MiddlewareOperators
 open System
 open System.Text.Json
 
+// A small HTTP server demonstrating routing, JSON, query params, and middleware.
 type HttpApp() =
     inherit FIOApp<unit, exn>()
 
+    // Responds with a plain-text greeting.
     let helloHandler = HttpHandler.text "Hello from FIO HTTP!"
 
+    // Returns a JSON object built from an anonymous record.
     let jsonHandler request =
         HttpHandler.okJson {| message = "JSON response"; timestamp = DateTime.UtcNow |} request
 
+    // Echoes the requested path back to the caller.
     let echoHandler request =
         HttpHandler.text $"You requested: {request.Path}" request
 
+    // Parses a JSON body and greets the name, falling back to 400 on bad input.
     let greetHandler (request: HttpRequest) =
         (FIO.attempt (fun () ->
                 use doc = JsonDocument.Parse(request.Body.AsString())
@@ -30,6 +35,7 @@ type HttpApp() =
             .Fold (fun _ ->
                 Response.badRequestText "Invalid or missing JSON body. Expected { \"name\": \"...\" }.") id
 
+    // Reads the 'n' query parameter and returns its square, validating the input.
     let squareHandler request =
         match Map.tryFind "n" request.QueryParams with
         | Some(value :: _) ->
@@ -38,6 +44,7 @@ type HttpApp() =
             | _ -> FIO.succeed (Response.badRequestText "Query parameter 'n' must be an integer.")
         | _ -> FIO.succeed (Response.badRequestText "Missing query parameter 'n'.")
 
+    // Maps each path and method to its handler.
     let routes =
         get "/" helloHandler
         ++ get "/json" jsonHandler
@@ -45,6 +52,7 @@ type HttpApp() =
         ++ post "/greet" greetHandler
         ++ get "/square" squareHandler
 
+    // Middleware that logs each incoming request with a timestamp.
     let logging =
         Middleware.before (fun request ->
             FIO.attempt

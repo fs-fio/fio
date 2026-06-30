@@ -5,9 +5,11 @@ open FIO.App
 open FIO.Console
 open FIO.Sockets
 
+// A TCP echo server and an interactive client running concurrently in one app.
 type SocketApp(host, port) =
     inherit FIOApp<unit, SocketError>()
 
+    // Echoes each received message back to the client until it sends "quit".
     let handleClient (socket: Socket) =
         fio {
             let! endpoint = socket.GetRemoteEndPoint()
@@ -31,6 +33,7 @@ type SocketApp(host, port) =
             do! loop ()
         }
 
+    // Binds, signals readiness, then accepts and serves a single client.
     let server (readyChannel: Channel<unit>) =
         fio {
             let! config = ServerSocketConfig.create host port
@@ -42,6 +45,7 @@ type SocketApp(host, port) =
             do! ServerSocket.close serverSocket
         }
 
+    // Waits for the server, connects, and relays console input to it.
     let client (readyChannel: Channel<unit>) =
         fio {
             do! readyChannel.Read().Unit()

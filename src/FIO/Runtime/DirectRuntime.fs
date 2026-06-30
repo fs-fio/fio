@@ -4,6 +4,7 @@ open FIO.DSL
 open FIO.Runtime.InterpreterCore
 
 open System
+open System.Threading
 open System.Threading.Tasks
 
 /// A single-threaded runtime that runs effects synchronously, waiting on blocked fibers. Handy for tests and simple programs.
@@ -59,12 +60,41 @@ type DirectRuntime() =
                                     onErrorComplete
                                     (OutcomeSucceeded message)
                             | HandleReadChan channel ->
-                                let! value = channel.ReadAsync()
-                                processOutcome
-                                    &state
-                                    onSuccessComplete
-                                    onErrorComplete
-                                    (OutcomeSucceeded value)
+                                let mutable value = Unchecked.defaultof<_>
+                                if channel.Queue.TryRead &value then
+                                    processOutcome
+                                        &state
+                                        onSuccessComplete
+                                        onErrorComplete
+                                        (OutcomeSucceeded value)
+                                else
+                                    try
+                                        let mutable waiting = true
+                                        while waiting do
+                                            let! _ =
+                                                if state.InterruptionSuppressed > 0 then
+                                                    channel.Queue.WaitToReadAsync CancellationToken.None
+                                                else
+                                                    channel.Queue.WaitToReadAsync currentFiberContext.CancellationToken
+                                            if channel.Queue.TryRead &value then
+                                                waiting <- false
+                                        processOutcome
+                                            &state
+                                            onSuccessComplete
+                                            onErrorComplete
+                                            (OutcomeSucceeded value)
+                                    with
+                                    | :? OperationCanceledException when
+                                        currentFiberContext.CancellationToken.IsCancellationRequested ->
+                                        processOutcome
+                                            &state
+                                            onSuccessComplete
+                                            onErrorComplete
+                                            (OutcomeInterrupted (FiberInterruptedException(
+                                                currentFiberContext.Id,
+                                                ExplicitInterrupt,
+                                                "Fiber was interrupted while blocked on a channel read."
+                                            )))
                             | HandleForkEffect(effect, fiber, fiberContext) ->
                                 let registration = setupForkRegistration currentFiberContext fiberContext
                                 Task.Run(fun () ->
@@ -86,12 +116,29 @@ type DirectRuntime() =
                                     onErrorComplete
                                     (OutcomeSucceeded fiber)
                             | HandleJoinFiber fiberContext ->
-                                let! value = fiberContext.Task
-                                processResult
-                                    &state
-                                    onSuccessComplete
-                                    onErrorComplete
-                                    value
+                                try
+                                    let! value =
+                                        if state.InterruptionSuppressed > 0 then
+                                            fiberContext.Task
+                                        else
+                                            fiberContext.Task.WaitAsync currentFiberContext.CancellationToken
+                                    processResult
+                                        &state
+                                        onSuccessComplete
+                                        onErrorComplete
+                                        value
+                                with
+                                | :? OperationCanceledException when
+                                    currentFiberContext.CancellationToken.IsCancellationRequested ->
+                                    processOutcome
+                                        &state
+                                        onSuccessComplete
+                                        onErrorComplete
+                                        (OutcomeInterrupted (FiberInterruptedException(
+                                            currentFiberContext.Id,
+                                            ExplicitInterrupt,
+                                            "Fiber was interrupted while blocked on a fiber join."
+                                        )))
                             | HandleAwaitTask(task, onError) ->
                                 try
                                     let! value =

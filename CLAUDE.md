@@ -2,20 +2,26 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> Personal, machine-specific guidance (working preferences and local setup) lives in an untracked
+> `CLAUDE.local.md` alongside this file. It is git-ignored; this file is the shared, committed guidance.
+
 ## Project Overview
 
 FIO is a type-safe, purely functional effect system for F#. IO monad + fibers (green threads) for concurrent/async apps.
 
-**Target:** .NET 10, F# 10, `.slnx` solution format
+**Target:** .NET 10, F# 10, `.slnx` solution format (`FIO.slnx`). SDK pinned to `10.0.301` via `global.json` (`rollForward: latestMinor`).
+
+Repository: <https://github.com/fs-fio/fio> · License: MIT · Baseline version: `0.1.10-alpha` (single source of truth in `Directory.Build.props`).
 
 ## Build Commands
 
 ```bash
-dotnet build                                    # Build all
+dotnet build                                    # Build all (or: dotnet build ./FIO.slnx)
 dotnet test                                     # Run all tests
 dotnet test tests/FIO.Tests/                    # Core tests only
 dotnet test tests/FIO.Sockets.Tests/            # Sockets tests only
 dotnet test tests/FIO.WebSockets.Tests/         # WebSockets tests only
+dotnet test tests/FIO.Http.Tests/               # HTTP tests only
 dotnet test --filter "Name~TestName"            # Run specific test
 dotnet test --filter "Name~PropertyTests"       # Run test file/group
 
@@ -26,20 +32,30 @@ dotnet run --project examples/FIO.Examples.Http
 dotnet run --project examples/FIO.Examples.Sockets
 dotnet run --project examples/FIO.Examples.WebSockets
 
-# Benchmarks (Release mode, BenchmarkDotNet)
+# Benchmarks (Release mode, BenchmarkDotNet) — see the Benchmarks section below
 dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*"           # all benchmarks
 dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Pingpong*"  # one benchmark
 dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --list flat            # list benchmarks
-# Configure via env vars: FIO_BENCH_RUNTIMES, FIO_BENCH_ITERATIONS, FIO_BENCH_<NAME>_ROUNDS/ACTORS
+python benchmarks/plot.py                       # visualize results (HTML + PNG/SVG)
 ```
+
+Formatting follows `.editorconfig` (4-space F#, LF, UTF-8); the build is warning-clean
+(`TreatWarningsAsErrors=true`). See **Formatting & Tooling**.
 
 ## Package Structure
 
-Four NuGet packages:
-- **FIO** - Core (FIO monad, fibers, channels, runtimes, App framework, Console I/O)
-- **FIO.Sockets** - TCP sockets (error type: `SocketError`)
-- **FIO.WebSockets** - WebSockets (error type: `WsError`)
-- **FIO.Http** - HTTP server, Kestrel-based (error type: `HttpError`)
+Four NuGet packages. Folder/assembly names use the `FIO*` prefix; published **NuGet IDs use the `FSharp.` prefix**:
+
+| Folder / assembly | NuGet package ID | Scope | Error type |
+|-------------------|------------------|-------|------------|
+| `FIO` | `FSharp.FIO` | Core (FIO monad, fibers, channels, runtimes, App framework, Console I/O) | `exn` (user-chosen) |
+| `FIO.Sockets` | `FSharp.FIO.Sockets` | TCP sockets | `SocketError` |
+| `FIO.WebSockets` | `FSharp.FIO.WebSockets` | WebSockets | `WsError` |
+| `FIO.Http` | `FSharp.FIO.Http` | HTTP server, Kestrel-based | `HttpError` |
+
+Each extension library has its own README that is the source of truth for its API design:
+`src/FIO.Sockets/README.md`, `src/FIO.WebSockets/README.md`, `src/FIO.Http/README.md`. Benchmarks are
+documented in `benchmarks/FIO.Benchmarks/README.md`.
 
 ## Key Files
 
@@ -49,11 +65,11 @@ Core DSL (`src/FIO/DSL/`), compile order matters:
 - `Core.fs` - `FIO<'A,'E>` DU, `Fiber<'A,'E>`, `Channel<'A>`, `FiberContext`, `WorkItem`, `ContStack`. Also hosts the type's primitive instance members: `FlatMap`, `CatchAll`, `Ensuring`, `Fork`, and the transformation cluster `Map` / `MapError` / `MapBoth` / `Result` / `Option` (derived purely from `Success`/`Failure` constructors + the four primitives).
 - `Factories.fs` - `FIO.succeed`, `FIO.fail`, `FIO.attempt`, `FIO.suspend`, `FIO.sleep`, `FIO.collectAll`, `FIO.collectAllPar`, `FIO.forkTask`, etc.
 - `Extensions.fs` - Instance methods built on the Core cluster (`Zip`, `Tap`, `Race`, `RaceFirst`, `Retry`, `Timeout`, `OrElse`, etc.)
-- `Operators.fs` - Infix operators (`>>=`, `<!>`, `<&>`, `<|>`, etc.)
+- `Operators.fs` - Infix operators (`>>=`, `<!>`, `<&>`, `<|>`, etc.), in an `[<AutoOpen>]` module
 - `CE.fs` - `fio { }` computation expression builder
 
 Console I/O (`src/FIO/Console.fs`):
-- `print`, `printLine`, `readLine`, `write`, `writeLine`, `clear` wrap `System.Console` directly via `FIO.attempt`. Namespace `FIO.Console`, module `Console` (`[<RequireQualifiedAccess>]`); each function takes an `onError: exn -> 'E` argument.
+- Namespace `FIO.Console`, module `Console` (`[<RequireQualifiedAccess>]`). Functions wrap `System.Console` via `FIO.attempt`; each takes an `onError: exn -> 'E` argument. `print`/`printLine` take a `Printf.TextWriterFormat<unit>` (formatted output); `write`/`writeLine` take a plain `string`; plus `readLine` and `clear`.
 
 Runtime (`src/FIO/Runtime/`):
 - `Runtime.fs` - `FIORuntime` (abstract base), `WorkerConfig`, `ContStackPool`, `WorkItemPool`
@@ -61,8 +77,9 @@ Runtime (`src/FIO/Runtime/`):
 - `InterpreterCore.fs` - Shared interpreter logic (`InterpreterState` struct, `processOutcome`/`processResult`/`handleSharedCase`, `Outcome` DU, `RuntimeCase` DU for runtime-specific dispatch)
 - `DirectRuntime.fs` - .NET Tasks, waits for blocked fibers
 - `PollingRuntime.fs` - Custom fibers, linear-time blocked handling
-- `SignalingRuntime.fs` - Custom fibers, constant-time blocked handling (event-driven, uses `EvaluationWorker` + `BlockingWorker`)
-- `DefaultRuntime.fs` - Type alias: `DefaultRuntime = SignalingRuntime`
+- `SignalingRuntime.fs` - Custom fibers, event-driven blocked handling (dedicated `BlockingWorker` + signal queue; constant-time reschedule). A comparison/legacy runtime — superseded as the default by `WorkStealingRuntime`
+- `WorkStealingRuntime.fs` - Custom fibers, work-stealing scheduler (per-worker `runNext` slot + work-stealing deque + shared global queue; at-most-one-waker async parking). The default runtime — full design in [`docs/WORK_STEALING_RUNTIME.md`](docs/WORK_STEALING_RUNTIME.md)
+- `DefaultRuntime.fs` - Type alias: `DefaultRuntime = WorkStealingRuntime`
 
 Framework (`src/FIO/App.fs`):
 - `App.fs` - `FIOApp<'A,'E>` abstract base class. 5-member surface: `effect`, `runtime`, `onShutdown`, `onShutdownTimeout`, `mapExitCode` over `AppResult<'A,'E>` (`AppSucceeded`/`AppFailed`/`AppInterrupted`/`AppFatalError`).
@@ -95,16 +112,18 @@ FIORuntime (abstract)
 ├── DirectRuntime
 └── FIOWorkerRuntime (abstract, adds WorkerConfig: EvaluationWorkers/EvaluationSteps/BlockingWorkers)
     ├── PollingRuntime
-    └── SignalingRuntime (= DefaultRuntime)
+    ├── SignalingRuntime
+    └── WorkStealingRuntime (= DefaultRuntime)
 ```
 
 - **DirectRuntime** - .NET Tasks, waits for blocked fibers
 - **PollingRuntime** - Custom fibers, linear-time blocked handling (polling `BlockingItem` list)
-- **SignalingRuntime** - Custom fibers, constant-time blocked handling (event-driven via `Channel.TryRescheduleNextBlockingWorkItem` / `FiberContext.CompleteAndReschedule`)
+- **SignalingRuntime** - Custom fibers, event-driven blocked handling: a dedicated `BlockingWorker` reschedules blocked fibers via a signal queue (constant-time). Kept as a comparison runtime; superseded as the default by WorkStealingRuntime.
+- **WorkStealingRuntime** - Custom fibers, **work-stealing** scheduler: per-worker local queues (a `runNext` slot + a work-stealing deque) with work-stealing across idle workers, at-most-one-waker wakeups, and async parking. Full design in [`docs/WORK_STEALING_RUNTIME.md`](docs/WORK_STEALING_RUNTIME.md).
 
-**DefaultRuntime = SignalingRuntime** (recommended)
+**DefaultRuntime = WorkStealingRuntime** (recommended)
 
-Worker config fields: **EvaluationWorkers** (evaluation worker count), **EvaluationSteps** (eval steps per work item before rescheduling), **BlockingWorkers** (blocking worker count). The `EWC`/`EWS`/`BWC` acronyms are retained only as the `ConfigString` display labels and the benchmark spec shorthand (`Signaling-{EWC}-{EWS}-{BWC}`).
+Worker config fields: **EvaluationWorkers** (worker count), **EvaluationSteps** (interpreter steps per work item before a fiber yields), **BlockingWorkers** (used by `PollingRuntime`; **ignored by `WorkStealingRuntime`**, which has no dedicated blocking worker). The `EWC`/`EWS`/`BWC` acronyms are the `ConfigString` display labels and the benchmark spec shorthand (`WorkStealing-{EWC}-{EWS}-{BWC}`).
 
 ### Key Internal Types
 
@@ -137,6 +156,8 @@ Concurrency is built on the core types: **Fiber<'A,'E>** (green threads via `.Fo
 | `<\|>` | Seq | First success | Fallback/recovery |
 | `<+>` | Seq | Choice | Either-fallback (OrElseEither) |
 | `<?>` | Par | Choice | Race for first completion (RaceEither) |
+
+(`<\|>` is the `<|>` operator; the backslash escapes the pipe inside this markdown table.)
 
 ## Development Patterns
 
@@ -181,6 +202,34 @@ Instance methods use **PascalCase**: `effect.Map(f)`, `effect.FlatMap(f)`, `effe
 
 Library modules use **qualified access**: e.g. `Console.printLine "msg" id`.
 
+## Benchmarks
+
+Macro benchmarks live in `benchmarks/FIO.Benchmarks/` (BenchmarkDotNet 0.15.8). Eleven workloads:
+**Bang, Big, BoundedBuffer, Chameneos, Counting, Fibonacci, Fork, Philosophers, Pingpong, Threadring, Trapezoidal**. Each is `[<MemoryDiagnoser>]` + `[<RankColumn>]`, sweeping its parameters × the configured runtimes, so every run reports **execution time and allocated memory**.
+
+- **Runtimes:** spec format `Direct | Polling-{EWC}-{EWS}-{BWC} | WorkStealing-{EWC}-{EWS}-{BWC}`. Set via `FIO_BENCH_RUNTIMES` (default `Direct,Polling-12-200-1,WorkStealing-12-200-1`). Recommended `EWC = CPU cores − 2`.
+- **Iteration control:** `FIO_BENCH_WARMUP` (default 3), `FIO_BENCH_ITERATIONS` (default 30). A CLI `--job` (e.g. `--job Dry`, `--job Short`) **overrides** these env vars.
+- **Per-benchmark params:** `FIO_BENCH_<NAME>_<PARAM>` (e.g. `FIO_BENCH_PINGPONG_ROUNDS`, `FIO_BENCH_FORK_ACTORS`, `FIO_BENCH_BOUNDEDBUFFER_PRODUCERS`). Full table in `benchmarks/FIO.Benchmarks/README.md`.
+- **Output:** BenchmarkDotNet writes CSV/GitHub-markdown/HTML reports to `BenchmarkDotNet.Artifacts/results/` (git-ignored).
+- **Plotting (`benchmarks/plot.py`):** reads the `*-report.csv` files and writes per-benchmark + `summary` charts to `BenchmarkDotNet.Artifacts/plots/` as interactive HTML **and** static images (PNG/SVG, configurable via `--image-formats`; `pdf` also supported). Requires `pandas`, `plotly`, `kaleido`. `python benchmarks/plot.py --self-test` validates the parsers without touching artifacts.
+
+`benchmarks/FIO.Benchmarks/README.md` is the source of truth (parameter defaults, tuning guidance, result interpretation, allocation/boxing notes).
+
+## Testing
+
+- **Expecto + FsCheck** for property-based testing; test runner config: `Parallel`, `Summary`, `Colours 256`. Pinned versions (`Directory.Packages.props`): Expecto 10.2.3, FsCheck 2.16.6.
+- Custom FsCheck `Generators` type in `tests/FIO.Tests/Utils/Utilities.fs` provides `Arb` for all four runtimes — tests run against `DirectRuntime`, `PollingRuntime`, `SignalingRuntime`, and `WorkStealingRuntime`
+- Console tests use `System.Console.SetOut`/`SetIn` with `StringWriter`/`StringReader` for deterministic capture — must use `testSequenced` (not parallel) because `System.Console` has process-global state
+- Four test projects:
+  - `FIO.Tests` — core library, organized into `DSL/`, `Lib/`, `Framework/` subfolders
+  - `FIO.Sockets.Tests` — TCP sockets, flat structure with `testAllRuntimes` + `withTestServer`/`withTestEchoServer` helpers
+  - `FIO.WebSockets.Tests` — WebSockets, flat structure
+  - `FIO.Http.Tests` — HTTP server tests
+- Core tests use `Generators` type for FsCheck Arb across all 4 runtimes; extension tests use `testAllRuntimes` helper wrapping `testSequenced`
+- `InternalsVisibleTo("FIO.Tests")` is set on the core project only (extension libs do not expose internals to tests)
+- All WebSocket test files are enabled in the `.fsproj` (including `WebSocketServerTests.fs`); the suite passes (no hang)
+- Stack-safety canaries live in `tests/FIO.Tests/DSL/FIOTests.fs` — the three "Stack safety - deep left-chained FlatMap/CatchAll/Ensuring" tests at depth 10000 are load-bearing for the iterative-flattening design of `UpcastResult`/`UpcastError`/`UpcastBoth`. Do not "simplify" those methods to plain recursion.
+
 ## Semantic Invariants (Do Not Break)
 
 - **Effect laziness**: constructing an effect must NOT execute side effects
@@ -190,27 +239,12 @@ Library modules use **qualified access**: e.g. `Console.printLine "msg" id`.
 - **Finalizer guarantee**: `Ensuring` finalizers run on all three outcomes — success, error, and interruption
 - **Error typing**: extensions must not leak raw exceptions as public errors
 
-## Testing
-
-- **Expecto + FsCheck** for property-based testing; test runner config: `Parallel`, `Summary`, `Colours 256`
-- Custom FsCheck `Generators` type in `tests/FIO.Tests/Utils/Utilities.fs` provides `Arb` for all three runtimes — tests run against `DirectRuntime`, `PollingRuntime`, and `SignalingRuntime`
-- Console tests use `System.Console.SetOut`/`SetIn` with `StringWriter`/`StringReader` for deterministic capture — must use `testSequenced` (not parallel) because `System.Console` has process-global state
-- Four test projects:
-  - `FIO.Tests` — core library, organized into `DSL/`, `Lib/`, `Framework/` subfolders
-  - `FIO.Sockets.Tests` — TCP sockets, flat structure with `testAllRuntimes` + `withTestServer`/`withTestEchoServer` helpers
-  - `FIO.WebSockets.Tests` — WebSockets, flat structure
-  - `FIO.Http.Tests` — HTTP server tests
-- Core tests use `Generators` type for FsCheck Arb across all 3 runtimes; extension tests use `testAllRuntimes` helper wrapping `testSequenced`
-- `InternalsVisibleTo("FIO.Tests")` is set on the core project only (extension libs do not expose internals to tests)
-- All WebSocket test files are enabled in the `.fsproj` (including `WebSocketServerTests.fs`); the suite passes (155 tests, no hang)
-- Stack-safety canaries live in `tests/FIO.Tests/DSL/FIOTests.fs` — the three "Stack safety - deep left-chained FlatMap/CatchAll/Ensuring" tests at depth 10000 are load-bearing for the iterative-flattening design of `UpcastResult`/`UpcastError`/`UpcastBoth`. Do not "simplify" those methods to plain recursion.
-
 ## Architecture Change Checklist
 
 - **New effect constructor**: update `Core.fs` (FIO DU + `UpcastResult`/`UpcastError`/`UpcastBoth`), `Factories.fs`, `Extensions.fs`, `Operators.fs`, and `CE.fs` as needed
 - **New shared effect case**: add handling to `handleSharedCase` in `InterpreterCore.fs`
-- **New runtime-specific effect case**: add to `RuntimeCase` DU in `InterpreterCore.fs`, route from `handleSharedCase`, update all three runtime `RuntimeCase` matches
-- **New runtime DU case**: update `Core.fs` and all three runtime interpreters (`DirectRuntime.fs`, `PollingRuntime.fs`, `SignalingRuntime.fs`)
+- **New runtime-specific effect case**: add to `RuntimeCase` DU in `InterpreterCore.fs`, route from `handleSharedCase`, update all four runtime `RuntimeCase` matches
+- **New runtime DU case**: update `Core.fs` and all four runtime interpreters (`DirectRuntime.fs`, `PollingRuntime.fs`, `SignalingRuntime.fs`, `WorkStealingRuntime.fs`)
 - **Runtime change**: update interpreter logic, add tests, and validate benchmarks
 - **Extension change**: update error model, DSL surface, and extension README
 - **Behavior change**: update examples and tests to match new semantics
@@ -218,9 +252,11 @@ Library modules use **qualified access**: e.g. `Console.printLine "msg" id`.
 
 ## CI
 
-- Tests run on Ubuntu, Windows, macOS; Ubuntu collects coverage (Codecov)
-- Benchmarks run on Ubuntu only (main branch + PRs)
-- Publishing triggered by `v*` git tags — packs and pushes 4 NuGet packages
+Three GitHub Actions workflows in `.github/workflows/`:
+
+- **`test.yml` (Run Tests)** — push/PR on **all branches** + manual. Matrix: Ubuntu, Windows, macOS (`fail-fast: false`). Restores tools + deps, builds `./FIO.slnx`. Non-Ubuntu runs tests; Ubuntu runs tests with `XPlat Code Coverage` and uploads to **Codecov**.
+- **`benchmark.yml` (Performance Benchmarks)** — push/PR to **main** + manual, Ubuntu only. First a **smoke test** (all benchmarks × 3 runtimes, tiny params, `--job Dry`, 10-min timeout) to fail fast on hang/throw; then a measured **Pingpong** run exported as JSON/GitHub-markdown and tracked over time via `github-action-benchmark` (`customSmallerIsBetter`, alerts on regression). It does not generate plots — plotting is a local step.
+- **`publish.yml` (Publish NuGet Packages)** — on tags. `v*` = **lockstep** (all four packages; tag must equal `Directory.Build.props` `<Version>`); `core-v*`/`http-v*`/`sockets-v*`/`websockets-v*` = **per-package** release (sets `PackageReleaseVersion`, leaving the FIO dependency pinned to the baseline). Builds Release, runs tests, packs, pushes to NuGet.org, and creates a GitHub release.
 
 ## Commit Style
 
@@ -230,15 +266,21 @@ Short, sentence-style messages (e.g., "Fix benchmark output", "Improve App.fs").
 
 Two tiers — see [`docs/COMMENT_STYLE.md`](docs/COMMENT_STYLE.md) for the full guide and per-construct examples:
 
-- **Public, user-facing API** (callable from a referencing package): a concise, ZIO-style XML doc comment (`///`). One verb-first summary line by default; "this effect" voice; describe behavior, not the signature. Document internal/private items, the `FIO` DU cases, runtime internals, and the `FIOBuilder` CE methods — **never**.
+- **Public, user-facing API** (callable from a referencing package): a concise, ZIO-style XML doc comment (`///`). One verb-first summary line by default; "this effect" voice; describe behavior, not the signature. **Never** document internal/private items, the `FIO` DU cases, runtime internals, or the `FIOBuilder` CE methods.
 - **Internals**: comment-free. Use an inline `//` only when the *why* isn't obvious from the code. Never restate what the code does. No commented-out code (use git history).
 
 Keep doc comments well-formed XML: rephrase types out of prose ("an effect") or escape them (`FIO&lt;'A,'E&gt;`). The public, user-facing API across all four packages is now documented; `WarnOn 3390` is enabled so malformed doc XML fails the build. Internals remain bare by design — keep them that way, and add `///` docs to any new public members you introduce.
 
+## Formatting & Tooling
+
+- **`.editorconfig`** governs formatting: UTF-8, LF line endings, final newline, trim trailing whitespace (except `*.md`). 4-space indent for F# (`*.fs/fsi/fsx`) and project files (`*.fsproj/props/targets/slnx`); 2-space for JSON/YAML.
+- **`TreatWarningsAsErrors=true`** — set once in `Directory.Build.props`, applies to every project. Fix all warnings. Use `TreatWarningsAsErrors`, **not** `WarningsAsErrors` (the F# SDK reads the latter as a warning-number list).
+- **XML docs:** packable libraries set `GenerateDocumentationFile=true` and `WarnOn 3390`, so malformed doc XML fails the build.
+- **Central Package Management:** all package versions are pinned in `Directory.Packages.props` (e.g. FSharp.Core 10.1.301, BenchmarkDotNet 0.15.8). FSharp.Core's implicit reference is disabled in favor of an explicit, version-less `PackageReference` so the central version wins.
+- **Versioning:** the baseline `<Version>` lives once in `Directory.Build.props`; the publish workflow overrides it from the git tag. Only the four `src/` libraries are packable (`IsPackable`); tests/benchmarks/examples are not.
+
 ## Important Notes
 
-- **TreatWarningsAsErrors=true** — set once in `Directory.Build.props`, applies to every project; fix all warnings (use `TreatWarningsAsErrors`, not `WarningsAsErrors`, which the F# SDK reads as a warning-number list)
 - F# `ParallelCompilation` and `Deterministic` use SDK defaults (no project-level overrides)
 - F# compile order matters — file order in `.fsproj` is the compilation order
-- 4-space indentation, match existing style in `src/` and `tests/`
-- Experimental compile-time flags: `DETECT_DEADLOCK`, `MONITOR` (in `Runtime.Tools/`)
+- Match existing style in `src/` and `tests/`; the build is warning-clean, so keep it that way

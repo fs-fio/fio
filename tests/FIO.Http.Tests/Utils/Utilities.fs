@@ -7,6 +7,7 @@ open FIO.Runtime.Direct
 open FIO.Runtime.Default
 open FIO.Runtime.Polling
 open FIO.Runtime.Signaling
+open FIO.Runtime.WorkStealing
 
 open System
 open System.Net
@@ -27,6 +28,7 @@ let runtimes () =
         new DirectRuntime() :> FIORuntime
         new PollingRuntime() :> FIORuntime
         new SignalingRuntime() :> FIORuntime
+        new WorkStealingRuntime() :> FIORuntime
     ]
 
 let private disposeRuntime (rt: FIORuntime) =

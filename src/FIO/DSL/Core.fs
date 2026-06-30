@@ -31,6 +31,25 @@ and internal WorkItem =
         mutable InterruptionSuppressed: int
     }
 
+and [<Sealed>] internal BlockingWaiter(workItem: WorkItem) =
+
+    let mutable claimed = 0
+
+    let mutable registration: CancellationTokenRegistration = Unchecked.defaultof<CancellationTokenRegistration>
+
+    member _.WorkItem =
+        workItem
+
+    member _.SetRegistration (value: CancellationTokenRegistration) =
+        registration <- value
+
+    member _.TryClaim () =
+        if tryClaim &claimed then
+            registration.Dispose()
+            true
+        else
+            false
+
 and internal BlockingItem =
     | BlockingChannel of channel: Channel<obj> * waitingWorkItem: WorkItem
     | BlockingFiber of fiberContext: FiberContext * waitingWorkItem: WorkItem
@@ -46,58 +65,44 @@ and FiberResult<'A, 'E> =
 
 and [<Sealed; AllowNullLiteral>] internal MailboxQueue<'A>() =
     let channel = Channel.CreateUnbounded<'A>()
-    let mutable count = 0
+    let reader = channel.Reader
+    let writer = channel.Writer
 
     member internal _.Count =
-        Interlocked.Add(&count, 0)
+        reader.Count
 
     member internal _.WriteAsync value =
-        let task = channel.Writer.WriteAsync value
-        Interlocked.Increment &count |> ignore
-        task
+        writer.WriteAsync value
 
     member internal _.ReadAsync () =
-        let valueTask = channel.Reader.ReadAsync()
-        if valueTask.IsCompletedSuccessfully then
-            Interlocked.Decrement &count |> ignore
-            valueTask
-        else
-            ValueTask<'A>(task {
-                let! value = valueTask
-                Interlocked.Decrement &count |> ignore
-                return value
-            })
+        reader.ReadAsync()
 
     member internal _.TryRead (value: byref<'A>) =
-        if channel.Reader.TryRead &value then
-            Interlocked.Decrement &count |> ignore
-            true
-        else
-            false
+        reader.TryRead &value
 
     member internal _.WaitToReadAsync (cancelToken: CancellationToken) =
-        channel.Reader.WaitToReadAsync cancelToken
+        reader.WaitToReadAsync cancelToken
 
     member internal _.Clear () =
         let mutable value = Unchecked.defaultof<'A>
-        while channel.Reader.TryRead &value do
-            Interlocked.Decrement &count |> ignore
+        while reader.TryRead &value do
+            ()
 
 and [<Sealed>] internal BlockingWorkItemSlot() =
 
     [<VolatileField>]
-    let mutable channel: MailboxQueue<WorkItem> = null
+    let mutable queue: MailboxQueue<BlockingWaiter> = null
 
     member _.Count =
-        let channel' = Volatile.Read &channel
-        if isNull channel' then 0
-        else channel'.Count
+        let queue' = Volatile.Read &queue
+        if isNull queue' then 0
+        else queue'.Count
 
     member _.TryGet () =
-        Volatile.Read &channel
+        Volatile.Read &queue
 
     member _.GetOrCreate () =
-        initIfNull &channel (fun () -> MailboxQueue<WorkItem>())
+        initIfNull &queue (fun () -> MailboxQueue<BlockingWaiter>())
 
 and private FiberContextState =
     | Running = 0
@@ -109,7 +114,7 @@ and [<Sealed>] internal FiberContext() =
     let mutable state = int FiberContextState.Running
 
     [<VolatileField>]
-    let mutable blockingWorkItemQueue: MailboxQueue<WorkItem> = null
+    let mutable blockingWorkItemQueue: MailboxQueue<BlockingWaiter> = null
 
     let resultSource =
         TaskCompletionSource<Result<obj, obj>> TaskCreationOptions.RunContinuationsAsynchronously
@@ -142,27 +147,28 @@ and [<Sealed>] internal FiberContext() =
         if this.IsTerminal() then
             this.InvokeOnTerminal()
 
-    member internal this.AddBlockingWorkItem blockingWorkItem =
-        let channel = this.GetOrCreateBlockingQueue()
-        channel.WriteAsync blockingWorkItem
+    member internal this.AddBlockingWorkItem (waiter: BlockingWaiter) =
+        let queue = this.GetOrCreateBlockingQueue()
+        queue.WriteAsync waiter
 
     member internal _.RescheduleBlockingWorkItems (activeWorkItemQueue: MailboxQueue<WorkItem>) =
         task {
-            let channel = Volatile.Read &blockingWorkItemQueue
-            if not (isNull channel) then
-                let mutable workItem = Unchecked.defaultof<_>
-                while channel.TryRead &workItem do
-                    do! activeWorkItemQueue.WriteAsync workItem
+            let queue = Volatile.Read &blockingWorkItemQueue
+            if not (isNull queue) then
+                let mutable waiter = Unchecked.defaultof<_>
+                while queue.TryRead &waiter do
+                    if waiter.TryClaim() then
+                        do! activeWorkItemQueue.WriteAsync waiter.WorkItem
         }
 
     member internal this.TryRescheduleBlockingWorkItems (activeWorkItemQueue: MailboxQueue<WorkItem>) =
-        task {
-            if not <| this.IsTerminal() then
-                return false
-            else
+        if not (this.IsTerminal()) then
+            ValueTask<bool> false
+        else
+            ValueTask<bool>(task {
                 do! this.RescheduleBlockingWorkItems activeWorkItemQueue
                 return true
-        }
+            })
 
     member internal this.AddRegistration (registration: IDisposable) =
         let bag = initIfNull &registrations (fun () -> ConcurrentBag<IDisposable>())
@@ -191,19 +197,21 @@ and [<Sealed>] internal FiberContext() =
             resultSource.TrySetResult value |> ignore
 
     member internal this.CompleteAndReschedule (value, activeWorkItemQueue) =
-        task {
-            let oldState =
-                transitionFrom &state (int FiberContextState.Running) (int FiberContextState.Completed)
-            if oldState = int FiberContextState.Running ||
-                oldState = int FiberContextState.Interrupted then
-                this.DisposeRegistrations()
-                this.InvokeOnTerminal()
-                resultSource.TrySetResult value |> ignore
+        let oldState =
+            transitionFrom &state (int FiberContextState.Running) (int FiberContextState.Completed)
+        if oldState = int FiberContextState.Running ||
+            oldState = int FiberContextState.Interrupted then
+            this.DisposeRegistrations()
+            this.InvokeOnTerminal()
+            resultSource.TrySetResult value |> ignore
 
-                let channel = Volatile.Read &blockingWorkItemQueue
-                if not (isNull channel) && channel.Count > 0 then
-                    do! this.RescheduleBlockingWorkItems activeWorkItemQueue
-        }
+            let queue = Volatile.Read &blockingWorkItemQueue
+            if not (isNull queue) && queue.Count > 0 then
+                ValueTask(this.RescheduleBlockingWorkItems activeWorkItemQueue)
+            else
+                ValueTask.CompletedTask
+        else
+            ValueTask.CompletedTask
 
     member internal this.Interrupt (?cause, ?message) =
         let cause = defaultArg cause ExplicitInterrupt
@@ -228,8 +236,8 @@ and [<Sealed>] internal FiberContext() =
             with _ -> ()
         | _ -> ()
 
-    member private _.GetOrCreateBlockingQueue () : MailboxQueue<WorkItem> =
-        initIfNull &blockingWorkItemQueue (fun () -> MailboxQueue<WorkItem>())
+    member private _.GetOrCreateBlockingQueue () : MailboxQueue<BlockingWaiter> =
+        initIfNull &blockingWorkItemQueue (fun () -> MailboxQueue<BlockingWaiter>())
 
     member private _.DisposeRegistrations () =
         let bag = Volatile.Read &registrations
@@ -396,8 +404,6 @@ and [<Sealed; AllowNullLiteral>] Channel<'A> private
     [<VolatileField>]
     let mutable upcastChannel: Channel<obj> = null
 
-    let mutable signalProcessing = 0
-
     /// Creates a new, empty channel.
     new() = Channel(Guid.NewGuid(), MailboxQueue<obj>(), BlockingWorkItemSlot())
 
@@ -433,29 +439,22 @@ and [<Sealed; AllowNullLiteral>] Channel<'A> private
     member internal _.BlockingWorkItemCount =
         blockingSlot.Count
 
-    member internal _.AddBlockingWorkItem blockingItem =
-        let channel = blockingSlot.GetOrCreate()
-        channel.WriteAsync blockingItem
+    member internal _.AddBlockingWorkItem (waiter: BlockingWaiter) =
+        let queue = blockingSlot.GetOrCreate()
+        queue.WriteAsync waiter
 
-    member internal _.TryRescheduleNextBlockingWorkItem (activeWorkItemQueue: MailboxQueue<WorkItem>) =
-        task {
-            let channel = blockingSlot.TryGet()
-            if isNull channel then
-                return false
-            else
-                let mutable workItem = Unchecked.defaultof<_>
-                if channel.TryRead &workItem then
-                    do! activeWorkItemQueue.WriteAsync workItem
-                    return true
-                else
-                    return false
-        }
-
-    member internal _.TryBeginSignalProcessing () =
-        tryClaim &signalProcessing
-
-    member internal _.EndSignalProcessing () =
-        Volatile.Write(&signalProcessing, 0)
+    member internal _.TryDequeueBlockingWorkItem (workItem: byref<WorkItem>) : bool =
+        let queue = blockingSlot.TryGet()
+        if isNull queue then
+            false
+        else
+            let mutable waiter = Unchecked.defaultof<_>
+            let mutable found = false
+            while not found && queue.TryRead &waiter do
+                if waiter.TryClaim() then
+                    workItem <- waiter.WorkItem
+                    found <- true
+            found
 
     member internal _.Queue =
         valueQueue

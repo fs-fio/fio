@@ -7,16 +7,18 @@ open FIO.Runtime
 open FIO.Runtime.Direct
 open FIO.Runtime.Polling
 open FIO.Runtime.Signaling
+open FIO.Runtime.WorkStealing
 
 open Expecto
 
 open System
+open System.Collections.Generic
 
 let private runtimes () =
     [
         new DirectRuntime() :> FIORuntime
         new PollingRuntime() :> FIORuntime
-        new SignalingRuntime() :> FIORuntime
+        new WorkStealingRuntime() :> FIORuntime
     ]
 
 let private testAllRuntimes name (f: FIORuntime -> unit) =
@@ -388,7 +390,7 @@ let channelTests =
 
                 Expect.equal result messages "FIFO order should be preserved for 1000 messages"
 
-            // Stress test targeting the signal protocol re-check in SignalingRuntime's
+            // Stress test targeting the signal protocol re-check in WorkStealingRuntime's
             // processBlockingChannel. Many blocked receivers + many
             // concurrent senders maximises the chance of TryBeginSignalProcessing failures
             // that rely on the finally-block re-check to avoid lost signals.
@@ -398,7 +400,7 @@ let channelTests =
                 let iterations = 20
 
                 for _ in 1..iterations do
-                    use runtime = new SignalingRuntime()
+                    use runtime = new WorkStealingRuntime()
 
                     let effect =
                         fio {
@@ -428,7 +430,7 @@ let channelTests =
                         [ 1..receiverCount ]
                         "All blocked receivers must be rescheduled (no lost signals)"
 
-            // Regression test for the SignalingRuntime signal-protocol lost-wakeup race
+            // Regression test for the WorkStealingRuntime signal-protocol lost-wakeup race
             // (check-then-CAS anti-pattern). Mirrors the FIO.Benchmarks BoundedBuffer pattern
             // at sufficient volume to surface the race if signalBlockingWorkerIfPending or the
             // processBlockingChannel post-finally re-check ever revert to lazy gating reads
@@ -441,7 +443,7 @@ let channelTests =
                 let itemsPerProducer = 100_000
                 let totalItems = producerCount * itemsPerProducer
 
-                use runtime = new SignalingRuntime()
+                use runtime = new WorkStealingRuntime()
 
                 let effect =
                     fio {
@@ -519,7 +521,7 @@ let channelTests =
             // channel-misses drop to zero, forcing 4ms Task.Delay per buffer-actor cycle.
             // A successful completion in seconds confirms the polling-cadence pathology
             // is fixed (or never existed). Hang ⇒ true deadlock / different root cause.
-            testCase "Stress - bounded-buffer pattern at high iteration count (Polling-BWC=1)"
+            stressTestCase "Stress - bounded-buffer pattern at high iteration count (Polling-BWC=1)"
             <| fun () ->
                 let producerCount = 4
                 let consumerCount = 4
@@ -603,4 +605,96 @@ let channelTests =
 
                 if not (task.Wait(TimeSpan.FromSeconds 60.0)) then
                     failwith "PollingRuntime BWC=1 hung on bounded-buffer pattern"
+
+            // Regression test for the SignalingRuntime lost-wakeup: a StoreLoad (Dekker) race in the
+            // signal-coalescing mutual check, where a writer (publish message, then test "is a reader
+            // parked?") and a parking reader (publish park, then test "is a message present?") could
+            // each read the other's pre-publish value and both decline to signal. Fixed by the memory
+            // fences in signalBlockingWorkerIfPending / processBlockingChannel. The race is
+            // intermittent, so the bounded-buffer pattern is looped to reliably surface a regression.
+            stressTestCase "Stress - bounded-buffer pattern at high iteration count (Signaling lost-wakeup regression)"
+            <| fun () ->
+                let producerCount = 4
+                let consumerCount = 4
+                let capacity = 10
+                let itemsPerProducer = 100_000
+                let totalItems = producerCount * itemsPerProducer
+
+                let buildEffect () =
+                    fio {
+                        let hub = Channel<Choice<int * Channel<unit>, Channel<int>>>()
+                        let items = Queue<int>()
+                        let waitingProducers = Queue<int * Channel<unit>>()
+                        let waitingConsumers = Queue<Channel<int>>()
+                        let mutable delivered = 0
+
+                        let bufferActor =
+                            let rec loop () =
+                                fio {
+                                    if delivered < totalItems then
+                                        match! hub.Read() with
+                                        | Choice1Of2 (item, ack) ->
+                                            if waitingConsumers.Count > 0 then
+                                                let reply = waitingConsumers.Dequeue()
+                                                delivered <- delivered + 1
+                                                do! reply.Write(item).Unit()
+                                                do! ack.Write(()).Unit()
+                                            elif items.Count < capacity then
+                                                items.Enqueue item
+                                                do! ack.Write(()).Unit()
+                                            else
+                                                waitingProducers.Enqueue(item, ack)
+                                        | Choice2Of2 reply ->
+                                            if items.Count > 0 then
+                                                let item = items.Dequeue()
+                                                delivered <- delivered + 1
+                                                do! reply.Write(item).Unit()
+                                                if waitingProducers.Count > 0 then
+                                                    let parkedItem, parkedAck = waitingProducers.Dequeue()
+                                                    items.Enqueue parkedItem
+                                                    do! parkedAck.Write(()).Unit()
+                                            else
+                                                waitingConsumers.Enqueue reply
+                                        return! loop ()
+                                }
+                            loop ()
+
+                        let producer =
+                            fio {
+                                let ack = Channel<unit>()
+                                for i in 1..itemsPerProducer do
+                                    do! hub.Write(Choice1Of2(i, ack)).Unit()
+                                    do! ack.Read().Unit()
+                            }
+
+                        let consumerCounts =
+                            [ for index in 0 .. consumerCount - 1 ->
+                                let baseCount = totalItems / consumerCount
+                                let remainder = totalItems % consumerCount
+                                if index < remainder then baseCount + 1 else baseCount ]
+
+                        let consumer count =
+                            fio {
+                                let reply = Channel<int>()
+                                for _ in 1..count do
+                                    do! hub.Write(Choice2Of2 reply).Unit()
+                                    do! reply.Read().Unit()
+                            }
+
+                        let producers = [ for _ in 1..producerCount -> producer ]
+                        let consumers = [ for c in consumerCounts -> consumer c ]
+                        do! FIO.collectAllParDiscard (bufferActor :: (producers @ consumers))
+                    }
+
+                use runtime =
+                    new SignalingRuntime
+                        { EvaluationWorkers = 12
+                          EvaluationSteps = 200
+                          BlockingWorkers = 1 }
+
+                for iteration in 1..10 do
+                    let task = runtime.Run(buildEffect ()).Task()
+
+                    if not (task.Wait(TimeSpan.FromSeconds 30.0)) then
+                        failwith $"SignalingRuntime hung on bounded-buffer pattern (iteration {iteration}): lost-wakeup race regressed"
         ]

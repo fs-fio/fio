@@ -203,3 +203,20 @@ let inline setupForkRegistration (parentContext: FiberContext) (childContext: Fi
             childContext.Interrupt(ParentInterrupted parentContext.Id, "Parent fiber was interrupted."))
     childContext.AddRegistration registration
     registration
+
+let parkBlockingWaiter
+    (fiberContext: FiberContext)
+    (suppressed: int)
+    (workItem: WorkItem)
+    (reschedule: WorkItem -> unit) =
+    let waiter = BlockingWaiter workItem
+    if suppressed = 0 then
+        let registration =
+            fiberContext.CancellationToken.Register(fun () ->
+                try
+                    if waiter.TryClaim() then
+                        reschedule waiter.WorkItem
+                with _ ->
+                    ())
+        waiter.SetRegistration registration
+    waiter

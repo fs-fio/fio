@@ -3,7 +3,7 @@
 TCP sockets for [FIO](https://github.com/fs-fio/fio).
 
 ```bash
-dotnet add package FIO.Sockets
+dotnet add package FSharp.FIO.Sockets
 ```
 
 ```fsharp

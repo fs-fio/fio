@@ -9,6 +9,7 @@ type private ArbMessage =
     | Hungry of id: int * grantedChannel: Channel<unit>
     | Done of id: int
 
+// The arbitrator actor: grants forks to hungry philosophers and releases them when done.
 let private arbitratorEffect (arbChannel: Channel<ArbMessage>) philosopherCount totalRounds =
     let forks = Array.create philosopherCount true
     let pending = Queue<int * Channel<unit>>()
@@ -59,6 +60,7 @@ let private arbitratorEffect (arbChannel: Channel<ArbMessage>) philosopherCount 
 
     loop ()
 
+// A philosopher that requests forks, eats, and releases them each round.
 let private philosopherEffect (arbChannel: Channel<ArbMessage>) id roundCount =
     fio {
         let grantedChannel = Channel<unit>()
@@ -68,6 +70,7 @@ let private philosopherEffect (arbChannel: Channel<ArbMessage>) id roundCount =
             do! arbChannel.Write(Done id).Unit()
     }
 
+// Builds the dining-philosophers workload coordinated through one arbitrator.
 let effect philosopherCount roundCount : FIO<unit, exn> =
     fio {
         let arbChannel = Channel<ArbMessage>()

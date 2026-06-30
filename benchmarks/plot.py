@@ -26,7 +26,7 @@ BYTE_UNITS = {
     "MB": 1024.0 ** 2,
     "GB": 1024.0 ** 3,
 }
-RUNTIME_PATTERN = re.compile(r"^(Direct|Cooperative|Concurrent)(-\d+-\d+-\d+)?$")
+RUNTIME_PATTERN = re.compile(r"^(Direct|Polling|Signaling|WorkStealing)(-\d+-\d+-\d+)?$")
 LOG_SCALE_THRESHOLD = 10.0
 
 
@@ -104,15 +104,18 @@ def extract_benchmark_name(filename: str) -> str:
 def runtime_sort_key(rt: str) -> tuple[int, str]:
     if "Direct" in rt:
         return (0, rt)
-    if "Cooperative" in rt:
+    if "Polling" in rt:
         return (1, rt)
-    return (2, rt)
+    if "Signaling" in rt:
+        return (2, rt)
+    return (3, rt)
 
 
 RUNTIME_COLORS = {
     "Direct": "#636EFA",
-    "Cooperative": "#EF553B",
-    "Concurrent": "#00CC96",
+    "Polling": "#EF553B",
+    "Signaling": "#FFA15A",
+    "WorkStealing": "#00CC96",
 }
 
 
@@ -128,6 +131,36 @@ def should_log_scale(values: list[float]) -> bool:
     if len(finite) < 2:
         return False
     return max(finite) / min(finite) > LOG_SCALE_THRESHOLD
+
+
+VALID_IMAGE_FORMATS = {"png", "svg", "pdf", "jpg", "jpeg", "webp"}
+_static_export_warned = False
+
+
+def parse_image_formats(spec: str) -> list[str]:
+    seen: list[str] = []
+    for raw in str(spec).split(","):
+        fmt = raw.strip().lower()
+        if fmt in VALID_IMAGE_FORMATS and fmt not in seen:
+            seen.append(fmt)
+    return seen
+
+
+def write_static(fig, output_dir: Path, name: str, formats: list[str], scale: int = 2) -> list[Path]:
+    """Render the figure to static image files; warn once and skip if kaleido is unavailable."""
+    global _static_export_warned
+    written: list[Path] = []
+    for fmt in formats:
+        out = output_dir / f"{name}.{fmt}"
+        try:
+            fig.write_image(str(out), format=fmt, scale=scale)
+            written.append(out)
+        except Exception as e:  # kaleido missing/broken, or an unrenderable format
+            if not _static_export_warned:
+                print(f"  ! static image export skipped ({fmt}): {e}")
+                print("    install kaleido to enable PNG/SVG/PDF output: pip install kaleido")
+                _static_export_warned = True
+    return written
 
 
 def load_benchmark_csv(csv_path: Path) -> tuple[pd.DataFrame, str, list[str]]:
@@ -153,7 +186,7 @@ def load_benchmark_csv(csv_path: Path) -> tuple[pd.DataFrame, str, list[str]]:
     return df, runtime_col, param_cols
 
 
-def plot_benchmark(csv_path: Path, output_dir: Path) -> Path:
+def plot_benchmark(csv_path: Path, output_dir: Path, image_formats: list[str] | None = None) -> Path:
     df, runtime_col, param_cols = load_benchmark_csv(csv_path)
 
     param_label = " / ".join(param_cols) if param_cols else "Configuration"
@@ -229,6 +262,8 @@ def plot_benchmark(csv_path: Path, output_dir: Path) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"{bench_name}.html"
     fig.write_html(str(output_path), include_plotlyjs="cdn")
+    if image_formats:
+        write_static(fig, output_dir, bench_name, image_formats)
     return output_path
 
 
@@ -259,7 +294,7 @@ def build_summary_frame(csv_paths: list[Path]) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def plot_summary(csv_paths: list[Path], output_dir: Path) -> Path | None:
+def plot_summary(csv_paths: list[Path], output_dir: Path, image_formats: list[str] | None = None) -> Path | None:
     summary = build_summary_frame(csv_paths)
     if summary.empty:
         return None
@@ -352,6 +387,8 @@ def plot_summary(csv_paths: list[Path], output_dir: Path) -> Path | None:
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "summary.html"
     fig.write_html(str(output_path), include_plotlyjs="cdn")
+    if image_formats:
+        write_static(fig, output_dir, "summary", image_formats)
     return output_path
 
 
@@ -378,6 +415,27 @@ def self_test() -> None:
     assert normalize_to_ms("3.850 ms") == 3.850
     assert abs(normalize_to_ms("1,111.87 ms") - 1111.87) < 1e-6
 
+    # Runtime-column detection must recognise the current runtime names (Direct, Polling, Signaling,
+    # WorkStealing) — regression guard for the formatted path.
+    runtime_frame = pd.DataFrame({
+        "RoundCount": [10000, 10000, 10000, 10000],
+        "Runtime": ["Direct", "Polling-4-200-1", "Signaling-4-200-1", "WorkStealing-4-200-1"],
+        "Mean": ["1.0 ms", "2.0 ms", "3.0 ms", "4.0 ms"],
+    })
+    assert find_fio_runtime_col(runtime_frame) == "Runtime"
+    assert runtime_sort_key("Direct")[0] == 0
+    assert runtime_sort_key("Polling-4-200-1")[0] == 1
+    assert runtime_sort_key("Signaling-4-200-1")[0] == 2
+    assert runtime_sort_key("WorkStealing-4-200-1")[0] == 3
+    assert runtime_color("Signaling-4-200-1") == "#FFA15A"
+    assert runtime_color("WorkStealing-4-200-1") == "#00CC96"
+
+    assert parse_image_formats("png, svg ,pdf") == ["png", "svg", "pdf"]
+    assert parse_image_formats("PNG,png,svg") == ["png", "svg"]
+    assert parse_image_formats("png,bogus") == ["png"]
+    assert parse_image_formats("") == []
+    assert parse_image_formats("none") == []
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -388,6 +446,11 @@ def main() -> int:
     parser.add_argument(
         "--output-dir", type=Path, default=None,
         help="Directory to write HTML plots into",
+    )
+    parser.add_argument(
+        "--image-formats", type=str, default="png,svg",
+        help="Comma-separated static image formats to also emit (png,svg,pdf); "
+             "empty or 'none' to skip. Requires kaleido.",
     )
     parser.add_argument(
         "--self-test", action="store_true",
@@ -417,16 +480,20 @@ def main() -> int:
         existing = sorted(p.name for p in output_dir.glob("*.html"))
         print(f"Warning: {output_dir} already contains {len(existing)} HTML file(s); they will be overwritten")
 
+    image_formats = parse_image_formats(args.image_formats)
+
     print(f"Found {len(csvs)} benchmark report(s)")
+    if image_formats:
+        print(f"Static image formats: {', '.join(image_formats)}")
     for csv_path in csvs:
         try:
-            output = plot_benchmark(csv_path, output_dir)
+            output = plot_benchmark(csv_path, output_dir, image_formats)
             print(f"  ✓ {csv_path.name} → {output.name}")
         except Exception as e:
             print(f"  ✗ {csv_path.name}: {e}")
 
     try:
-        summary = plot_summary(csvs, output_dir)
+        summary = plot_summary(csvs, output_dir, image_formats)
         if summary is not None:
             print(f"  ✓ summary → {summary.name}")
     except Exception as e:

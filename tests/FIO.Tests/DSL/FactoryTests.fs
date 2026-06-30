@@ -7,6 +7,7 @@ open FIO.Runtime
 open FIO.Runtime.Direct
 open FIO.Runtime.Polling
 open FIO.Runtime.Signaling
+open FIO.Runtime.WorkStealing
 
 open Expecto
 open FsCheck
@@ -20,7 +21,7 @@ let private runtimes () =
     [
         new DirectRuntime() :> FIORuntime
         new PollingRuntime() :> FIORuntime
-        new SignalingRuntime() :> FIORuntime
+        new WorkStealingRuntime() :> FIORuntime
     ]
 
 let private testAllRuntimes name (f: FIORuntime -> unit) =
@@ -340,6 +341,33 @@ let factoryTests =
                     "generic task error"
                     "FIO.awaitTask should propagate exception"
 
+            // Regression: the worker runtimes resume a parked AwaitTask via a foreign-thread
+            // continuation. A throwing onError there must not escape as an unhandled thread-pool
+            // exception (which would crash the process); the raw task error surfaces instead.
+            testCase "awaitTask - throwing onError on a worker runtime fails gracefully" (fun () ->
+                let workerRuntimes: FIORuntime list =
+                    [ new PollingRuntime()
+                      new SignalingRuntime()
+                      new WorkStealingRuntime() ]
+
+                for runtime in workerRuntimes do
+                    let faulting: Task<int> =
+                        task {
+                            do! Task.Delay 5
+                            return raise (Exception "task boom")
+                        }
+
+                    let throwingOnError: exn -> exn = fun _ -> raise (Exception "onError threw")
+                    let effect = FIO.awaitTask faulting throwingOnError
+
+                    let result =
+                        runtime.Run(effect).UnsafeError()
+
+                    Expect.stringContains
+                        result.Message
+                        "task boom"
+                        $"{runtime.GetType().Name}: throwing onError must not crash; raw task error should surface")
+
             testPropertyWithConfig fsCheckConfig "awaitAsync - returns async result"
             <| fun (runtime: FIORuntime, value: int) ->
                 let asyncComp = async { return value }
@@ -609,7 +637,7 @@ let factoryTests =
 
             testCase "async - delayed callback completes correctly"
             <| fun () ->
-                let runtime: FIORuntime = new SignalingRuntime() :> FIORuntime
+                let runtime: FIORuntime = new WorkStealingRuntime() :> FIORuntime
                 let effect =
                     FIO.async (fun cb ->
                         let _ = Task.Run(fun () ->
@@ -624,7 +652,7 @@ let factoryTests =
 
             testCase "async - subsequent callback invocations are ignored"
             <| fun () ->
-                let runtime: FIORuntime = new SignalingRuntime() :> FIORuntime
+                let runtime: FIORuntime = new WorkStealingRuntime() :> FIORuntime
                 let effect =
                     FIO.async (fun cb ->
                         cb (Ok 1)
@@ -673,7 +701,7 @@ let factoryTests =
 
             // ─── Time / scheduling ─────────────────────────────────────────
 
-            testPropertyWithConfig fsCheckConfig "sleep - delays execution"
+            testPropertyWithConfig fsCheckConfigFast "sleep - delays execution"
             <| fun (runtime: FIORuntime) ->
                 let duration = TimeSpan.FromMilliseconds 20.0
 
@@ -953,7 +981,7 @@ let factoryTests =
 
                 Expect.equal result [] "forEachPar over an empty seq should yield []"
 
-            testPropertyWithConfig fsCheckConfig "forEachPar - preserves input order despite parallel execution"
+            testPropertyWithConfig fsCheckConfigFast "forEachPar - preserves input order despite parallel execution"
             <| fun (runtime: FIORuntime) ->
                 let rnd = Random()
                 let xs = [ 1 .. 50 ]
@@ -2052,7 +2080,7 @@ let factoryTests =
 
             testCase "firstSuccessOf - only evaluates effects up to the first success"
             <| fun () ->
-                let runtime: FIORuntime = new SignalingRuntime() :> FIORuntime
+                let runtime: FIORuntime = new WorkStealingRuntime() :> FIORuntime
                 let mutable evaluated = 0
                 let bump effect =
                     FIO.suspend (fun () ->

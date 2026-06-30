@@ -15,6 +15,10 @@ jobs:
       fail-fast: false
     runs-on: ${{ matrix.os }}
 
+    # Run the heavy opt-in stress/regression tests (deadlock & lost-wakeup guards) in CI.
+    env:
+      FIO_RUN_STRESS: "1"
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
