@@ -10,7 +10,7 @@
   <ItemGroup>
     <PackageVersion Include="Expecto" Version="10.2.3" />
     <PackageVersion Include="Expecto.FsCheck" Version="10.2.3" />
-    <PackageVersion Include="FsCheck" Version="2.16.6" />
+    <PackageVersion Include="FsCheck" Version="3.3.3" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.7.0" />
     <PackageVersion Include="YoloDev.Expecto.TestSdk" Version="0.15.6" />
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />
