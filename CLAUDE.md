@@ -11,7 +11,7 @@ FIO is a type-safe, purely functional effect system for F#. IO monad + fibers (g
 
 **Target:** .NET 10, F# 10, `.slnx` solution format (`FIO.slnx`). SDK pinned to `10.0.301` via `global.json` (`rollForward: latestMinor`).
 
-Repository: <https://github.com/fs-fio/fio> · License: MIT · Baseline version: `0.1.10-alpha` (single source of truth in `Directory.Build.props`).
+Repository: <https://github.com/fs-fio/fio> · License: MIT · Baseline version: `0.1.15-alpha` (single source of truth in `Directory.Build.props`).
 
 ## Build Commands
 
@@ -62,7 +62,7 @@ documented in `benchmarks/FIO.Benchmarks/README.md`.
 Core DSL (`src/FIO/DSL/`), compile order matters:
 - `Utilities.fs` - Internal boxing/atomics helpers (`boxOnError`, `boxFunc`, `boxTask`, `boxVoidTask`; `tryClaim`, `tryTransition`, `transitionFrom`, `initIfNull`)
 - `Exceptions.fs` - `InterruptionCause` DU and `FiberInterruptedException`
-- `Core.fs` - `FIO<'A,'E>` DU, `Fiber<'A,'E>`, `Channel<'A>`, `FiberContext`, `WorkItem`, `ContStack`. Also hosts the type's primitive instance members: `FlatMap`, `CatchAll`, `Ensuring`, `Fork`, and the transformation cluster `Map` / `MapError` / `MapBoth` / `Result` / `Option` (derived purely from `Success`/`Failure` constructors + the four primitives).
+- `Core.fs` - `FIO<'A,'E>` DU, `Fiber<'A,'E>`, `Channel<'A>`, `FiberContext`, `WorkItem`, `ContStack`. Also hosts the type's primitive instance members: `FlatMap`, `CatchAll`, `Ensuring`, `Fork`, and the transformation cluster `Map` / `MapError` / `MapBoth` / `Result` / `Option` / `Choice` (derived purely from `Success`/`Failure` constructors + the four primitives).
 - `Factories.fs` - `FIO.succeed`, `FIO.fail`, `FIO.attempt`, `FIO.suspend`, `FIO.sleep`, `FIO.collectAll`, `FIO.collectAllPar`, `FIO.forkTask`, etc.
 - `Extensions.fs` - Instance methods built on the Core cluster (`Zip`, `Tap`, `Race`, `RaceFirst`, `Retry`, `Timeout`, `OrElse`, etc.)
 - `Operators.fs` - Infix operators (`>>=`, `<!>`, `<&>`, `<|>`, etc.), in an `[<AutoOpen>]` module
@@ -78,7 +78,7 @@ Runtime (`src/FIO/Runtime/`):
 - `DirectRuntime.fs` - .NET Tasks, waits for blocked fibers
 - `PollingRuntime.fs` - Custom fibers, linear-time blocked handling
 - `SignalingRuntime.fs` - Custom fibers, event-driven blocked handling (dedicated `BlockingWorker` + signal queue; constant-time reschedule). A comparison/legacy runtime — superseded as the default by `WorkStealingRuntime`
-- `WorkStealingRuntime.fs` - Custom fibers, work-stealing scheduler (per-worker `runNext` slot + work-stealing deque + shared global queue; at-most-one-waker async parking). The default runtime — full design in [`docs/WORK_STEALING_RUNTIME.md`](docs/WORK_STEALING_RUNTIME.md)
+- `WorkStealingRuntime.fs` - Custom fibers, work-stealing scheduler (per-worker `runNext` slot + work-stealing deque + shared global queue; at-most-one-waker async parking). The default runtime
 - `DefaultRuntime.fs` - Type alias: `DefaultRuntime = WorkStealingRuntime`
 
 Framework (`src/FIO/App.fs`):
@@ -119,7 +119,7 @@ FIORuntime (abstract)
 - **DirectRuntime** - .NET Tasks, waits for blocked fibers
 - **PollingRuntime** - Custom fibers, linear-time blocked handling (polling `BlockingItem` list)
 - **SignalingRuntime** - Custom fibers, event-driven blocked handling: a dedicated `BlockingWorker` reschedules blocked fibers via a signal queue (constant-time). Kept as a comparison runtime; superseded as the default by WorkStealingRuntime.
-- **WorkStealingRuntime** - Custom fibers, **work-stealing** scheduler: per-worker local queues (a `runNext` slot + a work-stealing deque) with work-stealing across idle workers, at-most-one-waker wakeups, and async parking. Full design in [`docs/WORK_STEALING_RUNTIME.md`](docs/WORK_STEALING_RUNTIME.md).
+- **WorkStealingRuntime** - Custom fibers, **work-stealing** scheduler: per-worker local queues (a `runNext` slot + a work-stealing deque) with work-stealing across idle workers, at-most-one-waker wakeups, and async parking.
 
 **DefaultRuntime = WorkStealingRuntime** (recommended)
 
@@ -207,7 +207,7 @@ Library modules use **qualified access**: e.g. `Console.printLine "msg" id`.
 Macro benchmarks live in `benchmarks/FIO.Benchmarks/` (BenchmarkDotNet 0.15.8). Eleven workloads:
 **Bang, Big, BoundedBuffer, Chameneos, Counting, Fibonacci, Fork, Philosophers, Pingpong, Threadring, Trapezoidal**. Each is `[<MemoryDiagnoser>]` + `[<RankColumn>]`, sweeping its parameters × the configured runtimes, so every run reports **execution time and allocated memory**.
 
-- **Runtimes:** spec format `Direct | Polling-{EWC}-{EWS}-{BWC} | WorkStealing-{EWC}-{EWS}-{BWC}`. Set via `FIO_BENCH_RUNTIMES` (default `Direct,Polling-12-200-1,WorkStealing-12-200-1`). Recommended `EWC = CPU cores − 2`.
+- **Runtimes:** spec format `Direct | Polling-{EWC}-{EWS}-{BWC} | Signaling-{EWC}-{EWS}-{BWC} | WorkStealing-{EWC}-{EWS}-{BWC}`. Set via `FIO_BENCH_RUNTIMES` (default `Direct,Polling-12-200-1,Signaling-12-200-1,WorkStealing-12-200-1`). Recommended `EWC = CPU cores − 2`.
 - **Iteration control:** `FIO_BENCH_WARMUP` (default 3), `FIO_BENCH_ITERATIONS` (default 30). A CLI `--job` (e.g. `--job Dry`, `--job Short`) **overrides** these env vars.
 - **Per-benchmark params:** `FIO_BENCH_<NAME>_<PARAM>` (e.g. `FIO_BENCH_PINGPONG_ROUNDS`, `FIO_BENCH_FORK_ACTORS`, `FIO_BENCH_BOUNDEDBUFFER_PRODUCERS`). Full table in `benchmarks/FIO.Benchmarks/README.md`.
 - **Output:** BenchmarkDotNet writes CSV/GitHub-markdown/HTML reports to `BenchmarkDotNet.Artifacts/results/` (git-ignored).
@@ -219,6 +219,7 @@ Macro benchmarks live in `benchmarks/FIO.Benchmarks/` (BenchmarkDotNet 0.15.8). 
 
 - **Expecto + FsCheck** for property-based testing; test runner config: `Parallel`, `Summary`, `Colours 256`. Pinned versions (`Directory.Packages.props`): Expecto 10.2.3, FsCheck 2.16.6.
 - Custom FsCheck `Generators` type in `tests/FIO.Tests/Utils/Utilities.fs` provides `Arb` for all four runtimes — tests run against `DirectRuntime`, `PollingRuntime`, `SignalingRuntime`, and `WorkStealingRuntime`
+- Heavy stress/regression tests (deadlock & lost-wakeup guards) are **opt-in** via the `FIO_RUN_STRESS=1` env var (`stressEnabled`/`stressTestCase` in `tests/FIO.Tests/Utils/Utilities.fs`) — off by default locally, enabled in CI
 - Console tests use `System.Console.SetOut`/`SetIn` with `StringWriter`/`StringReader` for deterministic capture — must use `testSequenced` (not parallel) because `System.Console` has process-global state
 - Four test projects:
   - `FIO.Tests` — core library, organized into `DSL/`, `Lib/`, `Framework/` subfolders
@@ -254,8 +255,8 @@ Macro benchmarks live in `benchmarks/FIO.Benchmarks/` (BenchmarkDotNet 0.15.8). 
 
 Three GitHub Actions workflows in `.github/workflows/`:
 
-- **`test.yml` (Run Tests)** — push/PR on **all branches** + manual. Matrix: Ubuntu, Windows, macOS (`fail-fast: false`). Restores tools + deps, builds `./FIO.slnx`. Non-Ubuntu runs tests; Ubuntu runs tests with `XPlat Code Coverage` and uploads to **Codecov**.
-- **`benchmark.yml` (Performance Benchmarks)** — push/PR to **main** + manual, Ubuntu only. First a **smoke test** (all benchmarks × 3 runtimes, tiny params, `--job Dry`, 10-min timeout) to fail fast on hang/throw; then a measured **Pingpong** run exported as JSON/GitHub-markdown and tracked over time via `github-action-benchmark` (`customSmallerIsBetter`, alerts on regression). It does not generate plots — plotting is a local step.
+- **`test.yml` (Run Tests)** — push/PR on **all branches** + manual. Matrix: Ubuntu, Windows, macOS (`fail-fast: false`). Sets `FIO_RUN_STRESS=1` to enable the opt-in stress/regression tests. Restores tools + deps, builds `./FIO.slnx`. Non-Ubuntu runs tests; Ubuntu runs tests with `XPlat Code Coverage` and uploads to **Codecov**.
+- **`benchmark.yml` (Performance Benchmarks)** — push/PR to **main** + manual, Ubuntu only. First a **smoke test** (all benchmarks × all 4 runtimes — Direct, Polling, Signaling, WorkStealing — tiny params, `--job Dry`, 10-min timeout) to fail fast on hang/throw; then a measured **Pingpong** run across those runtimes, exported as JSON/GitHub-markdown and tracked over time via `github-action-benchmark` (`customSmallerIsBetter`, alerts on regression). It does not generate plots — plotting is a local step.
 - **`publish.yml` (Publish NuGet Packages)** — on tags. `v*` = **lockstep** (all four packages; tag must equal `Directory.Build.props` `<Version>`); `core-v*`/`http-v*`/`sockets-v*`/`websockets-v*` = **per-package** release (sets `PackageReleaseVersion`, leaving the FIO dependency pinned to the baseline). Builds Release, runs tests, packs, pushes to NuGet.org, and creates a GitHub release.
 
 ## Commit Style

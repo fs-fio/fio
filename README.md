@@ -3,7 +3,7 @@
     <img src="https://raw.githubusercontent.com/fs-fio/fio/main/assets/fio_logo_wide.png" width="auto" height="200" alt="FIO">
   </a>
 
-  <p><strong>A type-safe, purely functional effect system for F#</strong></p>
+  <p><strong>🪻 A Type-Safe, Purely Functional Effect System for F#</strong></p>
 </div>
 
 ---

@@ -43,12 +43,12 @@ FIORuntime (abstract)
     └── WorkStealingRuntime    — Custom fibers, work-stealing scheduler (per-worker queues + work-stealing). The default
 ```
 
-`DefaultRuntime = WorkStealingRuntime` (recommended) — full design in [`docs/WORK_STEALING_RUNTIME.md`](../docs/WORK_STEALING_RUNTIME.md). Worker config fields: **EvaluationWorkers** (evaluation worker count), **EvaluationSteps** (eval steps per work item before rescheduling), **BlockingWorkers** (used by `PollingRuntime`; **ignored by `WorkStealingRuntime`**). The `EWC`/`EWS`/`BWC` acronyms remain as the `ConfigString` display labels and benchmark spec shorthand.
+`DefaultRuntime = WorkStealingRuntime` (recommended). Worker config fields: **EvaluationWorkers** (evaluation worker count), **EvaluationSteps** (eval steps per work item before rescheduling), **BlockingWorkers** (used by `PollingRuntime`; **ignored by `WorkStealingRuntime`**). The `EWC`/`EWS`/`BWC` acronyms remain as the `ConfigString` display labels and benchmark spec shorthand.
 
 ### Key Files (compile order matters)
 
 Core DSL (`src/FIO/DSL/`):
-- `Core.fs` — `FIO<'A,'E>` DU, `Fiber`, `Channel`, `FiberContext`, `WorkItem`, `ContStack`. Hosts primitive instance members: `FlatMap`, `CatchAll`, `Ensuring`, `Fork` plus the transformation cluster (`Map`/`MapError`/`MapBoth`/`Result`/`Option`) derived from `Success`/`Failure` + the four primitives.
+- `Core.fs` — `FIO<'A,'E>` DU, `Fiber`, `Channel`, `FiberContext`, `WorkItem`, `ContStack`. Hosts primitive instance members: `FlatMap`, `CatchAll`, `Ensuring`, `Fork` plus the transformation cluster (`Map`/`MapError`/`MapBoth`/`Result`/`Option`/`Choice`) derived from `Success`/`Failure` + the four primitives.
 - `Factories.fs` / `Extensions.fs` / `Operators.fs` / `CE.fs` — public surface built on Core.
 
 Console I/O (`src/FIO/Console.fs`):
@@ -161,6 +161,7 @@ Two tiers — see [`docs/COMMENT_STYLE.md`](../docs/COMMENT_STYLE.md):
 
 - **Expecto + FsCheck** for property-based testing
 - Core tests use a `Generators` type (`tests/FIO.Tests/Utils/Utilities.fs`) that provides FsCheck `Arb` for all four runtimes — every property test runs against `DirectRuntime`, `PollingRuntime`, `SignalingRuntime`, and `WorkStealingRuntime`
+- Heavy stress/regression tests (deadlock & lost-wakeup guards) are opt-in via `FIO_RUN_STRESS=1` (`stressEnabled`/`stressTestCase` in the same file) — off by default locally, set in CI by `test.yml`
 - Console tests use `System.Console.SetOut`/`SetIn` with `StringWriter`/`StringReader` for deterministic capture — must use `testSequenced` (not parallel) because `System.Console` has process-global state
 - Extension tests use `testAllRuntimes` helper wrapping `testSequenced`
 - Stack-safety canary tests in `tests/FIO.Tests/DSL/FIOTests.fs` (depth 10000) are load-bearing — do not simplify `UpcastResult`/`UpcastError`/`UpcastBoth` to plain recursion

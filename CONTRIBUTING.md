@@ -58,7 +58,7 @@ dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*"
 1. Branch off `main`.
 2. Keep changes focused; update tests and examples to match behavior changes.
 3. Ensure `dotnet build` and `dotnet test` pass.
-4. Use short, descriptive, sentence-style commit messages (e.g. "fix: fixed benchmark output").
+4. Use short, descriptive, sentence-style commit messages (e.g. "Fix benchmark output") — no strict prefixes.
 5. Open the PR against `main` and fill out the template.
 
 CI runs tests on Ubuntu, Windows, and macOS; Ubuntu also collects coverage.
