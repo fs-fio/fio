@@ -1,0 +1,61 @@
+name: Run Tests
+
+on:
+  push:
+    branches: ["*"]
+  pull_request:
+    branches: ["*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+
+    # Run the heavy opt-in stress/regression tests (deadlock & lost-wakeup guards) in CI.
+    env:
+      FIO_RUN_STRESS: "1"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Restore dependencies
+        run: dotnet restore ./FIO.slnx
+
+      - name: Build
+        run: dotnet build --no-restore ./FIO.slnx
+
+      - name: Run tests
+        if: matrix.os != 'ubuntu-latest'
+        run: dotnet test --no-build --verbosity normal ./FIO.slnx
+      - name: Run tests with coverage
+        if: matrix.os == 'ubuntu-latest'
+        run: dotnet test --no-build --verbosity normal --collect:"XPlat Code Coverage" --results-directory ./coverage ./FIO.slnx
+
+      - name: Upload coverage to Codecov
+        if: matrix.os == 'ubuntu-latest'
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage/**/coverage.cobertura.xml
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}

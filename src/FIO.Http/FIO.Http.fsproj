@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <WarnOn>3390</WarnOn>
+    </PropertyGroup>
+
+    <PropertyGroup>
+        <IsPackable>true</IsPackable>
+        <PackageId>FSharp.FIO.Http</PackageId>
+        <Title>FIO.Http</Title>
+        <Description>HTTP server for FIO, built on Kestrel. Composable routes, functional handlers, middleware, and path parameters.</Description>
+        <PackageTags>fsharp;effect;http;web;kestrel;server;functional</PackageTags>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="Types.fs" />
+        <Compile Include="Response.fs" />
+        <Compile Include="Handler.fs" />
+        <Compile Include="RoutePattern.fs" />
+        <Compile Include="Routes.fs" />
+        <Compile Include="Middleware.fs" />
+        <Compile Include="KestrelBridge.fs" />
+        <Compile Include="Server.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\FIO\FIO.fsproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="..\..\assets\fio_logo_wide.png" Pack="true" PackagePath="\" />
+        <None Include="README.md" Pack="true" PackagePath="\" />
+    </ItemGroup>
+
+</Project>

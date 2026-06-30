@@ -1,0 +1,209 @@
+namespace FIO.Runtime
+
+open FIO.DSL
+
+open System
+open System.Collections.Generic
+
+module internal WorkerRuntimeDefaults =
+    let ProcessorReserve = 1
+
+    let MinimumEvaluationWorkerCount = 2
+
+    let EvaluationWorkerSteps = 200
+
+    let BlockingWorkerCount = 1
+
+    let ComputeEvaluationWorkerCount () =
+        let availableWorkers = Environment.ProcessorCount - ProcessorReserve
+
+        if availableWorkers >= MinimumEvaluationWorkerCount then
+            availableWorkers
+        else
+            MinimumEvaluationWorkerCount
+
+type internal ContStackPool private () =
+    static let DefaultStackCapacity = 32
+    static let MaxPoolSize = 256
+    static let MaxReturnedStackDepth = 4096
+
+    [<ThreadStatic; DefaultValue>]
+    static val mutable private pool: Stack<Stack<Cont>>
+
+    static member inline Rent () =
+        let mutable pool = ContStackPool.pool
+        if isNull pool then
+            pool <- Stack<_>()
+            ContStackPool.pool <- pool
+
+        if pool.Count > 0 then
+            let stack = pool.Pop()
+            stack.Clear()
+            stack
+        else
+            Stack<Cont> DefaultStackCapacity
+
+    static member inline Return (stack: Stack<Cont>) =
+        let mutable pool = ContStackPool.pool
+        if isNull pool then
+            pool <- Stack<_>()
+            ContStackPool.pool <- pool
+
+        if pool.Count < MaxPoolSize && stack.Count <= MaxReturnedStackDepth then
+            stack.Clear()
+            pool.Push stack
+
+type internal WorkItemPool private () =
+    static let MaxPoolSize = 512
+
+    [<ThreadStatic; DefaultValue>]
+    static val mutable private pool: Stack<WorkItem>
+
+    static member inline Rent (effect: FIO<obj, obj>, fiberContext: FiberContext, contStack: Stack<Cont>) =
+        let mutable pool = WorkItemPool.pool
+        if isNull pool then
+            pool <- Stack<WorkItem>()
+            WorkItemPool.pool <- pool
+
+        if pool.Count > 0 then
+            let workItem = pool.Pop()
+            workItem.Effect <- effect
+            workItem.FiberContext <- fiberContext
+            workItem.ContStack <- contStack
+            workItem.InterruptionSuppressed <- 0
+            workItem
+        else
+            {
+                Effect = effect
+                FiberContext = fiberContext
+                ContStack = contStack
+                InterruptionSuppressed = 0
+            }
+
+    static member inline Return (workItem: WorkItem) =
+        let mutable pool = WorkItemPool.pool
+        if isNull pool then
+            pool <- Stack<WorkItem>()
+            WorkItemPool.pool <- pool
+
+        if pool.Count < MaxPoolSize then
+            workItem.Effect <- Unchecked.defaultof<_>
+            workItem.FiberContext <- Unchecked.defaultof<_>
+            workItem.ContStack <- Unchecked.defaultof<_>
+            workItem.InterruptionSuppressed <- 0
+            pool.Push workItem
+
+// A lock-based work-stealing deque. The owning worker pushes/pops at the bottom (LIFO, so the
+// freshest item — e.g. a just-unblocked reader — is reclaimed first), while other workers steal
+// from the top (FIFO). The lock (rather than a lock-free Chase-Lev deque) is deliberate: FIO's
+// workers run as async continuations that hop threads, so "owner" operations are not single-threaded
+// and require mutual exclusion. Capacity must be a power of two.
+type internal WorkStealingDeque(initialCapacity: int) =
+    let mutable items: WorkItem[] = Array.zeroCreate initialCapacity
+    let mutable mask = initialCapacity - 1
+    let mutable bottom = 0
+    let mutable top = 0
+    let gate = obj ()
+
+    member _.IsEmpty =
+        System.Threading.Monitor.Enter gate
+        try
+            bottom = top
+        finally
+            System.Threading.Monitor.Exit gate
+
+    // A lock-free, best-effort emptiness check used to skip locking idle deques while stealing. A
+    // stale read can only cause a missed steal opportunity (recovered by another thief or the
+    // backstop), never incorrect behaviour.
+    member _.IsEmptyApprox =
+        bottom = top
+
+    member _.PushBottom (workItem: WorkItem) =
+        System.Threading.Monitor.Enter gate
+        try
+            if bottom - top >= items.Length then
+                let count = bottom - top
+                let grown: WorkItem[] = Array.zeroCreate (items.Length * 2)
+                for i in 0 .. count - 1 do
+                    grown.[i] <- items.[(top + i) &&& mask]
+                items <- grown
+                mask <- grown.Length - 1
+                top <- 0
+                bottom <- count
+            items.[bottom &&& mask] <- workItem
+            bottom <- bottom + 1
+        finally
+            System.Threading.Monitor.Exit gate
+
+    member _.TryPopBottom (workItem: byref<WorkItem>) =
+        System.Threading.Monitor.Enter gate
+        try
+            if bottom = top then
+                false
+            else
+                bottom <- bottom - 1
+                workItem <- items.[bottom &&& mask]
+                items.[bottom &&& mask] <- Unchecked.defaultof<_>
+                true
+        finally
+            System.Threading.Monitor.Exit gate
+
+    member _.TrySteal (workItem: byref<WorkItem>) =
+        System.Threading.Monitor.Enter gate
+        try
+            if bottom = top then
+                false
+            else
+                workItem <- items.[top &&& mask]
+                items.[top &&& mask] <- Unchecked.defaultof<_>
+                top <- top + 1
+                true
+        finally
+            System.Threading.Monitor.Exit gate
+
+/// Base class for a FIO runtime that runs effects into fibers.
+[<AbstractClass>]
+type FIORuntime internal () =
+
+    /// The runtime's name.
+    abstract member Name: string
+
+    /// A display string describing the runtime and its configuration.
+    abstract member ConfigString: string
+
+    default this.ConfigString =
+        this.Name
+
+    /// Runs the given effect, returning a fiber for its eventual result.
+    abstract member Run<'A, 'E> : FIO<'A, 'E> -> Fiber<'A, 'E>
+
+    /// Returns a filesystem-safe form of this runtime's configuration string.
+    member this.ToFileString () =
+        this.ToString()
+            .ToLowerInvariant()
+            .Replace("(", "")
+            .Replace(")", "")
+            .Replace(":", "")
+            .Replace(' ', '-')
+
+    override this.ToString () =
+        this.ConfigString
+
+/// Worker counts and scheduling parameters for a worker-based runtime.
+type WorkerConfig =
+    {
+        /// Number of workers that evaluate effects.
+        EvaluationWorkers: int
+        /// Number of evaluation steps a work item runs before being rescheduled.
+        EvaluationSteps: int
+        /// Number of workers that handle blocking operations.
+        BlockingWorkers: int
+    }
+
+    /// The default configuration, sized to the current machine.
+    static member Default =
+        {
+            EvaluationWorkers = WorkerRuntimeDefaults.ComputeEvaluationWorkerCount()
+            EvaluationSteps = WorkerRuntimeDefaults.EvaluationWorkerSteps
+            BlockingWorkers = WorkerRuntimeDefaults.BlockingWorkerCount
+        }

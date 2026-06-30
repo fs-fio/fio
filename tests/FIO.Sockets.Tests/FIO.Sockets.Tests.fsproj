@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+        <GenerateProgramFile>false</GenerateProgramFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Compile Include="Utils/Utilities.fs" />
+        <Compile Include="CodecTests.fs" />
+        <Compile Include="ServerSocketTests.fs" />
+        <Compile Include="SocketClientTests.fs" />
+        <Compile Include="TypesTests.fs" />
+        <Compile Include="SocketTests.fs" />
+        <Compile Include="ExtensionsTests.fs" />
+        <Compile Include="CancellationTests.fs" />
+        <Compile Include="Program.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\FIO\FIO.fsproj" />
+        <ProjectReference Include="..\..\src\FIO.Sockets\FIO.Sockets.fsproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="coverlet.collector">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" />
+        <PackageReference Include="Expecto" />
+        <PackageReference Include="Expecto.FsCheck" />
+        <PackageReference Include="FsCheck" />
+        <PackageReference Include="YoloDev.Expecto.TestSdk" />
+    </ItemGroup>
+
+</Project>
