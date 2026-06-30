@@ -348,6 +348,16 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                                 let writeTask = channel.WriteAsync message
                                 if not writeTask.IsCompletedSuccessfully then
                                     do! writeTask
+                                // Wake a reader parked in HandleReadChan. The two sites form a Dekker handshake across
+                                // two channels (here: store the value, then load the blocking-count; there: store the
+                                // waiter, then load the value-count). On a weak memory model that store->load pair can
+                                // reorder, leaving a theoretical lost-wakeup window. It is deliberately left unfenced:
+                                // both publishes go through System.Threading.Channels' internal lock and the reader
+                                // double-checks, so the window is vanishingly small and did NOT reproduce in ~240M
+                                // park-heavy handoffs on ARM (the harness that reproduced the Signaling variant 100/100).
+                                // A full memory fence would close it but is rejected; channel-native WaitToReadAsync
+                                // parking also closes it but regresses WS message-passing ~2x (woken readers lose
+                                // worker-local scheduling -> global queue). Kept inline for throughput.
                                 if channel.BlockingWorkItemCount > 0 then
                                     let mutable blockedReader = Unchecked.defaultof<WorkItem>
                                     if channel.TryDequeueBlockingWorkItem &blockedReader then
@@ -374,6 +384,10 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                                             scheduler.GlobalQueue.WriteAsync wi |> ignore
                                             scheduler.SignalWork())
                                     do! channel.AddBlockingWorkItem waiter
+                                    // Reader half of the Dekker handshake in HandleWriteChan: after publishing the
+                                    // waiter, re-check for a message that may have arrived during the park and self-rescue.
+                                    // The unfenced StoreLoad window between this store and load is deliberately accepted
+                                    // there.
                                     if channel.Count > 0 then
                                         let mutable blockedReader = Unchecked.defaultof<WorkItem>
                                         if channel.TryDequeueBlockingWorkItem &blockedReader then
