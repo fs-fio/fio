@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <IsPackable>false</IsPackable>
+        <IsTestProject>true</IsTestProject>
+        <GenerateProgramFile>false</GenerateProgramFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <!-- Utils -->
+        <Compile Include="Utils/Utilities.fs" />
+
+        <!-- DSL -->
+        <Compile Include="DSL/CETests.fs" />
+        <Compile Include="DSL/ChannelTests.fs" />
+        <Compile Include="DSL/ExtensionTests.fs" />
+        <Compile Include="DSL/FactoryTests.fs" />
+        <Compile Include="DSL/FiberTests.fs" />
+        <Compile Include="DSL/CancellationTokenTests.fs" />
+        <Compile Include="DSL/FIOTests.fs" />
+        <Compile Include="DSL/OperatorTests.fs" />
+
+        <!-- Lib -->
+        <Compile Include="Lib/ConsoleTests.fs" />
+
+        <!-- Framework -->
+        <Compile Include="Framework/AppTests.fs" />
+
+        <Compile Include="Program.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\..\src\FIO\FIO.fsproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="coverlet.collector">
+            <PrivateAssets>all</PrivateAssets>
+            <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+        </PackageReference>
+        <PackageReference Include="Microsoft.NET.Test.Sdk" />
+        <PackageReference Include="Expecto" />
+        <PackageReference Include="Expecto.FsCheck" />
+        <PackageReference Include="FsCheck" />
+        <PackageReference Include="YoloDev.Expecto.TestSdk" />
+    </ItemGroup>
+
+</Project>

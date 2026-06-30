@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>net10.0</TargetFramework>
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <WarnOn>3390</WarnOn>
+        <IsPackable>true</IsPackable>
+        <PackageId>FSharp.FIO</PackageId>
+        <Title>FIO</Title>
+        <Description>A type-safe, purely functional effect system for F#. IO monad + fibers for building concurrent F# applications. Core package: composable effects with typed errors, fibers, channels, runtimes, the fio { } computation expression, the FIOApp framework, and Console I/O.</Description>
+        <PackageTags>fsharp;effects;async;concurrent;functional;zio;fibers</PackageTags>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="FIO.Tests" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <Compile Include="DSL\Utilities.fs" />
+        <Compile Include="DSL\Exceptions.fs" />
+        <Compile Include="DSL\Core.fs" />
+        <Compile Include="DSL\Factories.fs" />
+        <Compile Include="DSL\Extensions.fs" />
+        <Compile Include="DSL\Operators.fs" />
+        <Compile Include="DSL\CE.fs" />
+        <Compile Include="Console.fs" />
+        <Compile Include="Runtime\Runtime.fs" />
+        <Compile Include="Runtime\WorkerInfrastructure.fs" />
+        <Compile Include="Runtime\InterpreterCore.fs" />
+        <Compile Include="Runtime\DirectRuntime.fs" />
+        <Compile Include="Runtime\PollingRuntime.fs" />
+        <Compile Include="Runtime\SignalingRuntime.fs" />
+        <Compile Include="Runtime\WorkStealingRuntime.fs" />
+        <Compile Include="Runtime\DefaultRuntime.fs" />
+        <Compile Include="App.fs" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <None Include="..\..\assets\fio_logo_wide.png">
+            <Pack>True</Pack>
+            <PackagePath>\</PackagePath>
+        </None>
+        <None Include="..\..\LICENSE.md">
+            <Pack>True</Pack>
+            <PackagePath>\</PackagePath>
+        </None>
+        <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+    </ItemGroup>
+
+</Project>

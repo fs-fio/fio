@@ -1,0 +1,38 @@
+<Solution>
+
+    <Configurations>
+        <Platform Name="Any CPU" />
+        <Platform Name="x64" />
+        <Platform Name="x86" />
+    </Configurations>
+
+    <Folder Name="/FIO Core Packages/">
+        <Project Path="src/FIO/FIO.fsproj" />
+    </Folder>
+
+    <Folder Name="/FIO Extension Packages/">
+        <Project Path="src/FIO.Http/FIO.Http.fsproj" />
+        <Project Path="src/FIO.Sockets/FIO.Sockets.fsproj" />
+        <Project Path="src/FIO.WebSockets/FIO.WebSockets.fsproj" />
+    </Folder>
+
+    <Folder Name="/FIO Examples/">
+        <Project Path="examples/FIO.Examples.App/FIO.Examples.App.fsproj" />
+        <Project Path="examples/FIO.Examples.DSL/FIO.Examples.DSL.fsproj" />
+        <Project Path="examples/FIO.Examples.Http/FIO.Examples.Http.fsproj" />
+        <Project Path="examples/FIO.Examples.Sockets/FIO.Examples.Sockets.fsproj" />
+        <Project Path="examples/FIO.Examples.WebSockets/FIO.Examples.WebSockets.fsproj" />
+    </Folder>
+
+    <Folder Name="/FIO Benchmarks/">
+        <Project Path="benchmarks/FIO.Benchmarks/FIO.Benchmarks.fsproj" />
+    </Folder>
+
+    <Folder Name="/FIO Tests/">
+        <Project Path="tests/FIO.Http.Tests/FIO.Http.Tests.fsproj" />
+        <Project Path="tests/FIO.Sockets.Tests/FIO.Sockets.Tests.fsproj" />
+        <Project Path="tests/FIO.Tests/FIO.Tests.fsproj" />
+        <Project Path="tests/FIO.WebSockets.Tests/FIO.WebSockets.Tests.fsproj" />
+    </Folder>
+
+</Solution>

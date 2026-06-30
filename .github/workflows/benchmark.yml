@@ -1,0 +1,121 @@
+name: Performance Benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore ./FIO.slnx
+
+      - name: Smoke test (all benchmarks × all runtimes, tiny params — fail fast on hang/throw)
+        timeout-minutes: 10
+        env:
+          FIO_BENCH_RUNTIMES: "Direct,Polling-2-200-1,Signaling-2-200-1,WorkStealing-2-200-1"
+          FIO_BENCH_BANG_ACTORS: "4"
+          FIO_BENCH_BANG_ROUNDS: "10"
+          FIO_BENCH_BIG_ACTORS: "4"
+          FIO_BENCH_BIG_ROUNDS: "5"
+          FIO_BENCH_BOUNDEDBUFFER_ITEMS: "200"
+          FIO_BENCH_CHAMENEOS_CREATURES: "6"
+          FIO_BENCH_CHAMENEOS_MEETINGS: "50"
+          FIO_BENCH_COUNTING_MESSAGES: "500"
+          FIO_BENCH_FORK_ACTORS: "200"
+          FIO_BENCH_PHILOSOPHERS_COUNT: "5"
+          FIO_BENCH_PHILOSOPHERS_ROUNDS: "20"
+          FIO_BENCH_PINGPONG_ROUNDS: "200"
+          FIO_BENCH_THREADRING_ACTORS: "10"
+          FIO_BENCH_THREADRING_ROUNDS: "20"
+          FIO_BENCH_FIBONACCI_N: "20"
+          FIO_BENCH_TRAPEZOIDAL_WORKERS: "2"
+          FIO_BENCH_TRAPEZOIDAL_POINTS: "10000"
+        # --job Dry runs a warmup + target invocation per case, so this also exercises
+        # effect re-runnability; main returns non-zero if any benchmark throws or fails to run.
+        run: dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*" --job Dry
+
+      - name: Run Pingpong benchmark (all runtimes)
+        env:
+          # EWC = runner cores - 2 (ubuntu-latest is ~4 vCPU): leaves a core for the blocking
+          # worker and one for the OS/BDN harness. See benchmarks/FIO.Benchmarks/README.md.
+          FIO_BENCH_RUNTIMES: "Direct,Polling-2-200-1,Signaling-2-200-1,WorkStealing-2-200-1"
+          FIO_BENCH_PINGPONG_ROUNDS: "50000"
+          FIO_BENCH_WARMUP: "1"
+          FIO_BENCH_ITERATIONS: "5"
+        run: |
+          dotnet run -c Release --project benchmarks/FIO.Benchmarks -- \
+            --filter "*Pingpong*" \
+            --exporters json github
+
+      - name: Display benchmark summary
+        run: |
+          report_md=$(ls BenchmarkDotNet.Artifacts/results/*PingpongBenchmark-report-github.md | head -1)
+          {
+            echo "## Benchmark Results — Pingpong"
+            echo ""
+            echo '```'
+            cat "$report_md"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Convert results to tracking JSON
+        run: |
+          report_json=$(ls BenchmarkDotNet.Artifacts/results/*PingpongBenchmark-report-full-compressed.json | head -1)
+          # BenchmarkDotNet's full report stores Statistics.Mean in nanoseconds and the runtime in
+          # the Parameters string (e.g. "RoundCount=50000&Runtime=WorkStealing-2-200-1"; the separator
+          # is '&'). Emit one "smaller is better" metric per runtime, in milliseconds.
+          jq '[ .Benchmarks[]
+                | { name: ("Pingpong - " + (.Parameters | capture("Runtime=(?<r>[^,&]+)") | .r)),
+                    unit: "ms",
+                    value: (.Statistics.Mean / 1000000) } ]' "$report_json" > benchmark-results.json
+          {
+            echo "### Benchmark JSON for tracking:"
+            echo '```json'
+            cat benchmark-results.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Store benchmark results
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: 'customSmallerIsBetter'
+          output-file-path: benchmark-results.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+          comment-on-alert: true
+          alert-threshold: '150%'
+          fail-on-alert: false
+          alert-comment-cc-users: '@${{ github.actor }}'
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            BenchmarkDotNet.Artifacts/results/*Pingpong*
+            benchmark-results.json
