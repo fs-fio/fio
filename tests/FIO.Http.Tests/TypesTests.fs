@@ -20,12 +20,12 @@ let typesTests =
 
                     testCase "fromException wraps in GeneralError"
                     <| fun () ->
-                        let exn = Exception "test"
-                        let error = HttpError.fromException exn
+                        let ex = Exception "test"
+                        let error = HttpError.fromException ex
 
                         match error with
                         | GeneralError e ->
-                            Expect.isTrue (Object.ReferenceEquals(e, exn)) "Should wrap same exception reference"
+                            Expect.isTrue (Object.ReferenceEquals(e, ex)) "Should wrap same exception reference"
                         | _ -> failtest "Expected GeneralError"
 
                     testCase "toException unwraps GeneralError"

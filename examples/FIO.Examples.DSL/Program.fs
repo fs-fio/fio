@@ -70,7 +70,7 @@ let concurrency2 () =
     let concurrent =
         FIO.succeed("Hello, concurrency! 🚀").Fork()
         >>= fun fiber -> fiber.Join()
-    
+
     let fiber = runtime.Run concurrent
     fiber.UnsafePrintResult()
 

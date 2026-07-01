@@ -23,12 +23,12 @@ let typesTests =
 
                     testPropertyWithConfig fsCheckConfig "fromException wraps in GeneralError"
                     <| fun (_: FIORuntime) ->
-                        let exn = Exception "test"
-                        let error = SocketError.fromException exn
+                        let ex = Exception "test"
+                        let error = SocketError.fromException ex
 
                         match error with
                         | GeneralError e ->
-                            Expect.isTrue (Object.ReferenceEquals(e, exn)) "Should wrap same exception reference"
+                            Expect.isTrue (Object.ReferenceEquals(e, ex)) "Should wrap same exception reference"
                         | _ -> failtest "Expected GeneralError"
 
                     testPropertyWithConfig fsCheckConfig "toException unwraps GeneralError"

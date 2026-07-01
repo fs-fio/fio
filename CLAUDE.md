@@ -82,7 +82,7 @@ Runtime (`src/FIO/Runtime/`):
 - `DefaultRuntime.fs` - Type alias: `DefaultRuntime = WorkStealingRuntime`
 
 Framework (`src/FIO/App.fs`):
-- `App.fs` - `FIOApp<'A,'E>` abstract base class. 5-member surface: `effect`, `runtime`, `onShutdown`, `onShutdownTimeout`, `mapExitCode` over `AppResult<'A,'E>` (`AppSucceeded`/`AppFailed`/`AppInterrupted`/`AppFatalError`).
+- `App.fs` - `FIOApp<'A,'E>` abstract base class. 7-member surface: `effect`, `runtime`, `onOutcome`, `onOutcomeTimeout`, `onShutdown`, `onShutdownTimeout`, `mapExitCode` over `AppResult<'A,'E>` (`AppSucceeded`/`AppFailed`/`AppInterrupted`/`AppFatalError`).
 
 Extension libs expose `[<RequireQualifiedAccess>]` modules named after their domain (e.g. `SocketClient.connect`, `ServerSocket.serve`, `WebSocketClient.connectDefault`, `Routes`, `Codec`). Type-extension modules (`SocketExtensions`, `WebSocketExtensions`, `SimpleRoutes`) are **opt-in** — they are not `[<AutoOpen>]` and must be `open`ed explicitly.
 

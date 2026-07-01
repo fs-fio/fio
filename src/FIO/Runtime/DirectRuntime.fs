@@ -103,8 +103,8 @@ type DirectRuntime() =
                                             try
                                                 let! value = this.InterpretAsync effect fiberContext
                                                 fiberContext.Complete value
-                                            with exn ->
-                                                fiberContext.Complete <| Error exn
+                                            with ex ->
+                                                fiberContext.Complete <| Error ex
                                         finally
                                             registration.Dispose()
                                     }
@@ -197,7 +197,7 @@ type DirectRuntime() =
             task.ContinueWith(
                 (fun (task: Task) ->
                     if task.IsFaulted then
-                        let exn: exn =
+                        let ex: exn =
                             match task.Exception with
                             | null ->
                                 upcast InvalidOperationException "DirectRuntime task faulted without exception."
@@ -205,7 +205,7 @@ type DirectRuntime() =
                                 aggr.InnerExceptions[0]
                             | aggr ->
                                 upcast aggr
-                        fiber.Context.Complete(Error(box exn))),
+                        fiber.Context.Complete(Error(box ex))),
                 TaskContinuationOptions.OnlyOnFaulted) |> ignore
 
             fiber

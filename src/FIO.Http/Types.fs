@@ -63,26 +63,26 @@ type HttpError =
     override this.ToString () =
         match this with
         | InvalidRoute pattern -> $"Invalid route: {pattern}"
-        | ParsingFailed(message, exn) -> $"Parsing failed: {message} - {exn.Message}"
-        | HandlerFailed(path, exn) -> $"Handler failed [{path}]: {exn.Message}"
-        | MiddlewareFailed(name, exn) -> $"Middleware {name} failed: {exn.Message}"
-        | ServerFailed exn -> $"Server error: {exn.Message}"
-        | BodyReadFailed exn -> $"Body read failed: {exn.Message}"
-        | JsonFailed exn -> $"JSON error: {exn.Message}"
+        | ParsingFailed(message, ex) -> $"Parsing failed: {message} - {ex.Message}"
+        | HandlerFailed(path, ex) -> $"Handler failed [{path}]: {ex.Message}"
+        | MiddlewareFailed(name, ex) -> $"Middleware {name} failed: {ex.Message}"
+        | ServerFailed ex -> $"Server error: {ex.Message}"
+        | BodyReadFailed ex -> $"Body read failed: {ex.Message}"
+        | JsonFailed ex -> $"JSON error: {ex.Message}"
         | TimeoutError message -> $"Timeout: {message}"
-        | GeneralError exn -> $"HTTP error: {exn.Message}"
+        | GeneralError ex -> $"HTTP error: {ex.Message}"
 
 [<RequireQualifiedAccess>]
 module HttpError =
 
     /// Wraps an exception as a general HTTP error.
-    let fromException (exn: exn) =
-        GeneralError exn
+    let fromException (ex: ex) =
+        GeneralError ex
 
     /// Converts an HTTP error back into an exception.
     let toException (error: HttpError) =
         match error with
-        | GeneralError exn -> exn
+        | GeneralError ex -> ex
         | _ -> Exception <| error.ToString()
 
 /// An HTTP request method.

@@ -37,15 +37,15 @@ and private EvaluationWorker(config: EvaluationWorkerConfig, workerId: int) =
                         if not (workItem.FiberContext.IsCompleted()) then
                             try
                                 do! processWorkItem workItem
-                            with exn ->
+                            with ex ->
                                 try
                                     do!
                                         workItem.FiberContext.CompleteAndReschedule(
-                                            Error(exn :> obj),
+                                            Error(ex :> obj),
                                             config.ActiveWorkItemQueue)
                                 with _ ->
                                     ()
-                                raise exn
+                                raise ex
             }
 
     interface IDisposable with
@@ -241,7 +241,7 @@ and SignalingRuntime(config: WorkerConfig) as this =
                                                  && fiberContext.CancellationToken.IsCancellationRequested then
                                                 Interrupt(ExplicitInterrupt, "Task has been cancelled.")
                                             else
-                                                let exn =
+                                                let ex =
                                                     match waited.Exception with
                                                     | null -> OperationCanceledException() :> exn
                                                     | aggregate ->
@@ -249,8 +249,8 @@ and SignalingRuntime(config: WorkerConfig) as this =
                                                         | null -> aggregate :> exn
                                                         | inner -> inner
                                                 let error =
-                                                    try onError exn
-                                                    with _ -> exn :> obj
+                                                    try onError ex
+                                                    with _ -> ex :> obj
                                                 Failure error
 
                                         let resumeWorkItem =

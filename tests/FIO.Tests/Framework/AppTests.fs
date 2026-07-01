@@ -2,6 +2,8 @@ module FIO.Tests.AppTests
 
 open FIO.App
 open FIO.DSL
+open FIO.Runtime
+open FIO.Runtime.Direct
 open FIO.Runtime.WorkStealing
 
 open System
@@ -21,12 +23,32 @@ type private TestApp
         effect: FIO<int, string>,
         log: ResizeArray<string>,
         ?onShutdown: FIO<unit, string>,
-        ?shutdownTimeout: TimeSpan
+        ?shutdownTimeout: TimeSpan,
+        ?onOutcome: AppResult<int, string> -> FIO<unit, string>,
+        ?outcomeTimeout: TimeSpan
     ) =
     inherit FIOApp<int, string>()
 
     override _.effect = effect
+    override _.onOutcomeTimeout = defaultArg outcomeTimeout (TimeSpan.FromSeconds 10.0)
     override _.onShutdownTimeout = defaultArg shutdownTimeout (TimeSpan.FromSeconds 10.0)
+
+    override _.onOutcome outcome =
+        let caseName =
+            match outcome with
+            | AppSucceeded _ -> "Succeeded"
+            | AppFailed _ -> "Failed"
+            | AppInterrupted _ -> "Interrupted"
+            | AppFatalError _ -> "FatalError"
+
+        let mark =
+            FIO.attempt
+                (fun () -> log.Add ("onOutcomeRan:" + caseName))
+                (fun (ex: exn) -> ex.Message)
+
+        match onOutcome with
+        | Some hook -> mark.FlatMap(fun _ -> hook outcome)
+        | None -> mark
 
     override _.onShutdown() =
         let mark =
@@ -67,6 +89,18 @@ type private CustomExitCodeApp(effect: FIO<int, string>) =
         | AppFailed _ -> 20
         | AppFatalError _ -> 30
         | AppInterrupted _ -> 40
+
+type private ThrowingDisposeRuntime() =
+    inherit DirectRuntime()
+
+    interface IDisposable with
+        member _.Dispose() = raise (InvalidOperationException "dispose boom")
+
+type private ThrowingDisposeApp(effect: FIO<int, string>) =
+    inherit FIOApp<int, string>()
+
+    override _.effect = effect
+    override _.runtime = new ThrowingDisposeRuntime() :> FIORuntime
 
 type private FatalErrorApp(log: ResizeArray<string>) =
     inherit FIOApp<int, string>()
@@ -252,7 +286,103 @@ let appTests =
 
                     Expect.equal exitCode 0 "Timed-out shutdown should still produce the main outcome's exit code")
 
+            // ─── onOutcome ─────────────────────────────────────────
+
+            testCase "onOutcome - default hook is a no-op that does not affect exit code"
+            <| fun () ->
+                let app = MinimalApp(FIO.succeed 42)
+
+                let exitCode = app.Run()
+
+                Expect.equal exitCode 0 "Default outcome hook should not change success exit code"
+
+            testCase "onOutcome - runs with AppSucceeded on success"
+            <| fun () ->
+                let log = ResizeArray()
+                let app = TestApp(FIO.succeed 42, log)
+
+                app.Run() |> ignore
+
+                Expect.contains (Seq.toList log) "onOutcomeRan:Succeeded" "onOutcome should observe AppSucceeded"
+
+            testCase "onOutcome - runs with AppFailed on error"
+            <| fun () ->
+                silenceErr (fun () ->
+                    let log = ResizeArray()
+                    let app = TestApp(FIO.fail "boom", log)
+
+                    app.Run() |> ignore
+
+                    Expect.contains (Seq.toList log) "onOutcomeRan:Failed" "onOutcome should observe AppFailed")
+
+            testCase "onOutcome - runs with AppInterrupted on interruption"
+            <| fun () ->
+                silenceErr (fun () ->
+                    let log = ResizeArray()
+                    let app = TestApp(FIO.never (), log)
+
+                    let runTask = app.RunAsync()
+                    Thread.Sleep 100
+                    app.Stop()
+                    runTask.Result |> ignore
+
+                    Expect.contains (Seq.toList log) "onOutcomeRan:Interrupted" "onOutcome should observe AppInterrupted")
+
+            testCase "onOutcome - runs before onShutdown"
+            <| fun () ->
+                let log = ResizeArray()
+                let app = TestApp(FIO.succeed 42, log)
+
+                app.Run() |> ignore
+
+                let order = Seq.toList log
+                let outcomeIdx = List.findIndex (fun e -> e = "onOutcomeRan:Succeeded") order
+                let shutdownIdx = List.findIndex (fun e -> e = "onShutdownRan") order
+
+                Expect.isLessThan outcomeIdx shutdownIdx "onOutcome should run before onShutdown"
+
+            testCase "onOutcome - failing hook does not prevent exit code from being computed"
+            <| fun () ->
+                let log = ResizeArray()
+                let app = TestApp(FIO.succeed 42, log, onOutcome = fun _ -> FIO.fail "hook error")
+
+                let exitCode = app.Run()
+
+                Expect.equal exitCode 0 "Failing outcome hook should not change the exit code"
+
+            testCase "onOutcomeTimeout - defaults to 10 seconds"
+            <| fun () ->
+                let app = MinimalApp(FIO.succeed 1)
+
+                Expect.equal app.onOutcomeTimeout (TimeSpan.FromSeconds 10.0) "Default outcome timeout should be 10 seconds"
+
+            testCase "onOutcomeTimeout - hanging hook is bounded and still produces exit code"
+            <| fun () ->
+                silenceErr (fun () ->
+                    let log = ResizeArray()
+
+                    let app =
+                        TestApp(
+                            FIO.succeed 42,
+                            log,
+                            onOutcome = (fun _ -> FIO.never ()),
+                            outcomeTimeout = TimeSpan.FromMilliseconds 100.0
+                        )
+
+                    let exitCode = app.Run()
+
+                    Expect.equal exitCode 0 "Timed-out outcome hook should still produce the main outcome's exit code")
+
             // ─── Lifecycle / Stop ─────────────────────────────────────────
+
+            testCase "Run - a single instance cannot be run more than once"
+            <| fun () ->
+                let app = MinimalApp(FIO.succeed 1)
+                app.Run() |> ignore
+
+                Expect.throwsT<InvalidOperationException>
+                    (fun () -> app.Run() |> ignore)
+                    "Re-running a single instance should throw"
 
             testCase "Run - sequential runs do not leak resources"
             <| fun () ->
@@ -262,6 +392,15 @@ let appTests =
                     let exitCode = app.Run()
 
                     Expect.equal exitCode 0 "Each run should succeed"
+
+            testCase "Run - runtime disposal failure is contained and does not mask the exit code"
+            <| fun () ->
+                silenceErr (fun () ->
+                    let app = ThrowingDisposeApp(FIO.succeed 42)
+
+                    let exitCode = app.Run()
+
+                    Expect.equal exitCode 0 "A throwing runtime Dispose should not prevent the normal exit code")
 
             testCase "IsRunning - false before Run"
             <| fun () ->

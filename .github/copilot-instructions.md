@@ -60,7 +60,7 @@ Runtime (`src/FIO/Runtime/`):
 - `InterpreterCore.fs` — shared interpreter (`InterpreterState`, `processOutcome`/`processResult`/`handleSharedCase`, `Outcome` DU, `RuntimeCase` DU for runtime-specific dispatch)
 - `DirectRuntime.fs` / `PollingRuntime.fs` / `SignalingRuntime.fs` / `WorkStealingRuntime.fs` / `DefaultRuntime.fs` (alias for `WorkStealingRuntime`)
 
-Framework (`src/FIO/App.fs`): `FIOApp<'A,'E>` with 5-member surface (`effect`, `runtime`, `onShutdown`, `onShutdownTimeout`, `mapExitCode`) over `AppResult` (`AppSucceeded`/`AppFailed`/`AppInterrupted`/`AppFatalError`).
+Framework (`src/FIO/App.fs`): `FIOApp<'A,'E>` with 7-member surface (`effect`, `runtime`, `onOutcome`, `onOutcomeTimeout`, `onShutdown`, `onShutdownTimeout`, `mapExitCode`) over `AppResult` (`AppSucceeded`/`AppFailed`/`AppInterrupted`/`AppFatalError`).
 
 ### Concurrency Primitives
 
