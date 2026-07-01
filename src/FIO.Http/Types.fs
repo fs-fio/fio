@@ -76,7 +76,7 @@ type HttpError =
 module HttpError =
 
     /// Wraps an exception as a general HTTP error.
-    let fromException (ex: ex) =
+    let fromException (ex: exn) =
         GeneralError ex
 
     /// Converts an HTTP error back into an exception.
