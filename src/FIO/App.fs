@@ -42,6 +42,14 @@ type FIOApp<'A, 'E>() as this =
     abstract member runtime: FIORuntime
     default _.runtime = new DefaultRuntime()
 
+    /// An effect run with the application's outcome after it settles, before shutdown. Defaults to no-op.
+    abstract member onOutcome: AppResult<'A, 'E> -> FIO<unit, 'E>
+    default _.onOutcome _ = FIO.unit ()
+
+    /// How long to wait for the outcome effect before continuing to shutdown. Defaults to 10 seconds.
+    abstract member onOutcomeTimeout: TimeSpan
+    default _.onOutcomeTimeout = TimeSpan.FromSeconds 10.0
+
     /// An effect run on shutdown, before the process exits. Defaults to no-op.
     abstract member onShutdown: unit -> FIO<unit, 'E>
     default _.onShutdown () = FIO.unit ()
@@ -72,29 +80,29 @@ type FIOApp<'A, 'E>() as this =
                 "Application shutdown requested programmatically.")
         | _ -> ()
 
-    member private this.RunShutdownAsync (runtime: FIORuntime) =
+    member private _.RunHookAsync (runtime: FIORuntime) (label: string) (timeout: TimeSpan) (effect: FIO<unit, 'E>) =
         task {
-            let mutable shutdownFiberOpt = None
+            let mutable fiberOpt = None
             let mutable timedOut = false
 
             try
-                let fiber = runtime.Run <| this.onShutdown ()
-                shutdownFiberOpt <- Some fiber
-                let! _ = (fiber.Task()).WaitAsync this.onShutdownTimeout
+                let fiber = runtime.Run effect
+                fiberOpt <- Some fiber
+                let! _ = (fiber.Task()).WaitAsync timeout
                 ()
             with
             | :? TimeoutException ->
                 timedOut <- true
-                eprintfn "FIOApp shutdown hook exceeded timeout (%O)" this.onShutdownTimeout
+                eprintfn "FIOApp %s hook exceeded timeout (%O)" label timeout
             | ex ->
-                eprintfn "FIOApp shutdown hook threw: %s" ex.Message
+                eprintfn "FIOApp %s hook threw: %s" label ex.Message
 
             if timedOut then
-                match shutdownFiberOpt with
+                match fiberOpt with
                 | Some fiber ->
                     fiber.Context.Interrupt(
                         ExplicitInterrupt,
-                        "Shutdown hook exceeded timeout.")
+                        sprintf "%s hook exceeded timeout." label)
 
                     try
                         let! _ = (fiber.Task()).WaitAsync(TimeSpan.FromSeconds 2.0)
@@ -103,15 +111,21 @@ type FIOApp<'A, 'E>() as this =
                         ()
                 | None -> ()
 
-            match shutdownFiberOpt with
+            match fiberOpt with
             | Some fiber -> (fiber :> IDisposable).Dispose()
             | None -> ()
         }
 
+    member private this.RunOutcomeAsync (runtime: FIORuntime) (outcome: AppResult<'A, 'E>) =
+        this.RunHookAsync runtime "outcome" this.onOutcomeTimeout (this.onOutcome outcome)
+
+    member private this.RunShutdownAsync (runtime: FIORuntime) =
+        this.RunHookAsync runtime "shutdown" this.onShutdownTimeout (this.onShutdown ())
+
     /// Runs the application asynchronously and returns its process exit code.
     member this.RunAsync () =
         if not <| tryClaim &runStarted then
-            invalidOp "FIOApp is already running; concurrent Run on a single instance is not supported."
+            invalidOp "FIOApp can only be run once per instance; create a new instance to run again."
 
         task {
             let mutable registeredHandler: ConsoleCancelEventHandler option = None
@@ -128,10 +142,12 @@ type FIOApp<'A, 'E>() as this =
                                 if tryClaim &shutdownRequested then
                                     eventArgs.Cancel <- true
 
-                                    fiber.Context.Interrupt(
-                                        ExplicitInterrupt,
-                                        "Application shutdown requested from console."
-                                    ))
+                                    try
+                                        fiber.Context.Interrupt(
+                                            ExplicitInterrupt,
+                                            "Application shutdown requested from console.")
+                                    with ex ->
+                                        eprintfn "FIOApp failed to interrupt from console handler: %s" ex.Message)
 
                         SysConsole.CancelKeyPress.AddHandler handler
                         registeredHandler <- Some handler
@@ -142,13 +158,12 @@ type FIOApp<'A, 'E>() as this =
                                 | Succeeded value ->
                                     return AppSucceeded value
                                 | Failed error ->
-                                    eprintfn "FIOApp effect failed: %A" error
                                     return AppFailed error
                                 | Interrupted ex ->
-                                    eprintfn "FIOApp effect interrupted: %s" ex.Message
                                     return AppInterrupted ex
                             }
 
+                        do! this.RunOutcomeAsync runtime outcome
                         do! this.RunShutdownAsync runtime
                         return this.mapExitCode outcome
                     finally
@@ -158,9 +173,10 @@ type FIOApp<'A, 'E>() as this =
 
                     if lazyRuntime.IsValueCreated then
                         try
+                            do! this.RunOutcomeAsync lazyRuntime.Value (AppFatalError ex)
                             do! this.RunShutdownAsync lazyRuntime.Value
-                        with _ ->
-                            ()
+                        with cleanupEx ->
+                            eprintfn "FIOApp fatal cleanup failed: %s" cleanupEx.Message
 
                     return this.mapExitCode (AppFatalError ex)
             finally
@@ -169,13 +185,20 @@ type FIOApp<'A, 'E>() as this =
 
                 match registeredHandler with
                 | Some handler ->
-                    SysConsole.CancelKeyPress.RemoveHandler handler
+                    try
+                        SysConsole.CancelKeyPress.RemoveHandler handler
+                    with ex ->
+                        eprintfn "FIOApp failed to remove console handler: %s" ex.Message
                 | None ->
                     ()
 
                 if lazyRuntime.IsValueCreated then
                     match box lazyRuntime.Value with
-                    | :? IDisposable as d -> d.Dispose()
+                    | :? IDisposable as d ->
+                        try
+                            d.Dispose()
+                        with ex ->
+                            eprintfn "FIOApp failed to dispose runtime: %s" ex.Message
                     | _ -> ()
         }
 

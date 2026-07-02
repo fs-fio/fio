@@ -296,12 +296,12 @@ module KestrelBridge =
 
                     match! fiber.Task() with
                     | Succeeded response -> do! writeResponseWithOptions jsonOptions ctx response
-                    | Failed exn ->
-                        logError ctx "HandlerError" exn.Message (Some exn)
+                    | Failed ex ->
+                        logError ctx "HandlerError" ex.Message (Some ex)
                         do! writeStatusBody 500 "Internal Server Error"
                     | Interrupted _ -> do! writeStatusBody 503 "Service Unavailable"
-            with exn ->
-                logError ctx "UnhandledException" exn.Message (Some exn)
+            with ex ->
+                logError ctx "UnhandledException" ex.Message (Some ex)
                 do! writeStatusBody 500 "Internal Server Error"
         }
 

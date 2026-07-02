@@ -36,20 +36,32 @@ type SocketError =
 
     override this.ToString () =
         match this with
-        | ConnectionFailed(host, port, exn) -> $"Failed to connect to {host}:{port}: {exn.Message}"
-        | ConnectionClosed msg -> $"Connection closed: {msg}"
-        | SendFailed exn -> $"Send failed: {exn.Message}"
-        | ReceiveFailed exn -> $"Receive failed: {exn.Message}"
-        | TimeoutError msg -> $"Timeout: {msg}"
+        | ConnectionFailed(host, port, ex) ->
+            $"Failed to connect to {host}:{port}: {ex.Message}"
+        | ConnectionClosed msg ->
+            $"Connection closed: {msg}"
+        | SendFailed ex ->
+            $"Send failed: {ex.Message}"
+        | ReceiveFailed ex ->
+            $"Receive failed: {ex.Message}"
+        | TimeoutError msg ->
+            $"Timeout: {msg}"
         | BufferOverflow(requested, available) ->
             $"Buffer overflow: requested {requested} bytes, only {available} available"
-        | InvalidState(expected, actual) -> $"Invalid state: expected {expected}, actual {actual}"
-        | BindFailed(addr, port, exn) -> $"Failed to bind to {addr}:{port}: {exn.Message}"
-        | AcceptFailed exn -> $"Accept failed: {exn.Message}"
-        | PoolExhausted maxSize -> $"Pool exhausted: maximum {maxSize} connections"
-        | PoolClosed -> "Pool is closed"
-        | CodecError(msg, exn) -> $"Codec error: {msg} - {exn.Message}"
-        | GeneralError exn -> $"Socket error: {exn.Message}"
+        | InvalidState(expected, actual) ->
+            $"Invalid state: expected {expected}, actual {actual}"
+        | BindFailed(addr, port, ex) ->
+            $"Failed to bind to {addr}:{port}: {ex.Message}"
+        | AcceptFailed ex ->
+            $"Accept failed: {ex.Message}"
+        | PoolExhausted maxSize ->
+            $"Pool exhausted: maximum {maxSize} connections"
+        | PoolClosed ->
+            "Pool is closed"
+        | CodecError(msg, ex) ->
+            $"Codec error: {msg} - {ex.Message}"
+        | GeneralError ex ->
+            $"Socket error: {ex.Message}"
 
 [<RequireQualifiedAccess>]
 module SocketError =
@@ -113,8 +125,8 @@ module SocketConfig =
                     ProtocolType = Sockets.ProtocolType.Tcp
                     SendBufferSize = 8192
                     ReceiveBufferSize = 8192
-                    SendTimeout = 30000
-                    ReceiveTimeout = 30000
+                    SendTimeout = 0
+                    ReceiveTimeout = 0
                     NoDelay = true
                     LingerEnabled = true
                     LingerTimeout = 0
