@@ -96,19 +96,39 @@ let private runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, WsError>) =
     match
         fiber.Task()
         |> Async.AwaitTask
-        |> fun async -> Async.RunSynchronously(async, timeout = 10_000)
+        |> fun async -> Async.RunSynchronously(async, timeout = 30_000)
     with
     | Succeeded value -> value
     | Failed error -> failtest $"Effect failed: {error}"
     | Interrupted ex -> failtest $"Interrupted: {ex.Message}"
 
-let withTestServer (handler: WebSocket -> FIO<unit, WsError>) (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
-    let port = findAvailablePort ()
-    let url = $"http://localhost:{port}/"
+let private startTestListener () =
+    let rec attempt remaining =
+        fio {
+            let port = findAvailablePort ()
+            let url = $"http://localhost:{port}/"
 
+            let! outcome =
+                (WebSocketServer.start url)
+                    .Map(fun listener -> Ok(port, listener))
+                    .CatchAll(fun error -> FIO.succeed (Error error))
+
+            match outcome with
+            | Ok result -> return result
+            | Error error ->
+                if remaining > 0 then
+                    do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) WsError.fromException
+                    return! attempt (remaining - 1)
+                else
+                    return! FIO.fail error
+        }
+
+    attempt 10
+
+let withTestServer (handler: WebSocket -> FIO<unit, WsError>) (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
     let effect =
         fio {
-            let! listener = WebSocketServer.start url
+            let! port, listener = startTestListener ()
 
             let! serverFiber =
                 (fio {
@@ -126,9 +146,6 @@ let withTestServer (handler: WebSocket -> FIO<unit, WsError>) (action: int -> FI
     runWithTimeout runtime effect
 
 let withTestEchoServer (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
-    let port = findAvailablePort ()
-    let url = $"http://localhost:{port}/"
-
     let closingEchoHandler (ws: WebSocket) =
         fio {
             do! echoHandler ws
@@ -137,7 +154,7 @@ let withTestEchoServer (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
 
     let effect =
         fio {
-            let! listener = WebSocketServer.start url
+            let! port, listener = startTestListener ()
 
             let! serverFiber =
                 (WebSocketServer.acceptLoop listener WebSocketConfig.defaultConfig closingEchoHandler).Fork()

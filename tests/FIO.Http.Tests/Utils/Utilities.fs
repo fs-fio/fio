@@ -55,7 +55,7 @@ let runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, exn>) =
     match
         fiber.Task()
         |> Async.AwaitTask
-        |> fun async -> Async.RunSynchronously(async, timeout = 10_000)
+        |> fun async -> Async.RunSynchronously(async, timeout = 30_000)
     with
     | Succeeded value -> value
     | Failed error -> failtest $"Effect failed: {error}"
@@ -86,37 +86,48 @@ let findAvailablePort () =
     listener.Stop()
     port
 
+let private startTestHttpApp (routes: Routes<exn>) (runtime: DefaultRuntime) =
+    let rec attempt remaining =
+        let port = findAvailablePort ()
+        let config = ServerConfig.create "127.0.0.1" port
+
+        let builder = Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder()
+        builder.Logging.ClearProviders() |> ignore
+
+        builder.WebHost.ConfigureKestrel(fun options ->
+            options.Listen(System.Net.IPAddress.Parse "127.0.0.1", port))
+            |> ignore
+
+        let app = builder.Build()
+
+        RunExtensions.Run(
+            app,
+            Microsoft.AspNetCore.Http.RequestDelegate(fun ctx ->
+                task {
+                    try
+                        do! KestrelBridge.handleRequest runtime routes config.MaxRequestBodySize ctx
+                    with ex ->
+                        let message =
+                            sprintf "%s\n%s" ex.Message (if isNull ex.StackTrace then "" else ex.StackTrace)
+                        ctx.Response.StatusCode <- 500
+                        let bytes = Encoding.UTF8.GetBytes message
+                        do! ctx.Response.Body.WriteAsync(bytes, 0, bytes.Length)
+                })
+        )
+
+        try
+            app.StartAsync().Wait()
+            port, app
+        with _ when remaining > 0 ->
+            (try app.DisposeAsync().AsTask().Wait() with _ -> ())
+            Thread.Sleep 50
+            attempt (remaining - 1)
+
+    attempt 10
+
 let withTestHttpServer (routes: Routes<exn>) (action: int -> unit) =
-    let port = findAvailablePort ()
-    let config = ServerConfig.create "127.0.0.1" port
     let runtime = new DefaultRuntime()
-
-    let builder = Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder()
-    builder.Logging.ClearProviders() |> ignore
-
-    builder.WebHost.ConfigureKestrel(fun options ->
-        options.Listen(System.Net.IPAddress.Parse "127.0.0.1", port))
-        |> ignore
-
-    let app = builder.Build()
-
-    RunExtensions.Run(
-        app,
-        Microsoft.AspNetCore.Http.RequestDelegate(fun ctx ->
-            task {
-                try
-                    do! KestrelBridge.handleRequest runtime routes config.MaxRequestBodySize ctx
-                with ex ->
-                    let message =
-                        sprintf "%s\n%s" ex.Message (if isNull ex.StackTrace then "" else ex.StackTrace)
-                    ctx.Response.StatusCode <- 500
-                    let bytes = Encoding.UTF8.GetBytes message
-                    do! ctx.Response.Body.WriteAsync(bytes, 0, bytes.Length)
-            })
-    )
-
-    let startTask = app.StartAsync()
-    startTask.Wait()
+    let port, app = startTestHttpApp routes runtime
 
     try
         Thread.Sleep 200
