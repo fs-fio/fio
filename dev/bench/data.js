@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1782859262597,
+  "lastUpdate": 1783001088494,
   "repoUrl": "https://github.com/fs-fio/fio",
   "entries": {
     "Benchmark": [
@@ -87,6 +87,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Pingpong - WorkStealing-2-200-1",
             "value": 205.8157094,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hey@itsdaniel.dk",
+            "name": "Daniel Larsen",
+            "username": "itsdanieldk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "892d840d612ab39a1fc9aa8566de31e3f4d8feff",
+          "message": "Improve naming consistency for FIOApp and exceptions (#56)\n\n* improved FIOApp and exn naming consistency\n\n* fix: missed one exn\n\n* Fix flaky Windows-only WebSocket/HTTP test harness (#57)\n\nRetry HttpListener/Kestrel bind on a fresh ephemeral port to avoid the\nfindAvailablePort port-reuse race (Windows HTTP.sys machine-wide URL\nregistration conflicts), and raise the runWithTimeout safety-net cap from\n10s to 30s for the slower Windows WebSocket path.\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>\n\n---------\n\nCo-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>",
+          "timestamp": "2026-07-02T16:03:07+02:00",
+          "tree_id": "5f7681e440d76557ea1bdbd3a4bbba287b7717a7",
+          "url": "https://github.com/fs-fio/fio/commit/892d840d612ab39a1fc9aa8566de31e3f4d8feff"
+        },
+        "date": 1783001087649,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Pingpong - Direct",
+            "value": 223.2647142,
+            "unit": "ms"
+          },
+          {
+            "name": "Pingpong - Polling-2-200-1",
+            "value": 534.69066425,
+            "unit": "ms"
+          },
+          {
+            "name": "Pingpong - Signaling-2-200-1",
+            "value": 268.0505364,
+            "unit": "ms"
+          },
+          {
+            "name": "Pingpong - WorkStealing-2-200-1",
+            "value": 205.549811,
             "unit": "ms"
           }
         ]
