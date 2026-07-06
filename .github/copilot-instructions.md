@@ -30,7 +30,7 @@ dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --list flat        
 
 `FIO<'A, 'E>` is a discriminated union representing lazy effects. DU cases are `internal` — external code uses factory functions and instance methods.
 
-Key DU cases: `Success`/`Failure` (terminal), `Interrupt` (self-interrupt), `Action` (sync side effects), `WriteChan`/`ReadChan` (channels), `ForkEffect` (forking), `JoinFiber` (waiting), `AwaitTask` (.NET Task interop), `ChainSuccess`/`ChainError`/`ChainBoth` (bind), `OnFinalize` (finalizer infrastructure), `FiberCancellationToken` (current fiber token), `Suspend` (deferred construction).
+Key DU cases: `Success`/`Failure` (terminal), `Interrupt` (self-interrupt), `Action` (sync side effects), `WriteChan`/`ReadChan` (channels), `ForkEffect` (forking), `JoinFiber` (waiting), `JoinFirst` (first of several fibers to settle), `JoinAllFailFast` (all fibers, settling early on first failure), `AwaitTask` (.NET Task interop), `ChainSuccess`/`ChainError`/`ChainBoth` (bind), `OnFinalize` (finalizer infrastructure), `FiberCancellationToken` (current fiber token), `Suspend` (deferred construction).
 
 ### Runtime Hierarchy
 
@@ -57,7 +57,7 @@ Console I/O (`src/FIO/Console.fs`):
 Runtime (`src/FIO/Runtime/`):
 - `Runtime.fs` — `FIORuntime` base, `WorkerConfig`, `ContStackPool`, `WorkItemPool`
 - `WorkerInfrastructure.fs` — `FIOWorkerRuntime`, `WorkerLifecycle`
-- `InterpreterCore.fs` — shared interpreter (`InterpreterState`, `processOutcome`/`processResult`/`handleSharedCase`, `Outcome` DU, `RuntimeCase` DU for runtime-specific dispatch)
+- `InterpreterCore.fs` — shared interpreter (`InterpreterState`, `processOutcome`/`processResult`/`handleSharedCase`, `Outcome` DU, `RuntimeCase` DU for runtime-specific dispatch, park helpers for the `JoinFirst`/`JoinAllFailFast` primitives)
 - `DirectRuntime.fs` / `PollingRuntime.fs` / `SignalingRuntime.fs` / `WorkStealingRuntime.fs` / `DefaultRuntime.fs` (alias for `WorkStealingRuntime`)
 
 Framework (`src/FIO/App.fs`): `FIOApp<'A,'E>` with 5-member surface (`effect`, `runtime`, `onShutdown`, `onShutdownTimeout`, `mapExitCode`) over `AppResult` (`AppSucceeded`/`AppFailed`/`AppInterrupted`/`AppFatalError`).
@@ -154,6 +154,7 @@ Two tiers — see [`docs/COMMENT_STYLE.md`](../docs/COMMENT_STYLE.md):
 - **Sequential ordering**: `>>=`, `<*>`, `*>`, `<*` preserve left-to-right semantics
 - **Parallel operators**: `<&>`, `&>`, `<&`, `<&&>` must be genuinely concurrent in fiber runtimes
 - **Interruption semantics**: interruption must propagate through fibers consistently across all runtimes
+- **Fail-fast parallelism**: the parallel combinators (`ZipPar`/`Race` family, `forEachPar`) settle on the first relevant completion and interrupt losers/peers — they must never hang on a stuck sibling
 - **Finalizer guarantee**: `Ensuring` finalizers run on all three outcomes — success, error, and interruption
 - **Error typing**: extensions must not leak raw exceptions as public errors
 
@@ -177,6 +178,7 @@ Two tiers — see [`docs/COMMENT_STYLE.md`](../docs/COMMENT_STYLE.md):
 ## Architecture Change Checklist
 
 - **New effect constructor**: update `Core.fs` (FIO DU + `UpcastResult`/`UpcastError`/`UpcastBoth`), `Factories.fs`, `Extensions.fs`, `Operators.fs`, and `CE.fs`
+- **New shared effect case**: add handling to `handleSharedCase` in `InterpreterCore.fs`; runtime-specific cases go in the `RuntimeCase` DU, routed from `handleSharedCase`, with arms in all four runtime interpreters
 - **New runtime DU case**: update `Core.fs` and all four runtime interpreters (`DirectRuntime.fs`, `PollingRuntime.fs`, `SignalingRuntime.fs`, `WorkStealingRuntime.fs`)
 - **Runtime change**: update interpreter logic, add tests, validate benchmarks
 - **Extension change**: update error model, DSL surface, and extension README

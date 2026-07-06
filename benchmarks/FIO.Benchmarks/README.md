@@ -204,4 +204,15 @@ default to time ±10% / alloc ±5% (`--time-threshold` / `--alloc-threshold`).
 time drifts with machine load/thermals (20–50% observed on an M4 Max across one day), so only
 compare times from runs taken back-to-back in the same session — ideally adjacent A/B pairs per
 benchmark, bracketed by re-runs of a fixed sentinel benchmark to measure the session noise floor.
-See `docs/adr/0001-joinfirst-ab-regression-test.md` for a worked example of the full protocol.
+
+**Full protocol for a working-tree-vs-baseline comparison:**
+
+1. Check out the baseline in a git worktree and copy the *current* benchmark project into it —
+   both sides must run byte-identical benchmark code; only the library may differ.
+2. Prebuild both trees in Release; run with a fixed `FIO_BENCH_WARMUP`/`FIO_BENCH_ITERATIONS`.
+3. For each benchmark, run baseline then candidate back-to-back and copy each `*-report.csv`
+   into `results/A` / `results/B`.
+4. Run a cheap fixed sentinel (e.g. Fork with `FIO_BENCH_FORK_ACTORS=1000`) on the baseline at
+   the start, one or two midpoints, and the end: its max/min spread per runtime is the session's
+   time-noise floor — time deltas below it are noise; allocation deltas are trustworthy regardless.
+5. Diff with `compare.py`. Run the machine idle and sleep-inhibited (`caffeinate -i` on macOS).
