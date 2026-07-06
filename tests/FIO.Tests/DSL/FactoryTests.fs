@@ -27,6 +27,9 @@ let private runtimes () =
 let private testAllRuntimes name (f: FIORuntime -> unit) =
     testList name [ for rt in runtimes () -> testCase (rt.GetType().Name) (fun () -> f rt) ]
 
+let private stressTestAllRuntimes name (f: FIORuntime -> unit) =
+    testList name [ for rt in runtimes () -> stressTestCase (rt.GetType().Name) (fun () -> f rt) ]
+
 [<Tests>]
 let factoryTests =
     testList
@@ -2187,4 +2190,87 @@ let factoryTests =
                     [ "fast"; "medium"; "slow" ]
                     result.Message
                     "raceAll should fail with one of the racers' error messages when all racers fail")
+
+            testAllRuntimes "raceAll - interrupted racers retire without breaking the race" (fun runtime ->
+                let interrupted = FIO.interruptNow<int, exn> ()
+                let failing =
+                    (FIO.sleep (TimeSpan.FromMilliseconds 30.0) id).FlatMap(fun () -> FIO.fail (exn "failing"))
+                let succeeding =
+                    (FIO.sleep (TimeSpan.FromMilliseconds 60.0) id).FlatMap(fun () -> FIO.succeed 7)
+                let effect = FIO.raceAll (seq { interrupted; failing; succeeding })
+
+                let bounded =
+                    effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0) id
+
+                let result = runtime.Run(bounded).UnsafeSuccess()
+
+                Expect.equal result 7 "raceAll should still yield the success after other racers were interrupted or failed")
+
+            testAllRuntimes "raceAll - terminates when the remaining racers fail after one is interrupted" (fun runtime ->
+                let interrupted = FIO.interruptNow<int, exn> ()
+                let fail1 =
+                    (FIO.sleep (TimeSpan.FromMilliseconds 30.0) id).FlatMap(fun () -> FIO.fail (exn "first"))
+                let fail2 =
+                    (FIO.sleep (TimeSpan.FromMilliseconds 60.0) id).FlatMap(fun () -> FIO.fail (exn "last"))
+                let effect = FIO.raceAll (seq { interrupted; fail1; fail2 })
+
+                let bounded =
+                    effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0) id
+
+                let result = runtime.Run(bounded).UnsafeError()
+
+                Expect.contains
+                    [ "first"; "last" ]
+                    result.Message
+                    "raceAll must terminate with a racer error, not hang, when an interrupted racer leaves the race")
+
+            testAllRuntimes "raceAll - every racer interrupted yields Interrupted" (fun runtime ->
+                let effect =
+                    FIO.raceAll (seq {
+                        FIO.interruptNow<int, exn> ()
+                        (FIO.sleep (TimeSpan.FromMilliseconds 30.0) id).FlatMap(fun () -> FIO.interruptNow<int, exn> ())
+                    })
+
+                let bounded =
+                    effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0) id
+
+                let result = runtime.Run(bounded).UnsafeResult()
+
+                match result with
+                | Interrupted _ -> ()
+                | other -> failtest $"raceAll should propagate interruption when every racer is interrupted, got: %A{other}")
+
+            testAllRuntimes "raceAll - a stuck racer does not block a later success" (fun runtime ->
+                let stuck = FIO.never<int, exn> ()
+                let succeeding =
+                    (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).FlatMap(fun () -> FIO.succeed 3)
+                let effect = FIO.raceAll (seq { stuck; succeeding })
+
+                let bounded =
+                    effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0) id
+
+                let result = runtime.Run(bounded).UnsafeSuccess()
+
+                Expect.equal result 3 "raceAll should yield the success and interrupt the stuck racer")
+
+            stressTestAllRuntimes "raceAll - stress: repeated re-parks over surviving racers" (fun runtime ->
+                let iterations = 500
+
+                let rec loop i : FIO<unit, exn> =
+                    if i = 0 then
+                        FIO.unit ()
+                    else
+                        let round =
+                            FIO.raceAll (seq {
+                                FIO.fail (exn "retired")
+                                FIO.interruptNow<int, exn> ()
+                                (FIO.sleep (TimeSpan.FromMilliseconds 1.0) id).FlatMap(fun () -> FIO.succeed i)
+                            })
+                        round.FlatMap <| fun value ->
+                            if value = i then loop (i - 1) else FIO.fail (exn $"wrong winner in round {i}")
+
+                let bounded =
+                    (loop iterations).TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 60.0) id
+
+                Expect.equal (runtime.Run(bounded).UnsafeSuccess()) () "every raceAll round should settle on the surviving success")
         ]

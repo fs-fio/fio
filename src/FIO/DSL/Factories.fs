@@ -373,57 +373,55 @@ module FIO =
             acc.CatchAll <| fun _ ->
                 effect) head
 
-    /// Runs the given effects concurrently and returns the first to succeed, interrupting the rest.
-    let inline raceAll<'A, 'E> (effects: seq<FIO<'A, 'E>>) : FIO<'A, 'E> =
+    /// Runs the given effects concurrently and returns the first to succeed, interrupting the rest. Racers that fail or are interrupted retire from the race; when no racer succeeds, this effect fails with the last error observed, or propagates an interruption when every racer was interrupted.
+    let raceAll<'A, 'E> (effects: seq<FIO<'A, 'E>>) : FIO<'A, 'E> =
         suspend <| fun () ->
             let arr = Seq.toArray effects
 
             if arr.Length = 0 then
                 interrupt (InvalidArgument("effects", "sequence must not be empty")) "Cannot race an empty sequence"
-
             elif arr.Length = 1 then
                 arr[0]
             else
-                let resultChannel = Channel<Result<'A * int, 'E>>()
+                let rec forkAll i (forked: Fiber<'A, 'E> list) : FIO<Fiber<'A, 'E> list, 'E> =
+                    if i >= arr.Length then
+                        succeed (List.rev forked)
+                    else
+                        arr[i].Fork().FlatMap <| fun fiber ->
+                            forkAll (i + 1) (fiber :: forked)
 
-                let signal (idx: int) (fiber: Fiber<'A, 'E>) : FIO<unit, 'E> =
-                    fiber.Await().FlatMap <| fun result ->
-                        match result with
-                        | Succeeded value ->
-                            resultChannel.Write(Ok(value, idx)).FlatMap <| fun _ -> unit ()
-                        | Failed error ->
-                            resultChannel.Write(Error error).FlatMap <| fun _ -> unit ()
-                        | Interrupted _ -> unit ()
-
-                let interruptOthers (fiberArr: Fiber<'A, 'E> array) (winnerIdx: int) : FIO<unit, 'E> =
-                    let rec loop i =
-                        if i >= fiberArr.Length then
-                            unit ()
-                        elif i = winnerIdx then
-                            loop (i + 1)
-                        else
-                            (fiberArr[i].Interrupt ExplicitInterrupt "Lost race")
+                let interruptAll (fibers: Fiber<'A, 'E> list) : FIO<unit, 'E> =
+                    let rec go remaining =
+                        match remaining with
+                        | [] -> unit ()
+                        | (fiber: Fiber<'A, 'E>) :: rest ->
+                            (fiber.Interrupt ExplicitInterrupt "Lost race")
                                 .CatchAll(fun _ -> unit ())
-                                .FlatMap <| fun () -> loop (i + 1)
-                    loop 0
+                                .FlatMap <| fun () -> go rest
+                    go fibers
 
-                let rec receive (received: int) (fiberArr: Fiber<'A, 'E> array) : FIO<'A, 'E> =
-                    resultChannel.Read().FlatMap <| fun result ->
-                        match result with
-                        | Ok(value, winnerIdx) ->
-                            (interruptOthers fiberArr winnerIdx).FlatMap <| fun () -> succeed value
-                        | Error error ->
-                            if received + 1 >= arr.Length then
-                                fail error
-                            else
-                                receive (received + 1) fiberArr
+                let rec awaitFirstSuccess (remaining: Fiber<'A, 'E> list) (lastError: 'E voption) : FIO<'A, 'E> =
+                    match remaining with
+                    | [] ->
+                        match lastError with
+                        | ValueSome error -> fail error
+                        | ValueNone -> interrupt ExplicitInterrupt "Every racer was interrupted"
+                    | _ ->
+                        (joinFirst (remaining |> List.map (fun fiber -> fiber.Context))).FlatMap <| fun index ->
+                            let settled = remaining[index]
+                            let rest =
+                                remaining
+                                |> List.indexed
+                                |> List.choose (fun (i, fiber) -> if i = index then None else Some fiber)
 
-                let forkAllEff = collectAll (arr |> Array.map _.Fork())
+                            settled.Await().FlatMap <| fun result ->
+                                match result with
+                                | Succeeded value ->
+                                    (interruptAll rest).FlatMap <| fun () -> succeed value
+                                | Failed error ->
+                                    awaitFirstSuccess rest (ValueSome error)
+                                | Interrupted _ ->
+                                    awaitFirstSuccess rest lastError
 
-                forkAllEff.FlatMap <| fun fibers ->
-                    let fiberArr = List.toArray fibers
-                    let startSignalsEff =
-                        fibers
-                        |> List.mapi (fun i fiber -> (signal i fiber).Fork().Map(fun _ -> ()))
-                        |> collectAllDiscard
-                    startSignalsEff.FlatMap <| fun () -> receive 0 fiberArr
+                (forkAll 0 []).FlatMap <| fun fibers ->
+                    awaitFirstSuccess fibers ValueNone

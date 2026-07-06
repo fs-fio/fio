@@ -142,6 +142,10 @@ and [<Sealed>] internal FiberContext() =
     member internal _.CancellationToken =
         cancelSource.Token
 
+    // Single-slot: installing replaces the previous observer, and the fire gate is consumed at
+    // most once per context. Install only when no live observer exists — either the slot is
+    // empty, or the previous observer's waiter was already claimed (how the join primitives
+    // re-park over surviving fibers).
     member internal this.SetOnTerminal (callback: unit -> unit) =
         onTerminalCallback <- ValueSome callback
         if this.IsTerminal() then
