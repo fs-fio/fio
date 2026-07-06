@@ -11,7 +11,7 @@ FIO is a type-safe, purely functional effect system for F#. IO monad + fibers (g
 
 **Target:** .NET 10, F# 10, `.slnx` solution format (`FIO.slnx`). SDK pinned to `10.0.301` via `global.json` (`rollForward: latestMinor`).
 
-Repository: <https://github.com/fs-fio/fio> · License: MIT · Baseline version: `0.1.15-alpha` (single source of truth in `Directory.Build.props`).
+Repository: <https://github.com/fs-fio/fio> · License: MIT · Baseline version: `0.2.0-beta` (single source of truth in `Directory.Build.props`).
 
 ## Build Commands
 
