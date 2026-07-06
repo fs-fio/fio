@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783001088494,
+  "lastUpdate": 1783341579247,
   "repoUrl": "https://github.com/fs-fio/fio",
   "entries": {
     "Benchmark": [
@@ -131,6 +131,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Pingpong - WorkStealing-2-200-1",
             "value": 205.549811,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hey@itsdaniel.dk",
+            "name": "Daniel Larsen",
+            "username": "itsdanieldk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "512d12c61d2fa5edde6ba63470660e7e05e14729",
+          "message": "Add JoinFirst and JoinAllFailFast primitives with updated parallel combinators (#58)\n\n* Add JoinFirst and JoinAllFailFast primitives and rebuild the parallel combinators on them\n\nTwo runtime primitives let a fiber park until the first of N fibers settles\n(JoinFirst) or until all succeed / any fails (JoinAllFailFast, hook-driven\nlatch). ZipPar, ZipParError, Race, RaceFirst and forEachPar are rebuilt on\nthem: fail-fast semantics, losers interrupted, children forked bare, and\nforEachPar no longer hangs on a stuck peer. Fiber completion now publishes\nthe result before firing on-terminal hooks so observers can read it.\n\nIncludes primitive test suites with stress guards across all four runtimes,\na RaceFirst semantics pinning test (first terminal wins, including\ninterruption), the ZipRace combinator microbenchmark, the stdlib-only\nbenchmarks/compare.py A/B diff tool, a four-runtime benchmark CI smoke test,\nand updated CLAUDE.md/benchmark docs.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01SAG6jSxb65GureQqFHbE6M\n\n* Sync documentation with the JoinFirst/JoinAllFailFast work\n\nCLAUDE.md and copilot-instructions.md gain the two new DU cases, the park\nhelpers, the fail-fast parallelism invariant, and the benchmark suite's\nworkload/microbenchmark split; the benchmarks README inlines the full A/B\ncomparison protocol (previously referenced externally); the root README\nadvertises structured concurrency. Removes the last dangling references to\nthe deleted docs/adr directory.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01SAG6jSxb65GureQqFHbE6M\n\n* Rebuild raceAll on the JoinFirst primitive\n\nraceAll was left on the pre-JoinFirst watcher/channel pattern: interrupted\nracers silently left its all-failed accounting, so mixes of failed and\ninterrupted racers could park it forever, and it paid two fibers per racer.\nIt now forks racers bare and loops joinFirst over the survivors — first\nsuccess wins and interrupts the rest; failed or interrupted racers retire;\nall-non-success fails with the last error or propagates interruption.\n\nRepeated parking over surviving fibers exposed a lost-wakeup window in\nparkJoinFirstOnHooks (a stale fired hook consumes the once-per-context\ngate), closed with an explicit post-install terminal recheck. Adds\nregression tests (including one that hangs on the old implementation) and\na re-park stress loop.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01SAG6jSxb65GureQqFHbE6M\n\n* Bump version to 0.2.0-beta\n\nThe JoinFirst/JoinAllFailFast primitives and the fail-fast semantics of the\nparallel combinators (including the RaceFirst first-to-settle change and the\nraceAll rebuild) warrant a minor version step.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01SAG6jSxb65GureQqFHbE6M\n\n* fixed comments\n\n* Address API audit follow-ups and deflake the SetOnTerminal ordering test\n\nOperator tables now describe <&&> truthfully (awaits both, fail-fast);\nRepeatN interrupts with InvalidArgument for n < 1 instead of silently\nrunning once; OrInterrupt and FilterOrInterrupt interrupt with\nExplicitInterrupt carrying the derived message instead of mislabeling as\nResourceExhaustion; Race's first-to-succeed semantics are pinned by tests\nfrom both sides.\n\nThe pre-terminal SetOnTerminal test raced completion on Windows CI: fiber\ncompletion publishes the result before firing the on-terminal hook (hooks\nread Task.Result by design), so Task awaiters may resume before the hook\nruns. The test now waits for the hook and asserts before installing the\nsecond callback, making it deterministic on any scheduler.\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01SAG6jSxb65GureQqFHbE6M\n\n---------\n\nCo-authored-by: Claude Fable 5 <noreply@anthropic.com>",
+          "timestamp": "2026-07-06T14:37:50+02:00",
+          "tree_id": "3744f49de5bddff6829e85f56e0d28cbbb603052",
+          "url": "https://github.com/fs-fio/fio/commit/512d12c61d2fa5edde6ba63470660e7e05e14729"
+        },
+        "date": 1783341578940,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Pingpong - Direct",
+            "value": 231.944122125,
+            "unit": "ms"
+          },
+          {
+            "name": "Pingpong - Polling-2-200-1",
+            "value": 567.4578834,
+            "unit": "ms"
+          },
+          {
+            "name": "Pingpong - Signaling-2-200-1",
+            "value": 298.981415,
+            "unit": "ms"
+          },
+          {
+            "name": "Pingpong - WorkStealing-2-200-1",
+            "value": 213.095671,
             "unit": "ms"
           }
         ]
