@@ -75,15 +75,15 @@ let inline processOutcome
             | OutcomeSucceeded value, SuccessCont cont ->
                 try
                     state.Effect <- cont value
-                with exn ->
-                    state.Effect <- Failure(exn :> obj)
+                with ex ->
+                    state.Effect <- Failure(ex :> obj)
 
                 loop <- false
             | OutcomeFailed error, FailureCont cont ->
                 try
                     state.Effect <- cont error
-                with exn ->
-                    state.Effect <- Failure(exn :> obj)
+                with ex ->
+                    state.Effect <- Failure(ex :> obj)
 
                 loop <- false
             | OutcomeSucceeded _, FailureCont _

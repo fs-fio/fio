@@ -20,8 +20,8 @@ let typesTests =
 
                     testCase "fromException maps TimeoutException to TimeoutError"
                     <| fun () ->
-                        let exn = TimeoutException "timed out"
-                        let error = WsError.fromException exn
+                        let ex = TimeoutException "timed out"
+                        let error = WsError.fromException ex
 
                         match error with
                         | TimeoutError msg -> Expect.stringContains msg "timed out" "Message should match"
@@ -29,8 +29,8 @@ let typesTests =
 
                     testCase "fromException maps WebSocketException to GeneralError"
                     <| fun () ->
-                        let exn = WebSocketException "ws error"
-                        let error = WsError.fromException exn
+                        let ex = WebSocketException "ws error"
+                        let error = WsError.fromException ex
 
                         match error with
                         | GeneralError msg -> Expect.stringContains msg "ws error" "Message should match"
@@ -38,8 +38,8 @@ let typesTests =
 
                     testCase "fromException maps generic Exception to GeneralError"
                     <| fun () ->
-                        let exn = Exception "generic"
-                        let error = WsError.fromException exn
+                        let ex = Exception "generic"
+                        let error = WsError.fromException ex
 
                         match error with
                         | GeneralError msg -> Expect.stringContains msg "generic" "Message should match"
@@ -48,28 +48,28 @@ let typesTests =
                     testCase "toException maps TimeoutError to TimeoutException"
                     <| fun () ->
                         let error = TimeoutError "timeout msg"
-                        let exn = WsError.toException error
+                        let ex = WsError.toException error
 
-                        Expect.isTrue (exn :? TimeoutException) "Should be TimeoutException"
+                        Expect.isTrue (ex :? TimeoutException) "Should be TimeoutException"
 
                     testCase "toException maps GeneralError to WebSocketException"
                     <| fun () ->
                         let error = GeneralError "general msg"
-                        let exn = WsError.toException error
+                        let ex = WsError.toException error
 
-                        Expect.isTrue (exn :? WebSocketException) "Should be WebSocketException"
+                        Expect.isTrue (ex :? WebSocketException) "Should be WebSocketException"
 
                     testCase "toException maps other variants to Exception with message"
                     <| fun () ->
                         let error = ConnectionFailed "conn fail"
-                        let exn = WsError.toException error
+                        let ex = WsError.toException error
 
-                        Expect.stringContains exn.Message "conn fail" "Exception message should contain error details"
+                        Expect.stringContains ex.Message "conn fail" "Exception message should contain error details"
 
                         let err2 = Closed "peer closed"
-                        let exn2 = WsError.toException err2
+                        let ex2 = WsError.toException err2
 
-                        Expect.stringContains exn2.Message "peer closed" "Closed message should match"
+                        Expect.stringContains ex2.Message "peer closed" "Closed message should match"
                 ]
 
             testList
