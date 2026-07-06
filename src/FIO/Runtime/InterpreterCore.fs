@@ -304,9 +304,6 @@ let parkJoinFirstOnHooks
         parkBlockingWaiter currentFiberContext suppressed workItem (fun wi ->
             activeWorkItemQueue.WriteAsync wi |> ignore)
 
-    // A repeated park over surviving fibers (raceAll) can find a fiber whose previous, already
-    // claimed hook consumed the once-per-context fire gate; the explicit recheck rescues a
-    // fiber that turned terminal without the new hook firing.
     for fiberContext in fiberContexts do
         fiberContext.SetOnTerminal <| fun () ->
             if waiter.TryClaim() then
