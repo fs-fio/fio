@@ -707,7 +707,9 @@ let extensionTests =
                     fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
 
                 match fiberResult with
-                | Interrupted _ -> ()
+                | Interrupted ex ->
+                    Expect.equal ex.cause ExplicitInterrupt "OrInterrupt should interrupt with ExplicitInterrupt"
+                    Expect.stringContains ex.message "Interrupted: error" "OrInterrupt should carry the derived message"
                 | _ -> failtest "OrInterrupt should convert error to interrupt"
 
             // ─── Filter / partial functions ─────────────────────────────────────────
@@ -793,7 +795,9 @@ let extensionTests =
 
                 let interrupted =
                     match outcome.Task() |> Async.AwaitTask |> Async.RunSynchronously with
-                    | Interrupted _ -> true
+                    | Interrupted ex ->
+                        Expect.equal ex.cause ExplicitInterrupt "FilterOrInterrupt should interrupt with ExplicitInterrupt"
+                        true
                     | _ -> false
 
                 Expect.isTrue interrupted "FilterOrInterrupt should interrupt the fiber when predicate rejects"
@@ -1565,6 +1569,17 @@ let extensionTests =
                 Expect.equal count 5 "RepeatN should execute 5 times"
                 Expect.equal result 5 "RepeatN should return last result"
 
+            testAllRuntimes "RepeatN - n=0 interrupts with InvalidArgument" (fun runtime ->
+                let effect = FIO.succeed 1
+                let result = runtime.Run(effect.RepeatN 0).UnsafeResult()
+
+                match result with
+                | Interrupted ex ->
+                    match ex.cause with
+                    | InvalidArgument _ -> ()
+                    | cause -> failtest $"RepeatN 0 should interrupt with InvalidArgument, got cause: %A{cause}"
+                | other -> failtest $"RepeatN 0 should interrupt with InvalidArgument, got: %A{other}")
+
             testPropertyWithConfig fsCheckConfig "RepeatN - n=1 executes exactly once"
             <| fun (runtime: FIORuntime, value: int) ->
                 let mutable count = 0
@@ -1879,6 +1894,46 @@ let extensionTests =
                 let result = runtime.Run(bounded).UnsafeSuccess()
 
                 Expect.equal result 42 "RaceFirst should interrupt the loser and run its Ensuring finalizer")
+
+            testAllRuntimes "Race - a failed first-settler does not win; the race yields the other side's success" (fun runtime ->
+                let failing = FIO.fail (exn "fast failure")
+                let succeeding =
+                    (FIO.sleep (TimeSpan.FromMilliseconds 100.0) id).FlatMap(fun () -> FIO.succeed 5)
+                let effect = failing.Race succeeding
+
+                let bounded =
+                    effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0) id
+
+                let result = runtime.Run(bounded).UnsafeSuccess()
+
+                Expect.equal result 5 "Race is first-to-succeed: a fast failure must not win")
+
+            testAllRuntimes "Race - an interrupted first-settler does not win; the race yields the other side's success" (fun runtime ->
+                let interruptedSide =
+                    (FIO.sleep (TimeSpan.FromMilliseconds 30.0) id)
+                        .FlatMap(fun () -> FIO.interrupt ExplicitInterrupt "settled first")
+                let succeeding =
+                    (FIO.sleep (TimeSpan.FromMilliseconds 100.0) id).FlatMap(fun () -> FIO.succeed 5)
+                let effect = interruptedSide.Race succeeding
+
+                let bounded =
+                    effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0) id
+
+                let result = runtime.Run(bounded).UnsafeSuccess()
+
+                Expect.equal result 5 "Race is first-to-succeed: an early interruption must not win")
+
+            testAllRuntimes "Race - waits on a never-settling loser when the winner fails (documented first-to-succeed semantics)" (fun runtime ->
+                let failing = FIO.fail (exn "fast failure")
+                let never = FIO.never<int, exn> ()
+                let effect = failing.Race never
+
+                let bounded =
+                    effect.TimeoutFail (exn "timeout") (TimeSpan.FromMilliseconds 500.0) id
+
+                let result = runtime.Run(bounded).UnsafeError()
+
+                Expect.equal result.Message "timeout" "Race must keep waiting for a success after a failure settles first")
 
             testAllRuntimes "RaceEither - first racer wins returns Choice1Of2" (fun runtime ->
                 let fast = FIO.succeed 1

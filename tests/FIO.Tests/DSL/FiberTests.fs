@@ -700,12 +700,16 @@ let fiberTests =
 
                         fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously |> ignore
 
-                        fiber.Context.SetOnTerminal(fun () -> secondCount.Value <- secondCount.Value + 1)
+                        let deadline = DateTime.UtcNow.AddSeconds 5.0
+                        while firstCount.Value = 0 && DateTime.UtcNow < deadline do
+                            Threading.Thread.Sleep 1
 
                         Expect.equal
                             firstCount.Value
                             1
                             "Pre-terminal SetOnTerminal callback should fire exactly once on completion"
+
+                        fiber.Context.SetOnTerminal(fun () -> secondCount.Value <- secondCount.Value + 1)
 
                         Expect.equal
                             secondCount.Value

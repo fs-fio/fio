@@ -155,7 +155,7 @@ Concurrency is built on the core types: **Fiber<'A,'E>** (green threads via `.Fo
 | `<&>` | Par | Tuple | Concurrent exec |
 | `&>` | Par | Second | Concurrent, keep second |
 | `<&` | Par | First | Concurrent, keep first |
-| `<&&>` | Par | Unit | Fire-and-forget parallel |
+| `<&&>` | Par | Unit | Parallel, discard both (awaits both, fail-fast) |
 | `<\|>` | Seq | First success | Fallback/recovery |
 | `<+>` | Seq | Choice | Either-fallback (OrElseEither) |
 | `<?>` | Par | Choice | Race for first completion (RaceEither) |

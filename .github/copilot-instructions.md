@@ -94,7 +94,7 @@ Framework (`src/FIO/App.fs`): `FIOApp<'A,'E>` with 7-member surface (`effect`, `
 | `*>` / `<*` | Sequential | Second / First | Side effect ordering |
 | `<&>` | Parallel | Tuple | Concurrent exec |
 | `&>` / `<&` | Parallel | Second / First | Concurrent, keep one |
-| `<&&>` | Parallel | Unit | Fire-and-forget parallel |
+| `<&&>` | Parallel | Unit | Parallel, discard both (awaits both, fail-fast) |
 | `<\|>` | Sequential | First success | Fallback/recovery |
 | `<+>` | Sequential | Choice | Either-fallback (OrElseEither) |
 | `<?>` | Parallel | Choice | Race for first completion (RaceEither) |

@@ -151,9 +151,7 @@ module Extensions =
         /// Returns an effect that interrupts the current fiber if this effect fails, using a message derived from the error.
         member inline this.OrInterrupt<'E1> (toMessage: 'E -> string) : FIO<'A, 'E1> =
             this.CatchAll <| fun error ->
-                FIO.interrupt(
-                    ResourceExhaustion(toMessage error))
-                    "Fiber interrupted due to unrecoverable error"
+                FIO.interrupt ExplicitInterrupt (toMessage error)
 
         /// Returns an effect that fails with the given error unless this effect's success value satisfies the predicate.
         member inline this.FilterOrFail (predicate: 'A -> bool) (error: 'E) : FIO<'A, 'E> =
@@ -177,7 +175,7 @@ module Extensions =
         member inline this.FilterOrInterrupt (predicate: 'A -> bool) (message: string) : FIO<'A, 'E> =
             this.FlatMap <| fun value ->
                 if predicate value then FIO.succeed value
-                else FIO.interrupt (ResourceExhaustion message) message
+                else FIO.interrupt ExplicitInterrupt message
 
         /// Returns an effect that fails when the given function produces an error for this effect's success value.
         member inline this.Reject (func: 'A -> 'E option) : FIO<'A, 'E> =
@@ -394,9 +392,11 @@ module Extensions =
                 this.CatchAll <| fun _ -> loop ()
             loop ()
 
-        /// Returns an effect that runs this effect n times, yielding the last result.
+        /// Returns an effect that runs this effect n times, yielding the last result. Interrupts the fiber when n is less than 1.
         member this.RepeatN (n: int) : FIO<'A, 'E> =
-            if n <= 1 then
+            if n < 1 then
+                FIO.interrupt (InvalidArgument("n", "must be >= 1")) "Invalid argument: n must be >= 1"
+            elif n = 1 then
                 this
             else
                 this.FlatMap <|fun _ ->
