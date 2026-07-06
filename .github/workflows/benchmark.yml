@@ -55,6 +55,7 @@ jobs:
           FIO_BENCH_FIBONACCI_N: "20"
           FIO_BENCH_TRAPEZOIDAL_WORKERS: "2"
           FIO_BENCH_TRAPEZOIDAL_POINTS: "10000"
+          FIO_BENCH_ZIPRACE_ROUNDS: "50"
         # --job Dry runs a warmup + target invocation per case, so this also exercises
         # effect re-runnability; main returns non-zero if any benchmark throws or fails to run.
         run: dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*" --job Dry

@@ -16,6 +16,9 @@ module private PollingTuning =
     let ChannelYieldMissThreshold = 65_536
     let FiberSpinWaitIterations = 128
     let FiberSpinMissThreshold = 512
+    let FiberColdMissThreshold = 65_536
+    let FiberColdSpinWaitIterations = 10
+    let FiberColdWatchLimit = 40_000
 
 type private EvaluationWorkerConfig =
     {
@@ -132,7 +135,7 @@ and internal BlockingWorker(config: BlockingWorkerConfig, workerId: int) =
                 do! addVt.AsTask()
         }
 
-    let applyBackoff (maxChannelMiss: int, maxFiberMiss: int) =
+    let applyBackoff (maxChannelMiss: int, maxFiberMiss: int, minFiberMiss: int) =
         task {
             if maxChannelMiss > 0 then
                 if maxChannelMiss < PollingTuning.ChannelSpinMissThreshold then
@@ -144,8 +147,15 @@ and internal BlockingWorker(config: BlockingWorkerConfig, workerId: int) =
             elif maxFiberMiss > 0 then
                 if maxFiberMiss < PollingTuning.FiberSpinMissThreshold then
                     Thread.SpinWait PollingTuning.FiberSpinWaitIterations
-                else
+                elif minFiberMiss < PollingTuning.FiberColdMissThreshold || channelPending.Count > 0 then
                     do! Task.Yield()
+                else
+                    let mutable watched = 0
+
+                    while watched < PollingTuning.FiberColdWatchLimit
+                          && config.BlockingEntryQueue.Count = 0 do
+                        Thread.SpinWait PollingTuning.FiberColdSpinWaitIterations
+                        watched <- watched + 1
         }
 
     let processBatch () =
@@ -153,11 +163,14 @@ and internal BlockingWorker(config: BlockingWorkerConfig, workerId: int) =
             let mutable processed = 0
             let mutable maxChannelMiss = 0
             let mutable maxFiberMiss = 0
+            let mutable minFiberMiss = Int32.MaxValue
             let mutable entry = Unchecked.defaultof<BlockingEntry>
             let mutable hasEntry = true
+            let mutable preferChannel = preferChannelFirst
 
             while processed < batchSize && hasEntry do
-                hasEntry <- tryTakePending (preferChannelFirst, &entry)
+                hasEntry <- tryTakePending (preferChannel, &entry)
+                preferChannel <- not preferChannel
 
                 if hasEntry then
                     processed <- processed + 1
@@ -179,10 +192,13 @@ and internal BlockingWorker(config: BlockingWorkerConfig, workerId: int) =
                             if missed.MissCount > maxFiberMiss then
                                 maxFiberMiss <- missed.MissCount
 
+                            if missed.MissCount < minFiberMiss then
+                                minFiberMiss <- missed.MissCount
+
             preferChannelFirst <- not preferChannelFirst
 
             if maxChannelMiss > 0 || maxFiberMiss > 0 then
-                do! applyBackoff (maxChannelMiss, maxFiberMiss)
+                do! applyBackoff (maxChannelMiss, maxFiberMiss, minFiberMiss)
         }
 
     let tryDrainIncoming () =
@@ -379,6 +395,34 @@ and PollingRuntime(config: WorkerConfig) as this =
                                         WorkItemPool.Rent(state.Effect, currentFiberContext, state.ContStack)
                                     newWorkItem.InterruptionSuppressed <- state.InterruptionSuppressed
                                     do! blockingWorker.RescheduleForBlocking <| BlockingFiber(fiberContext, newWorkItem)
+                                    state.Completed <- true
+                            | HandleJoinFirst fiberContexts ->
+                                match tryFindTerminalIndex fiberContexts with
+                                | index when index >= 0 ->
+                                    processOutcome
+                                        &state
+                                        onSuccessComplete
+                                        onErrorComplete
+                                        (OutcomeSucceeded(box index))
+                                | _ ->
+                                    let newWorkItem =
+                                        WorkItemPool.Rent(state.Effect, currentFiberContext, state.ContStack)
+                                    newWorkItem.InterruptionSuppressed <- state.InterruptionSuppressed
+                                    parkJoinFirstOnHooks fiberContexts currentFiberContext state.InterruptionSuppressed newWorkItem activeWorkItemQueue
+                                    state.Completed <- true
+                            | HandleJoinAllFailFast fiberContexts ->
+                                match tryCompleteJoinAll fiberContexts with
+                                | ValueSome outcome ->
+                                    processOutcome
+                                        &state
+                                        onSuccessComplete
+                                        onErrorComplete
+                                        (OutcomeSucceeded(box outcome))
+                                | ValueNone ->
+                                    let newWorkItem =
+                                        WorkItemPool.Rent(state.Effect, currentFiberContext, state.ContStack)
+                                    newWorkItem.InterruptionSuppressed <- state.InterruptionSuppressed
+                                    parkJoinAllFailFastOnQueue fiberContexts currentFiberContext state.InterruptionSuppressed newWorkItem activeWorkItemQueue
                                     state.Completed <- true
                             | HandleAwaitTask(awaited, onError) ->
                                 let waited =

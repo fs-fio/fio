@@ -18,6 +18,7 @@
         <Compile Include="Effects\Pingpong.fs" />
         <Compile Include="Effects\Threadring.fs" />
         <Compile Include="Effects\Trapezoidal.fs" />
+        <Compile Include="Effects\ZipRace.fs" />
         <Compile Include="Benchmarks\BangBenchmark.fs" />
         <Compile Include="Benchmarks\BigBenchmark.fs" />
         <Compile Include="Benchmarks\BoundedBufferBenchmark.fs" />
@@ -29,6 +30,7 @@
         <Compile Include="Benchmarks\PingpongBenchmark.fs" />
         <Compile Include="Benchmarks\ThreadringBenchmark.fs" />
         <Compile Include="Benchmarks\TrapezoidalBenchmark.fs" />
+        <Compile Include="Benchmarks\ZipRaceBenchmark.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>
 

@@ -11,7 +11,7 @@ FIO is a type-safe, purely functional effect system for F#. IO monad + fibers (g
 
 **Target:** .NET 10, F# 10, `.slnx` solution format (`FIO.slnx`). SDK pinned to `10.0.301` via `global.json` (`rollForward: latestMinor`).
 
-Repository: <https://github.com/fs-fio/fio> · License: MIT · Baseline version: `0.1.15-alpha` (single source of truth in `Directory.Build.props`).
+Repository: <https://github.com/fs-fio/fio> · License: MIT · Baseline version: `0.2.0-beta` (single source of truth in `Directory.Build.props`).
 
 ## Build Commands
 
@@ -37,6 +37,7 @@ dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*"       
 dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Pingpong*"  # one benchmark
 dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --list flat            # list benchmarks
 python benchmarks/plot.py                       # visualize results (HTML + PNG/SVG)
+python benchmarks/compare.py <dirA> <dirB>      # A/B diff of two results dirs (stdlib-only)
 ```
 
 Formatting follows `.editorconfig` (4-space F#, LF, UTF-8); the build is warning-clean
@@ -62,9 +63,9 @@ documented in `benchmarks/FIO.Benchmarks/README.md`.
 Core DSL (`src/FIO/DSL/`), compile order matters:
 - `Utilities.fs` - Internal boxing/atomics helpers (`boxOnError`, `boxFunc`, `boxTask`, `boxVoidTask`; `tryClaim`, `tryTransition`, `transitionFrom`, `initIfNull`)
 - `Exceptions.fs` - `InterruptionCause` DU and `FiberInterruptedException`
-- `Core.fs` - `FIO<'A,'E>` DU, `Fiber<'A,'E>`, `Channel<'A>`, `FiberContext`, `WorkItem`, `ContStack`. Also hosts the type's primitive instance members: `FlatMap`, `CatchAll`, `Ensuring`, `Fork`, and the transformation cluster `Map` / `MapError` / `MapBoth` / `Result` / `Option` / `Choice` (derived purely from `Success`/`Failure` constructors + the four primitives).
+- `Core.fs` - `FIO<'A,'E>` DU, `Fiber<'A,'E>`, `Channel<'A>`, `FiberContext`, `WorkItem`, `ContStack`, `JoinAllLatch`. Also hosts the type's primitive instance members: `FlatMap`, `CatchAll`, `Ensuring`, `Fork`, and the transformation cluster `Map` / `MapError` / `MapBoth` / `Result` / `Option` / `Choice` (derived purely from `Success`/`Failure` constructors + the four primitives).
 - `Factories.fs` - `FIO.succeed`, `FIO.fail`, `FIO.attempt`, `FIO.suspend`, `FIO.sleep`, `FIO.collectAll`, `FIO.collectAllPar`, `FIO.forkTask`, etc.
-- `Extensions.fs` - Instance methods built on the Core cluster (`Zip`, `Tap`, `Race`, `RaceFirst`, `Retry`, `Timeout`, `OrElse`, etc.)
+- `Extensions.fs` - Instance methods built on the Core cluster (`Zip`, `Tap`, `Race`, `RaceFirst`, `Retry`, `Timeout`, `OrElse`, etc.). The parallel `ZipPar`/`Race` family is fail-fast — built on the internal `JoinFirst` primitive, losers are interrupted
 - `Operators.fs` - Infix operators (`>>=`, `<!>`, `<&>`, `<|>`, etc.), in an `[<AutoOpen>]` module
 - `CE.fs` - `fio { }` computation expression builder
 
@@ -74,7 +75,7 @@ Console I/O (`src/FIO/Console.fs`):
 Runtime (`src/FIO/Runtime/`):
 - `Runtime.fs` - `FIORuntime` (abstract base), `WorkerConfig`, `ContStackPool`, `WorkItemPool`
 - `WorkerInfrastructure.fs` - `FIOWorkerRuntime` (adds EvaluationWorkers/EvaluationSteps/BlockingWorkers params), `WorkerLifecycle`
-- `InterpreterCore.fs` - Shared interpreter logic (`InterpreterState` struct, `processOutcome`/`processResult`/`handleSharedCase`, `Outcome` DU, `RuntimeCase` DU for runtime-specific dispatch)
+- `InterpreterCore.fs` - Shared interpreter logic (`InterpreterState` struct, `processOutcome`/`processResult`/`handleSharedCase`, `Outcome` DU, `RuntimeCase` DU for runtime-specific dispatch, and the park helpers for the `JoinFirst`/`JoinAllFailFast` primitives)
 - `DirectRuntime.fs` - .NET Tasks, waits for blocked fibers
 - `PollingRuntime.fs` - Custom fibers, linear-time blocked handling
 - `SignalingRuntime.fs` - Custom fibers, event-driven blocked handling (dedicated `BlockingWorker` + signal queue; constant-time reschedule). A comparison/legacy runtime — superseded as the default by `WorkStealingRuntime`
@@ -97,6 +98,8 @@ Extension libs expose `[<RequireQualifiedAccess>]` modules named after their dom
 - `WriteChan`/`ReadChan` - Channel message passing
 - `ForkEffect` - Fork a fiber
 - `JoinFiber` - Wait for fiber
+- `JoinFirst` - Wait for the first of several fibers to settle
+- `JoinAllFailFast` - Wait for all fibers, settling early on the first failure
 - `AwaitTask` - .NET Task interop
 - `ChainSuccess`/`ChainError`/`ChainBoth` - Effect composition (bind)
 - `OnFinalize` - Interrupt-safe finalizer infrastructure
@@ -152,7 +155,7 @@ Concurrency is built on the core types: **Fiber<'A,'E>** (green threads via `.Fo
 | `<&>` | Par | Tuple | Concurrent exec |
 | `&>` | Par | Second | Concurrent, keep second |
 | `<&` | Par | First | Concurrent, keep first |
-| `<&&>` | Par | Unit | Fire-and-forget parallel |
+| `<&&>` | Par | Unit | Parallel, discard both (awaits both, fail-fast) |
 | `<\|>` | Seq | First success | Fallback/recovery |
 | `<+>` | Seq | Choice | Either-fallback (OrElseEither) |
 | `<?>` | Par | Choice | Race for first completion (RaceEither) |
@@ -204,14 +207,15 @@ Library modules use **qualified access**: e.g. `Console.printLine "msg" id`.
 
 ## Benchmarks
 
-Macro benchmarks live in `benchmarks/FIO.Benchmarks/` (BenchmarkDotNet 0.15.8). Eleven workloads:
-**Bang, Big, BoundedBuffer, Chameneos, Counting, Fibonacci, Fork, Philosophers, Pingpong, Threadring, Trapezoidal**. Each is `[<MemoryDiagnoser>]` + `[<RankColumn>]`, sweeping its parameters × the configured runtimes, so every run reports **execution time and allocated memory**.
+Macro benchmarks live in `benchmarks/FIO.Benchmarks/` (BenchmarkDotNet 0.15.8). Twelve workloads:
+**Bang, Big, BoundedBuffer, Chameneos, Counting, Fibonacci, Fork, Philosophers, Pingpong, Threadring, Trapezoidal, ZipRace**. Eleven are classic concurrency workloads; **ZipRace** is a combinator microbenchmark that regression-guards the parallel-combinator primitives. Each is `[<MemoryDiagnoser>]` + `[<RankColumn>]`, sweeping its parameters × the configured runtimes, so every run reports **execution time and allocated memory**.
 
 - **Runtimes:** spec format `Direct | Polling-{EWC}-{EWS}-{BWC} | Signaling-{EWC}-{EWS}-{BWC} | WorkStealing-{EWC}-{EWS}-{BWC}`. Set via `FIO_BENCH_RUNTIMES` (default `Direct,Polling-12-200-1,Signaling-12-200-1,WorkStealing-12-200-1`). Recommended `EWC = CPU cores − 2`.
 - **Iteration control:** `FIO_BENCH_WARMUP` (default 3), `FIO_BENCH_ITERATIONS` (default 30). A CLI `--job` (e.g. `--job Dry`, `--job Short`) **overrides** these env vars.
 - **Per-benchmark params:** `FIO_BENCH_<NAME>_<PARAM>` (e.g. `FIO_BENCH_PINGPONG_ROUNDS`, `FIO_BENCH_FORK_ACTORS`, `FIO_BENCH_BOUNDEDBUFFER_PRODUCERS`). Full table in `benchmarks/FIO.Benchmarks/README.md`.
 - **Output:** BenchmarkDotNet writes CSV/GitHub-markdown/HTML reports to `BenchmarkDotNet.Artifacts/results/` (git-ignored).
 - **Plotting (`benchmarks/plot.py`):** reads the `*-report.csv` files and writes per-benchmark + `summary` charts to `BenchmarkDotNet.Artifacts/plots/` as interactive HTML **and** static images (PNG/SVG, configurable via `--image-formats`; `pdf` also supported). Requires `pandas`, `plotly`, `kaleido`. `python benchmarks/plot.py --self-test` validates the parsers without touching artifacts.
+- **A/B comparison (`benchmarks/compare.py`, stdlib-only):** diffs two results directories and emits a markdown Δtime/Δalloc table with regression/win flags. Allocations are deterministic (comparable across sessions); **wall time drifts 20–50% between sessions** on dev machines — compare times only from same-session adjacent A/B runs, bracketed by sentinel re-runs (full protocol in `benchmarks/FIO.Benchmarks/README.md`).
 
 `benchmarks/FIO.Benchmarks/README.md` is the source of truth (parameter defaults, tuning guidance, result interpretation, allocation/boxing notes).
 
@@ -237,6 +241,7 @@ Macro benchmarks live in `benchmarks/FIO.Benchmarks/` (BenchmarkDotNet 0.15.8). 
 - **Sequential ordering**: `>>=`, `<*>`, `*>`, `<*` preserve left-to-right semantics
 - **Parallel operators**: `<&>`, `&>`, `<&`, `<&&>` must be genuinely concurrent in fiber runtimes
 - **Interruption semantics**: interruption must propagate through fibers consistently across all runtimes
+- **Fail-fast parallelism**: the parallel combinators (`ZipPar`/`Race` family, `forEachPar`) settle on the first relevant completion and interrupt losers/peers — they must never hang on a stuck sibling
 - **Finalizer guarantee**: `Ensuring` finalizers run on all three outcomes — success, error, and interruption
 - **Error typing**: extensions must not leak raw exceptions as public errors
 

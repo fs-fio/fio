@@ -43,6 +43,7 @@ More in [examples/](examples/).
 - **Effects** — lazy, composable `FIO<'A, 'E>` with typed errors
 - **Fibers** — green threads for scalable concurrency
 - **Channels** — typed message passing between fibers
+- **Structured concurrency** — fail-fast `ZipPar`, `Race`, and `forEachPar` that interrupt losers automatically
 - **Composition** — `fio { }` CE, operators (`>>=`, `<&>`, `<|>`), combinators
 - **Modules** — `Console`
 

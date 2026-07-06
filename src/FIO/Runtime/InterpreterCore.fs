@@ -2,8 +2,10 @@ module internal FIO.Runtime.InterpreterCore
 
 open FIO.DSL
 
+open System.Threading
 open System.Threading.Tasks
 open System.Collections.Generic
+open System.Runtime.CompilerServices
 
 [<Struct; NoComparison; NoEquality>]
 type InterpreterState =
@@ -28,6 +30,8 @@ type RuntimeCase =
     | HandleReadChan of channel: Channel<obj>
     | HandleForkEffect of effect: FIO<obj, obj> * fiber: obj * fiberContext: FiberContext
     | HandleJoinFiber of fiberContext: FiberContext
+    | HandleJoinFirst of fiberContexts: FiberContext list
+    | HandleJoinAllFailFast of allFiberContexts: FiberContext[]
     | HandleAwaitTask of task: Task<obj> * onError: (exn -> obj)
 
 [<Struct; NoComparison; NoEquality>]
@@ -194,6 +198,10 @@ let inline handleSharedCase
         ValueSome(HandleForkEffect(effect, fiber, fiberContext))
     | JoinFiber fiberContext ->
         ValueSome(HandleJoinFiber fiberContext)
+    | JoinFirst fiberContexts ->
+        ValueSome(HandleJoinFirst fiberContexts)
+    | JoinAllFailFast fiberContexts ->
+        ValueSome(HandleJoinAllFailFast fiberContexts)
     | AwaitTask(task, onError) ->
         ValueSome(HandleAwaitTask(task, onError))
 
@@ -220,3 +228,129 @@ let parkBlockingWaiter
                     ())
         waiter.SetRegistration registration
     waiter
+
+[<MethodImpl(MethodImplOptions.NoInlining)>]
+let tryCompleteJoinAll (fiberContexts: FiberContext[]) =
+    let mutable firstFailure = -1
+    let mutable allSettled = true
+
+    for i in 0 .. fiberContexts.Length - 1 do
+        let fiberContext = fiberContexts[i]
+
+        if fiberContext.IsTerminal() && fiberContext.Task.IsCompleted then
+            if firstFailure = -1 then
+                match fiberContext.Task.Result with
+                | Error _ -> firstFailure <- i
+                | Ok _ -> ()
+        else
+            allSettled <- false
+
+    if firstFailure >= 0 then ValueSome(ValueSome firstFailure)
+    elif allSettled then ValueSome ValueNone
+    else ValueNone
+
+let registerJoinAllLatch (fiberContexts: FiberContext[]) (signal: unit -> unit) =
+    let latch = JoinAllLatch(fiberContexts.Length, signal)
+
+    for fiberContext in fiberContexts do
+        fiberContext.SetOnTerminal <| fun () -> latch.OnChildTerminal fiberContext
+
+[<MethodImpl(MethodImplOptions.NoInlining)>]
+let tryFindTerminalIndex (fiberContexts: FiberContext list) =
+    let mutable index = 0
+    let mutable result = -1
+    let mutable remaining = fiberContexts
+
+    while result < 0 && not remaining.IsEmpty do
+        if remaining.Head.IsTerminal() then
+            result <- index
+        else
+            index <- index + 1
+            remaining <- remaining.Tail
+
+    result
+
+[<MethodImpl(MethodImplOptions.NoInlining)>]
+let parkJoinFirstOnQueue
+    (fiberContexts: FiberContext list)
+    (currentFiberContext: FiberContext)
+    (suppressed: int)
+    (workItem: WorkItem)
+    (activeWorkItemQueue: MailboxQueue<WorkItem>) =
+    let waiter =
+        parkBlockingWaiter currentFiberContext suppressed workItem <| fun wi ->
+            activeWorkItemQueue.WriteAsync wi |> ignore
+
+    for fiberContext in fiberContexts do
+        let addVt = fiberContext.AddBlockingWorkItem waiter
+
+        if not addVt.IsCompletedSuccessfully then
+            addVt.AsTask() |> ignore
+
+    for fiberContext in fiberContexts do
+        let rescheduleVt = fiberContext.TryRescheduleBlockingWorkItems activeWorkItemQueue
+
+        if not rescheduleVt.IsCompletedSuccessfully then
+            rescheduleVt.AsTask() |> ignore
+
+[<MethodImpl(MethodImplOptions.NoInlining)>]
+let parkJoinFirstOnHooks
+    (fiberContexts: FiberContext list)
+    (currentFiberContext: FiberContext)
+    (suppressed: int)
+    (workItem: WorkItem)
+    (activeWorkItemQueue: MailboxQueue<WorkItem>) =
+    let waiter =
+        parkBlockingWaiter currentFiberContext suppressed workItem (fun wi ->
+            activeWorkItemQueue.WriteAsync wi |> ignore)
+
+    for fiberContext in fiberContexts do
+        fiberContext.SetOnTerminal <| fun () ->
+            if waiter.TryClaim() then
+                activeWorkItemQueue.WriteAsync waiter.WorkItem |> ignore
+
+        if fiberContext.IsTerminal() && waiter.TryClaim() then
+            activeWorkItemQueue.WriteAsync waiter.WorkItem |> ignore
+
+[<MethodImpl(MethodImplOptions.NoInlining)>]
+let parkJoinAllFailFastOnQueue
+    (fiberContexts: FiberContext[])
+    (currentFiberContext: FiberContext)
+    (suppressed: int)
+    (workItem: WorkItem)
+    (activeWorkItemQueue: MailboxQueue<WorkItem>) =
+    let waiter =
+        parkBlockingWaiter currentFiberContext suppressed workItem (fun wi ->
+            activeWorkItemQueue.WriteAsync wi |> ignore)
+
+    registerJoinAllLatch fiberContexts <| fun () ->
+        if waiter.TryClaim() then
+            activeWorkItemQueue.WriteAsync waiter.WorkItem |> ignore
+
+[<MethodImpl(MethodImplOptions.NoInlining)>]
+let awaitJoinAllSettled
+    (fiberContexts: FiberContext[])
+    (suppressed: bool)
+    (currentFiberContext: FiberContext)
+    (cancellationToken: CancellationToken) =
+    task {
+        let completionSource =
+            TaskCompletionSource<unit> TaskCreationOptions.RunContinuationsAsynchronously
+
+        registerJoinAllLatch fiberContexts (fun () -> completionSource.TrySetResult() |> ignore)
+
+        let! _ =
+            if suppressed then completionSource.Task
+            else completionSource.Task.WaitAsync cancellationToken
+
+        match tryCompleteJoinAll fiberContexts with
+        | ValueSome outcome ->
+            return OutcomeSucceeded <| box outcome
+        | ValueNone ->
+            return
+                OutcomeInterrupted(
+                    FiberInterruptedException(
+                        currentFiberContext.Id,
+                        ExplicitInterrupt,
+                        "JoinAllFailFast signalled without a settled outcome."))
+    }

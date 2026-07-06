@@ -707,7 +707,9 @@ let extensionTests =
                     fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
 
                 match fiberResult with
-                | Interrupted _ -> ()
+                | Interrupted ex ->
+                    Expect.equal ex.cause ExplicitInterrupt "OrInterrupt should interrupt with ExplicitInterrupt"
+                    Expect.stringContains ex.message "Interrupted: error" "OrInterrupt should carry the derived message"
                 | _ -> failtest "OrInterrupt should convert error to interrupt"
 
             // ─── Filter / partial functions ─────────────────────────────────────────
@@ -793,7 +795,9 @@ let extensionTests =
 
                 let interrupted =
                     match outcome.Task() |> Async.AwaitTask |> Async.RunSynchronously with
-                    | Interrupted _ -> true
+                    | Interrupted ex ->
+                        Expect.equal ex.cause ExplicitInterrupt "FilterOrInterrupt should interrupt with ExplicitInterrupt"
+                        true
                     | _ -> false
 
                 Expect.isTrue interrupted "FilterOrInterrupt should interrupt the fiber when predicate rejects"
@@ -1012,6 +1016,54 @@ let extensionTests =
 
                 Expect.equal result (res1, res2) "ZipPar should combine results from parallel execution"
 
+            testAllRuntimes "ZipPar - fails fast when the forked sibling fails (never on left)" (fun runtime ->
+                let error = 42
+                let sentinel = -1
+
+                let effect =
+                    (FIO.never<int, int>().ZipPar(FIO.fail<int, int> error))
+                        .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0) (fun _ -> sentinel)
+
+                let result = runtime.Run(effect).UnsafeError()
+
+                Expect.equal result error "ZipPar should fail fast with the sibling error, not hang until the timeout")
+
+            testAllRuntimes "ZipPar - fails fast when the forked sibling fails (never on right)" (fun runtime ->
+                let error = 42
+                let sentinel = -1
+
+                let effect =
+                    ((FIO.fail<int, int> error).ZipPar(FIO.never<int, int>()))
+                        .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0) (fun _ -> sentinel)
+
+                let result = runtime.Run(effect).UnsafeError()
+
+                Expect.equal result error "ZipPar should fail fast with the sibling error, not hang until the timeout")
+
+            testAllRuntimes "ZipPar - interrupts the long-running sibling on failure (no leak)" (fun runtime ->
+                let error = 7
+                let sentinel = -1
+                let mutable completedNormally = false
+
+                let sibling =
+                    (FIO.sleep (TimeSpan.FromSeconds 10.0) (fun _ -> sentinel))
+                        .FlatMap(fun () -> FIO.attempt (fun () -> completedNormally <- true) (fun _ -> sentinel))
+
+                let effect =
+                    ((FIO.fail<int, int> error).ZipPar sibling)
+                        .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0) (fun _ -> sentinel)
+
+                let result = runtime.Run(effect).UnsafeError()
+
+                Expect.equal result error "ZipPar should surface the sibling failure"
+                Expect.isFalse completedNormally "ZipPar should interrupt the long-running sibling instead of running it to completion")
+
+            testAllRuntimes "ZipPar - both succeed still pairs both values" (fun runtime ->
+                let result =
+                    runtime.Run((FIO.succeed 1).ZipPar(FIO.succeed "two")).UnsafeSuccess()
+
+                Expect.equal result (1, "two") "ZipPar should pair both success values in (this, effect) order")
+
             testPropertyWithConfig fsCheckConfig "ZipParError - both fail returns error tuple"
             <| fun (runtime: FIORuntime) ->
                 let eff1 = FIO.fail "error1"
@@ -1032,7 +1084,7 @@ let extensionTests =
 
                 Expect.equal result value "ZipParError should return success when second succeeds"
 
-            testPropertyWithConfig fsCheckConfig "ZipParError - both succeed returns first"
+            testPropertyWithConfig fsCheckConfig "ZipParError - both succeed returns one of the values"
             <| fun (runtime: FIORuntime, value: int) ->
                 let eff1 = FIO.succeed value
                 let eff2 = FIO.succeed (value + 1)
@@ -1040,7 +1092,49 @@ let extensionTests =
                 let result =
                     runtime.Run(eff1.ZipParError eff2).UnsafeSuccess()
 
-                Expect.equal result value "ZipParError should return first result when both succeed"
+                Expect.isTrue (result = value || result = value + 1) "ZipParError should return one of the concurrent successes"
+
+            testAllRuntimes "ZipParError - succeeds fast when this succeeds and the sibling never terminates" (fun runtime ->
+                let value = 99
+                let sentinel = (-1, -1)
+
+                let effect =
+                    ((FIO.succeed value).ZipParError(FIO.never<int, int>()))
+                        .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0) (fun _ -> sentinel)
+
+                let result = runtime.Run(effect).UnsafeSuccess()
+
+                Expect.equal result value "ZipParError should return the success without waiting on the never-terminating sibling")
+
+            testAllRuntimes "ZipParError - succeeds fast when the sibling succeeds and this never terminates" (fun runtime ->
+                let value = 99
+                let sentinel = (-1, -1)
+
+                let effect =
+                    ((FIO.never<int, int>()).ZipParError(FIO.succeed value))
+                        .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0) (fun _ -> sentinel)
+
+                let result = runtime.Run(effect).UnsafeSuccess()
+
+                Expect.equal result value "ZipParError should return the sibling's success even when this never terminates")
+
+            testAllRuntimes "ZipParError - interrupts the long-running sibling once one side succeeds (no leak)" (fun runtime ->
+                let value = 5
+                let sentinel = (-1, -1)
+                let mutable completedNormally = false
+
+                let sibling =
+                    (FIO.sleep (TimeSpan.FromSeconds 10.0) (fun _ -> 0))
+                        .FlatMap(fun () -> FIO.attempt (fun () -> completedNormally <- true; 0) (fun _ -> 0))
+
+                let effect =
+                    ((FIO.succeed value).ZipParError sibling)
+                        .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0) (fun _ -> sentinel)
+
+                let result = runtime.Run(effect).UnsafeSuccess()
+
+                Expect.equal result value "ZipParError should surface the immediate success"
+                Expect.isFalse completedNormally "ZipParError should interrupt the long-running sibling instead of running it to completion")
 
             testPropertyWithConfig fsCheckConfig "ZipParRight - returns second result from parallel"
             <| fun (runtime: FIORuntime, res1: int, res2: int) ->
@@ -1475,6 +1569,17 @@ let extensionTests =
                 Expect.equal count 5 "RepeatN should execute 5 times"
                 Expect.equal result 5 "RepeatN should return last result"
 
+            testAllRuntimes "RepeatN - n=0 interrupts with InvalidArgument" (fun runtime ->
+                let effect = FIO.succeed 1
+                let result = runtime.Run(effect.RepeatN 0).UnsafeResult()
+
+                match result with
+                | Interrupted ex ->
+                    match ex.cause with
+                    | InvalidArgument _ -> ()
+                    | cause -> failtest $"RepeatN 0 should interrupt with InvalidArgument, got cause: %A{cause}"
+                | other -> failtest $"RepeatN 0 should interrupt with InvalidArgument, got: %A{other}")
+
             testPropertyWithConfig fsCheckConfig "RepeatN - n=1 executes exactly once"
             <| fun (runtime: FIORuntime, value: int) ->
                 let mutable count = 0
@@ -1759,6 +1864,76 @@ let extensionTests =
                 let result = runtime.Run(effect).UnsafeError()
 
                 Expect.equal result.Message error.Message "RaceFirst should propagate error from first completing")
+
+            testAllRuntimes "RaceFirst - an interruption that settles first wins the race" (fun runtime ->
+                let interruptedSide =
+                    (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id)
+                        .FlatMap(fun () -> FIO.interrupt ExplicitInterrupt "settled first")
+                let slowSuccess =
+                    (FIO.sleep (TimeSpan.FromSeconds 10.0) id).FlatMap(fun () -> FIO.succeed 2)
+                let effect = interruptedSide.RaceFirst slowSuccess
+
+                let result = runtime.Run(effect).UnsafeResult()
+
+                match result with
+                | Interrupted _ -> ()
+                | other -> failtest $"RaceFirst should yield the interruption when it settles first, got: %A{other}")
+
+            testAllRuntimes "RaceFirst - loser's Ensuring finalizer runs after losing the race" (fun runtime ->
+                let finalized = Channel<int>()
+                let loser = (FIO.never<int, exn>()).Ensuring((finalized.Write 1).Unit())
+                let winner = (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).FlatMap(fun () -> FIO.succeed 42)
+
+                let effect =
+                    (winner.RaceFirst loser).FlatMap <| fun value ->
+                        finalized.Read().Map <| fun _ -> value
+
+                let bounded =
+                    effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0) id
+
+                let result = runtime.Run(bounded).UnsafeSuccess()
+
+                Expect.equal result 42 "RaceFirst should interrupt the loser and run its Ensuring finalizer")
+
+            testAllRuntimes "Race - a failed first-settler does not win; the race yields the other side's success" (fun runtime ->
+                let failing = FIO.fail (exn "fast failure")
+                let succeeding =
+                    (FIO.sleep (TimeSpan.FromMilliseconds 100.0) id).FlatMap(fun () -> FIO.succeed 5)
+                let effect = failing.Race succeeding
+
+                let bounded =
+                    effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0) id
+
+                let result = runtime.Run(bounded).UnsafeSuccess()
+
+                Expect.equal result 5 "Race is first-to-succeed: a fast failure must not win")
+
+            testAllRuntimes "Race - an interrupted first-settler does not win; the race yields the other side's success" (fun runtime ->
+                let interruptedSide =
+                    (FIO.sleep (TimeSpan.FromMilliseconds 30.0) id)
+                        .FlatMap(fun () -> FIO.interrupt ExplicitInterrupt "settled first")
+                let succeeding =
+                    (FIO.sleep (TimeSpan.FromMilliseconds 100.0) id).FlatMap(fun () -> FIO.succeed 5)
+                let effect = interruptedSide.Race succeeding
+
+                let bounded =
+                    effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0) id
+
+                let result = runtime.Run(bounded).UnsafeSuccess()
+
+                Expect.equal result 5 "Race is first-to-succeed: an early interruption must not win")
+
+            testAllRuntimes "Race - waits on a never-settling loser when the winner fails (documented first-to-succeed semantics)" (fun runtime ->
+                let failing = FIO.fail (exn "fast failure")
+                let never = FIO.never<int, exn> ()
+                let effect = failing.Race never
+
+                let bounded =
+                    effect.TimeoutFail (exn "timeout") (TimeSpan.FromMilliseconds 500.0) id
+
+                let result = runtime.Run(bounded).UnsafeError()
+
+                Expect.equal result.Message "timeout" "Race must keep waiting for a success after a failure settles first")
 
             testAllRuntimes "RaceEither - first racer wins returns Choice1Of2" (fun runtime ->
                 let fast = FIO.succeed 1

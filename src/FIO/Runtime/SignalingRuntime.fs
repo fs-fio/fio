@@ -215,6 +215,34 @@ and SignalingRuntime(config: WorkerConfig) as this =
                                     do! fiberContext.AddBlockingWorkItem waiter
                                     let! _ = fiberContext.TryRescheduleBlockingWorkItems activeWorkItemQueue
                                     state.Completed <- true
+                            | HandleJoinFirst fiberContexts ->
+                                match tryFindTerminalIndex fiberContexts with
+                                | index when index >= 0 ->
+                                    processOutcome
+                                        &state
+                                        onSuccessComplete
+                                        onErrorComplete
+                                        (OutcomeSucceeded(box index))
+                                | _ ->
+                                    let newWorkItem =
+                                        WorkItemPool.Rent(state.Effect, currentFiberContext, state.ContStack)
+                                    newWorkItem.InterruptionSuppressed <- state.InterruptionSuppressed
+                                    parkJoinFirstOnQueue fiberContexts currentFiberContext state.InterruptionSuppressed newWorkItem activeWorkItemQueue
+                                    state.Completed <- true
+                            | HandleJoinAllFailFast fiberContexts ->
+                                match tryCompleteJoinAll fiberContexts with
+                                | ValueSome outcome ->
+                                    processOutcome
+                                        &state
+                                        onSuccessComplete
+                                        onErrorComplete
+                                        (OutcomeSucceeded(box outcome))
+                                | ValueNone ->
+                                    let newWorkItem =
+                                        WorkItemPool.Rent(state.Effect, currentFiberContext, state.ContStack)
+                                    newWorkItem.InterruptionSuppressed <- state.InterruptionSuppressed
+                                    parkJoinAllFailFastOnQueue fiberContexts currentFiberContext state.InterruptionSuppressed newWorkItem activeWorkItemQueue
+                                    state.Completed <- true
                             | HandleAwaitTask(awaited, onError) ->
                                 let waited =
                                     if state.InterruptionSuppressed > 0 then

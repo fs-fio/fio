@@ -16,6 +16,8 @@
         <Compile Include="DSL/ChannelTests.fs" />
         <Compile Include="DSL/ExtensionTests.fs" />
         <Compile Include="DSL/FactoryTests.fs" />
+        <Compile Include="DSL/JoinFirstTests.fs" />
+        <Compile Include="DSL/JoinAllFailFastTests.fs" />
         <Compile Include="DSL/FiberTests.fs" />
         <Compile Include="DSL/CancellationTokenTests.fs" />
         <Compile Include="DSL/FIOTests.fs" />

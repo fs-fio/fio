@@ -423,6 +423,53 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                                     if rescheduled then
                                         scheduler.SignalWork()
                                     state.Completed <- true
+                            | HandleJoinFirst fiberContexts ->
+                                match tryFindTerminalIndex fiberContexts with
+                                | index when index >= 0 ->
+                                    processOutcome
+                                        &state
+                                        onSuccessComplete
+                                        onErrorComplete
+                                        (OutcomeSucceeded(box index))
+                                | _ ->
+                                    let newWorkItem =
+                                        scheduler.RentWorkItem(workerId, state.Effect, currentFiberContext, state.ContStack)
+                                    newWorkItem.InterruptionSuppressed <- state.InterruptionSuppressed
+                                    let waiter =
+                                        parkBlockingWaiter currentFiberContext state.InterruptionSuppressed newWorkItem (fun wi ->
+                                            scheduler.GlobalQueue.WriteAsync wi |> ignore
+                                            scheduler.SignalWork())
+                                    for fiberContext in fiberContexts do
+                                        do! fiberContext.AddBlockingWorkItem waiter
+                                    let mutable anyRescheduled = false
+                                    for fiberContext in fiberContexts do
+                                        let! rescheduled = fiberContext.TryRescheduleBlockingWorkItems scheduler.GlobalQueue
+                                        anyRescheduled <- anyRescheduled || rescheduled
+                                    if anyRescheduled then
+                                        scheduler.SignalWork()
+                                    state.Completed <- true
+                            | HandleJoinAllFailFast fiberContexts ->
+                                match tryCompleteJoinAll fiberContexts with
+                                | ValueSome outcome ->
+                                    processOutcome
+                                        &state
+                                        onSuccessComplete
+                                        onErrorComplete
+                                        (OutcomeSucceeded(box outcome))
+                                | ValueNone ->
+                                    let newWorkItem =
+                                        scheduler.RentWorkItem(workerId, state.Effect, currentFiberContext, state.ContStack)
+                                    newWorkItem.InterruptionSuppressed <- state.InterruptionSuppressed
+                                    let waiter =
+                                        parkBlockingWaiter currentFiberContext state.InterruptionSuppressed newWorkItem (fun wi ->
+                                            scheduler.GlobalQueue.WriteAsync wi |> ignore
+                                            scheduler.SignalWork())
+                                    registerJoinAllLatch fiberContexts (fun () ->
+                                        if waiter.TryClaim() then
+                                            let wi = waiter.WorkItem
+                                            scheduler.GlobalQueue.WriteAsync wi |> ignore
+                                            scheduler.SignalWork())
+                                    state.Completed <- true
                             | HandleAwaitTask(awaited, onError) ->
                                 let waited =
                                     if state.InterruptionSuppressed > 0 then
@@ -437,11 +484,6 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                                         onErrorComplete
                                         (OutcomeSucceeded waited.Result)
                                 else
-                                    // Park asynchronously rather than blocking this worker for the
-                                    // duration of the task: when the task completes, reschedule the
-                                    // fiber onto the global queue. The continuation may run on a
-                                    // foreign thread, so it must not touch the per-worker pools or
-                                    // deque (only the thread-safe global queue and wake signal).
                                     let fiberContext = currentFiberContext
                                     let suppressed = state.InterruptionSuppressed
                                     let contStack = state.ContStack

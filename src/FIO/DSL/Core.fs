@@ -193,8 +193,8 @@ and [<Sealed>] internal FiberContext() =
     member internal this.Complete value =
         if tryTransition &state (int FiberContextState.Running) (int FiberContextState.Completed) then
             this.DisposeRegistrations()
-            this.InvokeOnTerminal()
             resultSource.TrySetResult value |> ignore
+            this.InvokeOnTerminal()
 
     member internal this.CompleteAndReschedule (value, activeWorkItemQueue) =
         let oldState =
@@ -202,8 +202,8 @@ and [<Sealed>] internal FiberContext() =
         if oldState = int FiberContextState.Running ||
             oldState = int FiberContextState.Interrupted then
             this.DisposeRegistrations()
-            this.InvokeOnTerminal()
             resultSource.TrySetResult value |> ignore
+            this.InvokeOnTerminal()
 
             let queue = Volatile.Read &blockingWorkItemQueue
             if not (isNull queue) && queue.Count > 0 then
@@ -220,8 +220,8 @@ and [<Sealed>] internal FiberContext() =
             cancelSource.Cancel(throwOnFirstException = false)
             this.DisposeRegistrations()
             let interruptError = Error(FiberInterruptedException(id, cause, message) :> obj)
-            this.InvokeOnTerminal()
             resultSource.TrySetResult interruptError |> ignore
+            this.InvokeOnTerminal()
 
     member internal _.Cancel () =
         try
@@ -262,6 +262,32 @@ and [<Sealed>] internal FiberContext() =
         member this.Dispose () =
             this.Dispose true
             GC.SuppressFinalize this
+
+// Signals once when the first observed child fails (or is interrupted), or when the last child
+// succeeds. Only successes decrement, so the counter reaches zero iff every child succeeded —
+// a final "all done" signal can never race past an unclaimed failure.
+and [<Sealed>] internal JoinAllLatch(count: int, signal: unit -> unit) =
+
+    let mutable remaining = count
+
+    let mutable settled = 0
+
+    member _.OnChildTerminal (fiberContext: FiberContext) =
+
+        let mutable spinner = SpinWait()
+        while not fiberContext.Task.IsCompleted do
+            spinner.SpinOnce()
+
+        let failed =
+            match fiberContext.Task.Result with
+            | Error _ -> true
+            | Ok _ -> false
+
+        if failed then
+            if tryClaim &settled then
+                signal ()
+        elif Interlocked.Decrement &remaining = 0 && tryClaim &settled then
+            signal ()
 
 /// A running fiber (green thread) executing an effect. Join, await, interrupt, or poll it for its result.
 and [<Sealed>] Fiber<'A, 'E> internal () =
@@ -473,6 +499,8 @@ and FIO<'A, 'E> =
     | ReadChan of channel: Channel<'A>
     | ForkEffect of effect: FIO<obj, obj> * fiber: obj * fiberContext: FiberContext
     | JoinFiber of fiberContext: FiberContext
+    | JoinFirst of fiberContexts: FiberContext list
+    | JoinAllFailFast of fiberContexts: FiberContext[]
     | AwaitTask of task: Task<obj> * onError: (exn -> 'E)
     | ChainSuccess of effect: FIO<obj, 'E> * cont: (obj -> FIO<'A, 'E>)
     | ChainError of effect: FIO<'A, obj> * cont: (obj -> FIO<'A, 'E>)
@@ -635,6 +663,10 @@ and FIO<'A, 'E> =
             ForkEffect(effect, fiber, fiberContext)
         | JoinFiber fiberContext ->
             JoinFiber fiberContext
+        | JoinFirst fiberContexts ->
+            JoinFirst fiberContexts
+        | JoinAllFailFast fiberContexts ->
+            JoinAllFailFast fiberContexts
         | AwaitTask(task, onError) ->
             AwaitTask(task, onError)
         | ChainSuccess(effect, cont) ->
@@ -677,6 +709,10 @@ and FIO<'A, 'E> =
             ForkEffect(effect, fiber, fiberContext)
         | JoinFiber fiberContext ->
             JoinFiber fiberContext
+        | JoinFirst fiberContexts ->
+            JoinFirst fiberContexts
+        | JoinAllFailFast fiberContexts ->
+            JoinAllFailFast fiberContexts
         | AwaitTask(task, onError) ->
             AwaitTask(task, boxOnError onError)
         | ChainSuccess(effect, cont) ->
@@ -719,6 +755,10 @@ and FIO<'A, 'E> =
             ForkEffect(effect, fiber, fiberContext)
         | JoinFiber fiberContext ->
             JoinFiber fiberContext
+        | JoinFirst fiberContexts ->
+            JoinFirst fiberContexts
+        | JoinAllFailFast fiberContexts ->
+            JoinAllFailFast fiberContexts
         | AwaitTask(task, onError) ->
             AwaitTask(task, boxOnError onError)
         | ChainSuccess(effect, cont) ->
