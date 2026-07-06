@@ -69,6 +69,7 @@ let main args =
                     typeof<PingpongBenchmark>
                     typeof<ThreadringBenchmark>
                     typeof<TrapezoidalBenchmark>
+                    typeof<ZipRaceBenchmark>
                 |]).Run(args, config)
 
     if summaries

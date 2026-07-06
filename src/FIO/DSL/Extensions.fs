@@ -237,20 +237,69 @@ module Extensions =
                 effect.Map <| fun _ ->
                     value
 
-        /// Returns an effect that runs this effect and the given effect concurrently, pairing their success values.
-        member inline this.ZipPar<'A1> (effect: FIO<'A1, 'E>) : FIO<'A * 'A1, 'E> =
-            effect.Fork().FlatMap <| fun fiber ->
-                this.FlatMap <| fun value ->
-                    fiber.Join().Map <| fun value' ->
-                        value, value'
+        /// Returns an effect that runs this effect and the given effect concurrently, pairing their success values, failing fast by interrupting the other side on the first failure. When both sides fail, the surfaced error is whichever settled first.
+        member this.ZipPar<'A1> (effect: FIO<'A1, 'E>) : FIO<'A * 'A1, 'E> =
+            FIO.suspend <| fun () ->
+                this.Fork().FlatMap <| fun fiber1 ->
+                    effect.Fork().FlatMap <| fun fiber2 ->
+                        let interruptBoth () =
+                            (fiber1.Interrupt ExplicitInterrupt "ZipPar sibling failed").Ignore()
+                                .FlatMap <| fun () ->
+                                    (fiber2.Interrupt ExplicitInterrupt "ZipPar sibling failed").Ignore()
 
-        /// Returns an effect that runs this effect and the given effect concurrently, pairing their errors.
-        member inline this.ZipParError (effect: FIO<'A, 'E>) : FIO<'A, 'E * 'E> =
-            effect.Fork().FlatMap(fun fiber ->
-                this.FlatMap(fun value ->
-                    fiber.Join().As value).CatchAll <| fun error ->
-                        fiber.Join().CatchAll <| fun error' ->
-                            FIO.fail (error, error'))
+                        (FIO.joinFirst [fiber1.Context; fiber2.Context]).FlatMap <| fun index ->
+                            if index = 0 then
+                                fiber1.Await().FlatMap <| fun result ->
+                                    match result with
+                                    | Succeeded value1 ->
+                                        fiber2.Join().Map <| fun value2 ->
+                                            value1, value2
+                                    | Failed error ->
+                                        (interruptBoth ()).FlatMap <| fun () -> FIO.fail error
+                                    | Interrupted ex ->
+                                        (interruptBoth ()).FlatMap <| fun () -> FIO.interrupt ex.cause ex.message
+                            else
+                                fiber2.Await().FlatMap <| fun result ->
+                                    match result with
+                                    | Succeeded value2 ->
+                                        fiber1.Join().Map <| fun value1 ->
+                                            value1, value2
+                                    | Failed error ->
+                                        (interruptBoth ()).FlatMap <| fun () -> FIO.fail error
+                                    | Interrupted ex ->
+                                        (interruptBoth ()).FlatMap <| fun () -> FIO.interrupt ex.cause ex.message
+
+        /// Returns an effect that runs this effect and the given effect concurrently, pairing their errors. Succeeds fast: the first side to succeed interrupts the other. The error pair is surfaced only if both fail; when both succeed, the surfaced value is whichever settled first (unspecified).
+        member this.ZipParError (effect: FIO<'A, 'E>) : FIO<'A, 'E * 'E> =
+            FIO.suspend <| fun () ->
+                this.Fork().FlatMap <| fun fiber1 ->
+                    effect.Fork().FlatMap <| fun fiber2 ->
+                        let interruptBoth () =
+                            (fiber1.Interrupt ExplicitInterrupt "ZipParError sibling succeeded").Ignore()
+                                .FlatMap <| fun () ->
+                                    (fiber2.Interrupt ExplicitInterrupt "ZipParError sibling succeeded").Ignore()
+
+                        (FIO.joinFirst [fiber1.Context; fiber2.Context]).FlatMap <| fun index ->
+                            let winner, loser = if index = 0 then fiber1, fiber2 else fiber2, fiber1
+                            winner.Await().FlatMap <| fun winnerResult ->
+                                match winnerResult with
+                                | Succeeded value ->
+                                    (interruptBoth ()).FlatMap <| fun () -> FIO.succeed value
+                                | Failed winnerError ->
+                                    loser.Await().FlatMap <| fun loserResult ->
+                                        match loserResult with
+                                        | Succeeded value ->
+                                            (interruptBoth ()).FlatMap <| fun () -> FIO.succeed value
+                                        | Failed loserError ->
+                                            let thisError, effectError =
+                                                if index = 0 then winnerError, loserError
+                                                else loserError, winnerError
+                                            FIO.fail (thisError, effectError)
+                                        | Interrupted ex ->
+                                            FIO.interrupt ex.cause ex.message
+                                | Interrupted ex ->
+                                    (interruptBoth ()).FlatMap <| fun () -> FIO.interrupt ex.cause ex.message
+
         /// Returns an effect that runs this effect and the given effect concurrently, keeping only the second value.
         member inline this.ZipParRight<'A1> (effect: FIO<'A1, 'E>) : FIO<'A1, 'E> =
             this.ZipPar(effect).Map snd
@@ -435,25 +484,13 @@ module Extensions =
         /// Returns an effect that runs this effect and the given effect concurrently, yielding the first to settle and interrupting the loser.
         member this.RaceFirst (effect: FIO<'A, 'E>) : FIO<'A, 'E> =
             FIO.suspend <| fun () ->
-                let channel = Channel<bool>()
-
-                let signal (won: bool) (fiber: Fiber<'A, 'E>) =
-                    fiber.Await().FlatMap <| fun result ->
-                        match result with
-                        | Succeeded _
-                        | Failed _ -> (channel.Write won).Unit()
-                        | Interrupted _ -> FIO.unit ()
-
                 this.Fork().FlatMap <| fun fiber1 ->
                     effect.Fork().FlatMap <| fun fiber2 ->
-                        (signal true fiber1).Fork().FlatMap <| fun _ ->
-                            (signal false fiber2).Fork().FlatMap <| fun _ ->
-                                channel.Read().FlatMap <| fun winnerIsFirst ->
-                                    let winner, loser =
-                                        if winnerIsFirst then fiber1, fiber2 else fiber2, fiber1
-                                    (loser.Interrupt ExplicitInterrupt "Lost race")
-                                        .Ignore()
-                                        .FlatMap <| fun () -> winner.Join()
+                        (FIO.joinFirst [fiber1.Context; fiber2.Context]).FlatMap <| fun index ->
+                            let winner, loser = if index = 0 then fiber1, fiber2 else fiber2, fiber1
+                            (loser.Interrupt ExplicitInterrupt "Lost race")
+                                .Ignore()
+                                .FlatMap <| fun () -> winner.Join()
 
         /// Returns an effect that races this effect against the given effect, yielding the winner as a Choice.
         member inline this.RaceEither<'A1> (effect: FIO<'A1, 'E>) : FIO<Choice<'A, 'A1>, 'E> =
@@ -462,28 +499,16 @@ module Extensions =
         /// Returns an effect that runs this effect and the given effect concurrently, yielding the first to succeed and interrupting the loser.
         member this.Race (effect: FIO<'A, 'E>) : FIO<'A, 'E> =
             FIO.suspend <| fun () ->
-                let channel = Channel<Result<'A * bool, 'E>>()
-
-                let signal (isFirst: bool) (fiber: Fiber<'A, 'E>) =
-                    fiber.Await().FlatMap <| fun result ->
-                        match result with
-                        | Succeeded value -> (channel.Write(Ok(value, isFirst))).Unit()
-                        | Failed error -> (channel.Write(Error error)).Unit()
-                        | Interrupted _ -> FIO.unit ()
-
                 this.Fork().FlatMap <| fun fiber1 ->
                     effect.Fork().FlatMap <| fun fiber2 ->
-                        (signal true fiber1).Fork().FlatMap <| fun _ ->
-                            (signal false fiber2).Fork().FlatMap <| fun _ ->
-                                channel.Read().FlatMap <| fun first ->
-                                    match first with
-                                    | Ok(value, isFirst) ->
-                                        let loser = if isFirst then fiber2 else fiber1
-                                        (loser.Interrupt ExplicitInterrupt "Lost race")
-                                            .Ignore()
-                                            .As value
-                                    | Error _ ->
-                                        channel.Read().FlatMap <| fun second ->
-                                            match second with
-                                            | Ok(value, _) -> FIO.succeed value
-                                            | Error error -> FIO.fail error
+                        (FIO.joinFirst [fiber1.Context; fiber2.Context]).FlatMap <| fun index ->
+                            let winner, loser = if index = 0 then fiber1, fiber2 else fiber2, fiber1
+                            winner.Await().FlatMap <| fun result ->
+                                match result with
+                                | Succeeded value ->
+                                    (loser.Interrupt ExplicitInterrupt "Lost race")
+                                        .Ignore()
+                                        .As value
+                                | Failed _
+                                | Interrupted _ ->
+                                    loser.Join()

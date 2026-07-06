@@ -37,6 +37,7 @@ dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*"       
 dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Pingpong*"  # one benchmark
 dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --list flat            # list benchmarks
 python benchmarks/plot.py                       # visualize results (HTML + PNG/SVG)
+python benchmarks/compare.py <dirA> <dirB>      # A/B diff of two results dirs (stdlib-only)
 ```
 
 Formatting follows `.editorconfig` (4-space F#, LF, UTF-8); the build is warning-clean
@@ -204,14 +205,15 @@ Library modules use **qualified access**: e.g. `Console.printLine "msg" id`.
 
 ## Benchmarks
 
-Macro benchmarks live in `benchmarks/FIO.Benchmarks/` (BenchmarkDotNet 0.15.8). Eleven workloads:
-**Bang, Big, BoundedBuffer, Chameneos, Counting, Fibonacci, Fork, Philosophers, Pingpong, Threadring, Trapezoidal**. Each is `[<MemoryDiagnoser>]` + `[<RankColumn>]`, sweeping its parameters × the configured runtimes, so every run reports **execution time and allocated memory**.
+Macro benchmarks live in `benchmarks/FIO.Benchmarks/` (BenchmarkDotNet 0.15.8). Twelve workloads:
+**Bang, Big, BoundedBuffer, Chameneos, Counting, Fibonacci, Fork, Philosophers, Pingpong, Threadring, Trapezoidal, ZipRace**. Each is `[<MemoryDiagnoser>]` + `[<RankColumn>]`, sweeping its parameters × the configured runtimes, so every run reports **execution time and allocated memory**.
 
 - **Runtimes:** spec format `Direct | Polling-{EWC}-{EWS}-{BWC} | Signaling-{EWC}-{EWS}-{BWC} | WorkStealing-{EWC}-{EWS}-{BWC}`. Set via `FIO_BENCH_RUNTIMES` (default `Direct,Polling-12-200-1,Signaling-12-200-1,WorkStealing-12-200-1`). Recommended `EWC = CPU cores − 2`.
 - **Iteration control:** `FIO_BENCH_WARMUP` (default 3), `FIO_BENCH_ITERATIONS` (default 30). A CLI `--job` (e.g. `--job Dry`, `--job Short`) **overrides** these env vars.
 - **Per-benchmark params:** `FIO_BENCH_<NAME>_<PARAM>` (e.g. `FIO_BENCH_PINGPONG_ROUNDS`, `FIO_BENCH_FORK_ACTORS`, `FIO_BENCH_BOUNDEDBUFFER_PRODUCERS`). Full table in `benchmarks/FIO.Benchmarks/README.md`.
 - **Output:** BenchmarkDotNet writes CSV/GitHub-markdown/HTML reports to `BenchmarkDotNet.Artifacts/results/` (git-ignored).
 - **Plotting (`benchmarks/plot.py`):** reads the `*-report.csv` files and writes per-benchmark + `summary` charts to `BenchmarkDotNet.Artifacts/plots/` as interactive HTML **and** static images (PNG/SVG, configurable via `--image-formats`; `pdf` also supported). Requires `pandas`, `plotly`, `kaleido`. `python benchmarks/plot.py --self-test` validates the parsers without touching artifacts.
+- **A/B comparison (`benchmarks/compare.py`, stdlib-only):** diffs two results directories and emits a markdown Δtime/Δalloc table with regression/win flags. Allocations are deterministic (comparable across sessions); **wall time drifts 20–50% between sessions** on dev machines — compare times only from same-session adjacent A/B runs, bracketed by sentinel re-runs (protocol: `docs/adr/0001-joinfirst-ab-regression-test.md`).
 
 `benchmarks/FIO.Benchmarks/README.md` is the source of truth (parameter defaults, tuning guidance, result interpretation, allocation/boxing notes).
 

@@ -119,6 +119,18 @@ module FIO =
     let never<'A, 'E> () : FIO<'A, 'E> =
         NeverEffect<'A, 'E>.Effect
 
+    let internal joinFirst<'E> (fiberContexts: FiberContext list) : FIO<int, 'E> =
+        if List.isEmpty fiberContexts then
+            interrupt (InvalidArgument("fiberContexts", "list must not be empty")) "Cannot join the first of an empty list of fibers"
+        else
+            JoinFirst fiberContexts
+
+    let internal joinAllFailFast<'E> (fiberContexts: FiberContext[]) : FIO<int voption, 'E> =
+        if Array.isEmpty fiberContexts then
+            succeed ValueNone
+        else
+            JoinAllFailFast fiberContexts
+
     /// Acquires a resource, uses it, and releases it afterwards on success, failure, or interruption.
     let inline acquireReleaseWith<'A, 'A1, 'E>
         (acquire: FIO<'A1, 'E>)
@@ -156,43 +168,54 @@ module FIO =
             loop 0
 
     /// Runs the given effect for each item concurrently, collecting the results into a list.
-    let inline forEachPar<'A, 'A1, 'E> (items: seq<'A1>) (func: 'A1 -> FIO<'A, 'E>) : FIO<'A list, 'E> =
+    let forEachPar<'A, 'A1, 'E> (items: seq<'A1>) (func: 'A1 -> FIO<'A, 'E>) : FIO<'A list, 'E> =
         suspend <| fun () ->
             let arr = Seq.toArray items
-            let forked = ResizeArray<Fiber<'A, 'E>> arr.Length
-            let results = ResizeArray<'A> arr.Length
 
-            let rec forkAll i : FIO<Fiber<'A, 'E> list, 'E> =
-                if i >= arr.Length then
-                    succeed (List.ofSeq forked)
-                else
-                    (func arr[i]).Fork().FlatMap <| fun fiber ->
-                        forked.Add fiber
-                        forkAll (i + 1)
+            if arr.Length = 0 then
+                succeed []
+            else
+                let rec forkAll i (forked: Fiber<'A, 'E> list) : FIO<Fiber<'A, 'E>[], 'E> =
+                    if i >= arr.Length then
+                        succeed (List.rev forked |> List.toArray)
+                    else
+                        (func arr[i]).Fork().FlatMap <| fun fiber ->
+                            forkAll (i + 1) (fiber :: forked)
 
-            let inline interruptOne (fiber: Fiber<'A, 'E>) : FIO<unit, 'E> =
-                (fiber.Interrupt ExplicitInterrupt "forEachPar peer failed")
-                    .CatchAll(fun _ -> unit ())
+                (forkAll 0 []).FlatMap <| fun fiberArr ->
+                    let interruptAll () : FIO<unit, 'E> =
+                        let rec loop i =
+                            if i >= fiberArr.Length then
+                                unit ()
+                            else
+                                (fiberArr[i].Interrupt ExplicitInterrupt "forEachPar peer failed")
+                                    .CatchAll(fun _ -> unit ())
+                                    .FlatMap <| fun () -> loop (i + 1)
+                        loop 0
 
-            let rec interruptAll (fibers: Fiber<'A, 'E> list) : FIO<unit, 'E> =
-                match fibers with
-                | [] -> unit ()
-                | fiber :: rest ->
-                    (interruptOne fiber).FlatMap <| fun () ->
-                        interruptAll rest
+                    let contexts = fiberArr |> Array.map (fun fiber -> fiber.Context)
 
-            let rec joinAll (fibers: Fiber<'A, 'E> list) : FIO<'A list, 'E> =
-                match fibers with
-                | [] -> succeed (List.ofSeq results)
-                | fiber :: rest ->
-                    (fiber.Join().FlatMap <| fun value ->
-                        results.Add value
-                        joinAll rest).CatchAll(fun error ->
-                            (interruptAll rest).FlatMap <| fun () ->
-                                fail error)
+                    (joinAllFailFast contexts).FlatMap <| fun outcome ->
+                        match outcome with
+                        | ValueNone ->
+                            let rec collect i (acc: 'A list) : FIO<'A list, 'E> =
+                                if i < 0 then
+                                    succeed acc
+                                else
+                                    fiberArr[i].Join().FlatMap <| fun value ->
+                                        collect (i - 1) (value :: acc)
 
-            (forkAll 0).FlatMap <| fun fibers ->
-                joinAll fibers
+                            collect (arr.Length - 1) []
+                        | ValueSome index ->
+                            fiberArr[index].Await().FlatMap <| fun result ->
+                                (interruptAll ()).FlatMap <| fun () ->
+                                    match result with
+                                    | Failed error -> fail error
+                                    | Interrupted ex -> interrupt ex.cause ex.message
+                                    | Succeeded _ ->
+                                        interrupt
+                                            ExplicitInterrupt
+                                            "joinAllFailFast returned the index of a succeeded fiber"
 
     /// Runs the given effect for each item concurrently, discarding the results.
     let inline forEachParDiscard<'A, 'A1, 'E> (items: seq<'A1>) (func: 'A1 -> FIO<'A, 'E>) : FIO<unit, 'E> =

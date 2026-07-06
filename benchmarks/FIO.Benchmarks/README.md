@@ -17,6 +17,15 @@ Macro benchmarks for the FIO effect system using [BenchmarkDotNet](https://bench
 | **Pingpong** | Message delivery overhead (2 actors) |
 | **Threadring** | Message passing + context switching (ring topology) |
 | **Trapezoidal** | CPU-bound master/worker map-reduce |
+| **ZipRace** | Parallel-combinator overhead (ZipPar + RaceFirst per round) |
+
+The suite contains two kinds of benchmark. The first eleven are **classic concurrency
+workloads** (largely from the actor-benchmark literature) that measure the scheduler and
+channel machinery under recognizable shapes. **ZipRace** is a **combinator microbenchmark**:
+it invokes the parallel combinators over trivial effects so that per-invocation primitive cost
+(fork, `JoinFirst` park/settle, loser interruption, join) dominates — it exists to
+regression-guard the parallel-combinator runtime primitives, and doubles as the CI hang canary
+for their park/wake protocol. Future primitive-level guards belong in this second category.
 
 ## Usage
 
@@ -40,7 +49,7 @@ dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Fork*" -
 dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Fork*" --exporters GitHub
 ```
 
-The default run (no `--filter`) executes all 11 benchmarks × all parameter combinations × 4 runtimes × 30 iterations. This produces a comprehensive performance profile across Direct, Polling, Signaling, and WorkStealing runtimes.
+The default run (no `--filter`) executes all 12 benchmarks × all parameter combinations × 4 runtimes × 30 iterations. This produces a comprehensive performance profile across Direct, Polling, Signaling, and WorkStealing runtimes.
 
 > Passing `--job` on the command line (e.g. `--job Dry` or `--job Short`) **overrides** the
 > env-var-configured job — only the CLI job runs. Omit `--job` to honor `FIO_BENCH_WARMUP` /
@@ -112,6 +121,7 @@ Runtime spec format: `Direct` | `Polling-{EWC}-{EWS}-{BWC}` | `Signaling-{EWC}-{
 | `FIO_BENCH_THREADRING_ROUNDS` | `1000,10000` | Threadring round counts |
 | `FIO_BENCH_TRAPEZOIDAL_WORKERS` | `8,16` | Trapezoidal worker count |
 | `FIO_BENCH_TRAPEZOIDAL_POINTS` | `1000000` | Trapezoidal total points |
+| `FIO_BENCH_ZIPRACE_ROUNDS` | `1000,10000` | ZipRace round counts |
 
 ### Full Example
 
@@ -174,3 +184,24 @@ images per output. Two outputs are produced:
   allocation-ratio heatmap vs `Direct`, and a per-runtime bar grid showing absolute mean times for every
   benchmark on a log axis. Uses the largest configured parameter set per benchmark, so comparisons
   reflect at-scale behaviour.
+
+## Comparing Two Runs (A/B)
+
+`benchmarks/compare.py` (stdlib-only — no pip installs needed) diffs two directories of
+`*-report.csv` files and emits a markdown table of Δtime/Δalloc per case, flagging regressions
+and wins:
+
+```bash
+python3 benchmarks/compare.py results/A results/B --label-a baseline --label-b candidate
+python3 benchmarks/compare.py results/A results/B --output comparison.md
+python3 benchmarks/compare.py --self-test
+```
+
+Directories are searched recursively; rows are matched on (method, params, runtime). Thresholds
+default to time ±10% / alloc ±5% (`--time-threshold` / `--alloc-threshold`).
+
+**Interpreting deltas:** allocated bytes are deterministic and comparable across sessions; wall
+time drifts with machine load/thermals (20–50% observed on an M4 Max across one day), so only
+compare times from runs taken back-to-back in the same session — ideally adjacent A/B pairs per
+benchmark, bracketed by re-runs of a fixed sentinel benchmark to measure the session noise floor.
+See `docs/adr/0001-joinfirst-ab-regression-test.md` for a worked example of the full protocol.

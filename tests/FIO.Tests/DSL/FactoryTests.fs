@@ -1032,6 +1032,21 @@ let factoryTests =
                     Expect.equal error "boom" $"forEachPar on {runtime.GetType().Name} should propagate the failure"
                     Expect.isLessThan peerCompleted failureItems $"forEachPar on {runtime.GetType().Name} should interrupt at least one peer"
 
+            testCase "forEachPar - fails fast even when an earlier peer never terminates"
+            <| fun () ->
+                for runtime in runtimes () do
+                    let sentinel = -1
+
+                    let effect =
+                        (FIO.forEachPar [ 0; 1 ] (fun i ->
+                            if i = 0 then FIO.never<int, int>() else FIO.fail 99))
+                            .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0) (fun _ -> sentinel)
+
+                    let error =
+                        runtime.Run(effect).UnsafeError()
+
+                    Expect.equal error 99 $"forEachPar on {runtime.GetType().Name} should observe the late failure without hanging on the never-terminating earlier peer"
+
             testPropertyWithConfig fsCheckConfig "forEachParDiscard - applies f to each input without collecting"
             <| fun (runtime: FIORuntime, xs: int list) ->
                 let mutable sum = 0

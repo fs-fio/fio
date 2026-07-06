@@ -1134,7 +1134,7 @@ let ceTests =
 
                 Expect.equal result error "and! should propagate error from first effect"
 
-            testPropertyWithConfig fsCheckConfigFast "MergeSources - and! with multiple errors returns first error"
+            testPropertyWithConfig fsCheckConfigFast "MergeSources - and! with multiple errors surfaces one of the errors"
             <| fun (runtime: FIORuntime, err1: int, err2: int) ->
                 let effect =
                     fio {
@@ -1145,7 +1145,7 @@ let ceTests =
 
                 let result = runtime.Run(effect).UnsafeError()
 
-                Expect.equal result err1 "and! should return first error when multiple effects fail"
+                Expect.isTrue (result = err1 || result = err2) "and! surfaces one of the concurrent errors"
 
             testAllRuntimes "MergeSources - and! executes in parallel" (fun runtime ->
                 let mutable firstRan = false

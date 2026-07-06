@@ -139,6 +139,67 @@ type DirectRuntime() =
                                             ExplicitInterrupt,
                                             "Fiber was interrupted while blocked on a fiber join."
                                         )))
+                            | HandleJoinFirst fiberContexts ->
+                                let contexts = List.toArray fiberContexts
+                                try
+                                    let whenAny =
+                                        Task.WhenAny(contexts |> Array.map (fun fiberContext -> fiberContext.Task :> Task))
+                                    let! _ =
+                                        if state.InterruptionSuppressed > 0 then
+                                            whenAny
+                                        else
+                                            whenAny.WaitAsync currentFiberContext.CancellationToken
+                                    let index = contexts |> Array.findIndex (fun fiberContext -> fiberContext.IsTerminal())
+                                    processOutcome
+                                        &state
+                                        onSuccessComplete
+                                        onErrorComplete
+                                        (OutcomeSucceeded(box index))
+                                with
+                                | :? OperationCanceledException when
+                                    currentFiberContext.CancellationToken.IsCancellationRequested ->
+                                    processOutcome
+                                        &state
+                                        onSuccessComplete
+                                        onErrorComplete
+                                        (OutcomeInterrupted (FiberInterruptedException(
+                                            currentFiberContext.Id,
+                                            ExplicitInterrupt,
+                                            "Fiber was interrupted while blocked on a fiber join."
+                                        )))
+                            | HandleJoinAllFailFast fiberContexts ->
+                                match tryCompleteJoinAll fiberContexts with
+                                | ValueSome outcome ->
+                                    processOutcome
+                                        &state
+                                        onSuccessComplete
+                                        onErrorComplete
+                                        (OutcomeSucceeded(box outcome))
+                                | ValueNone ->
+                                    try
+                                        let! outcome =
+                                            awaitJoinAllSettled
+                                                fiberContexts
+                                                (state.InterruptionSuppressed > 0)
+                                                currentFiberContext
+                                                currentFiberContext.CancellationToken
+                                        processOutcome
+                                            &state
+                                            onSuccessComplete
+                                            onErrorComplete
+                                            outcome
+                                    with
+                                    | :? OperationCanceledException when
+                                        currentFiberContext.CancellationToken.IsCancellationRequested ->
+                                        processOutcome
+                                            &state
+                                            onSuccessComplete
+                                            onErrorComplete
+                                            (OutcomeInterrupted (FiberInterruptedException(
+                                                currentFiberContext.Id,
+                                                ExplicitInterrupt,
+                                                "Fiber was interrupted while blocked on a fiber join."
+                                            )))
                             | HandleAwaitTask(task, onError) ->
                                 try
                                     let! value =
