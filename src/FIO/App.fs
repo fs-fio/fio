@@ -6,8 +6,7 @@ open FIO.Runtime.Default
 
 open System
 open System.Threading
-
-type private SysConsole = System.Console
+open System.Runtime.InteropServices
 
 /// The outcome of running a FIOApp.
 type AppResult<'A, 'E> =
@@ -128,7 +127,7 @@ type FIOApp<'A, 'E>() as this =
             invalidOp "FIOApp can only be run once per instance; create a new instance to run again."
 
         task {
-            let mutable registeredHandler: ConsoleCancelEventHandler option = None
+            let mutable signalRegistrations: PosixSignalRegistration list = []
 
             try
                 try
@@ -137,20 +136,28 @@ type FIOApp<'A, 'E>() as this =
                     Volatile.Write(&runningFiber, Some fiber)
 
                     try
-                        let handler =
-                            ConsoleCancelEventHandler(fun _ eventArgs ->
-                                if tryClaim &shutdownRequested then
-                                    eventArgs.Cancel <- true
+                        let requestShutdown (source: string) =
+                            if tryClaim &shutdownRequested then
+                                try
+                                    fiber.Context.Interrupt(
+                                        ExplicitInterrupt,
+                                        sprintf "Application shutdown requested (%s)." source)
+                                with ex ->
+                                    eprintfn "FIOApp failed to interrupt from %s handler: %s" source ex.Message
 
-                                    try
-                                        fiber.Context.Interrupt(
-                                            ExplicitInterrupt,
-                                            "Application shutdown requested from console.")
-                                    with ex ->
-                                        eprintfn "FIOApp failed to interrupt from console handler: %s" ex.Message)
-
-                        SysConsole.CancelKeyPress.AddHandler handler
-                        registeredHandler <- Some handler
+                        signalRegistrations <-
+                            [ PosixSignal.SIGINT; PosixSignal.SIGTERM; PosixSignal.SIGQUIT ]
+                            |> List.choose (fun signal ->
+                                try
+                                    Some(
+                                        PosixSignalRegistration.Create(
+                                            signal,
+                                            fun context ->
+                                                context.Cancel <- true
+                                                requestShutdown (string context.Signal)))
+                                with ex ->
+                                    eprintfn "FIOApp failed to register %O handler: %s" signal ex.Message
+                                    None)
 
                         let! outcome =
                             task {
@@ -183,14 +190,13 @@ type FIOApp<'A, 'E>() as this =
                 Volatile.Write(&runningFiber, None)
                 shutdownRequested <- 0
 
-                match registeredHandler with
-                | Some handler ->
+                for registration in signalRegistrations do
                     try
-                        SysConsole.CancelKeyPress.RemoveHandler handler
+                        registration.Dispose()
                     with ex ->
-                        eprintfn "FIOApp failed to remove console handler: %s" ex.Message
-                | None ->
-                    ()
+                        eprintfn "FIOApp failed to remove signal handler: %s" ex.Message
+
+                signalRegistrations <- []
 
                 if lazyRuntime.IsValueCreated then
                     match box lazyRuntime.Value with

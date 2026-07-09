@@ -12,7 +12,7 @@ open System
 open System.Net
 
 open Expecto
-open FsCheck
+open FsCheck.FSharp
 
 module FsCheckProperties =
 
