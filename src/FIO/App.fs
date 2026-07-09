@@ -128,6 +128,7 @@ type FIOApp<'A, 'E>() as this =
 
         task {
             let mutable signalRegistrations: PosixSignalRegistration list = []
+            let mutable cancelKeyHandler: ConsoleCancelEventHandler option = None
 
             try
                 try
@@ -145,19 +146,35 @@ type FIOApp<'A, 'E>() as this =
                                 with ex ->
                                     eprintfn "FIOApp failed to interrupt from %s handler: %s" source ex.Message
 
+                                true
+                            else
+                                false
+
                         signalRegistrations <-
-                            [ PosixSignal.SIGINT; PosixSignal.SIGTERM; PosixSignal.SIGQUIT ]
+                            [ PosixSignal.SIGTERM ]
                             |> List.choose (fun signal ->
                                 try
                                     Some(
                                         PosixSignalRegistration.Create(
                                             signal,
                                             fun context ->
-                                                context.Cancel <- true
-                                                requestShutdown (string context.Signal)))
+                                                let claimed = requestShutdown (string context.Signal)
+                                                context.Cancel <- claimed))
                                 with ex ->
                                     eprintfn "FIOApp failed to register %O handler: %s" signal ex.Message
                                     None)
+
+                        let handler =
+                            ConsoleCancelEventHandler(fun _ args ->
+                                let source = string args.SpecialKey
+                                let claimed = requestShutdown source
+                                args.Cancel <- claimed)
+
+                        try
+                            Console.CancelKeyPress.AddHandler handler
+                            cancelKeyHandler <- Some handler
+                        with ex ->
+                            eprintfn "FIOApp failed to register CancelKeyPress handler: %s" ex.Message
 
                         let! outcome =
                             task {
@@ -197,6 +214,16 @@ type FIOApp<'A, 'E>() as this =
                         eprintfn "FIOApp failed to remove signal handler: %s" ex.Message
 
                 signalRegistrations <- []
+
+                match cancelKeyHandler with
+                | Some handler ->
+                    try
+                        Console.CancelKeyPress.RemoveHandler handler
+                    with ex ->
+                        eprintfn "FIOApp failed to remove CancelKeyPress handler: %s" ex.Message
+
+                    cancelKeyHandler <- None
+                | None -> ()
 
                 if lazyRuntime.IsValueCreated then
                     match box lazyRuntime.Value with
