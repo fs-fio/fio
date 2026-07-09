@@ -7,16 +7,10 @@ open FIO.Runtime.Signaling
 open FIO.Runtime.WorkStealing
 
 open Expecto
-open FsCheck
+open FsCheck.FSharp
 
 module FsCheckProperties =
 
-    // The worker runtimes spawn a dedicated OS thread per evaluation worker on construction, and
-    // Run is single-Run-by-design (it cancels/resets the previous fiber), so a single instance can
-    // NOT be shared across the parallel test run. FsCheck builds this Arb once per property and
-    // reuses the four instances across that property's (serial) cases, so per-property construction
-    // is safe; we only shrink the worker count from the default (~13) to 2 to avoid spawning
-    // thousands of threads across ~373 properties.
     let private testConfig = { WorkerConfig.Default with EvaluationWorkers = 2 }
 
     type Generators =
