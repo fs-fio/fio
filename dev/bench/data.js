@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783883585540,
+  "lastUpdate": 1783886484849,
   "repoUrl": "https://github.com/fs-fio/fio",
   "entries": {
     "Benchmark": [
@@ -263,6 +263,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Pingpong - WorkStealing-2-200-1",
             "value": 198.144321,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hey@itsdaniel.dk",
+            "name": "Daniel Larsen",
+            "username": "itsdanieldk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eacb88e7c301b8fb73dd7ddcc8429d6e1760caef",
+          "message": "feat: update logo again (#62)",
+          "timestamp": "2026-07-12T21:59:45+02:00",
+          "tree_id": "f23d08607a42e244eb3b63a2e346855068339bcf",
+          "url": "https://github.com/fs-fio/fio/commit/eacb88e7c301b8fb73dd7ddcc8429d6e1760caef"
+        },
+        "date": 1783886484429,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Pingpong - Direct",
+            "value": 219.277231375,
+            "unit": "ms"
+          },
+          {
+            "name": "Pingpong - Polling-2-200-1",
+            "value": 555.1637728,
+            "unit": "ms"
+          },
+          {
+            "name": "Pingpong - Signaling-2-200-1",
+            "value": 289.631489,
+            "unit": "ms"
+          },
+          {
+            "name": "Pingpong - WorkStealing-2-200-1",
+            "value": 203.28752740000002,
             "unit": "ms"
           }
         ]
