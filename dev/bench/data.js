@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1783886484849,
+  "lastUpdate": 1783888759100,
   "repoUrl": "https://github.com/fs-fio/fio",
   "entries": {
     "Benchmark": [
@@ -307,6 +307,50 @@ window.BENCHMARK_DATA = {
           {
             "name": "Pingpong - WorkStealing-2-200-1",
             "value": 203.28752740000002,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hey@itsdaniel.dk",
+            "name": "Daniel Larsen",
+            "username": "itsdanieldk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "298a8727e56117d2acfee54940d323e25102935b",
+          "message": "feat: update readme and bump version (#63)\n\n* feat: update readmes\n\n* feat: added new readme for examples, bumped version",
+          "timestamp": "2026-07-12T22:37:45+02:00",
+          "tree_id": "720e17ec899065cea4945013a2313c5636f4c869",
+          "url": "https://github.com/fs-fio/fio/commit/298a8727e56117d2acfee54940d323e25102935b"
+        },
+        "date": 1783888758598,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Pingpong - Direct",
+            "value": 261.1486915,
+            "unit": "ms"
+          },
+          {
+            "name": "Pingpong - Polling-2-200-1",
+            "value": 774.5056856,
+            "unit": "ms"
+          },
+          {
+            "name": "Pingpong - Signaling-2-200-1",
+            "value": 319.4795794,
+            "unit": "ms"
+          },
+          {
+            "name": "Pingpong - WorkStealing-2-200-1",
+            "value": 215.34197980000002,
             "unit": "ms"
           }
         ]
