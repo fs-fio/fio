@@ -10,7 +10,7 @@
         the tag is the authoritative published version.
     -->
     <PropertyGroup>
-        <Version>0.2.1-beta</Version>
+        <Version>0.2.2-beta</Version>
     </PropertyGroup>
 
     <!--

@@ -1,6 +1,19 @@
 # FIO Benchmarks
 
-Macro benchmarks for the FIO effect system using [BenchmarkDotNet](https://benchmarkdotnet.org/).
+[![Performance Benchmarks](https://github.com/fs-fio/fio/actions/workflows/benchmark.yml/badge.svg)](https://github.com/fs-fio/fio/actions/workflows/benchmark.yml)
+[![Run Tests](https://github.com/fs-fio/fio/actions/workflows/test.yml/badge.svg)](https://github.com/fs-fio/fio/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/fs-fio/fio/blob/main/LICENSE.md)
+
+Macro benchmarks for the [FIO](https://github.com/fs-fio/fio) effect system, built on
+[BenchmarkDotNet](https://benchmarkdotnet.org/). Every workload runs across all four runtimes
+and reports **both execution time and allocated memory**, so a run is a full performance profile
+of the scheduler and channel machinery — not just a single number.
+
+- **12 workloads** — 11 classic concurrency benchmarks + a parallel-combinator microbenchmark
+- **4 runtimes** — Direct, Polling, Signaling, WorkStealing, compared side by side
+- **Time + memory** — each benchmark is `[<MemoryDiagnoser>]`, so allocations show up too
+- **Tunable** — worker config and per-benchmark parameters set via environment variables
+- **Plotting & A/B** — `plot.py` for charts, `compare.py` for regression-flagging diffs
 
 ## Benchmarks
 
@@ -216,3 +229,9 @@ benchmark, bracketed by re-runs of a fixed sentinel benchmark to measure the ses
    the start, one or two midpoints, and the end: its max/min spread per runtime is the session's
    time-noise floor — time deltas below it are noise; allocation deltas are trustworthy regardless.
 5. Diff with `compare.py`. Run the machine idle and sleep-inhibited (`caffeinate -i` on macOS).
+
+## Links
+
+[FIO core](https://github.com/fs-fio/fio) ·
+[Examples](https://github.com/fs-fio/fio/tree/main/examples) ·
+[MIT](https://github.com/fs-fio/fio/blob/main/LICENSE.md)
