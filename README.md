@@ -1,6 +1,6 @@
 <div align="center">
   <a href="https://github.com/fs-fio/fio/">
-    <img src="https://raw.githubusercontent.com/fs-fio/fio/main/assets/logo.png" width="auto" height="200" alt="FIO">
+    <img src="https://raw.githubusercontent.com/fs-fio/fio/main/assets/logo.png" width="auto" height="250" alt="FIO">
   </a>
 
   <p><strong>🪻 A Type-Safe, Purely Functional Effect System for F#</strong></p>
