@@ -3,13 +3,13 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
-    <PackageVersion Include="FSharp.Core" Version="10.1.301" />
+    <PackageVersion Include="FSharp.Core" Version="10.1.302" />
   </ItemGroup>
   <ItemGroup>
     <PackageVersion Include="Expecto" Version="11.1.0" />
     <PackageVersion Include="Expecto.FsCheck" Version="11.1.0" />
     <PackageVersion Include="FsCheck" Version="3.3.3" />
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.7.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
     <PackageVersion Include="YoloDev.Expecto.TestSdk" Version="0.16.0" />
     <PackageVersion Include="coverlet.collector" Version="10.0.1" />
     <PackageVersion Include="BenchmarkDotNet" Version="0.15.8" />
