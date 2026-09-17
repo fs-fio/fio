@@ -86,11 +86,11 @@ module Middleware =
                 }
 
     /// Creates a middleware that fails over to 408 Request Timeout if a handler exceeds the duration.
-    let timeout (duration: TimeSpan) (onError: exn -> 'E) =
+    let timeout (duration: TimeSpan) =
         create <| fun handler ->
             fun request ->
                 let handlerEffect = handler request
-                let timeoutEffect = (FIO.succeed Response.requestTimeout).Delay duration onError
+                let timeoutEffect = (FIO.succeed Response.requestTimeout).Delay duration
                 handlerEffect.RaceFirst timeoutEffect
 
     /// Creates a middleware that applies CORS headers and handles preflight requests.

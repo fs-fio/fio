@@ -441,10 +441,6 @@ bower_components
 .bower-tmp
 
 
-### WebSharper ###
-Scripts/
-
-
 ### CUSTOM ###
 .ionide
 

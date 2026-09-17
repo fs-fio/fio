@@ -31,6 +31,10 @@ module FIO =
     let attempt<'A, 'E> (func: unit -> 'A) (onError: exn -> 'E) : FIO<'A, 'E> =
         FIO.Action(func, onError)
 
+    /// Creates an effect that succeeds with the result of the given function, which must not throw; a throw is a defect, not a typed error.
+    let succeedWith<'A, 'E> (func: unit -> 'A) : FIO<'A, 'E> =
+        FIO.Action(func, Rethrow<_>.Instance)
+
     /// Creates an effect that succeeds or fails according to the given Result.
     let inline fromResult<'A, 'E> : Result<'A, 'E> -> FIO<'A, 'E> = function
         | Ok value -> succeed value
@@ -102,15 +106,21 @@ module FIO =
                 registration.Dispose()
             (awaitTask resultSource.Task onError).FlatMap fromResult
 
-    /// Creates an effect that suspends the current fiber for the given duration.
-    let inline sleep<'E> (duration: TimeSpan) (onError: exn -> 'E) : FIO<unit, 'E> =
-        cancellationToken().FlatMap <| fun cancelToken ->
-            awaitUnitTask (Task.Delay(duration, cancelToken)) onError
+    /// Creates an effect that suspends the current fiber for the given duration; a negative duration, or one beyond
+    /// the timer maximum of about 49.7 days, is an invalid argument.
+    let sleep<'E> (duration: TimeSpan) : FIO<unit, 'E> =
+        if duration < TimeSpan.Zero && duration <> Timeout.InfiniteTimeSpan then
+            interrupt (InvalidArgument("duration", "must not be negative")) $"Cannot sleep for {duration}"
+        elif duration.TotalMilliseconds > float (UInt32.MaxValue - 1u) then
+            interrupt (InvalidArgument("duration", "must not exceed 4294967294 ms (about 49.7 days)")) $"Cannot sleep for {duration}"
+        else
+            cancellationToken().FlatMap <| fun cancelToken ->
+                awaitUnitTask (Task.Delay(duration, cancelToken)) Rethrow<_>.Instance
 
     /// Creates an effect that yields control, letting other fibers run before continuing.
-    let inline yieldNow<'E> (onError: exn -> 'E) : FIO<unit, 'E> =
+    let yieldNow<'E> () : FIO<unit, 'E> =
         cancellationToken().FlatMap <| fun _ ->
-            awaitUnitTask (Task.Run(fun () -> ())) onError
+            awaitUnitTask (Task.Run(fun () -> ())) Rethrow<_>.Instance
 
     /// An effect that never completes.
     let never<'A, 'E> () : FIO<'A, 'E> =

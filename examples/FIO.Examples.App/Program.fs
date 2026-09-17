@@ -497,7 +497,7 @@ type CustomRuntimeApp() =
             do! Console.printLine " - Blocking Workers: 2" id
         }
 
-// Demonstrates the shutdown hook that runs when the app is interrupted with Ctrl+C.
+// Ctrl+C releases the resource through its acquireReleaseWith finalizer; onShutdown only says goodbye.
 type ShutdownApp() =
     inherit FIOApp<unit, exn>()
 
@@ -505,23 +505,22 @@ type ShutdownApp() =
         TimeSpan.FromSeconds 5.0
 
     override _.onShutdown() =
-        fio {
-            do! Console.printLine "Shutdown hook: Releasing resource..." id
-            do! FIO.sleep (TimeSpan.FromSeconds 1.0) id
-            do! Console.printLine "Shutdown hook: Resource released!" id
-        }
+        Console.printLine "Shutdown hook: goodbye (the resource was already released by its finalizer)." id
 
     override _.effect =
-        fio {
-            do! Console.printLine "Acquiring resource..." id
-            do! Console.printLine "Resource acquired for 10 seconds! Press Ctrl+C to test shutdown hook." id
+        FIO.acquireReleaseWith
+            (Console.printLine "Acquiring resource..." id)
+            (fun () -> Console.printLine "Finalizer: resource released." id)
+            (fun () ->
+                fio {
+                    do! Console.printLine "Resource held for 10 seconds! Press Ctrl+C to release it early." id
 
-            for i in 1..10 do
-                do! Console.printLine $" - %d{i}..." id
-                do! FIO.sleep (TimeSpan.FromSeconds 1.0) id
+                    for i in 1..10 do
+                        do! Console.printLine $" - %d{i}..." id
+                        do! FIO.sleep (TimeSpan.FromSeconds 1.0)
 
-            do! Console.printLine "Completed normally (no Ctrl+C)" id
-        }
+                    do! Console.printLine "Completed normally (no Ctrl+C)" id
+                })
 
 // Maps the app outcome to a custom process exit code via mapExitCode.
 type CustomExitCodeApp() =
@@ -558,7 +557,7 @@ type RaceTimeoutApp() =
     // Produces a value after a delay, used to drive the race and the timeout.
     let delayed label ms value =
         fio {
-            do! FIO.sleep (TimeSpan.FromMilliseconds(float ms)) id
+            do! FIO.sleep (TimeSpan.FromMilliseconds(float ms))
             do! Console.printLine $"{label} finished" id
             return value
         }
@@ -568,7 +567,7 @@ type RaceTimeoutApp() =
             let! winner = (delayed "fast (100ms)" 100 "fast").Race(delayed "slow (500ms)" 500 "slow")
             do! Console.printLine $"Race winner: {winner}" id
 
-            match! (delayed "long task (800ms)" 800 42).Timeout (TimeSpan.FromMilliseconds 200.0) id with
+            match! (delayed "long task (800ms)" 800 42).Timeout (TimeSpan.FromMilliseconds 200.0) with
             | Some value -> do! Console.printLine $"Completed with {value}" id
             | None -> do! Console.printLine "Timed out after 200ms (as expected)" id
         }
@@ -599,7 +598,7 @@ type ParallelMapApp() =
         fio {
             let work n =
                 fio {
-                    do! FIO.sleep (TimeSpan.FromMilliseconds 100.0) id
+                    do! FIO.sleep (TimeSpan.FromMilliseconds 100.0)
                     return n * n
                 }
 
@@ -640,6 +639,25 @@ type StatefulActorApp() =
             do! actor.Interrupt ExplicitInterrupt "done"
         }
 
+// Shares a counter between parallel fibers through a Ref, updated atomically.
+type SharedCounterApp() =
+    inherit FIOApp<unit, exn>()
+
+    override _.effect =
+        fio {
+            let counter = Ref<int> 0
+
+            do! FIO.forEachParDiscard [ 1..8 ] (fun _ ->
+                FIO.replicateFIODiscard 1000 (counter.Update(fun n -> n + 1)))
+
+            let! total = counter.Get()
+            do! Console.printLine $"8 fibers x 1000 increments = {total}" id
+
+            let! previous = counter.Modify(fun n -> $"reset from {n}", 0)
+            let! now = counter.Get()
+            do! Console.printLine $"{previous}; counter is now {now}" id
+        }
+
 // Fetches a URL with HttpClient as an effect, bounded by a timeout.
 type HttpClientApp() =
     inherit FIOApp<unit, exn>()
@@ -649,7 +667,7 @@ type HttpClientApp() =
             use client = new HttpClient()
             let fetch = FIO.awaitTask (client.GetStringAsync "https://example.com") id
 
-            match! fetch.Timeout (TimeSpan.FromSeconds 5.0) id with
+            match! fetch.Timeout (TimeSpan.FromSeconds 5.0) with
             | Some body -> do! Console.printLine $"Fetched {body.Length} characters from example.com" id
             | None -> do! Console.printLine "Request timed out" id
         }
@@ -680,6 +698,7 @@ let examples =
         nameof ResourceApp, fun () -> ResourceApp().Run()
         nameof ParallelMapApp, fun () -> ParallelMapApp().Run()
         nameof StatefulActorApp, fun () -> StatefulActorApp().Run()
+        nameof SharedCounterApp, fun () -> SharedCounterApp().Run()
         nameof HttpClientApp, fun () -> HttpClientApp().Run()
     ]
 

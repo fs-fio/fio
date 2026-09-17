@@ -38,9 +38,9 @@ let joinAllFailFastTests =
                 let sentinel = -1
 
                 let effect =
-                    ((FIO.sleep (TimeSpan.FromMilliseconds 50.0) (fun _ -> sentinel)).FlatMap(fun () -> FIO.succeed 1)).Fork().FlatMap <| fun fiber1 ->
+                    ((FIO.sleep (TimeSpan.FromMilliseconds 50.0)).FlatMap(fun () -> FIO.succeed 1)).Fork().FlatMap <| fun fiber1 ->
                         (FIO.succeed 2).Fork().FlatMap <| fun fiber2 ->
-                            ((FIO.sleep (TimeSpan.FromMilliseconds 20.0) (fun _ -> sentinel)).FlatMap(fun () -> FIO.succeed 3)).Fork().FlatMap <| fun fiber3 ->
+                            ((FIO.sleep (TimeSpan.FromMilliseconds 20.0)).FlatMap(fun () -> FIO.succeed 3)).Fork().FlatMap <| fun fiber3 ->
                                 (FIO.joinAllFailFast [| fiber1.Context; fiber2.Context; fiber3.Context |]).FlatMap <| fun outcome ->
                                     fiber1.Join().FlatMap <| fun value1 ->
                                         fiber2.Join().FlatMap <| fun value2 ->
@@ -48,7 +48,7 @@ let joinAllFailFastTests =
                                                 outcome, value1 + value2 + value3
 
                 let bounded =
-                    effect.TimeoutFail sentinel (TimeSpan.FromSeconds 5.0) (fun _ -> sentinel)
+                    effect.TimeoutFail sentinel (TimeSpan.FromSeconds 5.0)
 
                 let result = runtime.Run(bounded).UnsafeSuccess()
 
@@ -59,12 +59,12 @@ let joinAllFailFastTests =
 
                 let effect =
                     (FIO.never<int, int>()).Fork().FlatMap <| fun neverFiber ->
-                        ((FIO.sleep (TimeSpan.FromMilliseconds 50.0) (fun _ -> 0)).FlatMap(fun () -> FIO.fail<int, int> 99)).Fork().FlatMap <| fun failingFiber ->
+                        ((FIO.sleep (TimeSpan.FromMilliseconds 50.0)).FlatMap(fun () -> FIO.fail<int, int> 99)).Fork().FlatMap <| fun failingFiber ->
                             (FIO.joinAllFailFast [| neverFiber.Context; failingFiber.Context |]).FlatMap <| fun outcome ->
                                 neverFiber.InterruptNow().Ignore().As outcome
 
                 let bounded =
-                    effect.TimeoutFail sentinel (TimeSpan.FromSeconds 5.0) (fun _ -> sentinel)
+                    effect.TimeoutFail sentinel (TimeSpan.FromSeconds 5.0)
 
                 let result = runtime.Run(bounded).UnsafeSuccess()
 
@@ -81,7 +81,7 @@ let joinAllFailFastTests =
                                     neverFiber.InterruptNow().Ignore().As outcome
 
                 let bounded =
-                    effect.TimeoutFail sentinel (TimeSpan.FromSeconds 5.0) (fun _ -> sentinel)
+                    effect.TimeoutFail sentinel (TimeSpan.FromSeconds 5.0)
 
                 let result = runtime.Run(bounded).UnsafeSuccess()
 
@@ -97,14 +97,14 @@ let joinAllFailFastTests =
 
                 let effect =
                     parkedJoin.Fork().FlatMap <| fun fiber ->
-                        (FIO.sleep (TimeSpan.FromMilliseconds 100.0) (fun _ -> sentinel)).FlatMap <| fun () ->
+                        (FIO.sleep (TimeSpan.FromMilliseconds 100.0)).FlatMap <| fun () ->
                             fiber.InterruptAwaitNow().FlatMap <| fun result ->
                                 match result with
                                 | Interrupted _ -> FIO.succeed true
                                 | _ -> FIO.succeed false
 
                 let bounded =
-                    effect.TimeoutFail sentinel (TimeSpan.FromSeconds 5.0) (fun _ -> sentinel)
+                    effect.TimeoutFail sentinel (TimeSpan.FromSeconds 5.0)
 
                 let result = runtime.Run(bounded).UnsafeSuccess()
 
@@ -119,11 +119,11 @@ let joinAllFailFastTests =
                 let sentinel = -1
 
                 let effect =
-                    ((FIO.sleep (TimeSpan.FromMilliseconds 50.0) (fun _ -> 0)).FlatMap(fun () -> FIO.fail<int, int> 5)).Fork().FlatMap <| fun fiber ->
+                    ((FIO.sleep (TimeSpan.FromMilliseconds 50.0)).FlatMap(fun () -> FIO.fail<int, int> 5)).Fork().FlatMap <| fun fiber ->
                         FIO.joinAllFailFast [| fiber.Context |]
 
                 let bounded =
-                    effect.TimeoutFail sentinel (TimeSpan.FromSeconds 5.0) (fun _ -> sentinel)
+                    effect.TimeoutFail sentinel (TimeSpan.FromSeconds 5.0)
 
                 let result = runtime.Run(bounded).UnsafeSuccess()
 
@@ -146,7 +146,7 @@ let joinAllFailFastTests =
                                         | ValueSome _ -> FIO.fail i
 
                 let bounded =
-                    (loop iterations).TimeoutFail sentinel (TimeSpan.FromSeconds 60.0) (fun _ -> sentinel)
+                    (loop iterations).TimeoutFail sentinel (TimeSpan.FromSeconds 60.0)
 
                 Expect.equal (runtime.Run(bounded).UnsafeSuccess()) () "every joinAllFailFast in the stress loop should settle with ValueNone")
 
@@ -166,7 +166,7 @@ let joinAllFailFastTests =
                         FIO.joinAllFailFast (fibers |> Array.map (fun fiber -> fiber.Context))
 
                 let bounded =
-                    effect.TimeoutFail sentinel (TimeSpan.FromSeconds 10.0) (fun _ -> sentinel)
+                    effect.TimeoutFail sentinel (TimeSpan.FromSeconds 10.0)
 
                 let result = runtime.Run(bounded).UnsafeSuccess()
 

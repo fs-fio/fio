@@ -223,6 +223,39 @@ let appTests =
                             Expect.equal exitCode 130 "Interrupted should return exit code 130"
                             Expect.contains (Seq.toList log) "outcome:Interrupted" "mapExitCode should see AppInterrupted")
 
+                    testCase "Run - a defect in the effect is a fatal error with the thrown exception"
+                    <| fun () ->
+                        silenceErr (fun () ->
+                            let log = ResizeArray()
+                            let seen = ref None
+
+                            let app =
+                                TestApp(
+                                    FIO.succeedWith (fun () -> failwith "effect defect"),
+                                    log,
+                                    onOutcome = fun outcome ->
+                                        FIO.succeedWith (fun () -> seen.Value <- Some outcome))
+
+                            let exitCode = app.Run()
+
+                            Expect.equal exitCode 2 "A defect is a crash, not an interruption"
+                            Expect.contains (Seq.toList log) "outcome:FatalError" "mapExitCode should see AppFatalError"
+
+                            match seen.Value with
+                            | Some(AppFatalError ex) -> Expect.equal ex.Message "effect defect" "onOutcome should see the thrown exception itself"
+                            | other -> failtest $"Expected AppFatalError but got {other}")
+
+                    testCase "Run - an invalid argument in the effect is a fatal error"
+                    <| fun () ->
+                        silenceErr (fun () ->
+                            let log = ResizeArray()
+                            let app = TestApp((FIO.sleep (TimeSpan.FromSeconds -1.0)).FlatMap(fun () -> FIO.succeed 1), log)
+
+                            let exitCode = app.Run()
+
+                            Expect.equal exitCode 2 "A rejected argument is a crash, not an interruption"
+                            Expect.contains (Seq.toList log) "outcome:FatalError" "mapExitCode should see AppFatalError")
+
                     testCase "Run - fatal error (runtime construction throws) returns exit code 2 by default"
                     <| fun () ->
                         silenceErr (fun () ->
@@ -369,6 +402,50 @@ let appTests =
 
                             Expect.contains (Seq.toList log) "onOutcomeRan:Interrupted" "onOutcome should observe AppInterrupted")
 
+                    testCase "Finalizers - run before onOutcome and onShutdown on success"
+                    <| fun () ->
+                        let log = ResizeArray()
+
+                        let effect: FIO<int, string> =
+                            (FIO.succeed 42)
+                                .Ensuring(FIO.attempt (fun () -> log.Add "finalizerRan") (fun (ex: exn) -> ex.Message))
+
+                        TestApp(effect, log).Run() |> ignore
+
+                        let order = Seq.toList log
+                        let finalizerIdx = List.findIndex (fun e -> e = "finalizerRan") order
+                        let outcomeIdx = List.findIndex (fun e -> e = "onOutcomeRan:Succeeded") order
+                        let shutdownIdx = List.findIndex (fun e -> e = "onShutdownRan") order
+
+                        Expect.isLessThan finalizerIdx outcomeIdx "the effect's finalizer should run before onOutcome"
+                        Expect.isLessThan finalizerIdx shutdownIdx "the effect's finalizer should run before onShutdown"
+
+                    testCase "Finalizers - run before onOutcome and onShutdown on Stop()"
+                    <| fun () ->
+                        silenceErr (fun () ->
+                            let log = ResizeArray()
+
+                            // Slow on purpose: the hooks must wait for it, not happen to run after it.
+                            let finalizer: FIO<unit, string> =
+                                (FIO.sleep (TimeSpan.FromMilliseconds 100.0))
+                                    .FlatMap(fun () -> FIO.attempt (fun () -> log.Add "finalizerRan") (fun (ex: exn) -> ex.Message))
+
+                            let effect: FIO<int, string> = (FIO.never ()).Ensuring finalizer
+
+                            let app = TestApp(effect, log)
+                            let runTask = app.RunAsync()
+                            Thread.Sleep 100
+                            app.Stop()
+                            runTask.Result |> ignore
+
+                            let order = Seq.toList log
+                            let finalizerIdx = List.findIndex (fun e -> e = "finalizerRan") order
+                            let outcomeIdx = List.findIndex (fun e -> e = "onOutcomeRan:Interrupted") order
+                            let shutdownIdx = List.findIndex (fun e -> e = "onShutdownRan") order
+
+                            Expect.isLessThan finalizerIdx outcomeIdx "the interrupted effect's finalizer should run before onOutcome"
+                            Expect.isLessThan finalizerIdx shutdownIdx "the interrupted effect's finalizer should run before onShutdown")
+
                     testCase "onOutcome - runs before onShutdown"
                     <| fun () ->
                         let log = ResizeArray()
@@ -471,6 +548,19 @@ let appTests =
 
                             Expect.equal exitCode 130 "Stop should cause interrupted exit code"
                             Expect.contains (Seq.toList log) "outcome:Interrupted" "Stop should yield AppInterrupted")
+
+                    testCase "Stop - a request that races startup still interrupts the effect"
+                    <| fun () ->
+                        silenceErr (fun () ->
+                            let log = ResizeArray()
+                            let app = TestApp(FIO.never (), log)
+
+                            let runTask = app.RunAsync()
+                            app.Stop()
+                            let exitCode = runTask.Result
+
+                            Expect.equal exitCode 130 "A Stop issued immediately after RunAsync must not be lost"
+                            Expect.contains (Seq.toList log) "outcome:Interrupted" "The effect should have been interrupted")
 
                     testCase "Stop - no-op when not running"
                     <| fun () ->

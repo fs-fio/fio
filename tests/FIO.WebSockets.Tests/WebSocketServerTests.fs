@@ -48,6 +48,27 @@ let webSocketServerTests =
             testList
                 "Accept"
                 [
+                    testAllRuntimes "accept yields the peer's endpoints" (fun runtime ->
+                        withTestServer
+                            (fun ws ->
+                                fio {
+                                    match ws.RemoteEndPoint, ws.LocalEndPoint with
+                                    | Some(:? Net.IPEndPoint as remote), Some(:? Net.IPEndPoint as local) ->
+                                        Expect.isTrue (Net.IPAddress.IsLoopback remote.Address) "The peer should be loopback"
+                                        Expect.isTrue (Net.IPAddress.IsLoopback local.Address) "The local address should be loopback"
+                                        Expect.notEqual remote.Port 0 "The peer's port should be known"
+                                    | remote, local -> failtest $"Expected IP endpoints but got {remote} and {local}"
+
+                                    do! ws.SendText "seen"
+                                })
+                            (fun port ->
+                                fio {
+                                    let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+                                    let! _ = ws.ReceiveMessage()
+                                    do! ws.Close()
+                                })
+                            runtime)
+
                     testAllRuntimes "accept receives client connection" (fun runtime ->
                         withTestServer
                             (fun ws -> fio { do! ws.SendText "from server" })

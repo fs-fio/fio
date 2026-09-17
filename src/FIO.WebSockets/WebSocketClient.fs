@@ -25,16 +25,16 @@ module WebSocketClient =
             let! clientSocket =
                 FIO.attempt
                     (fun () -> new Net.WebSockets.ClientWebSocket())
-                    WsError.fromException
+                    WsError.connectionFailed
 
             let establish =
                 fio {
                     let! connectTask =
                         FIO.attempt
                             (fun () -> clientSocket.ConnectAsync(uri, cancelToken))
-                            WsError.fromException
-                    do! FIO.awaitUnitTask connectTask WsError.fromException
-                    return new WebSocket(clientSocket, config)
+                            WsError.connectionFailed
+                    do! FIO.awaitUnitTask connectTask WsError.connectionFailed
+                    return new WebSocket(clientSocket, config, None, None)
                 }
 
             return! establish.CatchAll(fun error ->
@@ -55,7 +55,7 @@ module WebSocketClient =
     /// Connects to the given URL string using the given configuration and cancellation token.
     let connectString (url: string) (config: WebSocketConfig) (cancelToken: CancellationToken) =
         fio {
-            let! uri = FIO.attempt (fun () -> Uri url) WsError.fromException
+            let! uri = FIO.attempt (fun () -> Uri url) WsError.connectionFailed
             return! connect uri config cancelToken
         }
 
@@ -79,8 +79,7 @@ module WebSocketClient =
             }
 
         let release (ws: WebSocket) =
-            (ws.Close(Net.WebSockets.WebSocketCloseStatus.NormalClosure, "Closing connection")
-                .CatchAll(logAndSuppress "websocket close"))
+            (ws.CloseIfOpen())
                 .Ensuring(
                     (FIO.attempt (fun () -> (ws :> IDisposable).Dispose()) WsError.fromException)
                         .CatchAll(logAndSuppress "websocket disposal"))
@@ -90,6 +89,6 @@ module WebSocketClient =
     /// Connects to the given URL string, runs an action with the open connection, then closes it.
     let withConnectionString<'A> (url: string) (action: WebSocket -> FIO<'A, WsError>) =
         fio {
-            let! uri = FIO.attempt (fun () -> Uri url) WsError.fromException
+            let! uri = FIO.attempt (fun () -> Uri url) WsError.connectionFailed
             return! withConnection uri WebSocketConfig.defaultConfig action
         }

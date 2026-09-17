@@ -117,7 +117,7 @@ let startTestListener () =
             | Ok result -> return result
             | Error error ->
                 if remaining > 0 then
-                    do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) WsError.fromException
+                    do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                     return! attempt (remaining - 1)
                 else
                     return! FIO.fail error
@@ -127,7 +127,7 @@ let startTestListener () =
 
 let private portConflict (error: WsError) =
     match error with
-    | GeneralError message -> message.Contains "conflicts with an existing registration"
+    | ConnectionFailed message -> message.Contains "conflicts with an existing registration"
     | _ -> false
 
 let withServedUrl (startServer: string -> FIO<unit, WsError>) (action: string -> FIO<'A, WsError>) =
@@ -157,7 +157,7 @@ let withServedUrl (startServer: string -> FIO<unit, WsError>) (action: string ->
 
 let connectWhenListening (url: string) =
     (WebSocketClient.connectDefault url)
-        .Retry 60 (fun (_, _, _) -> FIO.sleep (TimeSpan.FromMilliseconds 50.0) WsError.fromException)
+        .Retry 60 (fun (_, _, _) -> FIO.sleep (TimeSpan.FromMilliseconds 50.0))
 
 let withTestServer (handler: WebSocket -> FIO<unit, WsError>) (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
     let effect =

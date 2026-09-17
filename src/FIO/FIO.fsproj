@@ -20,6 +20,7 @@
         <Compile Include="DSL\Exceptions.fs" />
         <Compile Include="DSL\Core.fs" />
         <Compile Include="DSL\Factories.fs" />
+        <Compile Include="DSL\Ref.fs" />
         <Compile Include="DSL\Extensions.fs" />
         <Compile Include="DSL\Operators.fs" />
         <Compile Include="DSL\CE.fs" />

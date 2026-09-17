@@ -79,8 +79,22 @@ let webSocketClientTests =
                         let result = runtime.Run(effect).UnsafeSuccess()
 
                         match result with
-                        | Some(GeneralError _) -> ()
-                        | other -> failtest $"Expected GeneralError but got {other}")
+                        | Some(ConnectionFailed _) -> ()
+                        | other -> failtest $"Expected ConnectionFailed but got {other}")
+
+                    testAllRuntimes "connect yields a socket without endpoints" (fun runtime ->
+                        withTestServer
+                            noopHandler
+                            (fun port ->
+                                fio {
+                                    let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+
+                                    Expect.isNone ws.RemoteEndPoint "A client socket does not know a resolved remote endpoint"
+                                    Expect.isNone ws.LocalEndPoint "A client socket does not know its local endpoint"
+
+                                    do! ws.Close()
+                                })
+                            runtime)
                 ]
 
             testList
@@ -106,6 +120,51 @@ let webSocketClientTests =
                                             })
 
                                     Expect.isTrue wasOpen "Should have been open during action"
+                                })
+                            runtime)
+
+                    // Sequenced: it captures the process-global stderr, which a parallel test's log line could pollute.
+                    testSequenced (
+                        testAllRuntimes "withConnection stays quiet when an interrupted receive aborted the socket" (fun runtime ->
+                            let originalErr = Console.Error
+                            use captured = new IO.StringWriter()
+                            Console.SetError captured
+
+                            try
+                                withTestServer
+                                    noopHandler
+                                    (fun port ->
+                                        fio {
+                                            let uri = Uri $"ws://localhost:{port}/"
+
+                                            let! winner =
+                                                WebSocketClient.withConnection uri WebSocketConfig.defaultConfig (fun ws ->
+                                                    (ws.ReceiveMessage().Map(fun _ -> "receiver"))
+                                                        .RaceFirst(FIO.succeed "quit"))
+
+                                            Expect.equal winner "quit" "The immediate effect should win the race"
+                                        })
+                                    runtime
+                            finally
+                                Console.SetError originalErr
+
+                            Expect.equal (captured.ToString()) "" "Releasing an aborted socket must not log to stderr"))
+
+                    testAllRuntimes "withConnection release is bounded by SendTimeout when the peer never answers the close" (fun runtime ->
+                        withTestServer
+                            (fun _ -> FIO.never ())
+                            (fun port ->
+                                fio {
+                                    let uri = Uri $"ws://localhost:{port}/"
+                                    let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withSendTimeout 500
+                                    let clock = Diagnostics.Stopwatch.StartNew()
+
+                                    do! WebSocketClient.withConnection uri config (fun _ -> FIO.unit ())
+
+                                    Expect.isLessThan
+                                        clock.Elapsed.TotalSeconds
+                                        10.0
+                                        "A peer that never reads must not hold the release beyond the send timeout"
                                 })
                             runtime)
 

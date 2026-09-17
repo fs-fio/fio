@@ -6,9 +6,15 @@ open System.Threading.Tasks
 open System.Threading.Channels
 open System.Collections.Generic
 open System.Collections.Concurrent
+open System.Runtime.ExceptionServices
 
+// The mapper for effects that cannot fail: a throwing mapper becomes a Defect in the interpreter. It
+// rethrows via ExceptionDispatchInfo because a plain raise would reset the original stack trace.
 type internal Rethrow<'A>() =
-    static let instance: exn -> 'A = fun ex -> raise ex
+    static let instance: exn -> 'A =
+        fun ex ->
+            ExceptionDispatchInfo.Capture(ex).Throw()
+            Unchecked.defaultof<'A>
     static member Instance = instance
 
 [<Struct>]

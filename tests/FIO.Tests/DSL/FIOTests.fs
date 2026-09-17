@@ -184,7 +184,7 @@ let fioTests =
                                         .Ensuring(FIO.attempt (fun () -> flag.Value <- true) id)
                                         .Fork()
                                 do! (fiber.Await()).Unit()
-                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) id
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                             }
 
                         runtime.Run(effect).UnsafeSuccess() |> ignore
@@ -198,14 +198,14 @@ let fioTests =
                         let effect =
                             fio {
                                 let! fiber =
-                                    (FIO.sleep (TimeSpan.FromSeconds 60.0) id)
+                                    (FIO.sleep (TimeSpan.FromSeconds 60.0))
                                         .Ensuring(FIO.attempt (fun () -> flag.Value <- true) id)
                                         .Fork()
 
-                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) id
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                                 do! fiber.InterruptNow ()
                                 do! (fiber.Await()).Unit()
-                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) id
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                             }
 
                         runtime.Run(effect).UnsafeSuccess() |> ignore
@@ -220,15 +220,15 @@ let fioTests =
                         let effect =
                             fio {
                                 let! fiber =
-                                    (FIO.sleep(TimeSpan.FromSeconds 60.0) id)
+                                    (FIO.sleep (TimeSpan.FromSeconds 60.0))
                                         .Ensuring(FIO.attempt (fun () -> flag1.Value <- true) id)
                                         .Ensuring(FIO.attempt (fun () -> flag2.Value <- true) id)
                                         .Fork()
 
-                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) id
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                                 do! fiber.InterruptNow ()
                                 do! (fiber.Await()).Unit()
-                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) id
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                             }
 
                         runtime.Run(effect).UnsafeSuccess() |> ignore
@@ -250,10 +250,10 @@ let fioTests =
                                         .Ensuring(FIO.attempt (fun () -> flag.Value <- true) id)
                                         .Fork()
 
-                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) id
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                                 do! fiber.InterruptNow ()
                                 do! (fiber.Await()).Unit()
-                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) id
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                             }
 
                         runtime.Run(effect).UnsafeSuccess() |> ignore
@@ -266,7 +266,7 @@ let fioTests =
 
                         let effect =
                             fio {
-                                let! target = (FIO.sleep (TimeSpan.FromSeconds 60.0) id).Fork()
+                                let! target = (FIO.sleep (TimeSpan.FromSeconds 60.0)).Fork()
 
                                 let! joiner =
                                     target
@@ -274,10 +274,10 @@ let fioTests =
                                         .Ensuring(FIO.attempt (fun () -> flag.Value <- true) id)
                                         .Fork()
 
-                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) id
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                                 do! joiner.InterruptNow ()
                                 do! (joiner.Await()).Unit()
-                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) id
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                             }
 
                         runtime.Run(effect).UnsafeSuccess() |> ignore
@@ -299,10 +299,10 @@ let fioTests =
                         let effect =
                             fio {
                                 let! fiber =
-                                    (FIO.sleep(TimeSpan.FromSeconds 60.0) id)
+                                    (FIO.sleep (TimeSpan.FromSeconds 60.0))
                                         .Ensuring(FIO.fail (exn "finalizer error")).Fork()
 
-                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) id
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                                 do! fiber.InterruptNow ()
                                 return! fiber.Join()
                             }

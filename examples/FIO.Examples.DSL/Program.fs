@@ -119,7 +119,7 @@ let interruptFiber () =
     let longRunning =
         fio {
             do! Console.printLine "Started long-running task for 10 seconds." id
-            do! FIO.sleep (TimeSpan.FromSeconds 10.0) id
+            do! FIO.sleep (TimeSpan.FromSeconds 10.0)
             do! Console.printLine "Long-running task completed!" id
         }
 

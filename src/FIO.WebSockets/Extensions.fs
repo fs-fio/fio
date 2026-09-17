@@ -23,7 +23,7 @@ module WebSocketExtensions =
                 let! jsonString =
                     FIO.attempt
                         (fun () -> JsonSerializer.Serialize(value, opts))
-                        WsError.fromException
+                        WsError.codecError
 
                 do! this.SendText(jsonString, cancelToken)
             }
@@ -42,17 +42,15 @@ module WebSocketExtensions =
                 | Frame(Text json) ->
                     return! FIO.attempt
                         (fun () -> JsonSerializer.Deserialize<'A>(json, opts))
-                        WsError.fromException
+                        WsError.codecError
                 | Frame(Binary data) ->
                     return! FIO.attempt
                         (fun () -> JsonSerializer.Deserialize<'A>(ReadOnlySpan<byte> data, opts))
-                        WsError.fromException
+                        WsError.codecError
                 | Frame(Close _) ->
-                    return! FIO.fail (WsError.fromException (
-                        Exception "Connection closed while waiting for JSON"))
+                    return! FIO.fail (Closed "Connection closed while waiting for JSON")
                 | ConnectionClosed(status, desc) ->
-                    return! FIO.fail (WsError.fromException (
-                        Exception $"Connection closed. Status: {status}, Description: {desc}"))
+                    return! FIO.fail (Closed(WsError.describeClose status desc))
             }
 
         /// Sends a text message.
@@ -66,14 +64,11 @@ module WebSocketExtensions =
                 | Frame(Text text) ->
                     return text
                 | Frame(Binary _) ->
-                    return! FIO.fail (WsError.fromException
-                        (Exception "Expected text frame, got binary"))
+                    return! FIO.fail (CodecError "Expected text frame, got binary")
                 | Frame(Close _) ->
-                    return! FIO.fail (WsError.fromException
-                        (Exception "Expected text frame, got close frame"))
+                    return! FIO.fail (Closed "Connection closed while waiting for text")
                 | ConnectionClosed(status, desc) ->
-                    return! FIO.fail (WsError.fromException (
-                        Exception $"Connection closed. Status: {status}, Description: {desc}"))
+                    return! FIO.fail (Closed(WsError.describeClose status desc))
             }
 
         /// Sends a binary message.
@@ -87,12 +82,9 @@ module WebSocketExtensions =
                 | Frame(Binary data) ->
                     return data
                 | Frame(Text _) ->
-                    return! FIO.fail
-                        (WsError.fromException (Exception "Expected binary frame, got text"))
+                    return! FIO.fail (CodecError "Expected binary frame, got text")
                 | Frame(Close _) ->
-                    return! FIO.fail
-                        (WsError.fromException (Exception "Expected binary frame, got close frame"))
+                    return! FIO.fail (Closed "Connection closed while waiting for binary")
                 | ConnectionClosed(status, desc) ->
-                    return! FIO.fail (WsError.fromException (
-                        Exception $"Connection closed. Status: {status}, Description: {desc}"))
+                    return! FIO.fail (Closed(WsError.describeClose status desc))
             }

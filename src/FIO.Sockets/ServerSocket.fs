@@ -135,7 +135,7 @@ module ServerSocket =
                     fio {
                         do! logAndSuppress "accept loop iteration" error
                         do! slots.Write()
-                        do! FIO.sleep (System.TimeSpan.FromMilliseconds 25.0) SocketError.fromException
+                        do! FIO.sleep (System.TimeSpan.FromMilliseconds 25.0)
                     })
 
             return! step.Forever()

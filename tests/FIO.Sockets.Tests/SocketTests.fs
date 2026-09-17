@@ -222,7 +222,7 @@ let socketTests =
                                 fio {
                                     let! frame = (Codec.lengthPrefixed Codec.string).Encode "hello world"
                                     do! socket.SendBytes frame.[0..2]
-                                    do! FIO.sleep (System.TimeSpan.FromMilliseconds 50.0) SocketError.fromException
+                                    do! FIO.sleep (System.TimeSpan.FromMilliseconds 50.0)
                                     do! socket.SendBytes frame.[3..]
                                 })
                             (fun port ->
@@ -384,7 +384,7 @@ let socketTests =
                     testAllRuntimes "ReceiveBytes times out as TimeoutError" (fun runtime ->
                         withTestServer
                             (fun _socket ->
-                                fio { do! FIO.sleep (System.TimeSpan.FromMilliseconds 3000.0) SocketError.fromException })
+                                fio { do! FIO.sleep (System.TimeSpan.FromMilliseconds 3000.0) })
                             (fun port ->
                                 fio {
                                     let! baseConfig = SocketConfig.create "127.0.0.1" port

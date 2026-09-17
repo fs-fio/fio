@@ -11,7 +11,7 @@ FIO is a type-safe, purely functional effect system for F#. IO monad + fibers (g
 
 **Target:** .NET 10, F# 10, `.slnx` solution format (`FIO.slnx`). SDK pinned to `10.0.400` via `global.json` (`rollForward: latestMinor`).
 
-Repository: <https://github.com/fs-fio/fio> · License: MIT · Baseline version: `0.3.0-beta` (single source of truth in `Directory.Build.props`).
+Repository: <https://github.com/fs-fio/fio> · License: MIT · Baseline version: `0.4.0-beta` (single source of truth in `Directory.Build.props`).
 
 ## Build Commands
 
@@ -65,13 +65,15 @@ Core DSL (`src/FIO/DSL/`), compile order matters:
 - `Utilities.fs` - Internal boxing/atomics helpers (`boxOnError`, `boxFunc`, `boxTask`, `boxVoidTask`; `tryClaim`, `tryTransition`, `transitionFrom`, `initIfNull`)
 - `Exceptions.fs` - `InterruptionCause` DU and `FiberInterruptedException`
 - `Core.fs` - `FIO<'A,'E>` DU, `Fiber<'A,'E>`, `Channel<'A>`, `FiberContext`, `WorkItem`, `ContStack`, `JoinAllLatch`. Also hosts the type's primitive instance members: `FlatMap`, `CatchAll`, `Ensuring`, `Fork`, and the transformation cluster `Map` / `MapError` / `MapBoth` / `Result` / `Option` / `Choice` (derived purely from `Success`/`Failure` constructors + the four primitives).
-- `Factories.fs` - `FIO.succeed`, `FIO.fail`, `FIO.attempt`, `FIO.suspend`, `FIO.sleep`, `FIO.collectAll`, `FIO.collectAllPar`, `FIO.forkTask`, etc.
+- `Factories.fs` - `FIO.succeed`, `FIO.fail`, `FIO.attempt`, `FIO.succeedWith` (thunk that must not throw; a throw is a `Defect`), `FIO.suspend`, `FIO.sleep`, `FIO.collectAll`, `FIO.collectAllPar`, `FIO.forkTask`, etc.
+- `Ref.fs` - `Ref<'A>`: atomic reference cell (boxed CAS), `Get`/`Set`/`Update`/`Modify`/`GetAndSet`/`GetAndUpdate`/`UpdateAndGet` plus `Unsafe*` accessors for non-effect code. Built on `FIO.succeedWith`; no interpreter support needed
 - `Extensions.fs` - Instance methods built on the Core cluster (`Zip`, `Tap`, `Race`, `RaceFirst`, `Retry`, `Timeout`, `OrElse`, etc.). The parallel `ZipPar`/`Race` family is fail-fast — built on the internal `JoinFirst` primitive, losers are interrupted
 - `Operators.fs` - Infix operators (`>>=`, `<!>`, `<&>`, `<|>`, etc.), in an `[<AutoOpen>]` module
 - `CE.fs` - `fio { }` computation expression builder
 
 Console I/O (`src/FIO/Console.fs`):
-- Namespace `FIO.Console`, module `Console` (`[<RequireQualifiedAccess>]`). Functions wrap `System.Console` via `FIO.attempt`; each takes an `onError: exn -> 'E` argument. `print`/`printLine` take a `Printf.TextWriterFormat<unit>` (formatted output); `write`/`writeLine` take a plain `string`; plus `readLine` and `clear`.
+- Namespace `FIO.Console`, module `Console` (`[<RequireQualifiedAccess>]`). Output functions wrap `System.Console` via `FIO.attempt`; every function takes an `onError: exn -> 'E` argument because console I/O genuinely throws. `print`/`printLine` take a `Printf.TextWriterFormat<unit>` (formatted output); `write`/`writeLine` take a plain `string`; plus `clear`.
+- `readLine` and `readKey` go through one process-global background stdin reader thread (`StdinReader`, private) and await a `TaskCompletionSource`, so a waiting fiber is interruptible and no evaluation worker is blocked. Input that arrives for an interrupted read is stashed and delivered to the next read of the same kind — tests that abandon a read must release and drain it (`withBlockingStdIn` in `ConsoleTests.fs`). `readKey` fails through `onError` when stdin is redirected, and `readLine` at end of input (`EndOfStreamException`).
 
 Runtime (`src/FIO/Runtime/`):
 - `Runtime.fs` - `FIORuntime` (abstract base), `WorkerConfig`, `ContStackPool`, `WorkItemPool`
@@ -84,7 +86,7 @@ Runtime (`src/FIO/Runtime/`):
 - `DefaultRuntime.fs` - Type alias: `DefaultRuntime = WorkStealingRuntime`
 
 Framework (`src/FIO/App.fs`):
-- `App.fs` - `FIOApp<'A,'E>` abstract base class. 7-member surface: `effect`, `runtime`, `onOutcome`, `onOutcomeTimeout`, `onShutdown`, `onShutdownTimeout`, `mapExitCode` over `AppResult<'A,'E>` (`AppSucceeded`/`AppFailed`/`AppInterrupted`/`AppFatalError`).
+- `App.fs` - `FIOApp<'A,'E>` abstract base class. 7-member surface: `effect`, `runtime`, `onOutcome`, `onOutcomeTimeout`, `onShutdown`, `onShutdownTimeout`, `mapExitCode` over `AppResult<'A,'E>` (`AppSucceeded`/`AppFailed`/`AppInterrupted`/`AppFatalError`). The effect runs as a child of a root fiber that awaits it (`scoped`): an interrupted fiber publishes before its finalizers run, but the root *completes*, and completion waits for the child to unwind — that is what guarantees every finalizer has run before `onOutcome`/`onShutdown` and before the runtime is disposed. `Stop()` and the signal handlers interrupt the child; a request that races startup is applied when the child is forked. An interrupted child maps by cause: `ExplicitInterrupt`/`ParentInterrupted` → `AppInterrupted` (130); `Defect` → `AppFatalError` with the thrown exception, `InvalidArgument`/`ResourceExhaustion` → `AppFatalError` (2).
 
 Extension libs expose `[<RequireQualifiedAccess>]` modules named after their domain (e.g. `SocketClient.connect`, `ServerSocket.serve`, `WebSocketClient.connectDefault`, `Routes`, `Codec`). Type-extension modules (`SocketExtensions`, `WebSocketExtensions`, `SimpleRoutes`) are **opt-in** — they are not `[<AutoOpen>]` and must be `open`ed explicitly.
 
@@ -142,7 +144,7 @@ Worker config fields: **EvaluationWorkers** (worker count), **EvaluationSteps** 
 
 ### Concurrency Primitives
 
-Concurrency is built on the core types: **Fiber<'A,'E>** (green threads via `.Fork()`/`.Join()`) and **Channel<'A>** (typed message passing). There are currently no higher-level primitive modules (Promise/Ref/Semaphore); `Console` is the only library module.
+Concurrency is built on the core types: **Fiber<'A,'E>** (green threads via `.Fork()`/`.Join()`), **Channel<'A>** (typed message passing) and **Ref<'A>** (atomic reference cell, `src/FIO/DSL/Ref.fs`). There are no Promise/Semaphore primitives yet; `Console` is the only library module.
 
 ### Operator Reference
 
@@ -233,7 +235,7 @@ Macro benchmarks live in `benchmarks/FIO.Benchmarks/` (BenchmarkDotNet 0.15.8). 
   - `FIO.Sockets.Tests` — TCP sockets, flat structure with `testAllRuntimes` + `withTestServer`/`withTestEchoServer` helpers
   - `FIO.WebSockets.Tests` — WebSockets, flat structure
   - `FIO.Http.Tests` — HTTP server tests
-- Core tests use `Generators` type for FsCheck Arb across all 4 runtimes; extension tests use `testAllRuntimes` helper wrapping `testSequenced`
+- Core tests use `Generators` type for FsCheck Arb across all 4 runtimes; extension tests use a `testAllRuntimes` helper. Only the Sockets helper wraps `testSequenced`; the WebSockets and Http suites run in parallel, so a test that touches process-global state (`Console.SetError`, `Console.SetIn`, …) must be wrapped in `testSequenced` explicitly
 - `InternalsVisibleTo("FIO.Tests")` is set on the core project only (extension libs do not expose internals to tests)
 - All WebSocket test files are enabled in the `.fsproj` (including `WebSocketServerTests.fs`); the suite passes (no hang)
 - Stack-safety canaries live in `tests/FIO.Tests/DSL/FIOTests.fs` — the four "Stack safety - deep left-chained FlatMap/CatchAll/Ensuring/MapBoth" tests at depth 10000 are load-bearing for the iterative-flattening design of `UpcastResult`/`UpcastError`/`UpcastBoth`. Do not "simplify" those methods to plain recursion.

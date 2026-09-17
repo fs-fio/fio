@@ -73,6 +73,3 @@ module FsCheckProperties =
             maxTest = 100
             arbitrary = [ typeof<Generators> ]
         }
-
-    let fsCheckConfigFast =
-        { fsCheckConfig with maxTest = 25 }

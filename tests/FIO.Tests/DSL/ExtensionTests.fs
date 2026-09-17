@@ -1036,7 +1036,7 @@ let extensionTests =
 
                         let left: FIO<int, string> =
                             FIO.suspend (fun () ->
-                                (rendezvous.Read().Timeout (TimeSpan.FromSeconds 3.0) (fun ex -> ex.Message))
+                                (rendezvous.Read().Timeout (TimeSpan.FromSeconds 3.0))
                                     .Map(fun signalled ->
                                         overlapped.Value <- Option.isSome signalled
                                         1))
@@ -1057,7 +1057,7 @@ let extensionTests =
 
                         let effect =
                             (FIO.never<int, int>().ZipPar(FIO.fail<int, int> error))
-                                .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0) (fun _ -> sentinel)
+                                .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0)
 
                         let result = runtime.Run(effect).UnsafeError()
 
@@ -1069,7 +1069,7 @@ let extensionTests =
 
                         let effect =
                             ((FIO.fail<int, int> error).ZipPar(FIO.never<int, int>()))
-                                .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0) (fun _ -> sentinel)
+                                .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0)
 
                         let result = runtime.Run(effect).UnsafeError()
 
@@ -1081,12 +1081,12 @@ let extensionTests =
                         let mutable completedNormally = false
 
                         let sibling =
-                            (FIO.sleep (TimeSpan.FromSeconds 10.0) (fun _ -> sentinel))
+                            (FIO.sleep (TimeSpan.FromSeconds 10.0))
                                 .FlatMap(fun () -> FIO.attempt (fun () -> completedNormally <- true) (fun _ -> sentinel))
 
                         let effect =
                             ((FIO.fail<int, int> error).ZipPar sibling)
-                                .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0) (fun _ -> sentinel)
+                                .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0)
 
                         let result = runtime.Run(effect).UnsafeError()
 
@@ -1135,7 +1135,7 @@ let extensionTests =
 
                         let effect =
                             ((FIO.succeed value).ZipParError(FIO.never<int, int>()))
-                                .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0) (fun _ -> sentinel)
+                                .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0)
 
                         let result = runtime.Run(effect).UnsafeSuccess()
 
@@ -1147,7 +1147,7 @@ let extensionTests =
 
                         let effect =
                             ((FIO.never<int, int>()).ZipParError(FIO.succeed value))
-                                .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0) (fun _ -> sentinel)
+                                .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0)
 
                         let result = runtime.Run(effect).UnsafeSuccess()
 
@@ -1159,12 +1159,12 @@ let extensionTests =
                         let mutable completedNormally = false
 
                         let sibling =
-                            (FIO.sleep (TimeSpan.FromSeconds 10.0) (fun _ -> 0))
+                            (FIO.sleep (TimeSpan.FromSeconds 10.0))
                                 .FlatMap(fun () -> FIO.attempt (fun () -> completedNormally <- true; 0) (fun _ -> 0))
 
                         let effect =
                             ((FIO.succeed value).ZipParError sibling)
-                                .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0) (fun _ -> sentinel)
+                                .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0)
 
                         let result = runtime.Run(effect).UnsafeSuccess()
 
@@ -1788,7 +1788,7 @@ let extensionTests =
                                 (fun () -> count <- count + 1)
                                 id
 
-                        let bounded = effect.Forever().Timeout (TimeSpan.FromMilliseconds 100.0) id
+                        let bounded = effect.Forever().Timeout (TimeSpan.FromMilliseconds 100.0)
 
                         let result =
                             runtime.Run(bounded).UnsafeSuccess()
@@ -1809,7 +1809,7 @@ let extensionTests =
                         let sw = Stopwatch.StartNew()
 
                         let result =
-                            runtime.Run(effect.Delay (TimeSpan.FromMilliseconds 50.0) id).UnsafeSuccess()
+                            runtime.Run(effect.Delay (TimeSpan.FromMilliseconds 50.0)).UnsafeSuccess()
 
                         sw.Stop()
 
@@ -1821,12 +1821,12 @@ let extensionTests =
                         let effect = FIO.fail (exn "boom")
 
                         let result =
-                            runtime.Run(effect.Delay (TimeSpan.FromMilliseconds 10.0) id).UnsafeError()
+                            runtime.Run(effect.Delay (TimeSpan.FromMilliseconds 10.0)).UnsafeError()
 
                         Expect.equal result.Message "boom" "Delay should propagate the underlying error after sleeping")
 
                     testAllRuntimes "Timeout - returns Some on fast effect" (fun runtime ->
-                        let effect = FIO.succeed(42).Timeout (TimeSpan.FromSeconds 5.0) id
+                        let effect = FIO.succeed(42).Timeout (TimeSpan.FromSeconds 5.0)
 
                         let result =
                             runtime.Run(effect).UnsafeSuccess()
@@ -1835,10 +1835,10 @@ let extensionTests =
 
                     testAllRuntimes "Timeout - returns None on slow effect" (fun runtime ->
                         let slowEff =
-                            (FIO.sleep (TimeSpan.FromSeconds 10.0) id)
+                            (FIO.sleep (TimeSpan.FromSeconds 10.0))
                                 .FlatMap(fun () -> FIO.succeed 42)
 
-                        let effect = slowEff.Timeout (TimeSpan.FromMilliseconds 50.0) id
+                        let effect = slowEff.Timeout (TimeSpan.FromMilliseconds 50.0)
 
                         let result =
                             runtime.Run(effect).UnsafeSuccess()
@@ -1850,7 +1850,7 @@ let extensionTests =
                         let effect = FIO.succeed value
 
                         let result =
-                            runtime.Run(effect.TimeoutFail timeoutError (TimeSpan.FromSeconds 5.0) (fun ex -> ex.Message)).UnsafeSuccess()
+                            runtime.Run(effect.TimeoutFail timeoutError (TimeSpan.FromSeconds 5.0)).UnsafeSuccess()
 
                         Expect.equal result value "TimeoutFail should return success when effect completes in time"
 
@@ -1859,7 +1859,7 @@ let extensionTests =
                         let effect = FIO.succeed value
 
                         let result =
-                            runtime.Run(effect.TimeoutTo defaultValue (fun v -> v * 2) (TimeSpan.FromSeconds 5.0) (fun ex -> ex.Message)).UnsafeSuccess()
+                            runtime.Run(effect.TimeoutTo defaultValue (fun v -> v * 2) (TimeSpan.FromSeconds 5.0)).UnsafeSuccess()
 
                         Expect.equal result (value * 2) "TimeoutTo should apply onSuccess when effect completes in time"
 
@@ -1868,10 +1868,10 @@ let extensionTests =
                         let runtime = new WorkStealingRuntime() :> FIORuntime
                         let defaultValue = -1
                         let effect =
-                            (FIO.sleep (TimeSpan.FromSeconds 5.0) (fun ex -> ex.Message)).FlatMap(fun () -> FIO.succeed 0)
+                            (FIO.sleep (TimeSpan.FromSeconds 5.0)).FlatMap(fun () -> FIO.succeed 0)
 
                         let result =
-                            runtime.Run(effect.TimeoutTo defaultValue (fun v -> v * 2) (TimeSpan.FromMilliseconds 50.0) (fun ex -> ex.Message)).UnsafeSuccess()
+                            runtime.Run(effect.TimeoutTo defaultValue (fun v -> v * 2) (TimeSpan.FromMilliseconds 50.0)).UnsafeSuccess()
 
                         Expect.equal result defaultValue "TimeoutTo should return the default value when timeout fires"
 
@@ -1879,14 +1879,14 @@ let extensionTests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.succeed value
 
-                        let duration, result = runtime.Run(effect.Timed id).UnsafeSuccess()
+                        let duration, result = runtime.Run(effect.Timed ()).UnsafeSuccess()
 
                         Expect.equal result value "Timed should return the result"
                         Expect.isGreaterThanOrEqual duration TimeSpan.Zero "Timed duration should be >= 0"
 
                     testAllRuntimes "RaceFirst - returns first completing effect" (fun runtime ->
                         let fast = FIO.succeed 1
-                        let slow = (FIO.sleep (TimeSpan.FromSeconds 10.0) id).FlatMap(fun () -> FIO.succeed 2)
+                        let slow = (FIO.sleep (TimeSpan.FromSeconds 10.0)).FlatMap(fun () -> FIO.succeed 2)
                         let effect = fast.RaceFirst slow
 
                         let result =
@@ -1897,7 +1897,7 @@ let extensionTests =
                     testAllRuntimes "RaceFirst - propagates error from first completing" (fun runtime ->
                         let error = exn "fast error"
                         let fast = FIO.fail error
-                        let slow = (FIO.sleep (TimeSpan.FromSeconds 10.0) id).FlatMap(fun () -> FIO.succeed 2)
+                        let slow = (FIO.sleep (TimeSpan.FromSeconds 10.0)).FlatMap(fun () -> FIO.succeed 2)
                         let effect = fast.RaceFirst slow
 
                         let result = runtime.Run(effect).UnsafeError()
@@ -1906,10 +1906,10 @@ let extensionTests =
 
                     testAllRuntimes "RaceFirst - an interruption that settles first wins the race" (fun runtime ->
                         let interruptedSide =
-                            (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id)
+                            (FIO.sleep (TimeSpan.FromMilliseconds 50.0))
                                 .FlatMap(fun () -> FIO.interrupt ExplicitInterrupt "settled first")
                         let slowSuccess =
-                            (FIO.sleep (TimeSpan.FromSeconds 10.0) id).FlatMap(fun () -> FIO.succeed 2)
+                            (FIO.sleep (TimeSpan.FromSeconds 10.0)).FlatMap(fun () -> FIO.succeed 2)
                         let effect = interruptedSide.RaceFirst slowSuccess
 
                         let result = runtime.Run(effect).UnsafeResult()
@@ -1921,14 +1921,14 @@ let extensionTests =
                     testAllRuntimes "RaceFirst - loser's Ensuring finalizer runs after losing the race" (fun runtime ->
                         let finalized = Channel<int>()
                         let loser = (FIO.never<int, exn>()).Ensuring((finalized.Write 1).Unit())
-                        let winner = (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).FlatMap(fun () -> FIO.succeed 42)
+                        let winner = (FIO.sleep (TimeSpan.FromMilliseconds 50.0)).FlatMap(fun () -> FIO.succeed 42)
 
                         let effect =
                             (winner.RaceFirst loser).FlatMap <| fun value ->
                                 finalized.Read().Map <| fun _ -> value
 
                         let bounded =
-                            effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0) id
+                            effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
 
                         let result = runtime.Run(bounded).UnsafeSuccess()
 
@@ -1937,11 +1937,11 @@ let extensionTests =
                     testAllRuntimes "Race - a failed first-settler does not win; the race yields the other side's success" (fun runtime ->
                         let failing = FIO.fail (exn "fast failure")
                         let succeeding =
-                            (FIO.sleep (TimeSpan.FromMilliseconds 100.0) id).FlatMap(fun () -> FIO.succeed 5)
+                            (FIO.sleep (TimeSpan.FromMilliseconds 100.0)).FlatMap(fun () -> FIO.succeed 5)
                         let effect = failing.Race succeeding
 
                         let bounded =
-                            effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0) id
+                            effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
 
                         let result = runtime.Run(bounded).UnsafeSuccess()
 
@@ -1949,14 +1949,14 @@ let extensionTests =
 
                     testAllRuntimes "Race - an interrupted first-settler does not win; the race yields the other side's success" (fun runtime ->
                         let interruptedSide =
-                            (FIO.sleep (TimeSpan.FromMilliseconds 30.0) id)
+                            (FIO.sleep (TimeSpan.FromMilliseconds 30.0))
                                 .FlatMap(fun () -> FIO.interrupt ExplicitInterrupt "settled first")
                         let succeeding =
-                            (FIO.sleep (TimeSpan.FromMilliseconds 100.0) id).FlatMap(fun () -> FIO.succeed 5)
+                            (FIO.sleep (TimeSpan.FromMilliseconds 100.0)).FlatMap(fun () -> FIO.succeed 5)
                         let effect = interruptedSide.Race succeeding
 
                         let bounded =
-                            effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0) id
+                            effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
 
                         let result = runtime.Run(bounded).UnsafeSuccess()
 
@@ -1968,7 +1968,7 @@ let extensionTests =
                         let effect = failing.Race never
 
                         let bounded =
-                            effect.TimeoutFail (exn "timeout") (TimeSpan.FromMilliseconds 500.0) id
+                            effect.TimeoutFail (exn "timeout") (TimeSpan.FromMilliseconds 500.0)
 
                         let result = runtime.Run(bounded).UnsafeError()
 
@@ -1976,7 +1976,7 @@ let extensionTests =
 
                     testAllRuntimes "RaceEither - first racer wins returns Choice1Of2" (fun runtime ->
                         let fast = FIO.succeed 1
-                        let slow = (FIO.sleep (TimeSpan.FromSeconds 10.0) id).FlatMap(fun () -> FIO.succeed "slow")
+                        let slow = (FIO.sleep (TimeSpan.FromSeconds 10.0)).FlatMap(fun () -> FIO.succeed "slow")
                         let effect = fast.RaceEither slow
 
                         let result =
@@ -1985,7 +1985,7 @@ let extensionTests =
                         Expect.equal result (Choice1Of2 1) "RaceEither should return Choice1Of2 when this wins")
 
                     testAllRuntimes "RaceEither - second racer wins returns Choice2Of2" (fun runtime ->
-                        let slow = (FIO.sleep (TimeSpan.FromSeconds 10.0) id).FlatMap(fun () -> FIO.succeed 1)
+                        let slow = (FIO.sleep (TimeSpan.FromSeconds 10.0)).FlatMap(fun () -> FIO.succeed 1)
                         let fast = FIO.succeed "fast"
                         let effect = slow.RaceEither fast
 
@@ -1997,7 +1997,7 @@ let extensionTests =
                     testAllRuntimes "RaceEither - fast failure waits for a slow success" (fun runtime ->
                         let fastFail: FIO<int, exn> = FIO.fail (exn "fast error")
                         let slowSucceed =
-                            (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).FlatMap(fun () -> FIO.succeed "slow")
+                            (FIO.sleep (TimeSpan.FromMilliseconds 50.0)).FlatMap(fun () -> FIO.succeed "slow")
                         let effect = fastFail.RaceEither slowSucceed
 
                         let result =
@@ -2007,7 +2007,7 @@ let extensionTests =
 
                     testAllRuntimes "Race - both succeed, fastest wins" (fun runtime ->
                         let fast = FIO.succeed 1
-                        let slow = (FIO.sleep (TimeSpan.FromSeconds 10.0) id).FlatMap(fun () -> FIO.succeed 2)
+                        let slow = (FIO.sleep (TimeSpan.FromSeconds 10.0)).FlatMap(fun () -> FIO.succeed 2)
                         let effect = fast.Race slow
 
                         let result =
@@ -2018,7 +2018,7 @@ let extensionTests =
                     testAllRuntimes "Race - fast failure waits for slow success" (fun runtime ->
                         let fastFail = FIO.fail (exn "fast error")
                         let slowSucceed =
-                            (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).FlatMap(fun () -> FIO.succeed 7)
+                            (FIO.sleep (TimeSpan.FromMilliseconds 50.0)).FlatMap(fun () -> FIO.succeed 7)
                         let effect = fastFail.Race slowSucceed
 
                         let result =
@@ -2029,7 +2029,7 @@ let extensionTests =
                     testAllRuntimes "Race - slow failure does not interrupt fast success" (fun runtime ->
                         let fastSucceed = FIO.succeed 11
                         let slowFail =
-                            (FIO.sleep (TimeSpan.FromSeconds 10.0) id).FlatMap(fun () -> FIO.fail (exn "slow"))
+                            (FIO.sleep (TimeSpan.FromSeconds 10.0)).FlatMap(fun () -> FIO.fail (exn "slow"))
                         let effect = fastSucceed.Race slowFail
 
                         let result =
@@ -2040,7 +2040,7 @@ let extensionTests =
                     testAllRuntimes "Race - both fail returns the later error" (fun runtime ->
                         let fastFail = FIO.fail (exn "fast error")
                         let slowFail =
-                            (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).FlatMap(fun () -> FIO.fail (exn "slow error"))
+                            (FIO.sleep (TimeSpan.FromMilliseconds 50.0)).FlatMap(fun () -> FIO.fail (exn "slow error"))
                         let effect = fastFail.Race slowFail
 
                         let result =

@@ -267,4 +267,127 @@ let webSocketTests =
                                 })
                             runtime)
                 ]
+
+            testList
+                "Error classification"
+                [
+                    testAllRuntimes "Receive with a codec fails with Closed when the peer closes" (fun runtime ->
+                        withTestServer
+                            (fun ws -> ws.Close())
+                            (fun port ->
+                                fio {
+                                    let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+                                    let! outcome = (ws.Receive Codec.text).Result()
+
+                                    match outcome with
+                                    | Error(Closed _) -> ()
+                                    | other -> failtest $"Expected Closed but got {other}"
+
+                                    do! ws.Close().CatchAll(fun _ -> FIO.unit ())
+                                })
+                            runtime)
+
+                    testAllRuntimes "ReceiveMessage on a closed socket fails with Closed" (fun runtime ->
+                        withTestServer
+                            (fun ws ->
+                                fio {
+                                    match! ws.ReceiveMessage() with
+                                    | ConnectionClosed _ -> ()
+                                    | _ -> ()
+                                })
+                            (fun port ->
+                                fio {
+                                    let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+                                    do! ws.Close()
+                                    let! outcome = (ws.ReceiveMessage()).Result()
+
+                                    match outcome with
+                                    | Error(Closed _) -> ()
+                                    | other -> failtest $"Expected Closed but got {other}"
+                                })
+                            runtime)
+
+                    testAllRuntimes "SendText on a closed socket fails with Closed" (fun runtime ->
+                        withTestServer
+                            (fun ws ->
+                                fio {
+                                    match! ws.ReceiveMessage() with
+                                    | ConnectionClosed _ -> ()
+                                    | _ -> ()
+                                })
+                            (fun port ->
+                                fio {
+                                    let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+                                    do! ws.Close()
+                                    let! outcome = (ws.SendText "too late").Result()
+
+                                    match outcome with
+                                    | Error(Closed _) -> ()
+                                    | other -> failtest $"Expected Closed but got {other}"
+                                })
+                            runtime)
+
+                    testAllRuntimes "SendText after the peer's close frame fails with Closed" (fun runtime ->
+                        withTestServer
+                            (fun ws ->
+                                fio {
+                                    do! ws.CloseOutput()
+                                    do! ws.ReceiveMessage().Unit().CatchAll(fun _ -> FIO.unit ())
+                                })
+                            (fun port ->
+                                fio {
+                                    let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+
+                                    match! ws.ReceiveMessage() with
+                                    | ConnectionClosed _ -> ()
+                                    | other -> failtest $"Expected the peer's close frame but got {other}"
+
+                                    let! outcome = (ws.SendText "reply after the peer closed").Result()
+
+                                    match outcome with
+                                    | Error(Closed _) -> ()
+                                    | other -> failtest $"Expected Closed but got {other}"
+
+                                    do! ws.Close()
+                                })
+                            runtime)
+
+                    testAllRuntimes "Close against a peer that never reads times out and leaves the socket aborted" (fun runtime ->
+                        withTestServer
+                            (fun _ -> FIO.never ())
+                            (fun port ->
+                                fio {
+                                    let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withSendTimeout 500
+                                    let! cancelToken = FIO.cancellationToken ()
+                                    let! ws = WebSocketClient.connect (Uri $"ws://localhost:{port}/") config cancelToken
+                                    let! outcome = ws.Close().Result()
+
+                                    match outcome with
+                                    | Error(TimeoutError _) -> ()
+                                    | other -> failtest $"Expected TimeoutError but got {other}"
+
+                                    let! state = ws.State()
+
+                                    Expect.equal
+                                        state
+                                        WebSocketState.Aborted
+                                        "A timed-out close must leave the socket aborted; if this fails, CloseIfOpen needs an Abort fallback"
+                                })
+                            runtime)
+
+                    testAllRuntimes "ReceiveMessage on an aborted socket fails with Closed" (fun runtime ->
+                        withTestServer
+                            noopHandler
+                            (fun port ->
+                                fio {
+                                    let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+                                    do! ws.Abort()
+                                    let! outcome = (ws.ReceiveMessage()).Result()
+
+                                    match outcome with
+                                    | Error(Closed _) -> ()
+                                    | other -> failtest $"Expected Closed but got {other}"
+                                })
+                            runtime)
+                ]
         ]

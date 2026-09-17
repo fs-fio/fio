@@ -171,8 +171,8 @@ let codecTests =
                         let error = runtime.Run(effect).UnsafeError()
 
                         match error with
-                        | GeneralError _ -> ()
-                        | other -> failtest $"Expected GeneralError but got {other}")
+                        | CodecError _ -> ()
+                        | other -> failtest $"Expected CodecError but got {other}")
 
                     testAllRuntimes "Close frame produces CodecError" (fun runtime ->
                         let codec = Codec.json
@@ -315,8 +315,8 @@ let codecTests =
                         let error = runtime.Run(effect).UnsafeError()
 
                         match error with
-                        | GeneralError _ -> ()
-                        | other -> failtest $"Expected GeneralError but got {other}")
+                        | CodecError _ -> ()
+                        | other -> failtest $"Expected CodecError but got {other}")
 
                     testAllRuntimes "throwing decoder produces error" (fun runtime ->
                         let codec =
@@ -326,8 +326,8 @@ let codecTests =
                         let error = runtime.Run(effect).UnsafeError()
 
                         match error with
-                        | GeneralError _ -> ()
-                        | other -> failtest $"Expected GeneralError but got {other}")
+                        | CodecError _ -> ()
+                        | other -> failtest $"Expected CodecError but got {other}")
 
                     testAllRuntimes "normal roundtrip" (fun runtime ->
                         let codec =

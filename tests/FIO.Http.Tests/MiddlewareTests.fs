@@ -93,7 +93,7 @@ let middlewareTests =
                 [
 
                     testAllRuntimes "returns handler response when fast enough" (fun runtime ->
-                        let mw = Middleware.timeout (TimeSpan.FromSeconds 5.0) id
+                        let mw = Middleware.timeout (TimeSpan.FromSeconds 5.0)
 
                         let resp =
                             applyMiddleware mw (HttpHandler.text "fast") (makeGetRequest "/test") runtime
@@ -105,17 +105,17 @@ let middlewareTests =
                     testAllRuntimes "returns 408 when handler exceeds duration" (fun runtime ->
                         let slowHandler =
                             fun _ ->
-                                (FIO.sleep (TimeSpan.FromSeconds 10.0) id)
+                                (FIO.sleep (TimeSpan.FromSeconds 10.0))
                                     .FlatMap(fun () -> FIO.succeed (Response.okText "slow"))
 
-                        let mw = Middleware.timeout (TimeSpan.FromMilliseconds 100.0) id
+                        let mw = Middleware.timeout (TimeSpan.FromMilliseconds 100.0)
 
                         let resp = applyMiddleware mw slowHandler (makeGetRequest "/test") runtime
 
                         Expect.equal resp.Status HttpStatusCode.RequestTimeout "408 Timeout")
 
                     testAllRuntimes "timeoutExn convenience works" (fun runtime ->
-                        let mw = Middleware.timeout (TimeSpan.FromSeconds 5.0) id
+                        let mw = Middleware.timeout (TimeSpan.FromSeconds 5.0)
 
                         let resp =
                             applyMiddleware mw (HttpHandler.text "ok") (makeGetRequest "/test") runtime

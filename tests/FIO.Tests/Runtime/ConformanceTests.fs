@@ -114,7 +114,7 @@ let conformanceTests =
 
                         let effect: FIO<unit, string> =
                             child.ForkDaemon().FlatMap(fun (fiber: Fiber<unit, string>) ->
-                                (FIO.sleep (TimeSpan.FromMilliseconds 100.0) (fun ex -> ex.Message))
+                                (FIO.sleep (TimeSpan.FromMilliseconds 100.0))
                                     .FlatMap(fun () -> fiber.InterruptNow())
                                     .FlatMap(fun () -> (fiber.Await()).Unit()))
 
@@ -125,7 +125,7 @@ let conformanceTests =
                     <| fun runtime ->
                         Expect.isTrue
                             (interruptAndAwaitFinalizer runtime (fun finished ->
-                                (FIO.sleep (TimeSpan.FromMilliseconds 150.0) (fun ex -> ex.Message))
+                                (FIO.sleep (TimeSpan.FromMilliseconds 150.0))
                                     .FlatMap(fun () -> FIO.attempt (fun () -> finished.Value <- true) (fun ex -> ex.Message))))
                             $"{runtime.GetType().Name}: a finalizer must be able to sleep after its fiber was interrupted"
 
@@ -156,7 +156,7 @@ let conformanceTests =
                         let finalized = ref false
 
                         let slowFinalizer: FIO<unit, string> =
-                            (FIO.sleep (TimeSpan.FromMilliseconds 200.0) (fun ex -> ex.Message))
+                            (FIO.sleep (TimeSpan.FromMilliseconds 200.0))
                                 .FlatMap(fun () -> FIO.attempt (fun () -> finalized.Value <- true) (fun ex -> ex.Message))
 
                         let child: FIO<unit, string> =
@@ -206,7 +206,7 @@ let conformanceTests =
                                 .FlatMap(fun (fiber: Fiber<int, string>) -> fiber.Join())
 
                         let bounded: FIO<int, string> =
-                            effect.TimeoutFail "re-run blocked: the fork was skipped" (TimeSpan.FromSeconds 10.0) (fun ex -> ex.Message)
+                            effect.TimeoutFail "re-run blocked: the fork was skipped" (TimeSpan.FromSeconds 10.0)
 
                         let results = [ for _ in 1..runs -> runtime.Run(bounded).UnsafeSuccess() ]
 
@@ -231,7 +231,7 @@ let conformanceTests =
                                     .FlatMap(fun (fiber: Fiber<int, string>) -> fiber.Join()))
 
                         let bounded: FIO<int, string> =
-                            effect.TimeoutFail "re-run blocked: the fork was skipped" (TimeSpan.FromSeconds 10.0) (fun ex -> ex.Message)
+                            effect.TimeoutFail "re-run blocked: the fork was skipped" (TimeSpan.FromSeconds 10.0)
 
                         for attempt in 1..3 do
                             Expect.equal
@@ -249,7 +249,7 @@ let conformanceTests =
                                 .FlatMap(fun (_: Fiber<unit, string>) -> FIO.unit ())
 
                         let bounded: FIO<unit, string> =
-                            (effect.Timeout (TimeSpan.FromSeconds 10.0) (fun ex -> ex.Message)).Unit()
+                            (effect.Timeout (TimeSpan.FromSeconds 10.0)).Unit()
 
                         for _ in 1..3 do
                             runtime.Run(bounded).UnsafeSuccess()
@@ -376,7 +376,7 @@ let conformanceTests =
                     testAllRuntimes "Run - does not interrupt a previously started fiber"
                     <| fun runtime ->
                         let slow: FIO<int, string> =
-                            (FIO.sleep (TimeSpan.FromMilliseconds 300.0) (fun ex -> ex.Message))
+                            (FIO.sleep (TimeSpan.FromMilliseconds 300.0))
                                 .FlatMap(fun () -> FIO.succeed 1)
 
                         let first = runtime.Run slow
@@ -393,7 +393,7 @@ let conformanceTests =
                     testAllRuntimes "Run - returns without waiting for the effect to finish"
                     <| fun runtime ->
                         let slow: FIO<int, string> =
-                            (FIO.sleep (TimeSpan.FromMilliseconds 500.0) (fun ex -> ex.Message))
+                            (FIO.sleep (TimeSpan.FromMilliseconds 500.0))
                                 .FlatMap(fun () -> FIO.succeed 1)
 
                         let clock = Diagnostics.Stopwatch.StartNew()

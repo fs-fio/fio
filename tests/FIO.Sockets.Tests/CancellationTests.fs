@@ -12,7 +12,7 @@ open System.Threading.Tasks
 open Expecto
 
 let private sleepMs (ms: float) =
-    FIO.sleep (TimeSpan.FromMilliseconds ms) SocketError.fromException
+    FIO.sleep (TimeSpan.FromMilliseconds ms)
 
 let private waitForTerminal (fiber: Fiber<'A, 'E>) (budgetMs: int) =
     fio {

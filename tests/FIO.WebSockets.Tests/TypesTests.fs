@@ -36,6 +36,24 @@ let typesTests =
                         | GeneralError msg -> Expect.stringContains msg "ws error" "Message should match"
                         | other -> failtest $"Expected GeneralError but got {other}"
 
+                    testCase "fromException maps a prematurely closed connection to Closed"
+                    <| fun () ->
+                        let ex = WebSocketException WebSocketError.ConnectionClosedPrematurely
+                        let error = WsError.fromException ex
+
+                        match error with
+                        | Closed _ -> ()
+                        | other -> failtest $"Expected Closed but got {other}"
+
+                    testCase "fromException maps JsonException to CodecError"
+                    <| fun () ->
+                        let ex = Text.Json.JsonException "bad json"
+                        let error = WsError.fromException ex
+
+                        match error with
+                        | CodecError msg -> Expect.stringContains msg "bad json" "Message should match"
+                        | other -> failtest $"Expected CodecError but got {other}"
+
                     testCase "fromException maps generic Exception to GeneralError"
                     <| fun () ->
                         let ex = Exception "generic"
