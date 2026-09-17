@@ -14,9 +14,9 @@ type AppResult<'A, 'E> =
     | AppSucceeded of value: 'A
     /// The application's effect failed with a typed error.
     | AppFailed of error: 'E
-    /// The application's effect was interrupted.
+    /// The application's effect was asked to stop: Ctrl+C, SIGTERM, Stop(), or an explicit interrupt.
     | AppInterrupted of ex: FiberInterruptedException
-    /// The application crashed with an unexpected exception.
+    /// The application crashed: an unexpected exception, a defect in the effect, or an invalid argument.
     | AppFatalError of ex: exn
 
 /// Base class for a FIO application. Override `effect`; optionally override the rest.
@@ -26,13 +26,52 @@ type FIOApp<'A, 'E>() as this =
     let lazyRuntime = lazy this.runtime
 
     [<VolatileField>]
-    let mutable runningFiber: Fiber<'A, 'E> option = None
+    let mutable running = 0
+
+    [<VolatileField>]
+    let mutable effectContext: FiberContext option = None
 
     [<VolatileField>]
     let mutable shutdownRequested = 0
 
     [<VolatileField>]
     let mutable runStarted = 0
+
+    let interruptEffect (context: FiberContext) (source: string) =
+        context.Interrupt(ExplicitInterrupt, $"Application shutdown requested ({source}).")
+
+    // Interruption is the outcome only when someone asked for it. A defect or a rejected argument is a
+    // crash, and for a defect the thrown exception is what onOutcome should see.
+    let outcomeOfInterruption (ex: FiberInterruptedException) : AppResult<'A, 'E> =
+        match ex.cause with
+        | ExplicitInterrupt
+        | ParentInterrupted _ -> AppInterrupted ex
+        | Defect inner -> AppFatalError inner
+        | InvalidArgument _
+        | ResourceExhaustion _ -> AppFatalError(ex :> exn)
+
+    // A request that arrives before the effect is forked is applied by scoped, so a Stop() racing
+    // startup is not lost.
+    let requestShutdown (source: string) =
+        if Volatile.Read &running = 1 && tryClaim &shutdownRequested then
+            match Volatile.Read &effectContext with
+            | Some context -> interruptEffect context source
+            | None -> ()
+
+            true
+        else
+            false
+
+    // An interrupted fiber publishes before its finalizers run; a completing one waits for its children
+    // to unwind. Awaiting the effect as a child of the root puts every finalizer before the hooks.
+    let scoped (effect: FIO<'A, 'E>) : FIO<FiberResult<'A, 'E>, 'E> =
+        effect.Fork().FlatMap(fun child ->
+            Interlocked.Exchange(&effectContext, Some child.Context) |> ignore
+
+            if Volatile.Read &shutdownRequested = 1 then
+                interruptEffect child.Context "before the effect started"
+
+            child.Await())
 
     /// The effect this application runs. Override this.
     abstract member effect: FIO<'A, 'E>
@@ -41,7 +80,8 @@ type FIOApp<'A, 'E>() as this =
     abstract member runtime: FIORuntime
     default _.runtime = new DefaultRuntime()
 
-    /// An effect run with the application's outcome after it settles, before shutdown. Defaults to no-op.
+    /// An effect run with the application's outcome once the effect has settled and its finalizers have run,
+    /// before onShutdown. Defaults to no-op.
     abstract member onOutcome: AppResult<'A, 'E> -> FIO<unit, 'E>
     default _.onOutcome _ = FIO.unit ()
 
@@ -49,7 +89,8 @@ type FIOApp<'A, 'E>() as this =
     abstract member onOutcomeTimeout: TimeSpan
     default _.onOutcomeTimeout = TimeSpan.FromSeconds 10.0
 
-    /// An effect run on shutdown, before the process exits. Defaults to no-op.
+    /// An effect run after onOutcome, before the process exits. The effect's finalizers have already run, so
+    /// use this for process-level work and put cleanup in a finalizer. Defaults to no-op.
     abstract member onShutdown: unit -> FIO<unit, 'E>
     default _.onShutdown () = FIO.unit ()
 
@@ -66,18 +107,13 @@ type FIOApp<'A, 'E>() as this =
         | AppInterrupted _ -> 130
         | AppFatalError _ -> 2
 
-    /// Returns true while the application's effect is running.
+    /// Returns true from Run or RunAsync until onShutdown has finished.
     member _.IsRunning =
-        Option.isSome (Volatile.Read &runningFiber)
+        Volatile.Read &running = 1
 
     /// Requests shutdown, interrupting the running effect.
     member _.Stop () =
-        match Volatile.Read &runningFiber with
-        | Some fiber when tryClaim &shutdownRequested ->
-            fiber.Context.Interrupt(
-                ExplicitInterrupt,
-                "Application shutdown requested programmatically.")
-        | _ -> ()
+        requestShutdown "programmatically" |> ignore
 
     member private _.RunHookAsync (runtime: FIORuntime) (label: string) (timeout: TimeSpan) (effect: FIO<unit, 'E>) =
         task {
@@ -126,6 +162,8 @@ type FIOApp<'A, 'E>() as this =
         if not <| tryClaim &runStarted then
             invalidOp "FIOApp can only be run once per instance; create a new instance to run again."
 
+        Volatile.Write(&running, 1)
+
         task {
             let mutable signalRegistrations: PosixSignalRegistration list = []
             let mutable cancelKeyHandler: ConsoleCancelEventHandler option = None
@@ -133,22 +171,15 @@ type FIOApp<'A, 'E>() as this =
             try
                 try
                     let runtime = lazyRuntime.Value
-                    let fiber = runtime.Run this.effect
-                    Volatile.Write(&runningFiber, Some fiber)
+                    let fiber = runtime.Run (scoped this.effect)
 
                     try
-                        let requestShutdown (source: string) =
-                            if tryClaim &shutdownRequested then
-                                try
-                                    fiber.Context.Interrupt(
-                                        ExplicitInterrupt,
-                                        sprintf "Application shutdown requested (%s)." source)
-                                with ex ->
-                                    eprintfn "FIOApp failed to interrupt from %s handler: %s" source ex.Message
-
+                        let requestShutdownFrom (source: string) =
+                            try
+                                requestShutdown source
+                            with ex ->
+                                eprintfn "FIOApp failed to interrupt from %s handler: %s" source ex.Message
                                 true
-                            else
-                                false
 
                         signalRegistrations <-
                             [ PosixSignal.SIGTERM ]
@@ -158,7 +189,7 @@ type FIOApp<'A, 'E>() as this =
                                         PosixSignalRegistration.Create(
                                             signal,
                                             fun context ->
-                                                let claimed = requestShutdown (string context.Signal)
+                                                let claimed = requestShutdownFrom (string context.Signal)
                                                 context.Cancel <- claimed))
                                 with ex ->
                                     eprintfn "FIOApp failed to register %O handler: %s" signal ex.Message
@@ -167,7 +198,7 @@ type FIOApp<'A, 'E>() as this =
                         let handler =
                             ConsoleCancelEventHandler(fun _ args ->
                                 let source = string args.SpecialKey
-                                let claimed = requestShutdown source
+                                let claimed = requestShutdownFrom source
                                 args.Cancel <- claimed)
 
                         try
@@ -179,12 +210,16 @@ type FIOApp<'A, 'E>() as this =
                         let! outcome =
                             task {
                                 match! fiber.Task() with
-                                | Succeeded value ->
+                                | Succeeded(Succeeded value) ->
                                     return AppSucceeded value
+                                | Succeeded(Failed error) ->
+                                    return AppFailed error
+                                | Succeeded(Interrupted ex) ->
+                                    return outcomeOfInterruption ex
                                 | Failed error ->
                                     return AppFailed error
                                 | Interrupted ex ->
-                                    return AppInterrupted ex
+                                    return outcomeOfInterruption ex
                             }
 
                         do! this.RunOutcomeAsync runtime outcome
@@ -204,7 +239,8 @@ type FIOApp<'A, 'E>() as this =
 
                     return this.mapExitCode (AppFatalError ex)
             finally
-                Volatile.Write(&runningFiber, None)
+                Volatile.Write(&effectContext, None)
+                Volatile.Write(&running, 0)
                 shutdownRequested <- 0
 
                 for registration in signalRegistrations do

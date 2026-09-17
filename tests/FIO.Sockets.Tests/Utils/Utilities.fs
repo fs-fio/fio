@@ -85,7 +85,7 @@ let runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, SocketError>) =
 
 let connectWhenListening (host: string) (port: int) =
     (SocketClient.connectWith host port)
-        .Retry 60 (fun (_, _, _) -> FIO.sleep (TimeSpan.FromMilliseconds 50.0) SocketError.fromException)
+        .Retry 60 (fun (_, _, _) -> FIO.sleep (TimeSpan.FromMilliseconds 50.0))
 
 let withTestServer
     (handler: Socket -> FIO<unit, SocketError>)
@@ -121,7 +121,7 @@ let withTestEchoServer (action: int -> FIO<'A, SocketError>) (runtime: FIORuntim
             let! ep = ServerSocket.getLocalEndPoint server
             let port = (ep :?> IPEndPoint).Port
             let! serverFiber = (ServerSocket.acceptLoop echoHandler server).Fork()
-            do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) SocketError.fromException
+            do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
             let! result = action port
             do! serverFiber.InterruptNow ()
             do! ServerSocket.close server

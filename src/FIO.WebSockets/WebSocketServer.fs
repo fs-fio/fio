@@ -26,13 +26,13 @@ module WebSocketServer =
             let! listener =
                 FIO.attempt
                     (fun () -> new HttpListener())
-                    WsError.fromException
+                    WsError.connectionFailed
             do! FIO.attempt
                     (fun () -> listener.Prefixes.Add url)
-                    WsError.fromException
+                    WsError.connectionFailed
             do! FIO.attempt
                     (fun () -> listener.Start())
-                    WsError.fromException
+                    WsError.connectionFailed
             return listener
         }
 
@@ -70,7 +70,7 @@ module WebSocketServer =
                                         ())
                             return! listener.GetContextAsync()
                         }))
-                    WsError.fromException
+                    WsError.connectionFailed
 
             if listenerCtx.Request.IsWebSocketRequest then
                 let subProto =
@@ -81,17 +81,23 @@ module WebSocketServer =
                 let! ctxTask =
                     FIO.attempt
                         (fun () -> listenerCtx.AcceptWebSocketAsync subProto)
-                        WsError.fromException
+                        WsError.connectionFailed
 
-                let! ctx = FIO.awaitTask ctxTask WsError.fromException
-                return Some(new WebSocket(ctx.WebSocket, config))
+                let! ctx = FIO.awaitTask ctxTask WsError.connectionFailed
+
+                let endPoint (get: HttpListenerRequest -> IPEndPoint) =
+                    match get listenerCtx.Request with
+                    | null -> None
+                    | endPoint -> Some(endPoint :> EndPoint)
+
+                return Some(new WebSocket(ctx.WebSocket, config, endPoint _.RemoteEndPoint, endPoint _.LocalEndPoint))
             else
                 do! FIO.attempt
                         (fun () -> listenerCtx.Response.StatusCode <- 400)
-                        WsError.fromException
+                        WsError.connectionFailed
                 do! FIO.attempt
                         (fun () -> listenerCtx.Response.Close())
-                        WsError.fromException
+                        WsError.connectionFailed
                 return None
         }
 
@@ -100,7 +106,7 @@ module WebSocketServer =
         fio {
             match! tryAccept listener config subProtocol with
             | Some ws -> return ws
-            | None -> return! FIO.fail (WsError.fromException <| Exception "Not a WebSocket request")
+            | None -> return! FIO.fail (ConnectionFailed "Not a WebSocket request")
         }
 
     /// Accepts the next WebSocket connection without negotiating a subprotocol.
@@ -116,7 +122,7 @@ module WebSocketServer =
         let handleConnection (ws: WebSocket) =
             (handler ws)
                 .CatchAll(logAndSuppress "connection handler")
-                .Ensuring(ws.Close().CatchAll(fun _ -> FIO.unit ()))
+                .Ensuring(ws.CloseIfOpen())
                 .Ensuring(disposeConnection ws)
 
         let step =
@@ -131,7 +137,7 @@ module WebSocketServer =
                 .CatchAll(fun error ->
                     fio {
                         do! logAndSuppress "accept loop iteration" error
-                        do! FIO.sleep (TimeSpan.FromMilliseconds 25.0) WsError.fromException
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 25.0)
                     })
 
         step.Forever()

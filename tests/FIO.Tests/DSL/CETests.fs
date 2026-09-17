@@ -26,7 +26,7 @@ let ceTests =
             testList
                 "Bind"
                 [
-                    testPropertyWithConfig fsCheckConfigFast "Bind - let! binds effectect result to variable"
+                    testPropertyWithConfig fsCheckConfig "Bind - let! binds effectect result to variable"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect =
                             fio {
@@ -38,7 +38,7 @@ let ceTests =
 
                         Expect.equal result (value + 1) "let! should bind effectect result"
 
-                    testPropertyWithConfig fsCheckConfigFast "Bind - do! followed by return"
+                    testPropertyWithConfig fsCheckConfig "Bind - do! followed by return"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable executed = false
 
@@ -112,7 +112,7 @@ let ceTests =
             testList
                 "BindReturn"
                 [
-                    testPropertyWithConfig fsCheckConfigFast "BindReturn - let!/return maps result"
+                    testPropertyWithConfig fsCheckConfig "BindReturn - let!/return maps result"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = fio.BindReturn(FIO.succeed value, fun x -> x + 1)
 
@@ -120,7 +120,7 @@ let ceTests =
 
                         Expect.equal result (value + 1) "BindReturn should map the bound result"
 
-                    testPropertyWithConfig fsCheckConfigFast "BindReturn - mapper not invoked on failure"
+                    testPropertyWithConfig fsCheckConfig "BindReturn - mapper not invoked on failure"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let mutable mapped = false
 
@@ -141,7 +141,7 @@ let ceTests =
             testList
                 "Return / ReturnFrom / Yield"
                 [
-                    testPropertyWithConfig fsCheckConfigFast "Return - return wraps value in effectect"
+                    testPropertyWithConfig fsCheckConfig "Return - return wraps value in effectect"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = fio { return value }
 
@@ -149,7 +149,7 @@ let ceTests =
 
                         Expect.equal result value "return should wrap value in effect"
 
-                    testPropertyWithConfig fsCheckConfigFast "ReturnFrom - return! returns existing effect"
+                    testPropertyWithConfig fsCheckConfig "ReturnFrom - return! returns existing effect"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let innerEff = FIO.succeed value
                         let effect = fio { return! innerEff }
@@ -158,7 +158,7 @@ let ceTests =
 
                         Expect.equal result value "return! should return existing effect"
 
-                    testPropertyWithConfig fsCheckConfigFast "Yield - yield yields value same as return"
+                    testPropertyWithConfig fsCheckConfig "Yield - yield yields value same as return"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = fio { yield value }
 
@@ -166,7 +166,7 @@ let ceTests =
 
                         Expect.equal result value "yield should yield value same as return"
 
-                    testPropertyWithConfig fsCheckConfigFast "YieldFrom - yield! yields effect same as return!"
+                    testPropertyWithConfig fsCheckConfig "YieldFrom - yield! yields effect same as return!"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let innerEff = FIO.succeed value
                         let effect = fio { yield! innerEff }
@@ -175,7 +175,7 @@ let ceTests =
 
                         Expect.equal result value "yield! should yield effect same as return!"
 
-                    testPropertyWithConfig fsCheckConfigFast "ReturnFrom - return! after do! exercises ReturnFrom via Combine"
+                    testPropertyWithConfig fsCheckConfig "ReturnFrom - return! after do! exercises ReturnFrom via Combine"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable executed = false
 
@@ -194,7 +194,7 @@ let ceTests =
                         Expect.equal result value "return! after do! should work"
                         Expect.isTrue executed "do! before return! should execute"
 
-                    testPropertyWithConfig fsCheckConfigFast "YieldFrom - yield! after do! exercises YieldFrom via Combine"
+                    testPropertyWithConfig fsCheckConfig "YieldFrom - yield! after do! exercises YieldFrom via Combine"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable executed = false
 
@@ -294,7 +294,7 @@ let ceTests =
                         Expect.equal result () "Combine should return unit"
                         Expect.equal order [ 1; 2; 3; 4 ] "Statements should execute in order")
 
-                    testPropertyWithConfig fsCheckConfigFast "Combine - stops when first effect fails"
+                    testPropertyWithConfig fsCheckConfig "Combine - stops when first effect fails"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let mutable secondRan = false
                         let first = FIO.fail error
@@ -311,7 +311,7 @@ let ceTests =
                         Expect.equal result error "Combine should propagate the first error"
                         Expect.isFalse secondRan "Second effect should not run after failure"
 
-                    testPropertyWithConfig fsCheckConfigFast "Combine - propagates error from second effect"
+                    testPropertyWithConfig fsCheckConfig "Combine - propagates error from second effect"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let mutable firstRan = false
                         let mutable secondRan = false
@@ -338,7 +338,7 @@ let ceTests =
             testList
                 "Delay"
                 [
-                    testPropertyWithConfig fsCheckConfigFast "Delay - body is deferred until Run"
+                    testPropertyWithConfig fsCheckConfig "Delay - body is deferred until Run"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable ran = false
 
@@ -373,7 +373,7 @@ let ceTests =
             testList
                 "TryWith"
                 [
-                    testPropertyWithConfig fsCheckConfigFast "TryWith - catches error and recovers"
+                    testPropertyWithConfig fsCheckConfig "TryWith - catches error and recovers"
                     <| fun (runtime: FIORuntime, errorValue: int, recoveryValue: int) ->
                         let effect =
                             fio {
@@ -387,7 +387,7 @@ let ceTests =
 
                         Expect.equal result (errorValue + recoveryValue) "try...with should catch error and recover"
 
-                    testPropertyWithConfig fsCheckConfigFast "TryWith - success path not affected"
+                    testPropertyWithConfig fsCheckConfig "TryWith - success path not affected"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect =
                             fio {
@@ -450,7 +450,7 @@ let ceTests =
             testList
                 "TryFinally"
                 [
-                    testPropertyWithConfig fsCheckConfigFast "TryFinally - finalizer runs on success"
+                    testPropertyWithConfig fsCheckConfig "TryFinally - finalizer runs on success"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable finalizerRan = false
 
@@ -468,7 +468,7 @@ let ceTests =
                         Expect.equal result value "try...finally should return value"
                         Expect.isTrue finalizerRan "try...finally finalizer should run on success"
 
-                    testPropertyWithConfig fsCheckConfigFast "TryFinally - finalizer runs on failure"
+                    testPropertyWithConfig fsCheckConfig "TryFinally - finalizer runs on failure"
                     <| fun (runtime: FIORuntime, errorValue: int) ->
                         let mutable finalizerRan = false
 
@@ -486,7 +486,7 @@ let ceTests =
                         Expect.equal result errorValue "try...finally should propagate error"
                         Expect.isTrue finalizerRan "try...finally finalizer should run on failure"
 
-                    testPropertyWithConfig fsCheckConfigFast "TryFinally - finalizer is deferred until run"
+                    testPropertyWithConfig fsCheckConfig "TryFinally - finalizer is deferred until run"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable finalizerRan = false
 
@@ -505,7 +505,7 @@ let ceTests =
                         Expect.equal result value "try...finally should return value"
                         Expect.isTrue finalizerRan "finalizer should run after Run"
 
-                    testPropertyWithConfig fsCheckConfigFast "TryFinally - finalizer runs after multiple statements"
+                    testPropertyWithConfig fsCheckConfig "TryFinally - finalizer runs after multiple statements"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable order = []
 
@@ -533,7 +533,7 @@ let ceTests =
                         Expect.equal result value "try...finally should return value"
                         Expect.equal order [ "body1"; "body2"; "finally" ] "Finalizer should run after body completes"
 
-                    testPropertyWithConfig fsCheckConfigFast "TryFinally - nested try...finally runs finalizers in correct order"
+                    testPropertyWithConfig fsCheckConfig "TryFinally - nested try...finally runs finalizers in correct order"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable order = []
 
@@ -665,7 +665,7 @@ let ceTests =
 
                         Expect.equal result 0 "for...do with empty sequence should not execute body")
 
-                    testPropertyWithConfig fsCheckConfigFast "For - error in body propagates"
+                    testPropertyWithConfig fsCheckConfig "For - error in body propagates"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let mutable iterations = 0
 
@@ -851,7 +851,7 @@ let ceTests =
 
                         Expect.equal result 0 "while...do with false condition should not execute body")
 
-                    testPropertyWithConfig fsCheckConfigFast "While - error in body propagates"
+                    testPropertyWithConfig fsCheckConfig "While - error in body propagates"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let mutable iterations = 0
 
@@ -928,7 +928,7 @@ let ceTests =
             testList
                 "Using"
                 [
-                    testPropertyWithConfig fsCheckConfigFast "Using - use disposes resource after use"
+                    testPropertyWithConfig fsCheckConfig "Using - use disposes resource after use"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let resource = new TestDisposable()
 
@@ -944,7 +944,7 @@ let ceTests =
                         Expect.equal result value "use should return value"
                         Expect.isTrue resource.IsDisposed "use should dispose resource after use"
 
-                    testPropertyWithConfig fsCheckConfigFast "Using - use disposes resource even on failure"
+                    testPropertyWithConfig fsCheckConfig "Using - use disposes resource even on failure"
                     <| fun (runtime: FIORuntime, errorValue: int) ->
                         let resource = new TestDisposable()
 
@@ -960,7 +960,7 @@ let ceTests =
                         Expect.equal result errorValue "use should propagate error"
                         Expect.isTrue resource.IsDisposed "use should dispose resource even on failure"
 
-                    testPropertyWithConfig fsCheckConfigFast "Using - use! acquires and disposes effectful resource"
+                    testPropertyWithConfig fsCheckConfig "Using - use! acquires and disposes effectful resource"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let resource = new TestDisposable()
 
@@ -976,7 +976,7 @@ let ceTests =
                         Expect.equal result value "use! should return value"
                         Expect.isTrue resource.IsDisposed "use! should dispose effectfully acquired resource"
 
-                    testPropertyWithConfig fsCheckConfigFast "Using - use! failure during acquisition does not call dispose"
+                    testPropertyWithConfig fsCheckConfig "Using - use! failure during acquisition does not call dispose"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let mutable disposeCalled = false
 
@@ -998,7 +998,7 @@ let ceTests =
                         Expect.equal result error "use! should propagate acquisition error"
                         Expect.isFalse disposeCalled "Dispose should not be called when acquisition fails"
 
-                    testPropertyWithConfig fsCheckConfigFast "Using - cleanup happens before try...with catches error"
+                    testPropertyWithConfig fsCheckConfig "Using - cleanup happens before try...with catches error"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let resource = new TestDisposable()
 
@@ -1016,7 +1016,7 @@ let ceTests =
                         Expect.equal result error "try...with should catch the error"
                         Expect.isTrue resource.IsDisposed "Resource should be disposed before error is caught"
 
-                    testPropertyWithConfig fsCheckConfigFast "Using - nested use blocks dispose in reverse order"
+                    testPropertyWithConfig fsCheckConfig "Using - nested use blocks dispose in reverse order"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable disposeOrder = []
 
@@ -1056,7 +1056,7 @@ let ceTests =
             testList
                 "Match"
                 [
-                    testPropertyWithConfig fsCheckConfigFast "Match - match! pattern matches on effect result"
+                    testPropertyWithConfig fsCheckConfig "Match - match! pattern matches on effect result"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect =
                             fio {
@@ -1075,7 +1075,7 @@ let ceTests =
 
                         Expect.equal result expected "match! should pattern match on effect result"
 
-                    testPropertyWithConfig fsCheckConfigFast "Match - match! on failing effect short-circuits"
+                    testPropertyWithConfig fsCheckConfig "Match - match! on failing effect short-circuits"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let mutable reached = false
 
@@ -1108,7 +1108,7 @@ let ceTests =
             testList
                 "MergeSources"
                 [
-                    testPropertyWithConfig fsCheckConfigFast "MergeSources - let! ... and! zips two effects"
+                    testPropertyWithConfig fsCheckConfig "MergeSources - let! ... and! zips two effects"
                     <| fun (runtime: FIORuntime, a: int, b: int) ->
                         let effect =
                             fio {
@@ -1121,7 +1121,7 @@ let ceTests =
 
                         Expect.equal result (a + b) "let! ... and! should zip two effects"
 
-                    testPropertyWithConfig fsCheckConfigFast "MergeSources - and! propagates error from second effect"
+                    testPropertyWithConfig fsCheckConfig "MergeSources - and! propagates error from second effect"
                     <| fun (runtime: FIORuntime, a: int, error: int) ->
                         let effect =
                             fio {
@@ -1134,7 +1134,7 @@ let ceTests =
 
                         Expect.equal result error "and! should propagate error from any effect"
 
-                    testPropertyWithConfig fsCheckConfigFast "MergeSources - and! propagates error from first effect"
+                    testPropertyWithConfig fsCheckConfig "MergeSources - and! propagates error from first effect"
                     <| fun (runtime: FIORuntime, error: int, b: int) ->
                         let effect =
                             fio {
@@ -1147,7 +1147,7 @@ let ceTests =
 
                         Expect.equal result error "and! should propagate error from first effect"
 
-                    testPropertyWithConfig fsCheckConfigFast "MergeSources - and! with multiple errors surfaces one of the errors"
+                    testPropertyWithConfig fsCheckConfig "MergeSources - and! with multiple errors surfaces one of the errors"
                     <| fun (runtime: FIORuntime, err1: int, err2: int) ->
                         let effect =
                             fio {
@@ -1174,7 +1174,7 @@ let ceTests =
                             fio {
                                 let! a =
                                     FIO.suspend (fun () ->
-                                        (rendezvous.Read().Timeout (TimeSpan.FromSeconds 3.0) (fun ex -> ex.Message))
+                                        (rendezvous.Read().Timeout (TimeSpan.FromSeconds 3.0))
                                             .Map(fun signalled ->
                                                 overlapped.Value <- Option.isSome signalled
                                                 1))
@@ -1203,10 +1203,10 @@ let ceTests =
                             fio {
                                 let! a =
                                     FIO.suspend (fun () ->
-                                        (fromSecond.Read().Timeout (TimeSpan.FromSeconds 3.0) (fun ex -> ex.Message))
+                                        (fromSecond.Read().Timeout (TimeSpan.FromSeconds 3.0))
                                             .FlatMap(fun second ->
                                                 sawSecond.Value <- Option.isSome second
-                                                (fromThird.Read().Timeout (TimeSpan.FromSeconds 3.0) (fun ex -> ex.Message))
+                                                (fromThird.Read().Timeout (TimeSpan.FromSeconds 3.0))
                                                     .Map(fun third ->
                                                         sawThird.Value <- Option.isSome third
                                                         1)))
@@ -1226,7 +1226,7 @@ let ceTests =
                         Expect.isTrue sawSecond.Value "The first operand must see the second start"
                         Expect.isTrue sawThird.Value "The first operand must see the third start")
 
-                    testPropertyWithConfig fsCheckConfigFast "and! x3 - zips three effects"
+                    testPropertyWithConfig fsCheckConfig "and! x3 - zips three effects"
                     <| fun (runtime: FIORuntime, a: int, b: int, c: int) ->
                         let effect =
                             fio {
@@ -1240,7 +1240,7 @@ let ceTests =
 
                         Expect.equal result (a + b + c) "let! ... and! ... and! should zip three effects"
 
-                    testPropertyWithConfig fsCheckConfigFast "and! x3 - error from first propagates"
+                    testPropertyWithConfig fsCheckConfig "and! x3 - error from first propagates"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let effect =
                             fio {
@@ -1254,7 +1254,7 @@ let ceTests =
 
                         Expect.equal result error "and! x3 should propagate the first error"
 
-                    testPropertyWithConfig fsCheckConfigFast "and! x4 - zips four effects"
+                    testPropertyWithConfig fsCheckConfig "and! x4 - zips four effects"
                     <| fun (runtime: FIORuntime, a: int, b: int, c: int, d: int) ->
                         let effect =
                             fio {
@@ -1269,7 +1269,7 @@ let ceTests =
 
                         Expect.equal result (a + b + c + d) "and! x4 should zip four effects"
 
-                    testPropertyWithConfig fsCheckConfigFast "and! x5 - zips five effects"
+                    testPropertyWithConfig fsCheckConfig "and! x5 - zips five effects"
                     <| fun (runtime: FIORuntime, a: int, b: int, c: int, d: int, e: int) ->
                         let effect =
                             fio {
@@ -1285,7 +1285,7 @@ let ceTests =
 
                         Expect.equal result (a + b + c + d + e) "and! x5 should zip five effects"
 
-                    testPropertyWithConfig fsCheckConfigFast "and! x3 - error from second effect propagates"
+                    testPropertyWithConfig fsCheckConfig "and! x3 - error from second effect propagates"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let effect =
                             fio {
@@ -1301,7 +1301,7 @@ let ceTests =
 
                         Expect.equal result error "Error from second effect should propagate"
 
-                    testPropertyWithConfig fsCheckConfigFast "and! x3 - error from third effect propagates"
+                    testPropertyWithConfig fsCheckConfig "and! x3 - error from third effect propagates"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let effect =
                             fio {
@@ -1315,7 +1315,7 @@ let ceTests =
 
                         Expect.equal result error "Error from third effect should propagate"
 
-                    testPropertyWithConfig fsCheckConfigFast "and! x4 - error from third effect propagates"
+                    testPropertyWithConfig fsCheckConfig "and! x4 - error from third effect propagates"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let effect =
                             fio {
@@ -1330,7 +1330,7 @@ let ceTests =
 
                         Expect.equal result error "Error from third effect in and! x4 should propagate"
 
-                    testPropertyWithConfig fsCheckConfigFast "and! x5 - error from fourth effect propagates"
+                    testPropertyWithConfig fsCheckConfig "and! x5 - error from fourth effect propagates"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let effect =
                             fio {
@@ -1369,7 +1369,7 @@ let ceTests =
 
                         Expect.equal result 6 "Complex control flow should work correctly (sum of evens: 2+4=6)")
 
-                    testPropertyWithConfig fsCheckConfigFast "Complex - nested fio blocks"
+                    testPropertyWithConfig fsCheckConfig "Complex - nested fio blocks"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let inner =
                             fio {
@@ -1430,7 +1430,7 @@ let ceTests =
                         Expect.equal result 6 "Should accumulate sum during loop"
                         Expect.equal disposedAt 6 "Resource should be disposed after loop completes")
 
-                    testPropertyWithConfig fsCheckConfigFast "Complex - inner CE failure propagates to outer CE"
+                    testPropertyWithConfig fsCheckConfig "Complex - inner CE failure propagates to outer CE"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let inner = fio { return! FIO.fail error }
 
@@ -1444,7 +1444,7 @@ let ceTests =
 
                         Expect.equal result error "Inner CE failure should propagate to outer CE"
 
-                    testPropertyWithConfig fsCheckConfigFast "Complex - inner CE failure caught by outer try...with"
+                    testPropertyWithConfig fsCheckConfig "Complex - inner CE failure caught by outer try...with"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let inner = fio { return! FIO.fail error }
 

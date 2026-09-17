@@ -16,6 +16,11 @@ open System
 open System.Threading
 open System.Diagnostics
 open System.Threading.Tasks
+open System.Runtime.CompilerServices
+
+[<MethodImpl(MethodImplOptions.NoInlining)>]
+let private throwsFromUserCode () : int =
+    failwith "thunk threw"
 
 let private stressTestAllRuntimes name (f: FIORuntime -> unit) =
     testList name [ for rt in allRuntimes () -> stressTestCase (rt.GetType().Name) (fun () -> f rt) ]
@@ -185,6 +190,51 @@ let factoryTests =
                             runtime.Run(effect).UnsafeError()
 
                         Expect.equal result.Message msg "FIO.attempt should pass through exception"
+
+                    testPropertyWithConfig fsCheckConfig "succeedWith - succeeds with the function result"
+                    <| fun (runtime: FIORuntime, value: int) ->
+                        let effect: FIO<int, string> = FIO.succeedWith (fun () -> value)
+
+                        let result =
+                            runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.equal result value "FIO.succeedWith should return the function result"
+
+                    testPropertyWithConfig fsCheckConfig "succeedWith - runs the function once per run, not at construction"
+                    <| fun (runtime: FIORuntime) ->
+                        let calls = ref 0
+                        let effect: FIO<unit, string> = FIO.succeedWith (fun () -> calls.Value <- calls.Value + 1)
+
+                        Expect.equal calls.Value 0 "Constructing the effect must not run the function"
+                        runtime.Run(effect).UnsafeSuccess()
+                        runtime.Run(effect).UnsafeSuccess()
+                        Expect.equal calls.Value 2 "Each run should call the function exactly once"
+
+                    testAllRuntimes "succeedWith - a throwing function is a defect, not a typed error"
+                    <| fun runtime ->
+                        let effect: FIO<int, string> = FIO.succeedWith (fun () -> failwith "thunk threw")
+
+                        match runtime.Run(effect).UnsafeResult() with
+                        | Interrupted ex ->
+                            match ex.cause with
+                            | Defect inner -> Expect.equal inner.Message "thunk threw" "The defect should carry the thrown exception"
+                            | other -> failtest $"Expected a Defect cause but got {other}"
+                        | other -> failtest $"Expected Interrupted but got {other}"
+
+                    testAllRuntimes "succeedWith - a defect keeps the stack trace of the original throw"
+                    <| fun runtime ->
+                        let effect: FIO<int, string> = FIO.succeedWith throwsFromUserCode
+
+                        match runtime.Run(effect).UnsafeResult() with
+                        | Interrupted ex ->
+                            match ex.cause with
+                            | Defect inner ->
+                                Expect.stringContains
+                                    (string inner.StackTrace)
+                                    (nameof throwsFromUserCode)
+                                    "The defect's exception must still point at the code that threw, not at the error mapper"
+                            | other -> failtest $"Expected a Defect cause but got {other}"
+                        | other -> failtest $"Expected Interrupted but got {other}"
                 ]
 
             testList
@@ -422,7 +472,7 @@ let factoryTests =
                         let effect =
                             fio {
                                 let! fiber = (FIO.awaitAsync asyncComp (fun ex -> ex.Message)).Fork()
-                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) (fun ex -> ex.Message)
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                                 return! fiber.InterruptAwaitNow ()
                             }
 
@@ -687,7 +737,7 @@ let factoryTests =
                             fio {
                                 let! fiber =
                                     (FIO.async (fun _ -> ()) (fun ex -> ex.Message): FIO<int, string>).Fork()
-                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) (fun ex -> ex.Message)
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                                 return! fiber.InterruptAwaitNow ()
                             }
 
@@ -708,14 +758,14 @@ let factoryTests =
             testList
                 "Time / scheduling"
                 [
-                    testPropertyWithConfig fsCheckConfigFast "sleep - delays execution"
+                    testPropertyWithConfig fsCheckConfig "sleep - delays execution"
                     <| fun (runtime: FIORuntime) ->
                         let duration = TimeSpan.FromMilliseconds 20.0
 
                         let effect =
                             fio {
                                 let sw = Stopwatch.StartNew()
-                                do! FIO.sleep duration id
+                                do! FIO.sleep duration
                                 sw.Stop()
                                 return sw.Elapsed
                             }
@@ -728,8 +778,8 @@ let factoryTests =
                     testAllRuntimes "sleep - interruption stops the underlying delay" (fun runtime ->
                         let effect =
                             fio {
-                                let! fiber = (FIO.sleep (TimeSpan.FromMinutes 1.0) (fun ex -> ex.Message)).Fork()
-                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0) (fun ex -> ex.Message)
+                                let! fiber = (FIO.sleep (TimeSpan.FromMinutes 1.0)).Fork()
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                                 return! fiber.InterruptAwaitNow ()
                             }
 
@@ -746,9 +796,47 @@ let factoryTests =
                             5.0
                             "sleep should cancel the underlying Task.Delay on fiber interrupt, not tick for the full minute")
 
+                    testAllRuntimes "sleep - is polymorphic in the error type and cannot fail" (fun runtime ->
+                        let effect: FIO<string, string> =
+                            (FIO.sleep (TimeSpan.FromMilliseconds 1.0)).FlatMap(fun () -> FIO.succeed "slept")
+
+                        Expect.equal (runtime.Run(effect).UnsafeSuccess()) "slept" "sleep should succeed at any 'E")
+
+                    testAllRuntimes "sleep - a negative duration is an invalid argument" (fun runtime ->
+                        let effect: FIO<unit, string> = FIO.sleep (TimeSpan.FromSeconds -1.0)
+
+                        match runtime.Run(effect).UnsafeResult() with
+                        | Interrupted ex ->
+                            match ex.cause with
+                            | InvalidArgument("duration", _) -> ()
+                            | other -> failtest $"Expected an InvalidArgument cause for duration but got {other}"
+                        | other -> failtest $"Expected Interrupted but got {other}")
+
+                    testAllRuntimes "sleep - a duration beyond the timer maximum is an invalid argument" (fun runtime ->
+                        let effect: FIO<unit, string> = FIO.sleep (TimeSpan.FromDays 50.0)
+
+                        match runtime.Run(effect).UnsafeResult() with
+                        | Interrupted ex ->
+                            match ex.cause with
+                            | InvalidArgument("duration", _) -> ()
+                            | other -> failtest $"Expected an InvalidArgument cause for duration but got {other}"
+                        | other -> failtest $"Expected Interrupted but got {other}")
+
+                    testAllRuntimes "sleep - the infinite timeout sleeps until interrupted" (fun runtime ->
+                        let effect: FIO<FiberResult<unit, string>, string> =
+                            fio {
+                                let! fiber = (FIO.sleep Timeout.InfiniteTimeSpan).Fork()
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 20.0)
+                                return! fiber.InterruptAwaitNow ()
+                            }
+
+                        match runtime.Run(effect).UnsafeSuccess() with
+                        | Interrupted _ -> ()
+                        | other -> failtest $"Expected Interrupted but got {other}")
+
                     testPropertyWithConfig fsCheckConfig "yieldNow - completes successfully"
                     <| fun (runtime: FIORuntime) ->
-                        let effect = FIO.yieldNow (fun ex -> ex.Message)
+                        let effect = FIO.yieldNow ()
 
                         let result =
                             runtime.Run(effect).UnsafeSuccess()
@@ -758,7 +846,7 @@ let factoryTests =
                     testPropertyWithConfig fsCheckConfig "yieldNow - sequences correctly with subsequent effects"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect =
-                            (FIO.yieldNow (fun ex -> ex.Message)).FlatMap(fun () -> FIO.succeed value)
+                            (FIO.yieldNow ()).FlatMap(fun () -> FIO.succeed value)
 
                         let result =
                             runtime.Run(effect).UnsafeSuccess()
@@ -994,7 +1082,7 @@ let factoryTests =
 
                         Expect.equal result [] "forEachPar over an empty seq should yield []"
 
-                    testPropertyWithConfig fsCheckConfigFast "forEachPar - preserves input order despite parallel execution"
+                    testPropertyWithConfig fsCheckConfig "forEachPar - preserves input order despite parallel execution"
                     <| fun (runtime: FIORuntime) ->
                         let rnd = Random()
                         let xs = [ 1 .. 50 ]
@@ -1031,7 +1119,7 @@ let factoryTests =
                                         (fun () -> started.Set())
                                         (fun ex -> ex.Message))
                                         .FlatMap(fun () ->
-                                            FIO.sleep (TimeSpan.FromMilliseconds 200.0) (fun ex -> ex.Message))
+                                            FIO.sleep (TimeSpan.FromMilliseconds 200.0))
                                         .FlatMap(fun () ->
                                             FIO.attempt
                                                 (fun () -> Interlocked.Increment(&peerCompleted) |> ignore)
@@ -1053,7 +1141,7 @@ let factoryTests =
                             let effect =
                                 (FIO.forEachPar [ 0; 1 ] (fun i ->
                                     if i = 0 then FIO.never<int, int>() else FIO.fail 99))
-                                    .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0) (fun _ -> sentinel)
+                                    .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0)
 
                             let error =
                                 runtime.Run(effect).UnsafeError()
@@ -2179,9 +2267,9 @@ let factoryTests =
                     testAllRuntimes "raceAll - fastest success wins" (fun runtime ->
                         let fast = FIO.succeed 1
                         let medium =
-                            (FIO.sleep (TimeSpan.FromSeconds 10.0) id).FlatMap(fun () -> FIO.succeed 2)
+                            (FIO.sleep (TimeSpan.FromSeconds 10.0)).FlatMap(fun () -> FIO.succeed 2)
                         let slow =
-                            (FIO.sleep (TimeSpan.FromSeconds 20.0) id).FlatMap(fun () -> FIO.succeed 3)
+                            (FIO.sleep (TimeSpan.FromSeconds 20.0)).FlatMap(fun () -> FIO.succeed 3)
                         let effect = FIO.raceAll (seq { fast; medium; slow })
 
                         let result =
@@ -2193,7 +2281,7 @@ let factoryTests =
                         let fastFail1 = FIO.fail (exn "fast 1")
                         let fastFail2 = FIO.fail (exn "fast 2")
                         let slowSucceed =
-                            (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).FlatMap(fun () -> FIO.succeed 99)
+                            (FIO.sleep (TimeSpan.FromMilliseconds 50.0)).FlatMap(fun () -> FIO.succeed 99)
                         let effect = FIO.raceAll (seq { fastFail1; fastFail2; slowSucceed })
 
                         let result =
@@ -2204,9 +2292,9 @@ let factoryTests =
                     testAllRuntimes "raceAll - all fail surfaces one of the racers' errors" (fun runtime ->
                         let fastFail = FIO.fail (exn "fast")
                         let mediumFail =
-                            (FIO.sleep (TimeSpan.FromMilliseconds 30.0) id).FlatMap(fun () -> FIO.fail (exn "medium"))
+                            (FIO.sleep (TimeSpan.FromMilliseconds 30.0)).FlatMap(fun () -> FIO.fail (exn "medium"))
                         let slowFail =
-                            (FIO.sleep (TimeSpan.FromMilliseconds 80.0) id).FlatMap(fun () -> FIO.fail (exn "slow"))
+                            (FIO.sleep (TimeSpan.FromMilliseconds 80.0)).FlatMap(fun () -> FIO.fail (exn "slow"))
                         let effect = FIO.raceAll (seq { fastFail; mediumFail; slowFail })
 
                         let result =
@@ -2220,13 +2308,13 @@ let factoryTests =
                     testAllRuntimes "raceAll - interrupted racers retire without breaking the race" (fun runtime ->
                         let interrupted = FIO.interruptNow<int, exn> ()
                         let failing =
-                            (FIO.sleep (TimeSpan.FromMilliseconds 30.0) id).FlatMap(fun () -> FIO.fail (exn "failing"))
+                            (FIO.sleep (TimeSpan.FromMilliseconds 30.0)).FlatMap(fun () -> FIO.fail (exn "failing"))
                         let succeeding =
-                            (FIO.sleep (TimeSpan.FromMilliseconds 60.0) id).FlatMap(fun () -> FIO.succeed 7)
+                            (FIO.sleep (TimeSpan.FromMilliseconds 60.0)).FlatMap(fun () -> FIO.succeed 7)
                         let effect = FIO.raceAll (seq { interrupted; failing; succeeding })
 
                         let bounded =
-                            effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0) id
+                            effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
 
                         let result = runtime.Run(bounded).UnsafeSuccess()
 
@@ -2235,13 +2323,13 @@ let factoryTests =
                     testAllRuntimes "raceAll - terminates when the remaining racers fail after one is interrupted" (fun runtime ->
                         let interrupted = FIO.interruptNow<int, exn> ()
                         let fail1 =
-                            (FIO.sleep (TimeSpan.FromMilliseconds 30.0) id).FlatMap(fun () -> FIO.fail (exn "first"))
+                            (FIO.sleep (TimeSpan.FromMilliseconds 30.0)).FlatMap(fun () -> FIO.fail (exn "first"))
                         let fail2 =
-                            (FIO.sleep (TimeSpan.FromMilliseconds 60.0) id).FlatMap(fun () -> FIO.fail (exn "last"))
+                            (FIO.sleep (TimeSpan.FromMilliseconds 60.0)).FlatMap(fun () -> FIO.fail (exn "last"))
                         let effect = FIO.raceAll (seq { interrupted; fail1; fail2 })
 
                         let bounded =
-                            effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0) id
+                            effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
 
                         let result = runtime.Run(bounded).UnsafeError()
 
@@ -2254,11 +2342,11 @@ let factoryTests =
                         let effect =
                             FIO.raceAll (seq {
                                 FIO.interruptNow<int, exn> ()
-                                (FIO.sleep (TimeSpan.FromMilliseconds 30.0) id).FlatMap(fun () -> FIO.interruptNow<int, exn> ())
+                                (FIO.sleep (TimeSpan.FromMilliseconds 30.0)).FlatMap(fun () -> FIO.interruptNow<int, exn> ())
                             })
 
                         let bounded =
-                            effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0) id
+                            effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
 
                         let result = runtime.Run(bounded).UnsafeResult()
 
@@ -2269,11 +2357,11 @@ let factoryTests =
                     testAllRuntimes "raceAll - a stuck racer does not block a later success" (fun runtime ->
                         let stuck = FIO.never<int, exn> ()
                         let succeeding =
-                            (FIO.sleep (TimeSpan.FromMilliseconds 50.0) id).FlatMap(fun () -> FIO.succeed 3)
+                            (FIO.sleep (TimeSpan.FromMilliseconds 50.0)).FlatMap(fun () -> FIO.succeed 3)
                         let effect = FIO.raceAll (seq { stuck; succeeding })
 
                         let bounded =
-                            effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0) id
+                            effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
 
                         let result = runtime.Run(bounded).UnsafeSuccess()
 
@@ -2290,13 +2378,13 @@ let factoryTests =
                                     FIO.raceAll (seq {
                                         FIO.fail (exn "retired")
                                         FIO.interruptNow<int, exn> ()
-                                        (FIO.sleep (TimeSpan.FromMilliseconds 1.0) id).FlatMap(fun () -> FIO.succeed i)
+                                        (FIO.sleep (TimeSpan.FromMilliseconds 1.0)).FlatMap(fun () -> FIO.succeed i)
                                     })
                                 round.FlatMap <| fun value ->
                                     if value = i then loop (i - 1) else FIO.fail (exn $"wrong winner in round {i}")
 
                         let bounded =
-                            (loop iterations).TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 120.0) id
+                            (loop iterations).TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 120.0)
 
                         Expect.equal (runtime.Run(bounded).UnsafeSuccess()) () "every raceAll round should settle on the surviving success")
                 ]

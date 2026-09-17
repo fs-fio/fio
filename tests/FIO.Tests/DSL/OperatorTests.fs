@@ -17,7 +17,7 @@ let operatorTests =
             testList
                 "Sequential composition (*>, <*, <*>)"
                 [
-                    testPropertyWithConfig fsCheckConfigFast "( *> ) ZipRight success"
+                    testPropertyWithConfig fsCheckConfig "( *> ) ZipRight success"
                     <| fun (runtime: FIORuntime, a: int, b: string) ->
                         let eff1 = FIO.succeed a
                         let eff2 = FIO.succeed b
@@ -28,7 +28,7 @@ let operatorTests =
                         Expect.equal operatorResult b "( *> ) should return second result"
                         Expect.equal operatorResult methodResult "( *> ) should equal ZipRight"
 
-                    testPropertyWithConfig fsCheckConfigFast "( *> ) ZipRight error propagation"
+                    testPropertyWithConfig fsCheckConfig "( *> ) ZipRight error propagation"
                     <| fun (runtime: FIORuntime, error: string, b: int) ->
                         let eff1 = FIO.fail error
                         let eff2 = FIO.succeed b
@@ -39,7 +39,7 @@ let operatorTests =
                         Expect.equal operatorResult error "( *> ) should propagate first error"
                         Expect.equal operatorResult methodResult "( *> ) should equal ZipRight on error"
 
-                    testPropertyWithConfig fsCheckConfigFast "( <* ) ZipLeft success"
+                    testPropertyWithConfig fsCheckConfig "( <* ) ZipLeft success"
                     <| fun (runtime: FIORuntime, a: int, b: string) ->
                         let eff1 = FIO.succeed a
                         let eff2 = FIO.succeed b
@@ -50,7 +50,7 @@ let operatorTests =
                         Expect.equal operatorResult a "( <* ) should return first result"
                         Expect.equal operatorResult methodResult "( <* ) should equal ZipLeft"
 
-                    testPropertyWithConfig fsCheckConfigFast "( <* ) ZipLeft error propagation"
+                    testPropertyWithConfig fsCheckConfig "( <* ) ZipLeft error propagation"
                     <| fun (runtime: FIORuntime, a: int, error: string) ->
                         let eff1 = FIO.succeed a
                         let eff2 = FIO.fail error
@@ -61,7 +61,7 @@ let operatorTests =
                         Expect.equal operatorResult error "( <* ) should propagate second error"
                         Expect.equal operatorResult methodResult "( <* ) should equal ZipLeft on error"
 
-                    testPropertyWithConfig fsCheckConfigFast "( <*> ) Zip success"
+                    testPropertyWithConfig fsCheckConfig "( <*> ) Zip success"
                     <| fun (runtime: FIORuntime, a: int, b: string) ->
                         let eff1 = FIO.succeed a
                         let eff2 = FIO.succeed b
@@ -72,7 +72,7 @@ let operatorTests =
                         Expect.equal operatorResult (a, b) "( <*> ) should return tuple"
                         Expect.equal operatorResult methodResult "( <*> ) should equal Zip"
 
-                    testPropertyWithConfig fsCheckConfigFast "( <*> ) Zip error propagation"
+                    testPropertyWithConfig fsCheckConfig "( <*> ) Zip error propagation"
                     <| fun (runtime: FIORuntime, error: string, b: int) ->
                         let eff1 = FIO.fail error
                         let eff2 = FIO.succeed b
@@ -87,7 +87,7 @@ let operatorTests =
             testList
                 "Sequential ordering"
                 [
-                    testPropertyWithConfig fsCheckConfigFast "( *> ) evaluates its operands left to right"
+                    testPropertyWithConfig fsCheckConfig "( *> ) evaluates its operands left to right"
                     <| fun (runtime: FIORuntime, a: int, b: int) ->
                         let log = ResizeArray<string>()
                         let left: FIO<int, string> = FIO.attempt (fun () -> log.Add "left"; a) (fun ex -> ex.Message)
@@ -98,7 +98,7 @@ let operatorTests =
                         Expect.equal result b "( *> ) should yield the right operand's value"
                         Expect.sequenceEqual log [ "left"; "right" ] "( *> ) must evaluate the left operand first"
 
-                    testPropertyWithConfig fsCheckConfigFast "( <* ) evaluates its operands left to right"
+                    testPropertyWithConfig fsCheckConfig "( <* ) evaluates its operands left to right"
                     <| fun (runtime: FIORuntime, a: int, b: int) ->
                         let log = ResizeArray<string>()
                         let left: FIO<int, string> = FIO.attempt (fun () -> log.Add "left"; a) (fun ex -> ex.Message)
@@ -109,7 +109,7 @@ let operatorTests =
                         Expect.equal result a "( <* ) should yield the left operand's value"
                         Expect.sequenceEqual log [ "left"; "right" ] "( <* ) must evaluate the left operand first"
 
-                    testPropertyWithConfig fsCheckConfigFast "( <*> ) evaluates its operands left to right"
+                    testPropertyWithConfig fsCheckConfig "( <*> ) evaluates its operands left to right"
                     <| fun (runtime: FIORuntime, a: int, b: int) ->
                         let log = ResizeArray<string>()
                         let left: FIO<int, string> = FIO.attempt (fun () -> log.Add "left"; a) (fun ex -> ex.Message)
@@ -120,7 +120,7 @@ let operatorTests =
                         Expect.equal result (a, b) "( <*> ) should pair the operands in order"
                         Expect.sequenceEqual log [ "left"; "right" ] "( <*> ) must evaluate the left operand first"
 
-                    testPropertyWithConfig fsCheckConfigFast "( >>= ) evaluates the source before the continuation"
+                    testPropertyWithConfig fsCheckConfig "( >>= ) evaluates the source before the continuation"
                     <| fun (runtime: FIORuntime, a: int, b: int) ->
                         let log = ResizeArray<string>()
                         let source: FIO<int, string> = FIO.attempt (fun () -> log.Add "source"; a) (fun ex -> ex.Message)
@@ -134,7 +134,7 @@ let operatorTests =
                         Expect.equal result b "( >>= ) should yield the continuation's value"
                         Expect.sequenceEqual log [ "source"; "continuation" ] "( >>= ) must run the source before the continuation"
 
-                    testPropertyWithConfig fsCheckConfigFast "( *> ) does not evaluate the right operand when the left fails"
+                    testPropertyWithConfig fsCheckConfig "( *> ) does not evaluate the right operand when the left fails"
                     <| fun (runtime: FIORuntime, error: string) ->
                         let log = ResizeArray<string>()
                         let left: FIO<int, string> = FIO.fail error
@@ -149,7 +149,7 @@ let operatorTests =
             testList
                 "Parallel composition (<&>, <&&>, &>, <&)"
                 [
-                    testPropertyWithConfig fsCheckConfigFast "( <&> ) ZipPar success"
+                    testPropertyWithConfig fsCheckConfig "( <&> ) ZipPar success"
                     <| fun (runtime: FIORuntime, a: int, b: int) ->
                         let eff1 = FIO.succeed a
                         let eff2 = FIO.succeed b
@@ -160,7 +160,7 @@ let operatorTests =
                         Expect.equal operatorResult (a, b) "( <&> ) should return tuple"
                         Expect.equal operatorResult methodResult "( <&> ) should equal ZipPar"
 
-                    testPropertyWithConfig fsCheckConfigFast "( <&> ) ZipPar error propagation"
+                    testPropertyWithConfig fsCheckConfig "( <&> ) ZipPar error propagation"
                     <| fun (runtime: FIORuntime, error: string, b: int) ->
                         let eff1 = FIO.fail error
                         let eff2 = FIO.succeed b
@@ -171,7 +171,7 @@ let operatorTests =
                         Expect.equal operatorResult error "( <&> ) should propagate error"
                         Expect.equal operatorResult methodResult "( <&> ) should equal ZipPar on error"
 
-                    testPropertyWithConfig fsCheckConfigFast "( <&&> ) parallel fire-and-forget success"
+                    testPropertyWithConfig fsCheckConfig "( <&&> ) parallel fire-and-forget success"
                     <| fun (runtime: FIORuntime, a: int, b: int) ->
                         let eff1 = FIO.succeed a
                         let eff2 = FIO.succeed b
@@ -182,7 +182,7 @@ let operatorTests =
                         Expect.equal operatorResult () "( <&&> ) should return unit"
                         Expect.equal operatorResult methodResult "( <&&> ) should equal ZipPar().Unit()"
 
-                    testPropertyWithConfig fsCheckConfigFast "( <&&> ) parallel fire-and-forget error propagation"
+                    testPropertyWithConfig fsCheckConfig "( <&&> ) parallel fire-and-forget error propagation"
                     <| fun (runtime: FIORuntime, error: string, b: int) ->
                         let eff1 = FIO.fail error
                         let eff2 = FIO.succeed b
@@ -193,7 +193,7 @@ let operatorTests =
                         Expect.equal operatorResult error "( <&&> ) should propagate error"
                         Expect.equal operatorResult methodResult "( <&&> ) should equal ZipPar().Unit() on error"
 
-                    testPropertyWithConfig fsCheckConfigFast "( &> ) ZipParRight success"
+                    testPropertyWithConfig fsCheckConfig "( &> ) ZipParRight success"
                     <| fun (runtime: FIORuntime, a: int, b: int) ->
                         let eff1 = FIO.succeed a
                         let eff2 = FIO.succeed b
@@ -204,7 +204,7 @@ let operatorTests =
                         Expect.equal operatorResult b "( &> ) should return second result"
                         Expect.equal operatorResult methodResult "( &> ) should equal ZipParRight"
 
-                    testPropertyWithConfig fsCheckConfigFast "( &> ) ZipParRight error propagation"
+                    testPropertyWithConfig fsCheckConfig "( &> ) ZipParRight error propagation"
                     <| fun (runtime: FIORuntime, error: string, b: int) ->
                         let eff1 = FIO.fail error
                         let eff2 = FIO.succeed b
@@ -215,7 +215,7 @@ let operatorTests =
                         Expect.equal operatorResult error "( &> ) should propagate error"
                         Expect.equal operatorResult methodResult "( &> ) should equal ZipParRight on error"
 
-                    testPropertyWithConfig fsCheckConfigFast "( <& ) ZipParLeft success"
+                    testPropertyWithConfig fsCheckConfig "( <& ) ZipParLeft success"
                     <| fun (runtime: FIORuntime, a: int, b: int) ->
                         let eff1 = FIO.succeed a
                         let eff2 = FIO.succeed b
@@ -226,7 +226,7 @@ let operatorTests =
                         Expect.equal operatorResult a "( <& ) should return first result"
                         Expect.equal operatorResult methodResult "( <& ) should equal ZipParLeft"
 
-                    testPropertyWithConfig fsCheckConfigFast "( <& ) ZipParLeft error propagation"
+                    testPropertyWithConfig fsCheckConfig "( <& ) ZipParLeft error propagation"
                     <| fun (runtime: FIORuntime, a: int, error: string) ->
                         let eff1 = FIO.succeed a
                         let eff2 = FIO.fail error
@@ -246,7 +246,7 @@ let operatorTests =
             testList
                 "Fallback (<|>)"
                 [
-                    testPropertyWithConfig fsCheckConfigFast "( <|> ) OrElse first succeeds"
+                    testPropertyWithConfig fsCheckConfig "( <|> ) OrElse first succeeds"
                     <| fun (runtime: FIORuntime, a: int, b: int) ->
                         let eff1 = FIO.succeed a
                         let eff2 = FIO.succeed b
@@ -257,7 +257,7 @@ let operatorTests =
                         Expect.equal operatorResult a "( <|> ) should return first on success"
                         Expect.equal operatorResult methodResult "( <|> ) should equal OrElse"
 
-                    testPropertyWithConfig fsCheckConfigFast "( <|> ) OrElse fallback on error"
+                    testPropertyWithConfig fsCheckConfig "( <|> ) OrElse fallback on error"
                     <| fun (runtime: FIORuntime, error: string, b: int) ->
                         let eff1 = FIO.fail error
                         let eff2 = FIO.succeed b
@@ -268,7 +268,7 @@ let operatorTests =
                         Expect.equal operatorResult b "( <|> ) should return fallback on first error"
                         Expect.equal operatorResult methodResult "( <|> ) should equal OrElse on fallback"
 
-                    testPropertyWithConfig fsCheckConfigFast "( <|> ) OrElse both fail"
+                    testPropertyWithConfig fsCheckConfig "( <|> ) OrElse both fail"
                     <| fun (runtime: FIORuntime, err1: string, err2: int) ->
                         let eff1 = FIO.fail err1
                         let eff2 = FIO.fail err2
@@ -283,7 +283,7 @@ let operatorTests =
             testList
                 "Either fallback (<+>)"
                 [
-                    testPropertyWithConfig fsCheckConfigFast "( <+> ) OrElseEither this succeeds returns Choice1Of2"
+                    testPropertyWithConfig fsCheckConfig "( <+> ) OrElseEither this succeeds returns Choice1Of2"
                     <| fun (runtime: FIORuntime, value: int, fallback: string) ->
                         let eff1 = FIO.succeed value
                         let eff2 = FIO.succeed fallback
@@ -294,7 +294,7 @@ let operatorTests =
                         Expect.equal operatorResult (Choice1Of2 value) "( <+> ) should return Choice1Of2 on success"
                         Expect.equal operatorResult methodResult "( <+> ) should equal OrElseEither"
 
-                    testPropertyWithConfig fsCheckConfigFast "( <+> ) OrElseEither this fails, fallback succeeds returns Choice2Of2"
+                    testPropertyWithConfig fsCheckConfig "( <+> ) OrElseEither this fails, fallback succeeds returns Choice2Of2"
                     <| fun (runtime: FIORuntime, error: string, fallback: int) ->
                         let eff1 = FIO.fail error
                         let eff2 = FIO.succeed fallback
@@ -305,7 +305,7 @@ let operatorTests =
                         Expect.equal operatorResult (Choice2Of2 fallback) "( <+> ) should return Choice2Of2 when fallback succeeds"
                         Expect.equal operatorResult methodResult "( <+> ) should equal OrElseEither on fallback"
 
-                    testPropertyWithConfig fsCheckConfigFast "( <+> ) OrElseEither both fail returns fallback error"
+                    testPropertyWithConfig fsCheckConfig "( <+> ) OrElseEither both fail returns fallback error"
                     <| fun (runtime: FIORuntime, error: string, fallbackErr: int) ->
                         let eff1 = FIO.fail error
                         let eff2 = FIO.fail fallbackErr
@@ -320,10 +320,10 @@ let operatorTests =
             testList
                 "Either race (<?>)"
                 [
-                    testPropertyWithConfig fsCheckConfigFast "( <?> ) RaceEither first racer wins returns Choice1Of2"
+                    testPropertyWithConfig fsCheckConfig "( <?> ) RaceEither first racer wins returns Choice1Of2"
                     <| fun (runtime: FIORuntime) ->
                         let fast = FIO.succeed 1
-                        let slow = (FIO.sleep (TimeSpan.FromSeconds 10.0) id).FlatMap(fun () -> FIO.succeed "slow")
+                        let slow = (FIO.sleep (TimeSpan.FromSeconds 10.0)).FlatMap(fun () -> FIO.succeed "slow")
 
                         let operatorResult = runtime.Run(fast <?> slow).UnsafeSuccess()
                         let methodResult = runtime.Run(fast.RaceEither slow).UnsafeSuccess()
@@ -331,9 +331,9 @@ let operatorTests =
                         Expect.equal operatorResult (Choice1Of2 1) "( <?> ) should return Choice1Of2 when the left racer wins"
                         Expect.equal operatorResult methodResult "( <?> ) should equal RaceEither"
 
-                    testPropertyWithConfig fsCheckConfigFast "( <?> ) RaceEither second racer wins returns Choice2Of2"
+                    testPropertyWithConfig fsCheckConfig "( <?> ) RaceEither second racer wins returns Choice2Of2"
                     <| fun (runtime: FIORuntime) ->
-                        let slow = (FIO.sleep (TimeSpan.FromSeconds 10.0) id).FlatMap(fun () -> FIO.succeed 1)
+                        let slow = (FIO.sleep (TimeSpan.FromSeconds 10.0)).FlatMap(fun () -> FIO.succeed 1)
                         let fast = FIO.succeed "fast"
 
                         let operatorResult = runtime.Run(slow <?> fast).UnsafeSuccess()
@@ -346,7 +346,7 @@ let operatorTests =
             testList
                 "Bind / Map (>>=, <!>)"
                 [
-                    testPropertyWithConfig fsCheckConfigFast "( >>= ) FlatMap success"
+                    testPropertyWithConfig fsCheckConfig "( >>= ) FlatMap success"
                     <| fun (runtime: FIORuntime, a: int, f: int -> int) ->
                         let effect = FIO.succeed a
                         let cont = fun x -> FIO.succeed (f x)
@@ -357,7 +357,7 @@ let operatorTests =
                         Expect.equal operatorResult (f a) "( >>= ) should apply continuation"
                         Expect.equal operatorResult methodResult "( >>= ) should equal FlatMap"
 
-                    testPropertyWithConfig fsCheckConfigFast "( >>= ) FlatMap error propagation"
+                    testPropertyWithConfig fsCheckConfig "( >>= ) FlatMap error propagation"
                     <| fun (runtime: FIORuntime, error: string) ->
                         let effect = FIO.fail error
                         let cont = fun x -> FIO.succeed (x + 1)
@@ -368,7 +368,7 @@ let operatorTests =
                         Expect.equal operatorResult error "( >>= ) should propagate error"
                         Expect.equal operatorResult methodResult "( >>= ) should equal FlatMap on error"
 
-                    testPropertyWithConfig fsCheckConfigFast "( <!> ) Map success"
+                    testPropertyWithConfig fsCheckConfig "( <!> ) Map success"
                     <| fun (runtime: FIORuntime, a: int, f: int -> int) ->
                         let effect = FIO.succeed a
 
@@ -378,7 +378,7 @@ let operatorTests =
                         Expect.equal operatorResult (f a) "( <!> ) should apply mapper"
                         Expect.equal operatorResult methodResult "( <!> ) should equal Map"
 
-                    testPropertyWithConfig fsCheckConfigFast "( <!> ) Map error propagation"
+                    testPropertyWithConfig fsCheckConfig "( <!> ) Map error propagation"
                     <| fun (runtime: FIORuntime, error: string, f: int -> int) ->
                         let effect = FIO.fail error
 

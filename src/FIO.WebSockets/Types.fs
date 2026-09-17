@@ -1,6 +1,7 @@
 namespace FIO.WebSockets
 
 open System
+open System.Text.Json
 open System.Net.WebSockets
 
 /// Configuration for a WebSocket connection.
@@ -100,12 +101,46 @@ type WsError =
 [<RequireQualifiedAccess>]
 module WsError =
 
-    /// Wraps an exception as a WebSocket error.
+    /// Classifies an exception as a WebSocket error, giving timeouts, JSON failures and a prematurely closed connection their own case.
     let fromException (ex: exn) =
         match ex with
-        | :? TimeoutException as ex -> TimeoutError ex.Message
-        | :? WebSocketException as ex -> GeneralError ex.Message
-        | _ -> GeneralError ex.Message
+        | :? TimeoutException as ex ->
+            TimeoutError ex.Message
+        | :? JsonException as ex ->
+            CodecError ex.Message
+        | :? WebSocketException as ex when ex.WebSocketErrorCode = WebSocketError.ConnectionClosedPrematurely ->
+            Closed ex.Message
+        | _ ->
+            GeneralError ex.Message
+
+    let internal receiveFailed (ex: exn) =
+        match fromException ex with
+        | GeneralError message -> ReceiveFailed message
+        | error -> error
+
+    let internal sendFailed (ex: exn) =
+        match fromException ex with
+        | GeneralError message -> SendFailed message
+        | error -> error
+
+    let internal connectionFailed (ex: exn) =
+        match fromException ex with
+        | GeneralError message -> ConnectionFailed message
+        | error -> error
+
+    let internal codecError (ex: exn) =
+        CodecError ex.Message
+
+    let internal describeClose (status: WebSocketCloseStatus option) (description: string) =
+        let statusText =
+            match status with
+            | Some status -> string status
+            | None -> "no status"
+
+        if String.IsNullOrEmpty description then
+            $"Peer closed the connection ({statusText})"
+        else
+            $"Peer closed the connection ({statusText}): {description}"
 
     /// Converts a WebSocket error back into an exception.
     let toException (error: WsError) =

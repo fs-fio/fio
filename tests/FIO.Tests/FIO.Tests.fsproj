@@ -14,6 +14,7 @@
         <!-- DSL -->
         <Compile Include="DSL/CETests.fs" />
         <Compile Include="DSL/ChannelTests.fs" />
+        <Compile Include="DSL/RefTests.fs" />
         <Compile Include="DSL/ExtensionTests.fs" />
         <Compile Include="DSL/FactoryTests.fs" />
         <Compile Include="DSL/JoinFirstTests.fs" />

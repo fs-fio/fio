@@ -53,6 +53,13 @@ type App() =
 let main _ = App().Run()
 ```
 
+`FIOApp` runs `effect`, then `onOutcome` with the settled result, then `onShutdown`, and exits with
+`mapExitCode`. Ctrl+C and SIGTERM interrupt the effect; its finalizers run before the hooks, so
+cleanup that needs effect state belongs in `Ensuring`/`acquireReleaseWith`, and `onShutdown` is for
+process-level goodbyes. A finalizer that never completes holds shutdown; a second Ctrl+C or SIGTERM
+terminates the process. A defect or an invalid argument in the effect is a fatal error (exit code 2),
+not an interruption (130).
+
 ## Concurrency
 
 Fork effects onto fibers, run them in parallel, and compose the results — losers are
@@ -80,6 +87,7 @@ More in [examples/](https://github.com/fs-fio/fio/tree/main/examples) — the DS
 - **Channels** — typed message passing between fibers
 - **Structured concurrency** — fail-fast `ZipPar`, `Race`, and `forEachPar` that interrupt losers automatically
 - **Composition** — `fio { }` CE, operators (`>>=`, `<&>`, `<|>`), combinators
+- **Refs** — `Ref<'A>`, an atomic reference cell shared between fibers (with `FIO.DSL` open it shadows FSharp.Core's `Ref<'T>` annotation; `'T ref` is unaffected)
 - **Modules** — `Console`
 
 ## Runtimes

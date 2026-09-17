@@ -448,36 +448,36 @@ module Extensions =
             loop ()
 
         /// Returns an effect that waits the given duration before running this effect.
-        member inline this.Delay (duration: TimeSpan) (onError: exn -> 'E) : FIO<'A, 'E> =
-            (FIO.sleep duration onError).FlatMap <| fun () -> this
+        member inline this.Delay (duration: TimeSpan) : FIO<'A, 'E> =
+            (FIO.sleep duration).FlatMap <| fun () -> this
 
         /// Returns an effect that yields Some result if this effect completes within the duration, or None if it times out.
-        member inline this.Timeout (duration: TimeSpan) (onError: exn -> 'E) : FIO<'A option, 'E> =
+        member inline this.Timeout (duration: TimeSpan) : FIO<'A option, 'E> =
             let timeoutEff =
-                (FIO.sleep duration onError)
+                (FIO.sleep duration)
                     .FlatMap <| fun () ->
                         FIO.succeed None
             this.Map(Some).RaceFirst timeoutEff
 
         /// Returns an effect that fails with the given error if this effect does not complete within the duration.
-        member inline this.TimeoutFail (timeoutError: 'E) (duration: TimeSpan) (onError: exn -> 'E) : FIO<'A, 'E> =
+        member inline this.TimeoutFail (timeoutError: 'E) (duration: TimeSpan) : FIO<'A, 'E> =
             let timeoutEff =
-                (FIO.sleep duration onError)
+                (FIO.sleep duration)
                     .FlatMap <| fun () ->
                         FIO.fail timeoutError
             this.RaceFirst timeoutEff
 
         /// Returns an effect that maps this effect's result, or yields the default value if it does not complete within the duration.
-        member inline this.TimeoutTo<'A1> (defaultValue: 'A1) (onSuccess: 'A -> 'A1) (duration: TimeSpan) (onError: exn -> 'E) : FIO<'A1, 'E> =
+        member inline this.TimeoutTo<'A1> (defaultValue: 'A1) (onSuccess: 'A -> 'A1) (duration: TimeSpan) : FIO<'A1, 'E> =
             let timeoutEff =
-                (FIO.sleep duration onError)
+                (FIO.sleep duration)
                     .FlatMap <| fun () ->
                         FIO.succeed defaultValue
             this.Map(onSuccess).RaceFirst timeoutEff
 
         /// Returns an effect that pairs this effect's success value with the time it took to run.
-        member inline this.Timed (onError: exn -> 'E) : FIO<TimeSpan * 'A, 'E> =
-            (FIO.attempt Stopwatch.StartNew onError).FlatMap <| fun stopwatch ->
+        member inline this.Timed () : FIO<TimeSpan * 'A, 'E> =
+            (FIO.succeedWith Stopwatch.StartNew).FlatMap <| fun stopwatch ->
                 this.Ensuring(FIO.suspend (fun () -> stopwatch.Stop(); FIO.unit ()))
                     .Map <| fun value -> stopwatch.Elapsed, value
 
