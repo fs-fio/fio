@@ -198,8 +198,9 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
     [<VolatileField>]
     let mutable disposed = 0
 
+    // A reference, not a voption struct: a two-word field can be read torn while another thread writes it.
     [<VolatileField>]
-    let mutable onTerminalCallback: (unit -> unit) voption = ValueNone
+    let mutable onTerminalCallback: unit -> unit = Unchecked.defaultof<_>
 
     [<VolatileField>]
     let mutable onTerminalFired = 0
@@ -216,8 +217,11 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
     member internal _.CancellationToken =
         cancelSource.Token
 
+    // The barrier orders the write before the read of `state`, as SetOnUnwound's does for `published`: either a
+    // publisher that changed the state first sees the callback, or this read sees the change.
     member internal this.SetOnTerminal (callback: unit -> unit) =
-        onTerminalCallback <- ValueSome callback
+        onTerminalCallback <- callback
+        Interlocked.MemoryBarrier()
         if this.IsTerminal() then
             this.InvokeOnTerminal()
 
@@ -289,9 +293,14 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
         Volatile.Read &state <> int FiberContextState.Running
 
     member private this.Publish value =
-        transitionFrom &state (int FiberContextState.Running) (int FiberContextState.Completed) |> ignore
+        // An interruption that won the state after `completing` was claimed has set the result itself; setting it
+        // here as well could win that race and report a fiber both interrupted and succeeded.
+        let previous = transitionFrom &state (int FiberContextState.Running) (int FiberContextState.Completed)
         this.DisposeRegistrations()
-        resultSource.TrySetResult value |> ignore
+
+        if previous = int FiberContextState.Running then
+            resultSource.TrySetResult value |> ignore
+
         this.InvokeOnTerminal()
 
         match Volatile.Read &pendingQueue with
@@ -358,11 +367,11 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
             ()
 
     member private _.InvokeOnTerminal () =
-        match onTerminalCallback with
-        | ValueSome callback when tryClaim &onTerminalFired ->
+        let callback = onTerminalCallback
+
+        if not (isNull (box callback)) && tryClaim &onTerminalFired then
             try callback ()
             with _ -> ()
-        | _ -> ()
 
     // Taking the callback out is what makes it run once, whether the publisher or SetOnUnwound gets here first.
     member private this.InvokeOnUnwound () =
