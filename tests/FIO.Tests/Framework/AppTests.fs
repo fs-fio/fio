@@ -284,13 +284,13 @@ let appTests =
                         Expect.equal (app.mapExitCode (AppInterrupted ex)) 130 "AppInterrupted -> 130"
                         Expect.equal (app.mapExitCode (AppFatalError (exn "x"))) 1 "AppFatalError -> 1"
 
-                    testCase "Custom mapExitCode - success uses custom code"
+                    testCase "mapExitCode - a custom mapping applies to success"
                     <| fun () ->
                         let exitCode = CustomExitCodeApp(FIO.succeed 42).Run()
 
                         Expect.equal exitCode 10 "Custom success exit code should be 10"
 
-                    testCase "Custom mapExitCode - error uses custom code"
+                    testCase "mapExitCode - a custom mapping applies to an error"
                     <| fun () ->
                         let exitCode = CustomExitCodeApp(FIO.fail "error").Run()
 
@@ -358,7 +358,6 @@ let appTests =
                             let log = ResizeArray()
                             let outerFinalizerRan = ref false
 
-                            // The inner finalizer outlives the timeout; the outer one runs only if the fiber survives it.
                             let hook: FIO<unit, string> =
                                 (FIO.never ())
                                     .Ensuring(FIO.sleep (TimeSpan.FromMilliseconds 300.0))
@@ -439,7 +438,6 @@ let appTests =
                         silenceErr (fun () ->
                             let log = ResizeArray()
 
-                            // Slow on purpose: the hooks must wait for it, not happen to run after it.
                             let finalizer: FIO<unit, string> =
                                 (FIO.sleep (TimeSpan.FromMilliseconds 100.0))
                                     .FlatMap(fun () -> FIO.attempt (fun () -> log.Add "finalizerRan") (fun (ex: exn) -> ex.Message))

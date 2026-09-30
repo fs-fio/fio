@@ -22,7 +22,7 @@ let codecTests =
                 "frame"
                 [
 
-                    testPropertyWithConfig fsCheckConfig "Text frame roundtrip"
+                    testPropertyWithConfig fsCheckConfig "frame - roundtrips a Text frame"
                     <| fun (runtime: FIORuntime) ->
                         let frame = Text "hello"
 
@@ -37,7 +37,7 @@ let codecTests =
 
                         Expect.equal result frame "frame codec roundtrip"
 
-                    testAllRuntimes "Binary frame roundtrip" (fun runtime ->
+                    testAllRuntimes "frame - roundtrips a Binary frame" (fun runtime ->
                         let frame = Binary [| 1uy; 2uy; 3uy |]
 
                         let effect =
@@ -56,7 +56,7 @@ let codecTests =
                 "binary"
                 [
 
-                    testAllRuntimes "encode produces Binary frame" (fun runtime ->
+                    testAllRuntimes "binary - encode produces a Binary frame" (fun runtime ->
                         let data = [| 10uy; 20uy; 30uy |]
                         let effect = Codec.binary.Encode data
                         let result = runtime.Run(effect).UnsafeSuccess()
@@ -65,7 +65,7 @@ let codecTests =
                         | Binary b -> Expect.equal b data "Binary data should match"
                         | other -> failtest $"Expected Binary frame but got {other}")
 
-                    testPropertyWithConfig fsCheckConfig "roundtrip preserves data"
+                    testPropertyWithConfig fsCheckConfig "binary - roundtrip preserves the data"
                     <| fun (runtime: FIORuntime) ->
                         let data = [| 1uy; 2uy; 3uy; 4uy; 5uy |]
 
@@ -80,7 +80,7 @@ let codecTests =
 
                         Expect.equal result data "binary codec roundtrip"
 
-                    testAllRuntimes "decode fails on Text frame" (fun runtime ->
+                    testAllRuntimes "binary - decode fails on a Text frame" (fun runtime ->
                         let effect = Codec.binary.Decode(Text "hello")
                         let error = runtime.Run(effect).UnsafeError()
 
@@ -93,7 +93,7 @@ let codecTests =
                 "text"
                 [
 
-                    testAllRuntimes "encode produces Text frame" (fun runtime ->
+                    testAllRuntimes "text - encode produces a Text frame" (fun runtime ->
                         let effect = Codec.text.Encode "hello"
                         let result = runtime.Run(effect).UnsafeSuccess()
 
@@ -101,7 +101,7 @@ let codecTests =
                         | Text s -> Expect.equal s "hello" "Text content should match"
                         | other -> failtest $"Expected Text frame but got {other}")
 
-                    testPropertyWithConfig fsCheckConfig "roundtrip preserves string"
+                    testPropertyWithConfig fsCheckConfig "text - roundtrip preserves the string"
                     <| fun (runtime: FIORuntime) ->
                         let text = "hello world"
 
@@ -116,7 +116,7 @@ let codecTests =
 
                         Expect.equal result text "text codec roundtrip"
 
-                    testAllRuntimes "empty string" (fun runtime ->
+                    testAllRuntimes "text - roundtrips an empty string" (fun runtime ->
                         let effect =
                             fio {
                                 let! encoded = Codec.text.Encode ""
@@ -126,7 +126,7 @@ let codecTests =
 
                         Expect.equal (runtime.Run(effect).UnsafeSuccess()) "" "empty string roundtrip")
 
-                    testAllRuntimes "unicode string" (fun runtime ->
+                    testAllRuntimes "text - roundtrips a unicode string" (fun runtime ->
                         let effect =
                             fio {
                                 let! encoded = Codec.text.Encode "héllo wörld 🌍"
@@ -136,7 +136,7 @@ let codecTests =
 
                         Expect.equal (runtime.Run(effect).UnsafeSuccess()) "héllo wörld 🌍" "unicode roundtrip")
 
-                    testAllRuntimes "decode fails on Binary frame" (fun runtime ->
+                    testAllRuntimes "text - decode fails on a Binary frame" (fun runtime ->
                         let effect = Codec.text.Decode(Binary [| 1uy |])
                         let error = runtime.Run(effect).UnsafeError()
 
@@ -149,7 +149,7 @@ let codecTests =
                 "json"
                 [
 
-                    testAllRuntimes "TestMessage roundtrip" (fun runtime ->
+                    testAllRuntimes "json - roundtrips a TestMessage" (fun runtime ->
                         let msg = { Id = 42; Text = "hello" }
                         let codec = Codec.json
 
@@ -165,7 +165,7 @@ let codecTests =
                         Expect.equal result.Id msg.Id "Id should match"
                         Expect.equal result.Text msg.Text "Text should match")
 
-                    testAllRuntimes "invalid JSON produces error" (fun runtime ->
+                    testAllRuntimes "json - invalid JSON produces an error" (fun runtime ->
                         let codec = Codec.json
                         let effect = codec.Decode(Text "not valid json!!!")
                         let error = runtime.Run(effect).UnsafeError()
@@ -174,7 +174,7 @@ let codecTests =
                         | CodecError _ -> ()
                         | other -> failtest $"Expected CodecError but got {other}")
 
-                    testAllRuntimes "Close frame produces CodecError" (fun runtime ->
+                    testAllRuntimes "json - a Close frame produces CodecError" (fun runtime ->
                         let codec = Codec.json
                         let effect = codec.Decode(Close(WebSocketCloseStatus.NormalClosure, "bye"))
                         let error = runtime.Run(effect).UnsafeError()
@@ -188,7 +188,7 @@ let codecTests =
                 "jsonWithOptions"
                 [
 
-                    testAllRuntimes "custom options roundtrip" (fun runtime ->
+                    testAllRuntimes "jsonWithOptions - roundtrips with custom options" (fun runtime ->
                         let options = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
                         let codec = Codec.jsonWithOptions options
                         let msg = { Id = 7; Text = "custom" }
@@ -210,7 +210,7 @@ let codecTests =
                 "jsonLine"
                 [
 
-                    testAllRuntimes "encode appends newline" (fun runtime ->
+                    testAllRuntimes "jsonLine - encode appends a newline" (fun runtime ->
                         let codec = Codec.jsonLine None
                         let msg = { Id = 1; Text = "line" }
                         let effect = codec.Encode msg
@@ -221,7 +221,7 @@ let codecTests =
                         | Text s -> Expect.stringContains s "\n" "Should contain newline"
                         | other -> failtest $"Expected Text frame but got {other}")
 
-                    testAllRuntimes "roundtrip preserves content" (fun runtime ->
+                    testAllRuntimes "jsonLine - roundtrip preserves the content" (fun runtime ->
                         let codec = Codec.jsonLine None
                         let msg = { Id = 3; Text = "jsonline" }
 
@@ -242,7 +242,7 @@ let codecTests =
                 "map"
                 [
 
-                    testPropertyWithConfig fsCheckConfig "bidirectional mapping roundtrip"
+                    testPropertyWithConfig fsCheckConfig "map - roundtrips through a bidirectional mapping"
                     <| fun (runtime: FIORuntime) ->
                         let intCodec = Codec.text |> Codec.map int string
 
@@ -262,7 +262,7 @@ let codecTests =
                 "compose"
                 [
 
-                    testAllRuntimes "pair roundtrip" (fun runtime ->
+                    testAllRuntimes "compose - roundtrips a pair" (fun runtime ->
                         let pairCodec = Codec.compose Codec.text Codec.text
 
                         let effect =
@@ -281,7 +281,7 @@ let codecTests =
                 "create"
                 [
 
-                    testAllRuntimes "effectful encode/decode roundtrip" (fun runtime ->
+                    testAllRuntimes "create - roundtrips through an effectful encode and decode" (fun runtime ->
                         let codec =
                             Codec.create (fun (str: string) -> FIO.succeed (Text str)) (fun frame ->
                                 match frame with
@@ -304,7 +304,7 @@ let codecTests =
                 "createPure"
                 [
 
-                    testAllRuntimes "throwing encoder produces error" (fun runtime ->
+                    testAllRuntimes "createPure - a throwing encoder produces an error" (fun runtime ->
                         let codec =
                             Codec.createPure (fun _ -> failwith "boom") (fun frame ->
                                 match frame with
@@ -318,7 +318,7 @@ let codecTests =
                         | CodecError _ -> ()
                         | other -> failtest $"Expected CodecError but got {other}")
 
-                    testAllRuntimes "throwing decoder produces error" (fun runtime ->
+                    testAllRuntimes "createPure - a throwing decoder produces an error" (fun runtime ->
                         let codec =
                             Codec.createPure (fun str -> Text str) (fun (_: WebSocketFrame) -> failwith "boom")
 
@@ -329,7 +329,7 @@ let codecTests =
                         | CodecError _ -> ()
                         | other -> failtest $"Expected CodecError but got {other}")
 
-                    testAllRuntimes "normal roundtrip" (fun runtime ->
+                    testAllRuntimes "createPure - roundtrips a value" (fun runtime ->
                         let codec =
                             Codec.createPure (fun str -> Text str) (fun frame ->
                                 match frame with

@@ -585,7 +585,7 @@ let ceTests =
                         | Failed error -> Expect.equal error "body error" "Body error should be preserved over finalizer error"
                         | _ -> failtest $"Expected Failed, got {result}")
 
-                    testAllRuntimes "TryFinally inside TryWith - finalizer runs then error caught" (fun runtime ->
+                    testAllRuntimes "TryFinally - inside TryWith, the finalizer runs and then the error is caught" (fun runtime ->
                         let mutable finalizerRan = false
 
                         let effect =
@@ -605,7 +605,7 @@ let ceTests =
                         Expect.equal result "caught: body-error" "Error should be caught by outer try...with"
                         Expect.isTrue finalizerRan "Finalizer should run before error is caught")
 
-                    testAllRuntimes "TryWith inside TryFinally - error caught and finalizer still runs" (fun runtime ->
+                    testAllRuntimes "TryWith - inside TryFinally, the error is caught and the finalizer still runs" (fun runtime ->
                         let mutable finalizerRan = false
 
                         let effect =
@@ -1160,13 +1160,7 @@ let ceTests =
 
                         Expect.isTrue (result = err1 || result = err2) "and! surfaces one of the concurrent errors"
 
-                    // Asserting only that both operands ran cannot distinguish parallel from sequential,
-                    // so the left operand waits for the right to start. That wait must PARK, not block: a
-                    // synchronous wait here occupies one of the two evaluation workers and can starve the
-                    // very operand it waits for (CLAUDE.md: never block a scheduler thread). A channel read
-                    // parks the fiber and frees its worker; Timeout bounds it so a sequential regression
-                    // fails instead of hanging.
-                    testAllRuntimes "MergeSources - and! executes in parallel" (fun runtime ->
+                    testAllRuntimes "MergeSources - and! executes in parallel (the left operand parks until the right has started)" (fun runtime ->
                         let rendezvous = Channel<unit>()
                         let overlapped = ref false
 
@@ -1193,7 +1187,7 @@ let ceTests =
                             overlapped.Value
                             "and! must run its operands concurrently: the left saw the right start before finishing")
 
-                    testAllRuntimes "and! x3 - executes in parallel" (fun runtime ->
+                    testAllRuntimes "MergeSources - and! with three sources executes in parallel" (fun runtime ->
                         let fromSecond = Channel<unit>()
                         let fromThird = Channel<unit>()
                         let sawSecond = ref false
@@ -1226,7 +1220,7 @@ let ceTests =
                         Expect.isTrue sawSecond.Value "The first operand must see the second start"
                         Expect.isTrue sawThird.Value "The first operand must see the third start")
 
-                    testPropertyWithConfig fsCheckConfig "and! x3 - zips three effects"
+                    testPropertyWithConfig fsCheckConfig "MergeSources - and! zips three effects"
                     <| fun (runtime: FIORuntime, a: int, b: int, c: int) ->
                         let effect =
                             fio {
@@ -1240,7 +1234,7 @@ let ceTests =
 
                         Expect.equal result (a + b + c) "let! ... and! ... and! should zip three effects"
 
-                    testPropertyWithConfig fsCheckConfig "and! x3 - error from first propagates"
+                    testPropertyWithConfig fsCheckConfig "MergeSources - and! propagates an error from the first of three effects"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let effect =
                             fio {
@@ -1254,7 +1248,7 @@ let ceTests =
 
                         Expect.equal result error "and! x3 should propagate the first error"
 
-                    testPropertyWithConfig fsCheckConfig "and! x4 - zips four effects"
+                    testPropertyWithConfig fsCheckConfig "MergeSources - and! zips four effects"
                     <| fun (runtime: FIORuntime, a: int, b: int, c: int, d: int) ->
                         let effect =
                             fio {
@@ -1269,7 +1263,7 @@ let ceTests =
 
                         Expect.equal result (a + b + c + d) "and! x4 should zip four effects"
 
-                    testPropertyWithConfig fsCheckConfig "and! x5 - zips five effects"
+                    testPropertyWithConfig fsCheckConfig "MergeSources - and! zips five effects"
                     <| fun (runtime: FIORuntime, a: int, b: int, c: int, d: int, e: int) ->
                         let effect =
                             fio {
@@ -1285,7 +1279,7 @@ let ceTests =
 
                         Expect.equal result (a + b + c + d + e) "and! x5 should zip five effects"
 
-                    testPropertyWithConfig fsCheckConfig "and! x3 - error from second effect propagates"
+                    testPropertyWithConfig fsCheckConfig "MergeSources - and! propagates an error from the second of three effects"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let effect =
                             fio {
@@ -1301,7 +1295,7 @@ let ceTests =
 
                         Expect.equal result error "Error from second effect should propagate"
 
-                    testPropertyWithConfig fsCheckConfig "and! x3 - error from third effect propagates"
+                    testPropertyWithConfig fsCheckConfig "MergeSources - and! propagates an error from the third of three effects"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let effect =
                             fio {
@@ -1315,7 +1309,7 @@ let ceTests =
 
                         Expect.equal result error "Error from third effect should propagate"
 
-                    testPropertyWithConfig fsCheckConfig "and! x4 - error from third effect propagates"
+                    testPropertyWithConfig fsCheckConfig "MergeSources - and! propagates an error from the third of four effects"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let effect =
                             fio {
@@ -1330,7 +1324,7 @@ let ceTests =
 
                         Expect.equal result error "Error from third effect in and! x4 should propagate"
 
-                    testPropertyWithConfig fsCheckConfig "and! x5 - error from fourth effect propagates"
+                    testPropertyWithConfig fsCheckConfig "MergeSources - and! propagates an error from the fourth of five effects"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let effect =
                             fio {

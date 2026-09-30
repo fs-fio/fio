@@ -409,6 +409,46 @@ let conformanceTests =
                         | Succeeded value -> Expect.equal value 1 "The first fiber must survive a later Run"
                         | other -> failtest $"{runtime.GetType().Name}: first fiber expected Succeeded but got {other}"
 
+                    testAllRuntimes "Run - a later Run leaves an existing fiber alone; the caller interrupts it"
+                    <| fun runtime ->
+                        let childStarted = new ManualResetEventSlim false
+
+                        let childEffect: FIO<unit, string> =
+                            fio {
+                                do! FIO.attempt (fun () -> childStarted.Set()) (fun ex -> ex.Message)
+                                return! FIO.never ()
+                            }
+
+                        let parentEffect: FIO<obj, string> =
+                            fio {
+                                let! fiber = childEffect.ForkDaemon()
+
+                                do!
+                                    FIO.attempt
+                                        (fun () -> childStarted.Wait(TimeSpan.FromSeconds 5.0) |> ignore)
+                                        (fun ex -> ex.Message)
+
+                                return fiber :> obj
+                            }
+
+                        let fiber1 = runtime.Run parentEffect
+                        let childFiber = fiber1.UnsafeSuccess() :?> Fiber<unit, string>
+
+                        let fiber2 = runtime.Run(FIO.succeed 99: FIO<int, string>)
+                        Expect.equal (fiber2.UnsafeSuccess()) 99 "The second fiber must complete"
+
+                        Expect.isFalse
+                            (childFiber.IsTerminal())
+                            $"{runtime.GetType().Name}: a later Run must leave a fiber that is already running untouched"
+
+                        runtime.Run(childFiber.InterruptNow()).UnsafeSuccess()
+
+                        match childFiber.UnsafeResult() with
+                        | Interrupted _ -> ()
+                        | other -> failtest $"{runtime.GetType().Name}: expected the child fiber to be Interrupted once asked, got {other}"
+
+                        childStarted.Dispose()
+
                     testAllRuntimes "Run - returns without waiting for the effect to finish"
                     <| fun runtime ->
                         let slow: FIO<int, string> =

@@ -16,7 +16,7 @@ let extensionsTests =
         "Extensions"
         [
 
-            testAllRuntimes "SendJson/ReceiveJson roundtrip with custom options" (fun runtime ->
+            testAllRuntimes "SendJson - roundtrips through ReceiveJson with custom options" (fun runtime ->
                 withTestServer
                     echoHandler
                     (fun port ->
@@ -35,7 +35,7 @@ let extensionsTests =
                         })
                     runtime)
 
-            testAllRuntimes "SendJsonLine/ReceiveJsonLine roundtrip with custom options" (fun runtime ->
+            testAllRuntimes "SendJsonLine - roundtrips through ReceiveJsonLine with custom options" (fun runtime ->
                 withTestServer
                     echoHandler
                     (fun port ->

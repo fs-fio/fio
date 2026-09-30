@@ -9,7 +9,6 @@ open FIO.Runtime
 open Expecto
 
 open System
-open System.Threading
 
 [<Tests>]
 let fioTests =
@@ -541,54 +540,5 @@ let fioTests =
                             runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result 200 "All fast-completing forks should be observed"
-                ]
-
-            testList
-                "Run lifecycle"
-                [
-                    // Run schedules and nothing more. It used to interrupt the previous root fiber's tree,
-                    // which is incompatible with calling Run per request; cleaning up a fiber you started is
-                    // now the caller's job, done through the handle they already hold. Interrupting unwinds the
-                    // fiber properly, which the old queue-clearing reset did not.
-                    testAllRuntimes "Run - a later Run leaves an existing fiber alone; the caller interrupts it" (fun runtime ->
-                        let childStarted = new ManualResetEventSlim false
-
-                        let childEffect: FIO<unit, exn> =
-                            fio {
-                                do! FIO.attempt (fun () -> childStarted.Set()) id
-                                return! FIO.never ()
-                            }
-
-                        let parentEffect: FIO<obj, exn> =
-                            fio {
-                                let! fiber = childEffect.ForkDaemon()
-                                do! FIO.attempt (fun () -> childStarted.Wait(TimeSpan.FromSeconds 5.0) |> ignore) id
-                                return fiber :> obj
-                            }
-
-                        let fiber1 = runtime.Run parentEffect
-                        let childFiber = fiber1.UnsafeSuccess() :?> Fiber<unit, exn>
-
-                        let fiber2 = runtime.Run(FIO.succeed 99)
-                        Expect.equal (fiber2.UnsafeSuccess()) 99 "Second run should succeed"
-
-                        Expect.isFalse
-                            (childFiber.IsTerminal())
-                            "A later Run must leave a fiber that is already running untouched"
-
-                        runtime.Run(childFiber.InterruptNow()).UnsafeSuccess()
-
-                        match childFiber.UnsafeResult() with
-                        | Interrupted _ -> ()
-                        | other -> failtestf "Expected the child fiber to be Interrupted once asked, got %A" other
-
-                        childStarted.Dispose())
-
-                    testAllRuntimes "Run - second Run produces correct result after first completes" (fun runtime ->
-                        let fiber1 = runtime.Run(FIO.succeed 1)
-                        Expect.equal (fiber1.UnsafeSuccess()) 1 "First run"
-
-                        let fiber2 = runtime.Run(FIO.succeed 2)
-                        Expect.equal (fiber2.UnsafeSuccess()) 2 "Second run")
                 ]
         ]

@@ -166,7 +166,7 @@ let refTests =
             testList
                 "Unsafe access"
                 [
-                    testCase "UnsafeGet/UnsafeUpdate/UnsafeModify work outside an effect" (fun () ->
+                    testCase "UnsafeGet/UnsafeUpdate/UnsafeModify - work outside an effect" (fun () ->
                         let cell = Ref<int> 10
 
                         Expect.equal (cell.UnsafeGet()) 10 "UnsafeGet should read the initial value"

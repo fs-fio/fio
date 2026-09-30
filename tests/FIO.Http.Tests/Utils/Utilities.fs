@@ -13,14 +13,13 @@ open System
 open System.Net
 open System.Text
 open System.Threading
+open System.Net.Sockets
 open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Hosting
 open Microsoft.Extensions.Logging
 
 open Expecto
 
-// Two workers, as in the core suite: a default config per test spawns a thread per core per
-// runtime, and the resulting load makes wall-clock deadline assertions flake.
 let testConfig = { WorkerConfig.Default with EvaluationWorkers = 2 }
 
 [<CLIMutable>]
@@ -98,7 +97,7 @@ let getWhenListening (url: string) =
     | None -> failtest $"Server at {url} never became ready"
 
 let findAvailablePort () =
-    let listener = new Sockets.TcpListener(IPAddress.Loopback, 0)
+    let listener = new TcpListener(IPAddress.Loopback, 0)
     listener.Start()
     let port = (listener.LocalEndpoint :?> IPEndPoint).Port
     listener.Stop()
@@ -107,13 +106,12 @@ let findAvailablePort () =
 let private startTestHttpApp (routes: Routes<exn>) (maxBodySize: int64) (runtime: DefaultRuntime) =
     let rec attempt remaining =
         let port = findAvailablePort ()
-        let config = ServerConfig.create "127.0.0.1" port
 
-        let builder = Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder()
+        let builder = WebApplication.CreateBuilder()
         builder.Logging.ClearProviders() |> ignore
 
         builder.WebHost.ConfigureKestrel(fun options ->
-            options.Listen(System.Net.IPAddress.Parse "127.0.0.1", port))
+            options.Listen(IPAddress.Parse "127.0.0.1", port))
             |> ignore
 
         let app = builder.Build()

@@ -15,7 +15,7 @@ let extensionsTests =
     testList
         "Extensions"
         [
-            testAllRuntimes "SendJson/ReceiveJson roundtrip" (fun runtime ->
+            testAllRuntimes "SendJson - roundtrips through ReceiveJson" (fun runtime ->
                 withTestServer
                     echoHandler
                     (fun port ->
@@ -32,7 +32,7 @@ let extensionsTests =
                         })
                     runtime)
 
-            testAllRuntimes "SendJson/ReceiveJson with custom options" (fun runtime ->
+            testAllRuntimes "SendJson - roundtrips through ReceiveJson with custom options" (fun runtime ->
                 withTestServer
                     echoHandler
                     (fun port ->
@@ -50,7 +50,7 @@ let extensionsTests =
                         })
                     runtime)
 
-            testAllRuntimes "SendString/ReceiveString roundtrip" (fun runtime ->
+            testAllRuntimes "SendString - roundtrips through ReceiveString" (fun runtime ->
                 withTestServer
                     echoHandler
                     (fun port ->
@@ -65,7 +65,7 @@ let extensionsTests =
                         })
                     runtime)
 
-            testAllRuntimes "SendBytes/ReceiveBytes roundtrip" (fun runtime ->
+            testAllRuntimes "SendBytes - roundtrips through ReceiveBytes" (fun runtime ->
                 withTestServer
                     echoHandler
                     (fun port ->
@@ -84,7 +84,7 @@ let extensionsTests =
             testList
                 "Frame-type mismatches"
                 [
-                    testAllRuntimes "ReceiveString rejects a binary frame" (fun runtime ->
+                    testAllRuntimes "ReceiveString - rejects a binary frame" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -109,7 +109,7 @@ let extensionsTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "ReceiveBytes rejects a text frame" (fun runtime ->
+                    testAllRuntimes "ReceiveBytes - rejects a text frame" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -134,7 +134,7 @@ let extensionsTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "ReceiveJson fails when the connection closes first" (fun runtime ->
+                    testAllRuntimes "ReceiveJson - fails when the connection closes first" (fun runtime ->
                         withTestServer
                             (fun ws -> ws.Close())
                             (fun port ->

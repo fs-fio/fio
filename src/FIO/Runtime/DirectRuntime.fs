@@ -7,9 +7,8 @@ open System
 open System.Threading
 open System.Threading.Tasks
 
-/// A runtime with no scheduler of its own: every fiber is a .NET task on the thread pool, and a
-/// blocked fiber awaits rather than being rescheduled. The simplest runtime — handy for tests,
-/// simple programs, and as the baseline the other runtimes are measured against.
+/// A runtime with no scheduler of its own: each fiber is a .NET task on the thread pool and a blocked fiber awaits.
+/// Handy for tests and as the baseline the other runtimes are measured against.
 type DirectRuntime() =
     inherit FIORuntime()
 
@@ -233,9 +232,8 @@ type DirectRuntime() =
                 fiberContext.Complete <| Error(defectError fiberContext ex)
         }
 
-    /// Schedules the given effect on a new fiber and returns immediately with a handle to it. Safe to
-    /// call concurrently and as often as you like: it never waits for, interrupts, or discards any
-    /// fiber already running on this runtime.
+    /// Schedules the given effect on a new fiber and returns its handle at once; it never waits for, interrupts, or
+    /// discards a fiber already running, so call it as often as you like.
     override this.Run<'A, 'E> (effect: FIO<'A, 'E>) : Fiber<'A, 'E> =
         let fiber = new Fiber<'A, 'E>()
         this.Track fiber.Context

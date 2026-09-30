@@ -214,6 +214,17 @@ Instance methods use **PascalCase**: `effect.Map(f)`, `effect.FlatMap(f)`, `effe
 
 Library modules use **qualified access**: e.g. `Console.printLine "msg" id`.
 
+### Tail recursion
+
+`[<TailCall>]` marks ordinary (non-effect) recursion that must compile to a loop: `Ref.cas`, the HTTP route
+matchers (`RoutePattern.fs`, `Routes.fs`), and the four `InterpretAsync` members, where it stops the
+interpreter from calling itself. It can go on module-level and class-level `let` functions and on members,
+but not on a local `let rec` (FS0824). FIO effect loops (`FlatMap`, `fio { return! loop () }`) never get
+it: the interpreter runs each iteration from its own loop, so they cannot overflow the stack, and the
+check, which cannot tell that `FlatMap` runs its lambda later, wrongly rejects some of them. For them,
+keep `return! loop ()` last so no continuation piles up. The attribute changes no IL and costs nothing at
+runtime.
+
 ## Benchmarks
 
 Macro benchmarks live in `benchmarks/FIO.Benchmarks/` (BenchmarkDotNet 0.15.8). Twelve workloads:
@@ -238,7 +249,7 @@ Macro benchmarks live in `benchmarks/FIO.Benchmarks/` (BenchmarkDotNet 0.15.8). 
 - Console tests use `System.Console.SetOut`/`SetIn` with `StringWriter`/`StringReader` for deterministic capture — must use `testSequenced` (not parallel) because `System.Console` has process-global state
 - Signal tests (`Lib/SignalTests.fs`) are sequenced too, since a signal reaches every subscription in the process; the `SIGWINCH` ones send it to the test process with `kill` and are skipped on Windows
 - Four test projects:
-  - `FIO.Tests` — core library, organized into `DSL/`, `Lib/`, `Framework/`, `Runtime/` subfolders
+  - `FIO.Tests` — core library, organized into `DSL/`, `Lib/`, `Framework/`, `Runtime/` subfolders; the factory functions and extension methods are split by sub-group into `DSL/Factories/*.fs` and `DSL/Extensions/*.fs`, each file a `[<Tests>]` list under the same top label ("Factory Functions" / "Extension Methods"). Test names follow `Subject - sentence` (the member under test, then the behaviour) in all four projects
   - `FIO.Sockets.Tests` — TCP sockets, flat structure with `testAllRuntimes` + `withTestServer`/`withTestEchoServer` helpers
   - `FIO.WebSockets.Tests` — WebSockets, flat structure
   - `FIO.Http.Tests` — HTTP server tests

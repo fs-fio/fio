@@ -17,7 +17,7 @@ let socketClientTests =
             testList
                 "Connect"
                 [
-                    testAllRuntimes "connect succeeds to listening server" (fun runtime ->
+                    testAllRuntimes "connect - succeeds against a listening server" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -31,7 +31,7 @@ let socketClientTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "connectWith convenience works" (fun runtime ->
+                    testAllRuntimes "connectWith - connects to a listening server" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -44,7 +44,7 @@ let socketClientTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "connect fails for unreachable host" (fun runtime ->
+                    testAllRuntimes "connect - fails for an unreachable host" (fun runtime ->
                         let effect =
                             fio {
                                 let! config = SocketConfig.create "127.0.0.1" 1
@@ -63,7 +63,7 @@ let socketClientTests =
             testList
                 "Scoped lifetime"
                 [
-                    testAllRuntimes "withConnection auto-closes socket" (fun runtime ->
+                    testAllRuntimes "withConnection - closes the socket when the scope ends" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -77,7 +77,7 @@ let socketClientTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "withConnectionTo echoes data" (fun runtime ->
+                    testAllRuntimes "withConnectionTo - connects and echoes data" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -99,7 +99,7 @@ let socketClientTests =
             testList
                 "Codec wrappers"
                 [
-                    testAllRuntimes "receiveWith receives data with codec" (fun runtime ->
+                    testAllRuntimes "receiveWith - receives data through a codec" (fun runtime ->
                         withTestServer
                             (fun socket -> fio { do! socket.SendString "hello receiveWith" })
                             (fun port ->
@@ -110,7 +110,7 @@ let socketClientTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "sendWith sends data with codec" (fun runtime ->
+                    testAllRuntimes "sendWith - sends data through a codec" (fun runtime ->
                         withTestServer
                             (fun socket ->
                                 fio {

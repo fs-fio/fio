@@ -14,7 +14,7 @@ let routePatternTests =
                 "RoutePath"
                 [
 
-                    testCase "exact matches same segments"
+                    testCase "exact - matches the same segments"
                     <| fun () ->
                         let result =
                             RoutePath.tryMatch (RoutePath.exact [ "users"; "list" ]) [ "users"; "list" ]
@@ -27,37 +27,37 @@ let routePatternTests =
                             Expect.isEmpty remaining "No remaining"
                         | None -> failtest "Expected match"
 
-                    testCase "exact rejects different segments"
+                    testCase "exact - rejects different segments"
                     <| fun () ->
                         let result = RoutePath.tryMatch (RoutePath.exact [ "users" ]) [ "posts" ]
 
                         Expect.isNone result "Should not match"
 
-                    testCase "exact rejects longer path"
+                    testCase "exact - rejects a longer path"
                     <| fun () ->
                         let result = RoutePath.tryMatch (RoutePath.exact [ "users" ]) [ "users"; "123" ]
 
                         Expect.isNone result "Longer path should not match"
 
-                    testCase "exact rejects shorter path"
+                    testCase "exact - rejects a shorter path"
                     <| fun () ->
                         let result = RoutePath.tryMatch (RoutePath.exact [ "users"; "list" ]) [ "users" ]
 
                         Expect.isNone result "Shorter path should not match"
 
-                    testCase "exact matches empty segments for root"
+                    testCase "exact - matches empty segments for the root"
                     <| fun () ->
                         let result = RoutePath.tryMatch (RoutePath.exact []) []
 
                         Expect.isSome result "Root should match empty"
 
-                    testCase "prefix matches exact prefix"
+                    testCase "prefix - matches an exact prefix"
                     <| fun () ->
                         let result = RoutePath.tryMatch (RoutePath.prefix [ "api" ]) [ "api" ]
 
                         Expect.isSome result "Exact prefix match"
 
-                    testCase "prefix matches and returns remaining segments"
+                    testCase "prefix - matches and returns the remaining segments"
                     <| fun () ->
                         let result =
                             RoutePath.tryMatch (RoutePath.prefix [ "api" ]) [ "api"; "v1"; "users" ]
@@ -66,27 +66,27 @@ let routePatternTests =
                         | Some(_, remaining) -> Expect.equal remaining [ "v1"; "users" ] "Remaining segments"
                         | None -> failtest "Expected match"
 
-                    testCase "prefix rejects non-matching"
+                    testCase "prefix - rejects a non-matching path"
                     <| fun () ->
                         let result = RoutePath.tryMatch (RoutePath.prefix [ "api" ]) [ "web" ]
 
                         Expect.isNone result "Should not match"
 
-                    testCase "fromString parses simple path"
+                    testCase "fromString - parses a simple path"
                     <| fun () ->
                         let path = RoutePath.fromString "/users/list"
                         let result = RoutePath.tryMatch path [ "users"; "list" ]
 
                         Expect.isSome result "Should match"
 
-                    testCase "fromString handles root path"
+                    testCase "fromString - handles the root path"
                     <| fun () ->
                         let path = RoutePath.fromString "/"
                         let result = RoutePath.tryMatch path []
 
                         Expect.isSome result "Root should match"
 
-                    testCase "withInt matches integer parameter"
+                    testCase "withInt - matches an integer parameter"
                     <| fun () ->
                         let path = RoutePath.withInt [ "users" ] []
 
@@ -98,7 +98,7 @@ let routePatternTests =
                             Expect.equal (params'.[0] :?> int) 42 "Parsed int"
                         | None -> failtest "Expected match"
 
-                    testCase "withInt rejects non-integer"
+                    testCase "withInt - rejects a non-integer"
                     <| fun () ->
                         let path = RoutePath.withInt [ "users" ] []
 
@@ -106,7 +106,7 @@ let routePatternTests =
 
                         Expect.isNone result "Non-integer should not match"
 
-                    testCase "withInt matches with before and after segments"
+                    testCase "withInt - matches with segments before and after"
                     <| fun () ->
                         let path = RoutePath.withInt [ "users" ] [ "posts" ]
 
@@ -116,7 +116,7 @@ let routePatternTests =
                         | Some(params', _) -> Expect.equal (params'.[0] :?> int) 5 "Parsed int"
                         | None -> failtest "Expected match"
 
-                    testCase "withString matches string parameter"
+                    testCase "withString - matches a string parameter"
                     <| fun () ->
                         let path = RoutePath.withString [ "files" ] []
 
@@ -126,7 +126,7 @@ let routePatternTests =
                         | Some(params', _) -> Expect.equal (params'.[0] :?> string) "readme.md" "Parsed string"
                         | None -> failtest "Expected match"
 
-                    testCase "withString matches with before and after"
+                    testCase "withString - matches with segments before and after"
                     <| fun () ->
                         let path = RoutePath.withString [ "api" ] [ "details" ]
 
@@ -141,7 +141,7 @@ let routePatternTests =
                 "RoutePattern matching"
                 [
 
-                    testCase "create with GET and exact path matches"
+                    testCase "create - with GET and an exact path matches"
                     <| fun () ->
                         let pattern = RoutePattern.get (RoutePath.exact [ "users" ])
                         let req = HttpRequest.create HttpMethod.GET "/users"
@@ -150,7 +150,7 @@ let routePatternTests =
 
                         Expect.isSome result "Should match"
 
-                    testCase "tryMatch rejects wrong method"
+                    testCase "tryMatch - rejects the wrong method"
                     <| fun () ->
                         let pattern = RoutePattern.get (RoutePath.exact [ "users" ])
                         let req = HttpRequest.create HttpMethod.POST "/users"
@@ -159,7 +159,7 @@ let routePatternTests =
 
                         Expect.isNone result "Wrong method should not match"
 
-                    testCase "tryMatch rejects wrong path"
+                    testCase "tryMatch - rejects the wrong path"
                     <| fun () ->
                         let pattern = RoutePattern.get (RoutePath.exact [ "users" ])
                         let req = HttpRequest.create HttpMethod.GET "/posts"
@@ -168,7 +168,7 @@ let routePatternTests =
 
                         Expect.isNone result "Wrong path should not match"
 
-                    testCase "method-specific constructors create correct methods"
+                    testCase "get/post/put/delete - create patterns with their methods"
                     <| fun () ->
                         let path = RoutePath.exact [ "test" ]
 
@@ -185,7 +185,7 @@ let routePatternTests =
                 "Route string parsing"
                 [
 
-                    testCase "fromString parses GET /path"
+                    testCase "fromString - parses GET /path"
                     <| fun () ->
                         let pattern = Route.fromString "GET /users"
 
@@ -195,7 +195,7 @@ let routePatternTests =
 
                         Expect.isSome (RoutePattern.tryMatch pattern req) "Match"
 
-                    testCase "fromString parses route with parameter"
+                    testCase "fromString - parses a route with a parameter"
                     <| fun () ->
                         let pattern = Route.fromString "GET /users/:id"
                         let req = HttpRequest.create HttpMethod.GET "/users/hello"
@@ -208,10 +208,10 @@ let routePatternTests =
                             Expect.equal (params'.[0] :?> string) "hello" "String param"
                         | None -> failtest "Expected match"
 
-                    testCase "fromString throws for invalid format"
+                    testCase "fromString - throws for an invalid format"
                     <| fun () -> Expect.throws (fun () -> Route.fromString "INVALID" |> ignore) "Invalid format"
 
-                    testCase "Route.get/post/put/delete create from string"
+                    testCase "Route.get/post/put/delete - create from a string"
                     <| fun () ->
                         let gp = Route.get "/test"
                         Expect.equal gp.Method HttpMethod.GET "GET"
@@ -230,7 +230,7 @@ let routePatternTests =
                 "RouteOperators"
                 [
 
-                    testCase "=> creates route pattern from method and path"
+                    testCase "( => ) - creates a route pattern from a method and a path"
                     <| fun () ->
                         let pattern = RouteOperators.(=>) HttpMethod.GET "/api"
                         Expect.equal pattern.Method HttpMethod.GET "GET"

@@ -6,8 +6,8 @@ open System.Threading.Tasks
 open System.Threading.Channels
 open System.Collections.Generic
 open System.Collections.Concurrent
-open System.Runtime.ExceptionServices
 open System.Runtime.CompilerServices
+open System.Runtime.ExceptionServices
 
 // The mapper for effects that cannot fail: a throwing mapper becomes a Defect in the interpreter. It
 // rethrows via ExceptionDispatchInfo because a plain raise would reset the original stack trace.
@@ -32,12 +32,10 @@ type internal PostFinalizerSaved =
     | PostFinalizerInterrupted of error: obj
 
 and [<Struct>] internal Cont =
-    // Either handler may be null: a FlatMap has no failure handler, a CatchAll no success handler.
     | ChainCont of successCont: (obj -> FIO<obj, obj>) * failureCont: (obj -> FIO<obj, obj>)
     | FinalizerCont of finalizer: FIO<obj, obj>
     | PostFinalizerCont of saved: PostFinalizerSaved * level: int
     | RestoreSuppressionCont of level: int
-    // Its fields share ChainCont's and RestoreSuppressionCont's storage, so Cont does not grow.
     | AcquiredCont of successCont: (obj -> FIO<obj, obj>) * level: int
 
 and internal WorkItem =
@@ -149,15 +147,9 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
     [<VolatileField>]
     let mutable registrations: ConcurrentBag<IDisposable> = null
 
-    // One signal that interrupts every scoped child. Deliberately separate from cancelSource, whose
-    // token is handed to user code by FIO.cancellationToken: a fiber finishing normally must not
-    // present itself as cancelled.
     [<VolatileField>]
     let mutable childScope: CancellationTokenSource = null
 
-    // The scope of children forked while this fiber was uninterruptible (a finalizer, say). It is
-    // cancelled when the fiber exits, not when it is interrupted, so the work such a region forks
-    // (a Timeout, a ZipPar) is not cut short by the interruption the region defers.
     [<VolatileField>]
     let mutable protectedScope: CancellationTokenSource = null
 
@@ -170,7 +162,6 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
             with :? ObjectDisposedException ->
                 ()
 
-    // Set on a scoped child so it can tell its parent it has finished unwinding.
     [<VolatileField>]
     let mutable parent: FiberContext = null
 
@@ -178,7 +169,6 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
     [<VolatileField>]
     let mutable outstanding = 0
 
-    // This fiber's effect has finished and a result is waiting on its children.
     [<VolatileField>]
     let mutable completing = 0
 
@@ -193,7 +183,6 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
     [<VolatileField>]
     let mutable disposed = 0
 
-    // A reference, not a voption struct: a two-word field can be read torn while another thread writes it.
     [<VolatileField>]
     let mutable onTerminalCallback: unit -> unit = Unchecked.defaultof<_>
 
@@ -212,19 +201,13 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
     member internal _.CancellationToken =
         cancelSource.Token
 
-    // The barrier orders the write before the read of `state`, as SetOnUnwound's does for `published`: either a
-    // publisher that changed the state first sees the callback, or this read sees the change.
     member internal this.SetOnTerminal (callback: unit -> unit) =
-        onTerminalCallback <- callback
-        Interlocked.MemoryBarrier()
+        Interlocked.Exchange<unit -> unit>(&onTerminalCallback, callback) |> ignore
         if this.IsTerminal() then
             this.InvokeOnTerminal()
 
-    // Runs once this fiber and its scoped subtree have fully unwound, which for an interrupted fiber is
-    // later than its published result. The barrier orders the write before the read of `published`.
     member internal this.SetOnUnwound (callback: Action<FiberContext>) =
-        onUnwoundCallback <- callback
-        Interlocked.MemoryBarrier()
+        Interlocked.Exchange<Action<FiberContext>>(&onUnwoundCallback, callback) |> ignore
         if Volatile.Read &published = 1 then
             this.InvokeOnUnwound()
 
@@ -291,8 +274,6 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
         Volatile.Read &published = 1
 
     member private this.Publish value =
-        // An interruption that won the state after `completing` was claimed has set the result itself; setting it
-        // here as well could win that race and report a fiber both interrupted and succeeded.
         let previous = transitionFrom &state (int FiberContextState.Running) (int FiberContextState.Completed)
         this.DisposeRegistrations()
 
@@ -320,8 +301,6 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
            && tryClaim &published then
             this.Publish pendingValue
 
-    // A child's publish finishes its parent, whose publish finishes its own parent: one set of frames per level
-    // of a chain of nested forks, on the thread that completed the leaf.
     member private this.OnChildUnwound () =
         Interlocked.Decrement &outstanding |> ignore
 
@@ -365,7 +344,6 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
             try callback ()
             with _ -> ()
 
-    // Taking the callback out is what makes it run once, whether the publisher or SetOnUnwound gets here first.
     member private this.InvokeOnUnwound () =
         match Interlocked.Exchange(&onUnwoundCallback, null) with
         | null -> ()
@@ -561,9 +539,6 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
 
     interface IDisposable with
 
-        /// Releases the fiber's cancellation resources. Dispose a fiber only once it has finished: a running fiber
-        /// reads its cancellation token at every step, so disposing it ends the fiber as a defect and skips its
-        /// remaining finalizers.
         member _.Dispose () =
             (fiberContext :> IDisposable).Dispose()
 
@@ -691,20 +666,15 @@ and FIO<'A, 'E> =
     member this.Ensuring (finalizer: FIO<unit, 'E>) : FIO<'A, 'E> =
         OnFinalize(this, finalizer.UpcastBoth())
 
-    /// Returns an effect that runs this effect on a new fiber, yielding the fiber immediately.
-    /// The forked fiber is scoped to this one: it is interrupted when this fiber is interrupted or
-    /// finishes (only when it finishes, if forked while this fiber was uninterruptible, e.g. in a
-    /// finalizer), and this fiber does not finish until it has unwound, so every finalizer in the
-    /// subtree has run before a completed fiber's result becomes observable. Await the child here if
-    /// you need its result. Use ForkDaemon for a fiber that should outlive its parent.
+    /// Returns an effect that runs this effect on a new fiber scoped to this one, yielding its handle: the child is
+    /// interrupted when this fiber is interrupted or finishes, and finishing waits for it to unwind. See ForkDaemon.
     member this.Fork<'E1> () : FIO<Fiber<'A, 'E>, 'E1> =
         Suspend(fun () ->
             let fiber = new Fiber<'A, 'E>()
             ForkEffect(this.UpcastBoth(), fiber, fiber.Context, false))
 
-    /// Returns an effect that runs this effect on a new unscoped fiber, yielding the fiber immediately.
-    /// Unlike Fork, the forked fiber is independent of this one: it is neither interrupted nor awaited
-    /// when this fiber finishes, so its lifetime — and its finalizers — become the caller's to manage.
+    /// Returns an effect that runs this effect on a new unscoped fiber, yielding its handle: it is neither interrupted
+    /// nor awaited when this fiber finishes, so its lifetime and finalizers are the caller's to manage.
     member this.ForkDaemon<'E1> () : FIO<Fiber<'A, 'E>, 'E1> =
         Suspend(fun () ->
             let fiber = new Fiber<'A, 'E>()

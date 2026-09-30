@@ -14,6 +14,51 @@ type RoutePath =
 [<RequireQualifiedAccess>]
 module RoutePath =
 
+    [<TailCall>]
+    let rec private matchSegments
+        (patternSegments: string list)
+        (urlSegments: string list)
+        (captured: obj list) =
+        match patternSegments, urlSegments with
+        | [], [] ->
+            Some(List.rev captured, [])
+        | patternSegment :: patternRest, urlSegment :: urlRest when patternSegment.StartsWith ":" ->
+            matchSegments patternRest urlRest (box urlSegment :: captured)
+        | patternSegment :: patternRest, urlSegment :: urlRest when patternSegment = urlSegment ->
+            matchSegments patternRest urlRest captured
+        | _ ->
+            None
+
+    [<TailCall>]
+    let rec private matchPrefix (exp: string list) (seg: string list) =
+        match exp, seg with
+        | [], remaining ->
+            Some([], remaining)
+        | e :: et, s :: st when e = s ->
+            matchPrefix et st
+        | _ ->
+            None
+
+    [<TailCall>]
+    let rec private matchBefore (b: string list) (s: string list) =
+        match b, s with
+        | [], remaining ->
+            Some remaining
+        | bh :: bt, sh :: st when bh = sh ->
+            matchBefore bt st
+        | _ ->
+            None
+
+    [<TailCall>]
+    let rec private matchAfter (a: string list) (s: string list) (acc: obj list) =
+        match a, s with
+        | [], remaining ->
+            Some(List.rev acc, remaining)
+        | ah :: at, sh :: st when ah = sh ->
+            matchAfter at st acc
+        | _ ->
+            None
+
     /// Creates a path that matches the given segments exactly.
     let exact (segments: string list) =
         Exact segments
@@ -29,19 +74,6 @@ module RoutePath =
 
         if segments |> List.exists (fun (segment: string) -> segment.StartsWith ":") then
             Pattern <| fun requestSegments ->
-                let rec matchSegments
-                    (patternSegments: string list)
-                    (urlSegments: string list)
-                    (captured: obj list) =
-                    match patternSegments, urlSegments with
-                    | [], [] ->
-                        Some(List.rev captured, [])
-                    | patternSegment :: patternRest, urlSegment :: urlRest when patternSegment.StartsWith ":" ->
-                        matchSegments patternRest urlRest (box urlSegment :: captured)
-                    | patternSegment :: patternRest, urlSegment :: urlRest when patternSegment = urlSegment ->
-                        matchSegments patternRest urlRest captured
-                    | _ ->
-                        None
                 matchSegments segments requestSegments []
         else
             Exact segments
@@ -55,14 +87,6 @@ module RoutePath =
         match routePath with
         | Exact expected -> if segments = expected then Some([], []) else None
         | Prefix expected ->
-            let rec matchPrefix exp seg =
-                match exp, seg with
-                | [], remaining ->
-                    Some([], remaining)
-                | e :: et, s :: st when e = s ->
-                    matchPrefix et st
-                | _ ->
-                    None
             matchPrefix expected segments
         | Pattern matcher ->
             matcher segments
@@ -70,24 +94,6 @@ module RoutePath =
     /// Creates a pattern matching an integer parameter between the given before and after segments.
     let withInt (before: string list) (after: string list) =
         Pattern <| fun segments ->
-            let rec matchBefore b s =
-                match b, s with
-                | [], remaining ->
-                    Some remaining
-                | bh :: bt, sh :: st when bh = sh ->
-                    matchBefore bt st
-                | _ ->
-                    None
-
-            let rec matchAfter a s acc =
-                match a, s with
-                | [], remaining ->
-                    Some(List.rev acc, remaining)
-                | ah :: at, sh :: st when ah = sh ->
-                    matchAfter at st acc
-                | _ ->
-                    None
-
             match matchBefore before segments with
             | Some(param :: remaining) ->
                 match Int32.TryParse param with
@@ -101,24 +107,6 @@ module RoutePath =
     /// Creates a pattern matching a string parameter between the given before and after segments.
     let withString (before: string list) (after: string list) =
         Pattern <| fun segments ->
-            let rec matchBefore b s =
-                match b, s with
-                | [], remaining ->
-                    Some remaining
-                | bh :: bt, sh :: st when bh = sh ->
-                    matchBefore bt st
-                | _ ->
-                    None
-
-            let rec matchAfter a s acc =
-                match a, s with
-                | [], remaining ->
-                    Some(List.rev acc, remaining)
-                | ah :: at, sh :: st when ah = sh ->
-                    matchAfter at st acc
-                | _ ->
-                    None
-
             match matchBefore before segments with
             | Some(param :: remaining) ->
                 matchAfter after remaining [ box param ]

@@ -19,38 +19,15 @@ open System.Threading.Tasks
 
 open Expecto
 
-let private sleepMs (ms: float) =
-    FIO.sleep (TimeSpan.FromMilliseconds ms)
-
-let private freePort () =
-    let probe = new Sockets.TcpListener(IPAddress.Loopback, 0)
-    probe.Start()
-    let port = (probe.LocalEndpoint :?> IPEndPoint).Port
-    probe.Stop()
-    port
-
-let private waitForTerminal (fiber: Fiber<'A, 'E>) (budgetMs: int) =
-    fio {
-        let stopwatch = Stopwatch.StartNew()
-        let mutable terminal = fiber.IsCompleted() || fiber.IsInterrupted()
-
-        while not terminal && stopwatch.ElapsedMilliseconds < int64 budgetMs do
-            do! sleepMs 20.0
-            terminal <- fiber.IsCompleted() || fiber.IsInterrupted()
-
-        return terminal, stopwatch.ElapsedMilliseconds
-    }
-
 [<Tests>]
 let cancellationTests =
     testList
-        "Sockets - Cancellation"
+        "Cancellation"
         [
 
-            testAllRuntimes "Connect interruption against unreachable host terminates promptly" (fun runtime ->
+            testAllRuntimes "connect - an interruption against an unreachable host terminates promptly" (fun runtime ->
                 let effect =
                     fio {
-                        // 192.0.2.0/24 (TEST-NET-1) is reserved; routable but always discards.
                         let! config = SocketConfig.create "192.0.2.1" 1234
 
                         let! connectFiber = (SocketClient.connect config).Fork()
@@ -73,7 +50,7 @@ let cancellationTests =
                     3_000L
                     "Interrupted connect should terminate well under the OS connect timeout")
 
-            testAllRuntimes "serve interrupted while waiting for a connection unwinds promptly" (fun runtime ->
+            testAllRuntimes "serve - interrupted while waiting for a connection, unwinds promptly" (fun runtime ->
                 let port = freePort ()
 
                 let effect =
@@ -89,7 +66,7 @@ let cancellationTests =
 
                 Expect.isTrue unwound $"The scope should unwind within 3s; took {stopwatch.ElapsedMilliseconds}ms")
 
-            testAllRuntimes "serve interrupts its handlers with the loop, not after the fiber's other finalizers" (fun runtime ->
+            testAllRuntimes "serve - interrupts its handlers with the loop, not after the fiber's other finalizers" (fun runtime ->
                 let port = freePort ()
                 let handlerStarted = new ManualResetEventSlim false
                 let handlerFinalized = ref false
@@ -135,11 +112,9 @@ let cancellationTests =
                 Expect.isTrue cleanupEnded.Value "The outer cleanup should run"
                 Expect.isTrue finalizedBeforeCleanupEnded.Value "The handler should be interrupted before the cleanup ends")
 
-            // Sequenced: the check is a close within a bound, and an orphaned socket's own finalizer closes it too,
-            // so the collections other tests provoke would hide a regression.
             testSequenced
             <| testList
-                "acceptLoop hands a connection accepted as it is interrupted to a handler that closes it"
+                "acceptLoop - hands a connection accepted as it is interrupted to a handler that closes it"
                 [
                     let oneWorker = { EvaluationWorkers = 1; EvaluationSteps = 200; BlockingWorkers = 1 }
 
@@ -176,7 +151,6 @@ let cancellationTests =
                                 Expect.isTrue listening "The server should start listening"
                                 Thread.Sleep 100
 
-                                // The only worker is held, so the accept completes but cannot be handed off yet.
                                 let blocker =
                                     runtime.Run(FIO.succeedWith (fun () ->
                                         blocking.Set()
@@ -190,7 +164,6 @@ let cancellationTests =
                                 unblock.Set()
                                 blocker.Task().Wait()
 
-                                // The handler's finalizer closes the socket within milliseconds of the hand-off.
                                 client.ReceiveTimeout <- 1_000
 
                                 let closed =
@@ -210,10 +183,9 @@ let cancellationTests =
                                 | _ -> ())
                 ]
 
-            testAllRuntimes "withConnection interruption against unreachable host unwinds promptly" (fun runtime ->
+            testAllRuntimes "withConnection - an interruption against an unreachable host unwinds promptly" (fun runtime ->
                 let effect =
                     fio {
-                        // 192.0.2.0/24 (TEST-NET-1) is reserved; routable but always discards.
                         let! config = SocketConfig.create "192.0.2.1" 1234
                         let! connectFiber = (SocketClient.withConnection config (fun _ -> FIO.unit ())).Fork()
                         do! sleepMs 100.0
@@ -225,11 +197,9 @@ let cancellationTests =
 
                 Expect.isTrue unwound $"The scope should unwind within 3s; took {stopwatch.ElapsedMilliseconds}ms")
 
-            testAllRuntimes "ReceiveBytes interruption mid-block terminates promptly" (fun runtime ->
+            testAllRuntimes "ReceiveBytes - an interruption mid-block terminates promptly" (fun runtime ->
                 withTestServer
                     (fun socket ->
-                        // Server holds the connection open without sending anything,
-                        // so the client's ReceiveBytes blocks until cancelled.
                         fio {
                             do! sleepMs 5_000.0
                             do! socket.Close()
@@ -257,7 +227,7 @@ let cancellationTests =
                         })
                     runtime)
 
-            testAllRuntimes "Parent interruption propagates to child reading on a socket" (fun runtime ->
+            testAllRuntimes "Interruption - a parent's interruption propagates to a child reading on a socket" (fun runtime ->
                 withTestServer
                     (fun socket ->
                         fio {
@@ -274,7 +244,6 @@ let cancellationTests =
                                 (fio {
                                     let! childFiber = (socket.ReceiveBytes 8192).Fork()
                                     childTcs.SetResult childFiber
-                                    // Parent holds forever; will be interrupted externally.
                                     do! FIO.never<unit, SocketError> ()
                                 })
                                     .Fork()

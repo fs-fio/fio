@@ -21,7 +21,7 @@ let typesTests =
                 "SocketError"
                 [
 
-                    testPropertyWithConfig fsCheckConfig "fromException wraps in GeneralError"
+                    testPropertyWithConfig fsCheckConfig "fromException - wraps an exception in GeneralError"
                     <| fun (_: FIORuntime) ->
                         let ex = Exception "test"
                         let error = SocketError.fromException ex
@@ -31,7 +31,7 @@ let typesTests =
                             Expect.isTrue (Object.ReferenceEquals(e, ex)) "Should wrap same exception reference"
                         | _ -> failtest "Expected GeneralError"
 
-                    testPropertyWithConfig fsCheckConfig "toException unwraps GeneralError"
+                    testPropertyWithConfig fsCheckConfig "toException - unwraps GeneralError"
                     <| fun (_: FIORuntime) ->
                         let original = Exception "test"
                         let error = GeneralError original
@@ -41,7 +41,7 @@ let typesTests =
                             (Object.ReferenceEquals(result, original))
                             "Should return same exception reference"
 
-                    testCase "toException creates Exception for other variants"
+                    testCase "toException - creates an Exception for the other cases"
                     <| fun () ->
                         let error = ConnectionClosed "peer disconnected"
                         let result = SocketError.toException error
@@ -56,7 +56,7 @@ let typesTests =
                 "SocketConfig"
                 [
 
-                    testPropertyWithConfig fsCheckConfig "create succeeds with valid host and port"
+                    testPropertyWithConfig fsCheckConfig "create - succeeds with a valid host and port"
                     <| fun (runtime: FIORuntime) ->
                         let port = abs (Random.Shared.Next()) % 65535 + 1
                         let effect = SocketConfig.create "localhost" port
@@ -71,7 +71,7 @@ let typesTests =
                         Expect.isTrue config.LingerEnabled "Default LingerEnabled should be true"
                         Expect.equal config.LingerTimeout 0 "Default LingerTimeout should be 0"
 
-                    testAllRuntimes "create fails for empty host" (fun runtime ->
+                    testAllRuntimes "create - fails for an empty host" (fun runtime ->
                         let effect = SocketConfig.create "" 8080
                         let error = runtime.Run(effect).UnsafeError()
 
@@ -86,7 +86,7 @@ let typesTests =
                         | InvalidState _ -> ()
                         | other -> failtest $"Expected InvalidState but got {other}")
 
-                    testAllRuntimes "create fails for invalid port" (fun runtime ->
+                    testAllRuntimes "create - fails for an invalid port" (fun runtime ->
                         for port in [ 0; -1; 65536; 100000 ] do
                             let effect = SocketConfig.create "localhost" port
                             let error = runtime.Run(effect).UnsafeError()
@@ -95,7 +95,7 @@ let typesTests =
                             | InvalidState _ -> ()
                             | other -> failtest $"Expected InvalidState for port {port} but got {other}")
 
-                    testCase "builder functions update fields"
+                    testCase "builders - update the fields of a SocketConfig"
                     <| fun () ->
                         let config =
                             {
@@ -135,7 +135,7 @@ let typesTests =
                 "ServerSocketConfig"
                 [
 
-                    testAllRuntimes "create succeeds with valid inputs" (fun runtime ->
+                    testAllRuntimes "create - succeeds with valid inputs" (fun runtime ->
                         let effect = ServerSocketConfig.create "127.0.0.1" 9090
                         let config = runtime.Run(effect).UnsafeSuccess()
 
@@ -144,13 +144,13 @@ let typesTests =
                         Expect.equal config.Backlog 100 "Default Backlog"
                         Expect.isNone config.AcceptedSocketConfig "Default AcceptedSocketConfig")
 
-                    testAllRuntimes "create allows port 0" (fun runtime ->
+                    testAllRuntimes "create - allows port 0" (fun runtime ->
                         let effect = ServerSocketConfig.create "127.0.0.1" 0
                         let config = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal config.BindPort 0 "Port 0 should be allowed")
 
-                    testAllRuntimes "create fails for invalid inputs" (fun runtime ->
+                    testAllRuntimes "create - fails for invalid inputs" (fun runtime ->
                         let effect1 = ServerSocketConfig.create "" 8080
 
                         match runtime.Run(effect1).UnsafeError() with
@@ -169,7 +169,7 @@ let typesTests =
                         | InvalidState _ -> ()
                         | other -> failtest $"Expected InvalidState but got {other}")
 
-                    testCase "defaultConfig and builders"
+                    testCase "defaultConfig - has the expected values and the builders update it"
                     <| fun () ->
                         let config = ServerSocketConfig.defaultConfig
 
@@ -188,7 +188,7 @@ let typesTests =
                             Net.Sockets.AddressFamily.InterNetworkV6
                             "Updated AddressFamily"
 
-                    testCase "withAcceptedConfig updates field"
+                    testCase "withAcceptedConfig - updates the accepted configuration"
                     <| fun () ->
                         let config = ServerSocketConfig.defaultConfig
 
@@ -223,7 +223,7 @@ let typesTests =
                 "SocketPoolConfig"
                 [
 
-                    testAllRuntimes "create returns valid defaults" (fun runtime ->
+                    testAllRuntimes "create - returns valid defaults" (fun runtime ->
                         let socketConfig =
                             {
                                 Host = "localhost"
@@ -248,7 +248,7 @@ let typesTests =
                         Expect.equal config.ConnectionLifetime 300 "Default ConnectionLifetime"
                         Expect.isTrue config.ValidateOnAcquire "Default ValidateOnAcquire")
 
-                    testAllRuntimes "withMinPoolSize/withMaxPoolSize validate constraints" (fun runtime ->
+                    testAllRuntimes "withMinPoolSize/withMaxPoolSize - validate their constraints" (fun runtime ->
                         let socketConfig =
                             {
                                 Host = "localhost"
@@ -285,7 +285,7 @@ let typesTests =
                         | InvalidState _ -> ()
                         | other -> failtest $"Expected InvalidState for zero max but got {other}")
 
-                    testCase "pure builders update fields"
+                    testCase "builders - update the fields of a SocketPoolConfig"
                     <| fun () ->
                         let poolConfig =
                             {

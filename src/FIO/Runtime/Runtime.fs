@@ -161,32 +161,31 @@ type internal WorkStealingDeque(initialCapacity: int) =
         finally
             Monitor.Exit gate
 
-/// Base class for a FIO runtime that runs effects into fibers.
-// The fibers one thread has run on a runtime. Add is called by that thread only and Snapshot by Shutdown,
-// so the lock is uncontended until then. The list is pruned of unwound fibers when it has doubled since the
-// last prune, so a fiber is examined a bounded number of times however many stay live.
+// One thread's root fibers: Add by that thread only, Snapshot by Shutdown, so the lock is uncontended until then.
+// Pruned of unwound fibers each time it doubles, so a fiber is examined a bounded number of times.
 type internal TrackedFibers () =
     let fibers = ResizeArray<FiberContext>()
     let mutable pruneAt = 64
 
-    member _.Add (fiberContext: FiberContext) =
+    member _.Add (fiberContext: FiberContext, isDisposed: Func<bool>) =
         lock fibers (fun () ->
             fibers.Add fiberContext
 
             if fibers.Count >= pruneAt then
                 fibers.RemoveAll(fun tracked -> tracked.HasUnwound) |> ignore
-                pruneAt <- max 64 (fibers.Count * 2))
+                pruneAt <- max 64 (fibers.Count * 2)
+
+            isDisposed.Invoke())
 
     member _.Snapshot () =
         lock fibers (fun () -> fibers.ToArray())
 
+/// Base class for a FIO runtime that runs effects into fibers.
 [<AbstractClass>]
 type FIORuntime internal () =
 
-    // Root and daemon fibers that have not fully unwound, in a list per thread that ran them; scoped children
-    // unwind with their roots. A Run touches only its own thread's list, so no cache line is shared with the
-    // workers that unwind fibers, and unwinding costs nothing. Shutdown snapshots every list, so each is
-    // registered once, when its thread first runs a fiber here.
+    // Root and daemon fibers not yet unwound, in a list per thread that ran them: a Run touches only its own
+    // thread's list and unwinding costs nothing. Shutdown snapshots every list.
     let lists = ResizeArray<TrackedFibers>()
 
     let local =
@@ -197,6 +196,8 @@ type FIORuntime internal () =
 
     [<VolatileField>]
     let mutable disposed = 0
+
+    let isDisposed = Func<bool>(fun () -> Volatile.Read &disposed = 1)
 
     // The fibers Shutdown found live and has not yet seen unwind, plus one while it is still counting.
     let mutable awaiting = 0
@@ -223,9 +224,8 @@ type FIORuntime internal () =
     default this.ConfigString =
         this.Name
 
-    /// Schedules the given effect on a new fiber and returns immediately with a handle to it. Safe to
-    /// call concurrently and as often as you like — for example once per request in a server — because
-    /// it never waits for, interrupts, or discards any fiber already running on this runtime.
+    /// Schedules the given effect on a new fiber and returns its handle at once; it never waits for, interrupts, or
+    /// discards a fiber already running, so call it as often as you like.
     abstract member Run<'A, 'E> : FIO<'A, 'E> -> Fiber<'A, 'E>
 
     /// Returns a filesystem-safe form of this runtime's configuration string.
@@ -242,14 +242,10 @@ type FIORuntime internal () =
 
     member val internal StopWorkers: unit -> unit = ignore with get, set
 
-    // Adding before reading the flag pairs with Shutdown setting the flag before taking its snapshots: either
-    // Shutdown sees the fiber, or the fiber sees the flag and is interrupted here. The barrier orders the
-    // add before the read; Shutdown's claim of the flag is a full fence before its snapshots.
+    // The flag is read under the list's lock, which Shutdown takes for its snapshot only after claiming the flag:
+    // a Run the snapshot missed sees the flag and interrupts itself.
     member private _.Watch (fiberContext: FiberContext) =
-        local.Value.Add fiberContext
-        Interlocked.MemoryBarrier()
-
-        if Volatile.Read &disposed = 1 then
+        if local.Value.Add(fiberContext, isDisposed) then
             fiberContext.Interrupt(ExplicitInterrupt, disposedMessage)
 
     member internal this.Track (fiberContext: FiberContext) =
@@ -261,8 +257,8 @@ type FIORuntime internal () =
     member internal this.TrackDaemon (fiberContext: FiberContext) =
         this.Watch fiberContext
 
-    /// Interrupts every fiber still running on this runtime, waits up to the given time for them to unwind, then stops the runtime's workers.
-    /// A concurrent or later call waits for the first one; running an effect afterwards throws. Do not call it from one of this runtime's own fibers.
+    /// Interrupts every fiber still running, waits up to the given time for them to unwind, then stops the workers; a
+    /// later call waits for the first, and running an effect afterwards throws. Do not call it from one of its fibers.
     member this.Shutdown (timeout: TimeSpan) =
         if timeout <> Timeout.InfiniteTimeSpan
            && (timeout < TimeSpan.Zero || timeout.TotalMilliseconds > float Int32.MaxValue) then
@@ -273,16 +269,14 @@ type FIORuntime internal () =
                     "The timeout must be between zero and Int32.MaxValue milliseconds, or Timeout.InfiniteTimeSpan."))
 
         if tryClaim &disposed then
-            // Interrupting a fiber can throw, when its handle was disposed or a cancellation callback of its own
-            // did; that must not keep the other fibers from being interrupted or the workers from being stopped.
+            // A fiber whose handle was disposed, or whose cancellation callback throws, must not stop the rest.
             try
                 let live =
                     lock lists (fun () -> lists.ToArray())
                     |> Array.collect (fun tracked -> tracked.Snapshot())
                     |> Array.filter (fun fiberContext -> not fiberContext.HasUnwound)
 
-                // One more than the fibers, held until every hook is installed: a fiber that unwinds in the
-                // meantime fires its hook at once, and the count must not reach zero before the loop ends.
+                // One more than the fibers, released after the loop: a hook that fires early cannot complete the count.
                 awaiting <- live.Length + 1
 
                 for fiberContext in live do

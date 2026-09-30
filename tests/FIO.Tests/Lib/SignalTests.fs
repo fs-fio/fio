@@ -26,7 +26,6 @@ let private testUnix name (f: FIORuntime -> unit) =
 
         f runtime)
 
-// A signal reaches every subscription in the process, so no two of these tests may overlap.
 [<Tests>]
 let signalTests =
     testSequenced (

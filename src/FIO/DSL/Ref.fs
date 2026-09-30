@@ -2,14 +2,14 @@ namespace FIO.DSL
 
 open System.Threading
 
-/// A mutable reference to an immutable value, read and updated atomically without locks. A transition may
-/// run more than once under contention, so keep it pure. With this namespace open, an explicit
-/// <c>Ref&lt;'A&gt;</c> annotation names this type rather than F#'s reference cell.
+/// A mutable reference to an immutable value, updated atomically without locks; a transition may run more than
+/// once under contention, so keep it pure. With this namespace open, <c>Ref&lt;'A&gt;</c> means this type.
 [<Sealed>]
 type Ref<'A>(initial: 'A) =
 
     let mutable cell: obj = box initial
 
+    [<TailCall>]
     let rec cas (transition: 'A -> 'B * 'A) : 'B =
         let current = Volatile.Read &cell
         let result, next = transition (unbox<'A> current)

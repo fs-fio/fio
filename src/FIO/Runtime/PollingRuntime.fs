@@ -301,7 +301,7 @@ and PollingRuntime(config: WorkerConfig) as this =
     new() = new PollingRuntime(WorkerConfig.Default)
 
     [<TailCall>]
-    member internal runtime.InterpretAsync
+    member internal this.InterpretAsync
         (workItem: WorkItem)
         (evaluationSteps: int)
         (activeWorkItemQueue: MailboxQueue<WorkItem>)
@@ -389,7 +389,7 @@ and PollingRuntime(config: WorkerConfig) as this =
                                     state.Completed <- true
                             | HandleForkEffect(effect, fiber, fiberContext, daemon) ->
                                 attachFork currentFiberContext fiberContext daemon (state.InterruptionSuppressed > 0)
-                                if daemon then runtime.TrackDaemon fiberContext
+                                if daemon then this.TrackDaemon fiberContext
                                 let workItem = WorkItemPool.Rent(effect, fiberContext, ContStackPool.Rent())
                                 do! activeWorkItemQueue.WriteAsync workItem
                                 processOutcome
@@ -469,9 +469,8 @@ and PollingRuntime(config: WorkerConfig) as this =
                 WorkItemPool.Return workItem
         }
 
-    /// Schedules the given effect on a new fiber and returns immediately with a handle to it. Safe to
-    /// call concurrently and as often as you like: it never waits for, interrupts, or discards any
-    /// fiber already running on this runtime.
+    /// Schedules the given effect on a new fiber and returns its handle at once; it never waits for, interrupts, or
+    /// discards a fiber already running, so call it as often as you like.
     override this.Run<'A, 'E> (effect: FIO<'A, 'E>) : Fiber<'A, 'E> =
         let fiber = new Fiber<'A, 'E>()
         this.Track fiber.Context

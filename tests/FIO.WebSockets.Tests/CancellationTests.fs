@@ -11,32 +11,15 @@ open System.Diagnostics
 
 open Expecto
 
-let private sleepMs (ms: float) =
-    FIO.sleep (TimeSpan.FromMilliseconds ms)
-
-let private waitForTerminal (fiber: Fiber<'A, 'E>) (budgetMs: int) =
-    fio {
-        let stopwatch = Stopwatch.StartNew()
-        let mutable terminal = fiber.IsCompleted() || fiber.IsInterrupted()
-
-        while not terminal && stopwatch.ElapsedMilliseconds < int64 budgetMs do
-            do! sleepMs 20.0
-            terminal <- fiber.IsCompleted() || fiber.IsInterrupted()
-
-        return terminal, stopwatch.ElapsedMilliseconds
-    }
-
 [<Tests>]
 let cancellationTests =
     testList
-        "WebSockets - Cancellation"
+        "Cancellation"
         [
 
-            testAllRuntimes "ReceiveMessage() interruption with no explicit CT terminates promptly" (fun runtime ->
+            testAllRuntimes "ReceiveMessage - an interruption with no explicit token terminates promptly" (fun runtime ->
                 withTestServer
                     (fun ws ->
-                        // Server holds the connection open without sending; client's
-                        // ReceiveMessage() (no CT) blocks until cancelled.
                         fio {
                             do! sleepMs 5_000.0
                             do! ws.Close()
@@ -63,10 +46,9 @@ let cancellationTests =
                         })
                     runtime)
 
-            testAllRuntimes "Connect interruption against unreachable URL terminates promptly" (fun runtime ->
+            testAllRuntimes "connect - an interruption against an unreachable URL terminates promptly" (fun runtime ->
                 let effect =
                     fio {
-                        // 192.0.2.0/24 (TEST-NET-1) is reserved; routable but always discards.
                         let! connectFiber = (WebSocketClient.connectStringWith "ws://192.0.2.1:9/").Fork()
 
                         do! sleepMs 100.0
@@ -83,10 +65,9 @@ let cancellationTests =
 
                 Expect.isTrue interrupted "Connect fiber should report Interrupted state after Interrupt")
 
-            testAllRuntimes "withConnection interruption against unreachable URL unwinds promptly" (fun runtime ->
+            testAllRuntimes "withConnection - an interruption against an unreachable URL unwinds promptly" (fun runtime ->
                 let effect =
                     fio {
-                        // 192.0.2.0/24 (TEST-NET-1) is reserved; routable but always discards.
                         let! connectFiber =
                             (WebSocketClient.withConnectionString "ws://192.0.2.1:9/" (fun _ -> FIO.unit ())).Fork()
 
@@ -99,7 +80,7 @@ let cancellationTests =
 
                 Expect.isTrue unwound $"The scope should unwind within 5s; took {stopwatch.ElapsedMilliseconds}ms")
 
-            testAllRuntimes "serve interrupted while waiting for a connection unwinds promptly" (fun runtime ->
+            testAllRuntimes "serve - interrupted while waiting for a connection, unwinds promptly" (fun runtime ->
                 let port = findAvailablePort ()
 
                 let effect =
@@ -116,7 +97,7 @@ let cancellationTests =
 
                 Expect.isTrue unwound $"The scope should unwind within 5s; took {stopwatch.ElapsedMilliseconds}ms")
 
-            testAllRuntimes "serve interrupted with a connection open sends its client a going-away close" (fun runtime ->
+            testAllRuntimes "serve - interrupted with a connection open, sends its client a going-away close" (fun runtime ->
                 let port = findAvailablePort ()
 
                 let handler (ws: WebSocket) =
@@ -143,7 +124,7 @@ let cancellationTests =
                 | Some(Succeeded(ConnectionClosed(Some Net.WebSockets.WebSocketCloseStatus.EndpointUnavailable, _))) -> ()
                 | other -> failtest $"Expected the client to receive a going-away close, but got {other}")
 
-            testAllRuntimes "serve interrupts a handler that outlasts the shutdown timeout, once its finalizers have run" (fun runtime ->
+            testAllRuntimes "serve - interrupts a handler that outlasts the shutdown timeout, once its finalizers have run" (fun runtime ->
                 let port = findAvailablePort ()
                 let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withShutdownTimeout 500
                 let finalized = ref false
@@ -161,9 +142,6 @@ let cancellationTests =
                         let! _ready = client.ReceiveMessage()
                         let! closer = client.ReceiveMessage().FlatMap(fun _ -> client.CloseIfOpen()).Fork()
                         do! server.InterruptNow()
-                        // Ending this effect would interrupt the closer, a scoped child, before the going-away close
-                        // reached it; the handler's finalizer would then close against an aborted peer and wait
-                        // out the send timeout on Linux and Windows. Let the client answer the close first.
                         do! closer.Await().Unit()
                     }
 
@@ -175,7 +153,7 @@ let cancellationTests =
                 Expect.isGreaterThanOrEqual stopwatch.ElapsedMilliseconds 450L "The handler gets the shutdown timeout to finish"
                 Expect.isLessThan stopwatch.ElapsedMilliseconds 5_000L "A handler that outlasts the timeout must be interrupted")
 
-            testAllRuntimes "serve survives a handler that throws, closes its connection and still shuts down" (fun runtime ->
+            testAllRuntimes "serve - survives a handler that throws, closes its connection and still shuts down" (fun runtime ->
                 let port = findAvailablePort ()
                 let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withShutdownTimeout 500
                 let attempts = ref 0
@@ -186,7 +164,6 @@ let cancellationTests =
                     else
                         ws.SendText "still alive"
 
-                // The server is this effect's child, so the effect settles only once the server has unwound.
                 let effect =
                     fio {
                         let! server = (WebSocketServer.serve $"http://127.0.0.1:{port}/" config handler).Fork()
@@ -211,10 +188,8 @@ let cancellationTests =
                 Expect.equal reply (Some(Frame(Text "still alive"))) "A handler that throws must not stop the server"
                 Expect.isLessThan stopwatch.ElapsedMilliseconds 10_000L "The server must still shut down")
 
-            // Sequenced: the 503 is only served inside the shutdown window, and under the load of the parallel
-            // phase the 300 ms sleep has been seen to overrun a 2 s window.
             testSequenced (
-                testAllRuntimes "serve refuses a connection that arrives during its shutdown with 503" (fun runtime ->
+                testAllRuntimes "serve - refuses a connection that arrives during its shutdown with 503" (fun runtime ->
                     let port = findAvailablePort ()
                     let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withShutdownTimeout 5_000
 
@@ -239,7 +214,7 @@ let cancellationTests =
                     | Error(ConnectionFailed message) -> Expect.stringContains message "503" "A connection during the shutdown must be refused with 503"
                     | other -> failtest $"Expected ConnectionFailed with a 503 but got {other}"))
 
-            testAllRuntimes "acceptLoop interrupted sends a going-away close, then stops the listener" (fun runtime ->
+            testAllRuntimes "acceptLoop - interrupted, sends a going-away close and then stops the listener" (fun runtime ->
                 let handler (ws: WebSocket) =
                     fio {
                         do! ws.SendText "ready"
@@ -269,7 +244,7 @@ let cancellationTests =
                 Expect.isFalse listener.IsListening "The loop must stop the listener once it has shut down"
                 listener.Close())
 
-            testAllRuntimes "Explicit pre-cancelled CT short-circuits ReceiveMessage" (fun runtime ->
+            testAllRuntimes "ReceiveMessage - an explicit pre-cancelled token short-circuits the receive" (fun runtime ->
                 withTestServer
                     (fun ws ->
                         fio {
@@ -304,7 +279,7 @@ let cancellationTests =
                         })
                     runtime)
 
-            testAllRuntimes "Receive timeout still fires when no fiber interruption occurs" (fun runtime ->
+            testAllRuntimes "ReceiveMessage - the receive timeout still fires when the fiber is not interrupted" (fun runtime ->
                 withTestServer
                     (fun ws ->
                         fio {

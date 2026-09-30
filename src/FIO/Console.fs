@@ -63,8 +63,8 @@ module private StdinReader =
 [<RequireQualifiedAccess>]
 module Console =
 
-    // The registration is not what interrupts the fiber — the runtime's await is. It marks the
-    // request abandoned so the reader stashes its input instead of dropping it.
+    // The runtime's await is what interrupts the fiber; the registration only marks the request abandoned so the
+    // reader stashes its input.
     let private awaitStdin (request: TaskCompletionSource<'T> -> StdinReader.Request) (onError: exn -> 'E) =
         FIO.cancellationToken().FlatMap <| fun cancellationToken ->
             let tcs = TaskCompletionSource<'T> TaskCreationOptions.RunContinuationsAsynchronously
@@ -82,23 +82,20 @@ module Console =
     let printLine<'E> (format: Printf.TextWriterFormat<unit>) (onError: exn -> 'E) : FIO<unit, 'E> =
         FIO.attempt (fun () -> fprintfn Console.Out format) onError
 
-    /// Returns an effect that reads a line from standard input, failing through onError with an
-    /// <c>EndOfStreamException</c> at end of input. The fiber can be interrupted while waiting; input typed for an
-    /// interrupted read goes to the next one, so do not mix this with direct <c>System.Console.ReadLine</c> calls
-    /// once a read has been interrupted.
+    /// Returns an effect that reads a line from standard input, failing through onError with
+    /// <c>EndOfStreamException</c> at end of input. Input typed for an interrupted read is delivered to the next one.
     let readLine<'E> (onError: exn -> 'E) : FIO<string, 'E> =
         awaitStdin StdinReader.Line onError
 
-    /// Returns an effect that reads a line from standard input, yielding None at end of input. Interruption
-    /// behaves as in readLine.
+    /// Returns an effect that reads a line from standard input, yielding None at end of input; interruption behaves
+    /// as in readLine.
     let tryReadLine<'E> (onError: exn -> 'E) : FIO<string option, 'E> =
         (awaitStdin StdinReader.Line id).Map(Some).CatchAll(function
             | :? IO.EndOfStreamException -> FIO.succeed None
             | ex -> FIO.fail (onError ex))
 
-    /// Returns an effect that reads the next key press, without echoing it when intercept is true; fails when
-    /// input is redirected. The fiber can be interrupted while waiting; a key typed for an interrupted read
-    /// goes to the next one, echoed or not as the interrupted read asked.
+    /// Returns an effect that reads the next key press, without echoing it when intercept is true; fails through
+    /// onError when input is redirected. A key typed for an interrupted read is delivered to the next one.
     let readKey<'E> (intercept: bool) (onError: exn -> 'E) : FIO<ConsoleKeyInfo, 'E> =
         awaitStdin (fun tcs -> StdinReader.Key(intercept, tcs)) onError
 

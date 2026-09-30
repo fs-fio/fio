@@ -66,9 +66,8 @@ module FIO =
     let suspend<'A, 'E> (effect: unit -> FIO<'A, 'E>) : FIO<'A, 'E> =
         Suspend effect
 
-    /// Creates an effect that yields the current fiber's cancellation token. Inside a region where
-    /// interruption is suppressed — an Ensuring finalizer, for instance — the fiber is uninterruptible
-    /// and this yields an uncancellable token, so cleanup work started there runs to completion.
+    /// Creates an effect that yields the current fiber's cancellation token; inside an uninterruptible region, a
+    /// finalizer for instance, the token never cancels, so cleanup started there runs to completion.
     let cancellationToken<'E> () : FIO<CancellationToken, 'E> =
         FiberCancellationToken
 
@@ -116,8 +115,8 @@ module FIO =
                 registration.Dispose()
             (awaitTask resultSource.Task onError).FlatMap fromResult
 
-    /// Creates an effect that suspends the current fiber for the given duration; a negative duration, or one beyond
-    /// the timer maximum of about 49.7 days, is an invalid argument.
+    /// Creates an effect that suspends the current fiber for the given duration; a negative one, or one over about
+    /// 49.7 days, is an invalid argument.
     let sleep<'E> (duration: TimeSpan) : FIO<unit, 'E> =
         if duration < TimeSpan.Zero && duration <> Timeout.InfiniteTimeSpan then
             interrupt (InvalidArgument("duration", "must not be negative")) $"Cannot sleep for {duration}"
@@ -156,8 +155,8 @@ module FIO =
     let uninterruptibleMask<'A, 'E> (body: InterruptibilityRestorer -> FIO<'A, 'E>) : FIO<'A, 'E> =
         WithSuppression(raiseSuppression, fun level -> body (InterruptibilityRestorer level))
 
-    /// Acquires a resource, uses it, and releases it afterwards on success, failure, or interruption.
-    /// Acquire and release run uninterruptibly, so keep them short; use runs as interruptibly as the caller.
+    /// Acquires a resource, uses it, and releases it on success, failure or interruption; acquire and release run
+    /// uninterruptibly, so keep them short.
     let acquireReleaseWith<'A, 'A1, 'E>
         (acquire: FIO<'A1, 'E>)
         (release: 'A1 -> FIO<unit, 'E>)
@@ -410,7 +409,8 @@ module FIO =
             acc.CatchAll <| fun _ ->
                 effect) head
 
-    /// Runs the given effects concurrently and returns the first to succeed, interrupting the rest. Racers that fail or are interrupted retire from the race; when no racer succeeds, this effect fails with the last error observed, or propagates an interruption when every racer was interrupted.
+    /// Runs the given effects concurrently, succeeding with the first to succeed and interrupting the rest; when none
+    /// succeeds it fails with the last error seen, or is interrupted when every racer was.
     let raceAll<'A, 'E> (effects: seq<FIO<'A, 'E>>) : FIO<'A, 'E> =
         suspend <| fun () ->
             let arr = Seq.toArray effects

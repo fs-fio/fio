@@ -116,6 +116,15 @@ module Routes =
                 | None -> None)
         exact @ parameterized |> List.distinct
 
+    [<TailCall>]
+    let rec private tryRoutes (req: HttpRequest) (routeList: Route<'E> list) =
+        match routeList with
+        | [] -> None
+        | route :: rest ->
+            match RoutePattern.tryMatch route.Pattern req with
+            | Some parameters -> Some(route.Handler parameters req)
+            | None -> tryRoutes req rest
+
     /// Dispatches a request to the matching route, falling back to not-found or 405 Method Not Allowed.
     let dispatch (request: HttpRequest) (routes: Routes<'E>) =
         let tryDispatch (req: HttpRequest) =
@@ -124,14 +133,7 @@ module Routes =
             match Map.tryFind key routes.ExactMatchIndex with
             | Some handler -> Some(handler [] req)
             | None ->
-                let rec tryRoutes routeList =
-                    match routeList with
-                    | [] -> None
-                    | route :: rest ->
-                        match RoutePattern.tryMatch route.Pattern req with
-                        | Some parameters -> Some(route.Handler parameters req)
-                        | None -> tryRoutes rest
-                tryRoutes routes.ParameterizedRoutes
+                tryRoutes req routes.ParameterizedRoutes
 
         match tryDispatch request with
         | Some effect -> effect

@@ -18,7 +18,7 @@ let webSocketServerTests =
             testList
                 "Lifecycle"
                 [
-                    testAllRuntimes "start creates listening server" (fun runtime ->
+                    testAllRuntimes "start - creates a listening server" (fun runtime ->
                         let port = findAvailablePort ()
                         let url = $"http://localhost:{port}/"
 
@@ -30,7 +30,7 @@ let webSocketServerTests =
 
                         runtime.Run(effect).UnsafeSuccess())
 
-                    testAllRuntimes "close stops the listener" (fun runtime ->
+                    testAllRuntimes "close - stops the listener" (fun runtime ->
                         let port = findAvailablePort ()
                         let url = $"http://localhost:{port}/"
 
@@ -49,7 +49,7 @@ let webSocketServerTests =
                 "Wildcard hosts"
                 [
                     for host in [ "0.0.0.0"; "[::]" ] do
-                        testAllRuntimes $"start on {host} serves both 127.0.0.1 and localhost" (fun runtime ->
+                        testAllRuntimes $"start - on {host} serves both 127.0.0.1 and localhost" (fun runtime ->
                             if OperatingSystem.IsWindows() then
                                 skiptest "http.sys needs a URL reservation to listen on every interface"
 
@@ -72,7 +72,7 @@ let webSocketServerTests =
             testList
                 "Accept"
                 [
-                    testAllRuntimes "accept yields the peer's endpoints" (fun runtime ->
+                    testAllRuntimes "accept - yields the peer's endpoints" (fun runtime ->
                         withTestServer
                             (fun ws ->
                                 fio {
@@ -93,7 +93,7 @@ let webSocketServerTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "accept receives client connection" (fun runtime ->
+                    testAllRuntimes "accept - receives a client connection" (fun runtime ->
                         withTestServer
                             (fun ws -> fio { do! ws.SendText "from server" })
                             (fun port ->
@@ -109,7 +109,7 @@ let webSocketServerTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "acceptLoop handles multiple connections" (fun runtime ->
+                    testAllRuntimes "acceptLoop - handles multiple connections" (fun runtime ->
                         withTestEchoServer
                             (fun port ->
                                 FIO.forEachDiscard [ 1..3 ] (fun i ->
@@ -127,7 +127,7 @@ let webSocketServerTests =
                                     }))
                             runtime)
 
-                    testAllRuntimes "startDefault is alias for start" (fun runtime ->
+                    testAllRuntimes "startDefault - is an alias for start" (fun runtime ->
                         let port = findAvailablePort ()
                         let url = $"http://localhost:{port}/"
 
@@ -143,7 +143,7 @@ let webSocketServerTests =
             testList
                 "Handshake rejection"
                 [
-                    testAllRuntimes "accept rejects a plain HTTP request with 400" (fun runtime ->
+                    testAllRuntimes "accept - rejects a plain HTTP request with 400" (fun runtime ->
                         let effect =
                             fio {
                                 let! port, listener = startTestListener ()
@@ -176,7 +176,7 @@ let webSocketServerTests =
             testList
                 "abort"
                 [
-                    testAllRuntimes "abort stops the listener immediately" (fun runtime ->
+                    testAllRuntimes "abort - stops the listener immediately" (fun runtime ->
                         let effect =
                             fio {
                                 let! port, listener = startTestListener ()
@@ -202,7 +202,7 @@ let webSocketServerTests =
             testList
                 "serve / serveWith"
                 [
-                    testAllRuntimes "serve accepts a connection and runs the handler" (fun runtime ->
+                    testAllRuntimes "serve - accepts a connection and runs the handler" (fun runtime ->
                         let received = ResizeArray<string>()
                         let handlerDone = Channel<unit>()
 
@@ -229,7 +229,7 @@ let webSocketServerTests =
 
                         Expect.sequenceEqual received [ "hello serve" ] "serve must deliver the message to its handler")
 
-                    testAllRuntimes "serveWith runs a request/response protocol" (fun runtime ->
+                    testAllRuntimes "serveWith - runs a request/response protocol" (fun runtime ->
                         let respond (request: string) = FIO.succeed (request.ToUpperInvariant())
 
                         let effect =

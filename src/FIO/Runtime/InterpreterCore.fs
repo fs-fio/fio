@@ -41,7 +41,7 @@ type internal Outcome =
     | OutcomeFailed of error: obj
     | OutcomeInterrupted of interruptError: obj
 
-let interruptionFor (fiberContext: FiberContext) (fallbackMessage: string) : obj =
+let interruptionFor (fiberContext: FiberContext) (fallbackMessage: string) =
     let task = fiberContext.Task
     if task.IsCompletedSuccessfully then
         match task.Result with
@@ -50,8 +50,6 @@ let interruptionFor (fiberContext: FiberContext) (fallbackMessage: string) : obj
     else
         FiberInterruptedException(fiberContext.Id, ExplicitInterrupt, fallbackMessage) :> obj
 
-// A region that ends while its fiber is interrupted ends the fiber there, as in ZIO, rather than running the
-// next continuation first. Rarely taken, so kept out of the inlined interpreter loop.
 [<MethodImpl(MethodImplOptions.NoInlining)>]
 let interruptedOnRegionExit (fiberContext: FiberContext) (outcome: Outcome) =
     match outcome with
@@ -59,7 +57,6 @@ let interruptedOnRegionExit (fiberContext: FiberContext) (outcome: Outcome) =
     | OutcomeSucceeded _
     | OutcomeFailed _ -> OutcomeInterrupted(interruptionFor fiberContext "Fiber was interrupted in an uninterruptible region.")
 
-// Pushes the finalizers of the effects an interrupted fiber is abandoning.
 [<MethodImpl(MethodImplOptions.NoInlining)>]
 let unwindFinalizers (state: byref<InterpreterState>) =
     let mutable unwinding = true
@@ -70,9 +67,8 @@ let unwindFinalizers (state: byref<InterpreterState>) =
             state.Effect <- effect
         | _ -> unwinding <- false
 
-// Finalizer and suppression frames, which are rarer than ChainCont. processOutcome is inlined at every call site
-// of every runtime's loop, and with these arms inline the Polling and Signaling loops crossed the JIT's basic-block
-// limit and were compiled without optimization. Returns true when the fiber has a new effect to run.
+// Out of line: processOutcome is inlined into every runtime's loop, and with these rarer arms inline the Polling
+// and Signaling loops crossed the JIT's basic-block limit and ran unoptimized. Returns true when an effect is set.
 [<MethodImpl(MethodImplOptions.NoInlining)>]
 let processRegionCont (state: byref<InterpreterState>) (cont: Cont) (outcome: byref<Outcome>) =
     match cont with
@@ -126,8 +122,6 @@ let processRegionCont (state: byref<InterpreterState>) (cont: Cont) (outcome: by
 
         match outcome with
         | OutcomeSucceeded resource ->
-            // Release is registered in the same step that makes the fiber interruptible again, so an interruption
-            // deferred during acquire, or one taking effect now, still finds it on the stack.
             try
                 state.Effect <- onAcquired resource
                 unwindFinalizers &state
@@ -171,8 +165,6 @@ let inline processOutcome
         else
             let cont = state.ContStack.Pop()
 
-            // Nested matches, not a tuple: a reference tuple allocated one per continuation popped, and a
-            // struct tuple slowed the park-heavy benchmarks.
             match cont with
             | ChainCont(onSuccess, onFailure) ->
                 match outcome with
@@ -213,8 +205,7 @@ let inline processResult
 let inline handleSharedCase
     (state: byref<InterpreterState>)
     ([<InlineIfLambda>] onSuccessComplete: obj -> unit)
-    ([<InlineIfLambda>] onErrorComplete: obj -> unit)
-    : RuntimeCase voption =
+    ([<InlineIfLambda>] onErrorComplete: obj -> unit) =
     match state.Effect with
     | Success value ->
         processOutcome &state onSuccessComplete onErrorComplete (OutcomeSucceeded value)
@@ -274,8 +265,7 @@ let inline handleSharedCase
         state.ContStack.Push(ChainCont(Unchecked.defaultof<_>, cont))
         ValueNone
     | ChainBoth(effect, successCont, errorCont) ->
-        // One frame for both handlers, so a failure of the success handler is not caught by the
-        // error handler (ZIO's foldZIO semantics).
+        // One frame for both handlers: a failure of the success handler is not caught by the error handler (foldZIO).
         state.Effect <- effect
         state.ContStack.Push(ChainCont(successCont, errorCont))
         ValueNone
@@ -341,7 +331,7 @@ let inline attachFork (parentContext: FiberContext) (childContext: FiberContext)
         childContext.AddRegistration registration
         childContext.AttachTo parentContext
 
-let inline defectError (fiberContext: FiberContext) (ex: exn) : obj =
+let inline defectError (fiberContext: FiberContext) (ex: exn) =
     FiberInterruptedException(fiberContext.Id, Defect ex, ex.Message) :> obj
 
 let inline awaitTaskFailureOutcome (fiberContext: FiberContext) (onError: exn -> obj) (ex: exn) =

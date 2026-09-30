@@ -10,12 +10,11 @@ open FIO.Runtime.WorkStealing
 
 open System
 open System.Net
+open System.Diagnostics
 
 open Expecto
 open FsCheck.FSharp
 
-// Two workers, as in the core suite: a default config per test spawns a thread per core per
-// runtime, and the resulting load makes wall-clock deadline assertions flake.
 let testConfig = { WorkerConfig.Default with EvaluationWorkers = 2 }
 
 module FsCheckProperties =
@@ -86,6 +85,28 @@ let runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, SocketError>) =
     | Succeeded value -> value
     | Failed error -> failtest $"Effect failed: {error}"
     | Interrupted ex -> failtest $"Interrupted: {ex.Message}"
+
+let sleepMs (ms: float) =
+    FIO.sleep (TimeSpan.FromMilliseconds ms)
+
+let freePort () =
+    let probe = new Sockets.TcpListener(IPAddress.Loopback, 0)
+    probe.Start()
+    let port = (probe.LocalEndpoint :?> IPEndPoint).Port
+    probe.Stop()
+    port
+
+let waitForTerminal (fiber: Fiber<'A, 'E>) (budgetMs: int) =
+    fio {
+        let stopwatch = Stopwatch.StartNew()
+        let mutable terminal = fiber.IsCompleted() || fiber.IsInterrupted()
+
+        while not terminal && stopwatch.ElapsedMilliseconds < int64 budgetMs do
+            do! sleepMs 20.0
+            terminal <- fiber.IsCompleted() || fiber.IsInterrupted()
+
+        return terminal, stopwatch.ElapsedMilliseconds
+    }
 
 let connectWhenListening (host: string) (port: int) =
     (SocketClient.connectWith host port)

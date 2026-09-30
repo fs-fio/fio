@@ -50,8 +50,7 @@ type FIOApp<'A, 'E>() as this =
         | InvalidArgument _
         | ResourceExhaustion _ -> AppFatalError(ex :> exn)
 
-    // A request that arrives before the effect is forked is applied by scoped, so a Stop() racing
-    // startup is not lost.
+    // Applied by scoped when the effect is forked, so a Stop() racing startup is not lost.
     let requestShutdown (source: string) =
         if Volatile.Read &running = 1 && tryClaim &shutdownRequested then
             match Volatile.Read &effectContext with
@@ -80,8 +79,8 @@ type FIOApp<'A, 'E>() as this =
     abstract member runtime: FIORuntime
     default _.runtime = new DefaultRuntime()
 
-    /// An effect run with the application's outcome once the effect has settled and its finalizers have run,
-    /// before onShutdown. Defaults to no-op.
+    /// An effect run with the application's settled outcome, after the effect's finalizers and before onShutdown;
+    /// no-op by default.
     abstract member onOutcome: AppResult<'A, 'E> -> FIO<unit, 'E>
     default _.onOutcome _ = FIO.unit ()
 
@@ -89,8 +88,8 @@ type FIOApp<'A, 'E>() as this =
     abstract member onOutcomeTimeout: TimeSpan
     default _.onOutcomeTimeout = TimeSpan.FromSeconds 10.0
 
-    /// An effect run after onOutcome, before the process exits. The effect's finalizers have already run, so
-    /// use this for process-level work and put cleanup in a finalizer. Defaults to no-op.
+    /// An effect run after onOutcome, before the process exits; the effect's finalizers have already run, so this is
+    /// for process-level work. No-op by default.
     abstract member onShutdown: unit -> FIO<unit, 'E>
     default _.onShutdown () = FIO.unit ()
 
@@ -98,9 +97,8 @@ type FIOApp<'A, 'E>() as this =
     abstract member onShutdownTimeout: TimeSpan
     default _.onShutdownTimeout = TimeSpan.FromSeconds 10.0
 
-    /// Maps the application's outcome to a process exit code. Defaults to 0 on success, 1 on a failure or a fatal
-    /// error (as every non-success exit does in ZIO), and 130 when interrupted, the shell's code for a process ended
-    /// by SIGINT.
+    /// Maps the application's outcome to a process exit code: 0 on success, 1 on a failure or a fatal error (as in
+    /// ZIO), 130 when interrupted.
     abstract member mapExitCode: AppResult<'A, 'E> -> int
     default _.mapExitCode outcome =
         match outcome with
@@ -136,9 +134,6 @@ type FIOApp<'A, 'E>() as this =
 
             match fiberOpt with
             | Some fiber when timedOut ->
-                // An interrupted fiber publishes before its finalizers run, so there is nothing to wait for here: the
-                // runtime's disposal waits for it to unwind. Its handle is not disposed either, since disposing the
-                // cancellation source a finalizer still reads would end that finalizer as a defect.
                 fiber.Context.Interrupt(ExplicitInterrupt, sprintf "%s hook exceeded timeout." label)
             | Some fiber -> (fiber :> IDisposable).Dispose()
             | None -> ()

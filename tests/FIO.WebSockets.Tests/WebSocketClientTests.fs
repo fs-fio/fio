@@ -19,7 +19,7 @@ let webSocketClientTests =
             testList
                 "Connect"
                 [
-                    testAllRuntimes "connect with URI and config succeeds" (fun runtime ->
+                    testAllRuntimes "connect - succeeds with a URI and a configuration" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -37,7 +37,7 @@ let webSocketClientTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "connectWith convenience works" (fun runtime ->
+                    testAllRuntimes "connectWith - connects to a listening server" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -52,7 +52,7 @@ let webSocketClientTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "connectString/connectStringWith/connectDefault work" (fun runtime ->
+                    testAllRuntimes "connectString/connectStringWith/connectDefault - connect to a listening server" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -67,7 +67,7 @@ let webSocketClientTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "connect fails for unreachable host" (fun runtime ->
+                    testAllRuntimes "connect - fails for an unreachable host" (fun runtime ->
                         let effect =
                             fio {
                                 return!
@@ -82,7 +82,7 @@ let webSocketClientTests =
                         | Some(ConnectionFailed _) -> ()
                         | other -> failtest $"Expected ConnectionFailed but got {other}")
 
-                    testAllRuntimes "connect yields a socket without endpoints" (fun runtime ->
+                    testAllRuntimes "connect - yields a socket without endpoints" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -100,7 +100,7 @@ let webSocketClientTests =
             testList
                 "Scoped lifetime"
                 [
-                    testAllRuntimes "withConnection auto-closes" (fun runtime ->
+                    testAllRuntimes "withConnection - closes the connection when the scope ends" (fun runtime ->
                         withTestServer
                             (fun ws ->
                                 fio {
@@ -123,9 +123,8 @@ let webSocketClientTests =
                                 })
                             runtime)
 
-                    // Sequenced: it captures the process-global stderr, which a parallel test's log line could pollute.
                     testSequenced (
-                        testAllRuntimes "withConnection stays quiet when an interrupted receive aborted the socket" (fun runtime ->
+                        testAllRuntimes "withConnection - stays quiet when an interrupted receive aborted the socket" (fun runtime ->
                             let originalErr = Console.Error
                             use captured = new IO.StringWriter()
                             Console.SetError captured
@@ -150,7 +149,7 @@ let webSocketClientTests =
 
                             Expect.equal (captured.ToString()) "" "Releasing an aborted socket must not log to stderr"))
 
-                    testAllRuntimes "withConnection release is bounded by SendTimeout when the peer never answers the close" (fun runtime ->
+                    testAllRuntimes "withConnection - its release is bounded by SendTimeout when the peer never answers the close" (fun runtime ->
                         withTestServer
                             (fun _ -> FIO.never ())
                             (fun port ->
@@ -168,7 +167,7 @@ let webSocketClientTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "withConnectionString auto-closes" (fun runtime ->
+                    testAllRuntimes "withConnectionString - closes the connection when the scope ends" (fun runtime ->
                         withTestServer
                             (fun ws ->
                                 fio {

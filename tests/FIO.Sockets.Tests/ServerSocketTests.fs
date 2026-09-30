@@ -19,7 +19,7 @@ let serverSocketTests =
             testList
                 "Bind / Accept"
                 [
-                    testAllRuntimes "bind succeeds on port 0" (fun runtime ->
+                    testAllRuntimes "bind - succeeds on port 0" (fun runtime ->
                         let effect =
                             fio {
                                 let! config = ServerSocketConfig.create "127.0.0.1" 0
@@ -34,7 +34,7 @@ let serverSocketTests =
 
                         runtime.Run(effect).UnsafeSuccess())
 
-                    testAllRuntimes "bind resolves hostname localhost" (fun runtime ->
+                    testAllRuntimes "bind - resolves the hostname localhost" (fun runtime ->
                         let effect =
                             fio {
                                 let! config = ServerSocketConfig.create "localhost" 0
@@ -49,7 +49,7 @@ let serverSocketTests =
 
                         runtime.Run(effect).UnsafeSuccess())
 
-                    testAllRuntimes "accept receives client connection" (fun runtime ->
+                    testAllRuntimes "accept - receives a client connection" (fun runtime ->
                         withTestServer
                             (fun socket ->
                                 fio {
@@ -73,7 +73,7 @@ let serverSocketTests =
             testList
                 "Lifecycle"
                 [
-                    testAllRuntimes "withServerSocket provides acquire/release" (fun runtime ->
+                    testAllRuntimes "withServerSocket - acquires and releases the server socket" (fun runtime ->
                         let effect =
                             fio {
                                 let! config = ServerSocketConfig.create "127.0.0.1" 0
@@ -93,7 +93,7 @@ let serverSocketTests =
 
                         runtime.Run(effect).UnsafeSuccess())
 
-                    testAllRuntimes "acceptLoop handles multiple connections" (fun runtime ->
+                    testAllRuntimes "acceptLoop - handles multiple connections" (fun runtime ->
                         withTestEchoServer
                             (fun port ->
                                 FIO.forEachDiscard [ 1..3 ] (fun i ->
@@ -113,7 +113,7 @@ let serverSocketTests =
             testList
                 "Inspection"
                 [
-                    testAllRuntimes "getConfig returns bound configuration" (fun runtime ->
+                    testAllRuntimes "getConfig - returns the bound configuration" (fun runtime ->
                         let effect =
                             fio {
                                 let! config = ServerSocketConfig.create "127.0.0.1" 0
@@ -128,7 +128,7 @@ let serverSocketTests =
 
                         runtime.Run(effect).UnsafeSuccess())
 
-                    testAllRuntimes "getLocalEndPoint returns bound endpoint" (fun runtime ->
+                    testAllRuntimes "getLocalEndPoint - returns the bound endpoint" (fun runtime ->
                         let effect =
                             fio {
                                 let! config = ServerSocketConfig.create "127.0.0.1" 0
@@ -148,7 +148,7 @@ let serverSocketTests =
             testList
                 "serve / serveWith (bind + accept + close in one effect)"
                 [
-                    testAllRuntimes "serve accepts a connection and closes the server when interrupted" (fun runtime ->
+                    testAllRuntimes "serve - accepts a connection and closes the server when interrupted" (fun runtime ->
                         let received = ResizeArray<string>()
                         let handlerDone = Channel<unit>()
 
@@ -184,7 +184,7 @@ let serverSocketTests =
 
                         Expect.sequenceEqual received [ "hello serve" ] "serve must deliver the message to its handler")
 
-                    testAllRuntimes "serveWith runs a request/response protocol" (fun runtime ->
+                    testAllRuntimes "serveWith - runs a request/response protocol" (fun runtime ->
                         let effect =
                             fio {
                                 let! probe = ServerSocketConfig.create "127.0.0.1" 0
@@ -218,7 +218,7 @@ let serverSocketTests =
             testList
                 "Accept-loop resilience"
                 [
-                    testAllRuntimes "acceptLoop survives a failing handler and keeps serving" (fun runtime ->
+                    testAllRuntimes "acceptLoop - survives a failing handler and keeps serving" (fun runtime ->
                         let attempts = ref 0
                         let firstFailed = Channel<unit>()
 
@@ -264,7 +264,7 @@ let serverSocketTests =
                         Expect.equal reply "still alive" "A failing handler must not stop the accept loop"
                         Expect.isGreaterThanOrEqual attempts.Value 2 "The loop must have accepted a second connection")
 
-                    testAllRuntimes "acceptLoop survives a handler that throws, closes its connection and keeps serving" (fun runtime ->
+                    testAllRuntimes "acceptLoop - survives a handler that throws, closes its connection and keeps serving" (fun runtime ->
                         let attempts = ref 0
 
                         let throwingHandler (socket: Socket) : FIO<unit, SocketError> =

@@ -17,17 +17,15 @@ type WebSocketConfig =
         SendTimeout: int
         /// The receive timeout, in milliseconds; 0 or less waits indefinitely. A receive that times out aborts the connection.
         ReceiveTimeout: int
-        /// How long, in milliseconds, a shutting-down server gives its handlers to finish after closing their
-        /// connections; 0 or less waits indefinitely.
+        /// How long, in milliseconds, a shutting-down server gives handlers to finish; 0 or less waits indefinitely.
         ShutdownTimeout: int
     }
 
 [<RequireQualifiedAccess>]
 module WebSocketConfig =
 
-    /// The default WebSocket configuration (4 KB buffers, 1 MB message limit, a 30 s send timeout, no receive
-    /// timeout, a 10 s shutdown). A receive timeout aborts the connection when it elapses, and silence is
-    /// normal for a WebSocket, so set one only for a peer that must speak regularly.
+    /// The default configuration: 4 KB buffers, a 1 MB message limit, a 30 s send timeout, no receive timeout, a 10 s
+    /// shutdown.
     let defaultConfig =
         {
             ReceiveBufferSize = 4096

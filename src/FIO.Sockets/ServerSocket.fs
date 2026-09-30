@@ -120,10 +120,8 @@ module ServerSocket =
 
             do! FIO.forEachDiscard [ 1 .. max 1 maxConcurrentHandlers ] (fun _ -> slots.Write())
 
-            // The accept is awaited uninterruptibly and cancelled through the fiber's token instead, so a
-            // connection it accepts always reaches a handler whose finalizer closes it. Only the fork is restored
-            // to the loop's interruptibility, which keeps the handler an ordinary child, interrupted with the
-            // loop; an interruption that lands before the fork leaves the socket and its slot to the finalizer.
+            // The accept is awaited uninterruptibly, cancelled through the fiber's token, so an accepted socket always
+            // reaches its closing finalizer; only the fork is restored, which keeps the handler an ordinary child.
             let acceptAndHandOff (cancellationToken: CancellationToken) =
                 FIO.uninterruptibleMask <| fun restore ->
                     fio {
@@ -131,7 +129,7 @@ module ServerSocket =
                         let closeSocket = socket.Close().CatchAll(logAndSuppress "accepted socket close")
                         let handedOff = ref false
 
-                        // The handler is called in its own fiber: one that throws ends its connection, not the loop.
+                        // Suspended: a handler that throws ends its connection, not the loop.
                         let handlerWithCleanup =
                             (FIO.suspend (fun () -> handler socket))
                                 .Ensuring(closeSocket)

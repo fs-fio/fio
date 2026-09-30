@@ -5,7 +5,6 @@ open FIO.Sockets.Tests.Utilities
 open FIO.DSL
 open FIO.Sockets
 
-open System
 open System.Net
 open System.Text
 
@@ -19,7 +18,7 @@ let socketTests =
             testList
                 "Byte and text I/O"
                 [
-                    testAllRuntimes "SendBytes/ReceiveBytes echo roundtrip" (fun runtime ->
+                    testAllRuntimes "SendBytes - roundtrips through ReceiveBytes against an echo server" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -37,7 +36,7 @@ let socketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "ReceiveBytes fails with non-positive maxBytes" (fun runtime ->
+                    testAllRuntimes "ReceiveBytes - fails for a non-positive maxBytes" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -56,7 +55,7 @@ let socketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "ReceiveBytes returns correct byte count" (fun runtime ->
+                    testAllRuntimes "ReceiveBytes - returns the number of bytes received" (fun runtime ->
                         withTestServer
                             (fun socket ->
                                 fio {
@@ -78,7 +77,7 @@ let socketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "SendString/ReceiveString roundtrip" (fun runtime ->
+                    testAllRuntimes "SendString - roundtrips through ReceiveString" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -94,7 +93,7 @@ let socketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "SendLine/ReceiveLine roundtrip" (fun runtime ->
+                    testAllRuntimes "SendLine - roundtrips through ReceiveLine" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -114,7 +113,7 @@ let socketTests =
             testList
                 "ReceiveExactly"
                 [
-                    testAllRuntimes "ReceiveExactly roundtrip" (fun runtime ->
+                    testAllRuntimes "ReceiveExactly - receives exactly the bytes sent" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -134,7 +133,7 @@ let socketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "ReceiveExactly fails with non-positive numBytes" (fun runtime ->
+                    testAllRuntimes "ReceiveExactly - fails for a non-positive numBytes" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -160,7 +159,7 @@ let socketTests =
             testList
                 "Codec / JSON"
                 [
-                    testAllRuntimes "Send/Receive with codec roundtrip" (fun runtime ->
+                    testAllRuntimes "Send - roundtrips through Receive with a codec" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -176,7 +175,7 @@ let socketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "SendJson/ReceiveJson roundtrip" (fun runtime ->
+                    testAllRuntimes "SendJson - roundtrips through ReceiveJson" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -194,7 +193,7 @@ let socketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "SendJsonLine/ReceiveJsonLine roundtrip" (fun runtime ->
+                    testAllRuntimes "SendJsonLine - roundtrips through ReceiveJsonLine" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -216,7 +215,7 @@ let socketTests =
             testList
                 "Message framing"
                 [
-                    testAllRuntimes "ReceiveFramed assembles a frame split across writes" (fun runtime ->
+                    testAllRuntimes "ReceiveFramed - assembles a frame split across writes" (fun runtime ->
                         withTestServer
                             (fun socket ->
                                 fio {
@@ -236,7 +235,7 @@ let socketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "ReceiveFramed reads one frame per call when coalesced" (fun runtime ->
+                    testAllRuntimes "ReceiveFramed - reads one frame per call when frames are coalesced" (fun runtime ->
                         withTestServer
                             (fun socket ->
                                 fio {
@@ -257,7 +256,7 @@ let socketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "ReceiveLine reads one line per call when coalesced" (fun runtime ->
+                    testAllRuntimes "ReceiveLine - reads one line per call when lines are coalesced" (fun runtime ->
                         withTestServer
                             (fun socket -> fio { do! socket.SendBytes(Encoding.UTF8.GetBytes "alpha\nbeta\n") })
                             (fun port ->
@@ -277,7 +276,7 @@ let socketTests =
             testList
                 "Connection state"
                 [
-                    testAllRuntimes "IsConnected true after connect" (fun runtime ->
+                    testAllRuntimes "IsConnected - is true after connect" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -291,7 +290,7 @@ let socketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "Close then IsConnected false" (fun runtime ->
+                    testAllRuntimes "Close - IsConnected is false afterwards" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -308,7 +307,7 @@ let socketTests =
             testList
                 "Inspection & failure modes"
                 [
-                    testAllRuntimes "GetRemoteEndPoint returns valid endpoint" (fun runtime ->
+                    testAllRuntimes "GetRemoteEndPoint - returns a valid endpoint" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -324,7 +323,7 @@ let socketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "GetLocalEndPoint returns valid endpoint" (fun runtime ->
+                    testAllRuntimes "GetLocalEndPoint - returns a valid endpoint" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -340,7 +339,7 @@ let socketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "GetConfig returns socket configuration" (fun runtime ->
+                    testAllRuntimes "GetConfig - returns the socket configuration" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -356,7 +355,7 @@ let socketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "SendBytes fails on closed socket" (fun runtime ->
+                    testAllRuntimes "SendBytes - fails on a closed socket" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -379,9 +378,9 @@ let socketTests =
                 ]
 
             testList
-                "Timeout"
+                "Timeouts"
                 [
-                    testAllRuntimes "ReceiveBytes times out as TimeoutError" (fun runtime ->
+                    testAllRuntimes "ReceiveBytes - times out with TimeoutError" (fun runtime ->
                         withTestServer
                             (fun _socket ->
                                 fio { do! FIO.sleep (System.TimeSpan.FromMilliseconds 3000.0) })
@@ -401,12 +400,8 @@ let socketTests =
                                     | other -> failtest $"Expected TimeoutError but got {other}"
                                 })
                             runtime)
-                ]
 
-            testList
-                "Configured timeouts"
-                [
-                    testAllRuntimes "Receive times out with TimeoutError when the peer never sends" (fun runtime ->
+                    testAllRuntimes "Receive - times out with TimeoutError when the peer never sends" (fun runtime ->
                         let silentHandler (_socket: Socket) = FIO.never<unit, SocketError> ()
 
                         let effect =
@@ -438,7 +433,7 @@ let socketTests =
                         | Error other -> failtest $"Expected TimeoutError but got {other}"
                         | Ok value -> failtest $"Expected a timeout but received {value}")
 
-                    testAllRuntimes "a configured timeout that is not exceeded still succeeds" (fun runtime ->
+                    testAllRuntimes "Receive - succeeds within a configured timeout that is not exceeded" (fun runtime ->
                         let effect =
                             fio {
                                 let! serverConfig = ServerSocketConfig.create "127.0.0.1" 0

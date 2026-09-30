@@ -697,7 +697,7 @@ let channelTests =
                         Expect.isTrue accepted "An unbounded channel should accept the message"
                         Expect.equal chan.Count 1 "The message should be buffered")
 
-                    testCase "Channel members take the element type, never obj" <| fun () ->
+                    testCase "Channel - members take the element type, never obj" <| fun () ->
                         let untyped =
                             typeof<Channel<int>>.GetMethods(
                                 Reflection.BindingFlags.Public ||| Reflection.BindingFlags.Instance ||| Reflection.BindingFlags.DeclaredOnly)

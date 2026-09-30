@@ -92,7 +92,6 @@ let private testCapturedIn name (input: string) (f: FIORuntime -> unit) =
             for rt in allRuntimes () -> testCase (rt.GetType().Name) (fun () -> withStdIn input f rt)
         ]
 
-// All console tests must run sequentially because System.Console has process-global state
 [<Tests>]
 let consoleTests =
     testSequenced (
@@ -286,8 +285,6 @@ let consoleTests =
                         throwingWriter.Dispose())
 
                 testAllRuntimes "clear - effect either succeeds or maps to a typed error" (fun runtime ->
-                    // Console.Clear may throw IOException when stdout is redirected (typical in test hosts).
-                    // Verify the effect machinery handles both outcomes without leaking an unmapped exception.
                     let effect = Console.clear (fun ex -> ex.Message)
                     let result = runtime.Run(effect).UnsafeResult()
 

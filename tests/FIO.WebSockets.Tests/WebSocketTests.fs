@@ -18,7 +18,7 @@ let webSocketTests =
             testList
                 "Send / Receive"
                 [
-                    testAllRuntimes "SendText/ReceiveMessage text roundtrip" (fun runtime ->
+                    testAllRuntimes "SendText - roundtrips a text message through ReceiveMessage" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -35,7 +35,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "SendBinary/ReceiveMessage binary roundtrip" (fun runtime ->
+                    testAllRuntimes "SendBinary - roundtrips a binary message through ReceiveMessage" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -53,7 +53,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "ReceiveMessage reassembles messages larger than the receive buffer" (fun runtime ->
+                    testAllRuntimes "ReceiveMessage - reassembles messages larger than the receive buffer" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -81,7 +81,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "ReceiveMessage fails with MessageTooLarge past MaxMessageSize" (fun runtime ->
+                    testAllRuntimes "ReceiveMessage - fails with MessageTooLarge past MaxMessageSize" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -101,7 +101,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "ReceiveMessage past MaxMessageSize aborts the connection rather than returning the rest as a message" (fun runtime ->
+                    testAllRuntimes "ReceiveMessage - past MaxMessageSize, aborts the connection rather than returning the rest as a message" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -122,7 +122,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "Send/Receive with text codec roundtrip" (fun runtime ->
+                    testAllRuntimes "Send - roundtrips through Receive with the text codec" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -137,7 +137,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "Send/Receive with json codec roundtrip" (fun runtime ->
+                    testAllRuntimes "Send - roundtrips through Receive with the json codec" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -154,7 +154,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "SendFrame with Text frame" (fun runtime ->
+                    testAllRuntimes "SendFrame - sends a Text frame" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -175,7 +175,7 @@ let webSocketTests =
             testList
                 "Close / Abort"
                 [
-                    testAllRuntimes "Close transitions state" (fun runtime ->
+                    testAllRuntimes "Close - transitions the state to closed" (fun runtime ->
                         withTestServer
                             (fun ws ->
                                 fio {
@@ -193,7 +193,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "Abort terminates connection" (fun runtime ->
+                    testAllRuntimes "Abort - terminates the connection" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -210,7 +210,7 @@ let webSocketTests =
             testList
                 "CloseOutput and Abort"
                 [
-                    testAllRuntimes "CloseOutput half-closes without waiting for the peer" (fun runtime ->
+                    testAllRuntimes "CloseOutput - half-closes without waiting for the peer" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -223,7 +223,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "CloseOutput accepts an explicit status and description" (fun runtime ->
+                    testAllRuntimes "CloseOutput - accepts an explicit status and description" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -236,7 +236,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "Abort tears the connection down immediately" (fun runtime ->
+                    testAllRuntimes "Abort - tears the connection down immediately" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -253,7 +253,7 @@ let webSocketTests =
             testList
                 "Connection state"
                 [
-                    testAllRuntimes "State returns Open for connected socket" (fun runtime ->
+                    testAllRuntimes "State - returns Open for a connected socket" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -267,7 +267,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "CloseStatus returns None for open socket" (fun runtime ->
+                    testAllRuntimes "CloseStatus - returns None for an open socket" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -285,7 +285,7 @@ let webSocketTests =
             testList
                 "Connection state accessors"
                 [
-                    testAllRuntimes "State reports an open connection, then a closed one" (fun runtime ->
+                    testAllRuntimes "State - reports an open connection, then a closed one" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -300,7 +300,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "CloseStatus is absent while open and present after closing" (fun runtime ->
+                    testAllRuntimes "CloseStatus - is absent while open and present after closing" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -315,7 +315,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "CloseStatusDescription and Subprotocol are readable" (fun runtime ->
+                    testAllRuntimes "CloseStatusDescription/Subprotocol - are readable" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -340,7 +340,7 @@ let webSocketTests =
             testList
                 "Error classification"
                 [
-                    testAllRuntimes "Receive with a codec fails with Closed when the peer closes" (fun runtime ->
+                    testAllRuntimes "Receive - with a codec fails with Closed when the peer closes" (fun runtime ->
                         withTestServer
                             (fun ws -> ws.Close())
                             (fun port ->
@@ -356,7 +356,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "ReceiveMessage on a closed socket fails with Closed" (fun runtime ->
+                    testAllRuntimes "ReceiveMessage - on a closed socket fails with Closed" (fun runtime ->
                         withTestServer
                             (fun ws ->
                                 fio {
@@ -376,7 +376,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "SendText on a closed socket fails with Closed" (fun runtime ->
+                    testAllRuntimes "SendText - on a closed socket fails with Closed" (fun runtime ->
                         withTestServer
                             (fun ws ->
                                 fio {
@@ -396,7 +396,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "SendText after the peer's close frame fails with Closed" (fun runtime ->
+                    testAllRuntimes "SendText - after the peer's close frame fails with Closed" (fun runtime ->
                         withTestServer
                             (fun ws ->
                                 fio {
@@ -421,7 +421,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "Close against a peer that never reads times out and leaves the socket aborted" (fun runtime ->
+                    testAllRuntimes "Close - against a peer that never reads, times out and leaves the socket aborted" (fun runtime ->
                         withTestServer
                             (fun _ -> FIO.never ())
                             (fun port ->
@@ -444,7 +444,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "ReceiveMessage on an aborted socket fails with Closed" (fun runtime ->
+                    testAllRuntimes "ReceiveMessage - on an aborted socket fails with Closed" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -463,7 +463,7 @@ let webSocketTests =
             testList
                 "TryReceive"
                 [
-                    testAllRuntimes "TryReceive yields Received for a decodable message" (fun runtime ->
+                    testAllRuntimes "TryReceive - yields Received for a decodable message" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -478,7 +478,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "TryReceive yields Undecodable for a frame the codec rejects" (fun runtime ->
+                    testAllRuntimes "TryReceive - yields Undecodable for a frame the codec rejects" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -495,7 +495,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "TryReceive yields PeerClosed when the peer closes" (fun runtime ->
+                    testAllRuntimes "TryReceive - yields PeerClosed when the peer closes" (fun runtime ->
                         withTestServer
                             (fun ws -> ws.Close())
                             (fun port ->
@@ -511,7 +511,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "TryReceive still fails with any other error" (fun runtime ->
+                    testAllRuntimes "TryReceive - still fails with any other error" (fun runtime ->
                         withTestServer
                             echoHandler
                             (fun port ->
@@ -533,7 +533,7 @@ let webSocketTests =
             testList
                 "CloseIfOpen"
                 [
-                    testAllRuntimes "CloseIfOpen closes an open connection" (fun runtime ->
+                    testAllRuntimes "CloseIfOpen - closes an open connection" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -546,7 +546,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "CloseIfOpen answers the peer's close" (fun runtime ->
+                    testAllRuntimes "CloseIfOpen - answers the peer's close" (fun runtime ->
                         withTestServer
                             (fun ws ->
                                 fio {
@@ -564,7 +564,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "CloseIfOpen succeeds on a connection already closed" (fun runtime ->
+                    testAllRuntimes "CloseIfOpen - succeeds on a connection already closed" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->
@@ -575,7 +575,7 @@ let webSocketTests =
                                 })
                             runtime)
 
-                    testAllRuntimes "CloseIfOpen leaves an aborted connection aborted" (fun runtime ->
+                    testAllRuntimes "CloseIfOpen - leaves an aborted connection aborted" (fun runtime ->
                         withTestServer
                             noopHandler
                             (fun port ->

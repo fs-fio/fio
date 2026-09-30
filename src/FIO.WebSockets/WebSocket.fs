@@ -35,8 +35,7 @@ type WebSocket
     let attempt (func: unit -> 'A) =
         FIO.attempt func WsError.fromException
 
-    // Finalizers run once per message, so each is one action that attempts every release in turn and
-    // logs a failure the way logAndSuppress does.
+    // One action per finalizer that attempts every release and logs a failure the way logAndSuppress does.
     let releaseLogged (context: string) (release: unit -> unit) =
         try
             release ()
@@ -63,9 +62,8 @@ type WebSocket
         let message = $"Cannot {operation} - WebSocket state is {state}"
         if List.contains state closedStates then Closed message else otherwise message
 
-    // Releases a semaphore permit exactly when the wait actually granted one. A wait that ends
-    // cancelled never took a permit; a wait granted after this fiber has already given up must still
-    // hand it back, or the connection's lock stays held for the life of the socket.
+    // A wait that ends cancelled never took a permit; one granted after the fiber gave up must still hand it
+    // back, or the connection's lock stays held for the life of the socket.
     let releasePermitWhenGranted (semaphore: SemaphoreSlim) (permit: Task) =
         if permit.IsCompletedSuccessfully then
             try semaphore.Release() |> ignore
@@ -79,9 +77,8 @@ type WebSocket
                 TaskContinuationOptions.ExecuteSynchronously)
             |> ignore
 
-    // The closing handshake waits for the peer's close frame, so like a send it must be bounded: a
-    // peer that has stopped reading would otherwise hold a finalizer, and with it an app's shutdown.
-    // The sources are created uninterruptibly by acquireReleaseWith, so an interruption cannot strand them.
+    // The closing handshake waits for the peer's close frame, so it is bounded like a send, or a peer that stopped
+    // reading would hold a finalizer and with it an app's shutdown.
     let boundedBySendTimeout (cancellationToken: CancellationToken) (label: string) (operation: CancellationToken -> FIO<unit, WsError>) =
         let setup =
             attempt <| fun () ->
@@ -112,15 +109,13 @@ type WebSocket
 
         FIO.acquireReleaseWith setup release run
 
-    /// Receives the next complete message, using the given cancellation token; a close frame from the peer is
-    /// yielded as <c>ConnectionClosed</c>. Interrupting a pending receive aborts the connection.
+    /// Receives the next complete message with the given cancellation token; a peer's close frame yields
+    /// <c>ConnectionClosed</c>, and an interruption aborts the connection.
     member _.ReceiveMessage (cancellationToken: CancellationToken) =
         let bufferSize = config.ReceiveBufferSize
 
-        // One setup action per message, run uninterruptibly by acquireReleaseWith, so the lock wait, the token
-        // sources and the pooled buffer always reach the release. Without a receive timeout the fiber's token is
-        // the only one, so no source is needed. Fragments are received into one pooled array that grows as
-        // needed, so a message is decoded straight from it; the release returns whichever array is current.
+        // Run uninterruptibly by acquireReleaseWith, so the lock wait, the token sources and the pooled array always
+        // reach the release; the array grows with the message, and the release returns whichever is current.
         let setup =
             (attempt <| fun () ->
                 let state = socket.State
@@ -147,9 +142,7 @@ type WebSocket
                     Ok struct (timeoutCts, linkedCts, effectiveToken, lockTask, ref (ArrayPool<byte>.Shared.Rent bufferSize), pending))
                 .FlatMap FIO.fromResult
 
-        // A receive the fiber gave up on, through an interruption or a caller's token that is not the fiber's, still
-        // reads into the rented array and holds the lock, so the clean-up waits for it instead of handing the array
-        // to the next renter under a pending read.
+        // A receive the fiber abandoned still writes into the array and holds the lock: clean up once it ends.
         let release struct (timeoutCts: CancellationTokenSource, linkedCts: CancellationTokenSource, _: CancellationToken, lockTask: Task, rented: byte[] ref, pending: Task<WebSocketReceiveResult> ref) =
             FIO.succeedWith <| fun () ->
                 let cleanUp () =
@@ -206,7 +199,7 @@ type WebSocket
                             let count = receiveResult.Count
                             totalSize <- totalSize + int64 count
 
-                            // The rest of the message is unread, and a later receive would take it for a new one.
+                            // The rest of the message is unread; a later receive would take it for a new one.
                             if totalSize > config.MaxMessageSize then
                                 do! attempt (fun () -> socket.Abort())
                                 return! FIO.fail (MessageTooLarge(totalSize, config.MaxMessageSize))
@@ -247,9 +240,8 @@ type WebSocket
 
     /// Sends a frame, using the given cancellation token.
     member _.SendFrame (frame: WebSocketFrame, cancellationToken: CancellationToken) =
-        // One setup action per message, run uninterruptibly by acquireReleaseWith, so the lock wait, the token
-        // sources and the pooled text buffer always reach the release. Without a send timeout the fiber's token
-        // is the only one, so no source is needed.
+        // Run uninterruptibly by acquireReleaseWith, so the lock wait, the token sources and the text buffer always
+        // reach the release.
         let setup =
             (attempt <| fun () ->
                 let state = socket.State
@@ -393,25 +385,23 @@ type WebSocket
             return! this.Receive(codec, cancellationToken)
         }
 
-    /// Receives and decodes a value with the given codec, using the given cancellation token; a close or an
-    /// undecodable frame is an outcome, not a failure.
+    /// Receives and decodes a value with the given codec and cancellation token; a close or an undecodable frame is an
+    /// outcome, not a failure.
     member this.TryReceive<'A> (codec: WebSocketCodec<'A>, cancellationToken: CancellationToken) : FIO<ReceiveOutcome<'A>, WsError> =
         this.Receive(codec, cancellationToken).Map(Received).CatchAll(function
             | Closed reason -> FIO.succeed (PeerClosed reason)
             | CodecError reason -> FIO.succeed (Undecodable reason)
             | error -> FIO.fail error)
 
-    /// Receives and decodes a value with the given codec, using the fiber's cancellation token; a close or an
-    /// undecodable frame is an outcome, not a failure.
+    /// Receives and decodes a value with the given codec; a close or an undecodable frame is an outcome, not a failure.
     member this.TryReceive<'A> (codec: WebSocketCodec<'A>) : FIO<ReceiveOutcome<'A>, WsError> =
         fio {
             let! cancellationToken = FIO.cancellationToken ()
             return! this.TryReceive(codec, cancellationToken)
         }
 
-    /// Closes the connection with the given status and description, using the given cancellation token and bounded
-    /// by the configured send timeout. While another fiber is receiving, only the outgoing side is closed and that
-    /// receive ends with <c>ConnectionClosed</c>.
+    /// Closes the connection with the given status and description, bounded by the send timeout; while another fiber
+    /// is receiving, only the outgoing side closes and that receive ends with <c>ConnectionClosed</c>.
     member _.Close (closeStatus: WebSocketCloseStatus, statusDescription: string, cancellationToken: CancellationToken) =
         boundedBySendTimeout cancellationToken "Close operation" <| fun effectiveToken ->
             fio {
@@ -466,8 +456,7 @@ type WebSocket
             return! this.Close cancellationToken
         }
 
-    /// Closes the outgoing side of the connection with the given status, using the given cancellation token and
-    /// bounded by the configured send timeout.
+    /// Closes the outgoing side of the connection with the given status, bounded by the send timeout.
     member _.CloseOutput (closeStatus: WebSocketCloseStatus, statusDescription: string, cancellationToken: CancellationToken) =
         boundedBySendTimeout cancellationToken "Close output operation" <| fun effectiveToken ->
             fio {

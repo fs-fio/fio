@@ -10,10 +10,8 @@ open System.Reflection
 open System.Reflection.Emit
 open System.Runtime.CompilerServices
 
-// The JIT compiles a method with more than 2,000 basic blocks without optimization (MinOpts), and says nothing.
-// processOutcome is inline, so each runtime's interpreter loop carries a copy per call site: when the Polling and
-// Signaling loops crossed the limit they ran 5-37% slower on channel workloads. The count here is estimated from the
-// IL, which F# only compiles into a state machine in optimized builds, so the check needs `dotnet test -c Release`.
+// The JIT silently compiles a method of more than 2,000 basic blocks without optimization; the count is estimated
+// from the IL of the Release build's state machine, so the check needs `dotnet test -c Release`.
 let private blockLimit = 1_800
 
 let private opcodes =
@@ -109,7 +107,7 @@ let interpreterSizeTests =
         "Interpreter size"
         [
             for runtime in [ "Direct"; "Polling"; "Signaling"; "WorkStealing" ] ->
-                testCase $"{runtime} interpreter loop stays under the JIT's optimization limit"
+                testCase $"{runtime}Runtime - interpreter loop stays under the JIT's optimization limit"
                 <| fun () ->
                     if not optimizedBuild then
                         skiptest "the interpreter loop is only a state machine in optimized builds; run with -c Release"
@@ -125,7 +123,6 @@ let interpreterSizeTests =
                             blockLimit
                             $"The {runtime} interpreter loop has ~{blocks} basic blocks; at 2,000 the JIT stops optimizing it. Move rarely taken code out of the inlined processOutcome or handleSharedCase"
 
-            // Every push and pop copies a Cont; a new case should reuse existing fields (same name and type).
-            yield testCase "Cont stays 56 bytes"
+            yield testCase "Cont - stays 56 bytes"
             <| fun () -> Expect.isLessThanOrEqual (Unsafe.SizeOf<Cont>()) 56 "Cont grew"
         ]

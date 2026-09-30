@@ -24,7 +24,7 @@ let serverTests =
                 testList
                     "Routing"
                     [
-                        testCase "starts and responds to GET request"
+                        testCase "Routing - responds to a GET request"
                         <| fun () ->
                             let routes = get "/" (HttpHandler.text "hello")
 
@@ -37,7 +37,7 @@ let serverTests =
                                 let body = resp.Content.ReadAsStringAsync().Result
                                 Expect.equal body "hello" "Body")
 
-                        testCase "routes to correct handler"
+                        testCase "Routing - routes to the matching handler"
                         <| fun () ->
                             let routes =
                                 get "/a" (HttpHandler.text "A")
@@ -52,7 +52,7 @@ let serverTests =
                                 Expect.equal bodyA "A" "Route A"
                                 Expect.equal bodyB "B" "Route B")
 
-                        testCase "returns 404 for unknown path"
+                        testCase "Routing - returns 404 for an unknown path"
                         <| fun () ->
                             let routes = get "/known" (HttpHandler.text "known")
 
@@ -67,7 +67,7 @@ let serverTests =
                 testList
                     "Body handling"
                     [
-                        testCase "handles JSON response body"
+                        testCase "Body handling - serves a JSON response body"
                         <| fun () ->
                             let routes = get "/json" (HttpHandler.okJson {| message = "hello" |})
 
@@ -82,7 +82,7 @@ let serverTests =
                                 let body = resp.Content.ReadAsStringAsync().Result
                                 Expect.stringContains body "hello" "JSON body")
 
-                        testCase "handles POST with request body"
+                        testCase "Body handling - accepts a POST with a request body"
                         <| fun () ->
                             let routes =
                                 post "/echo" (fun req -> FIO.succeed (Response.okText (req.Body.AsString())))
@@ -99,7 +99,7 @@ let serverTests =
                                 let body = resp.Content.ReadAsStringAsync().Result
                                 Expect.equal body "test payload" "Echoed body")
 
-                        testCase "handles text response body"
+                        testCase "Body handling - serves a text response body"
                         <| fun () ->
                             let routes = get "/text" (HttpHandler.text "plain text")
 
@@ -113,7 +113,7 @@ let serverTests =
                 testList
                     "Request body limits and rejection paths"
                     [
-                        testCase "rejects a body larger than the limit with 413"
+                        testCase "Body limits - rejects a body larger than the limit with 413"
                         <| fun () ->
                             let routes =
                                 post "/upload" (fun req -> FIO.succeed (Response.okText (req.Body.AsString())))
@@ -131,7 +131,7 @@ let serverTests =
                                 let body = resp.Content.ReadAsStringAsync().Result
                                 Expect.stringContains body "exceeds maximum allowed size" "The 413 must say why")
 
-                        testCase "accepts a body exactly at the limit"
+                        testCase "Body limits - accepts a body exactly at the limit"
                         <| fun () ->
                             let payload = String.replicate 64 "y"
                             let routes =
@@ -148,7 +148,7 @@ let serverTests =
                                 Expect.equal (int resp.StatusCode) 200 "A body exactly at the limit is allowed"
                                 Expect.equal (resp.Content.ReadAsStringAsync().Result) payload "Body must round-trip intact")
 
-                        testCase "survives a truncated request body and keeps serving"
+                        testCase "Body limits - survives a truncated request body and keeps serving"
                         <| fun () ->
                             let routes = get "/ping" (HttpHandler.text "pong")
 
@@ -174,7 +174,6 @@ let serverTests =
                                 stream.ReadTimeout <- 5000
                                 (try stream.ReadByte() |> ignore with _ -> ())
 
-                                // The real assertion: the server is still healthy afterwards.
                                 use client = new HttpClient()
                                 let body = client.GetStringAsync($"http://127.0.0.1:{port}/ping").Result
                                 Expect.equal body "pong" "A truncated request must not wedge the server")
@@ -183,7 +182,7 @@ let serverTests =
                 testList
                     "Response writing"
                     [
-                        testCase "HEAD suppresses the body but keeps Content-Length"
+                        testCase "Response writing - HEAD suppresses the body but keeps Content-Length"
                         <| fun () ->
                             let routes = get "/text" (HttpHandler.text "plain text")
 
@@ -215,7 +214,7 @@ let serverTests =
                                 let body = if idx >= 0 then raw.Substring(idx + 4) else ""
                                 Expect.equal body "" "HEAD must not write a response body")
 
-                        testCase "serves a raw byte response body"
+                        testCase "Response writing - serves a raw byte response body"
                         <| fun () ->
                             let payload = [| 0uy; 1uy; 2uy; 253uy; 254uy; 255uy |]
 
@@ -235,7 +234,7 @@ let serverTests =
                                     payload
                                     "Raw bytes must round-trip unmodified")
 
-                        testCase "a throwing handler still produces a well-formed response"
+                        testCase "Response writing - a throwing handler still produces a well-formed response"
                         <| fun () ->
                             let routes = get "/boom" (fun _ -> FIO.attempt (fun () -> failwith "handler exploded") id)
 
@@ -247,7 +246,7 @@ let serverTests =
                                     (int resp.StatusCode >= 500)
                                     $"A throwing handler must surface as a server error, got {int resp.StatusCode}")
 
-                        testCase "rejects a path-traversal segment with 400"
+                        testCase "Response writing - rejects a path-traversal segment with 400"
                         <| fun () ->
                             let routes = get "/safe" (HttpHandler.text "ok")
 
@@ -266,9 +265,9 @@ let serverTests =
                     ]
 
                 testList
-                    "ServerBuilder (shipped public API, previously never executed)"
+                    "ServerBuilder"
                     [
-                        testCase "ServerBuilder setters compose onto a configuration"
+                        testCase "ServerBuilder - setters compose onto a configuration"
                         <| fun () ->
                             let config =
                                 ServerConfig.create "127.0.0.1" 1
@@ -280,7 +279,7 @@ let serverTests =
                             Expect.equal config.Port 9999 "port must be applied"
                             Expect.equal config.MaxRequestBodySize 4096L "maxBodySize must be applied"
 
-                        testCase "ServerBuilder setters are independent"
+                        testCase "ServerBuilder - setters are independent"
                         <| fun () ->
                             let baseConfig = ServerConfig.create "127.0.0.1" 8080
                             let hostOnly = baseConfig |> ServerBuilder.host "example.test"
@@ -292,7 +291,7 @@ let serverTests =
                                 "host must not disturb the body limit"
                             Expect.equal baseConfig.Host "127.0.0.1" "the original config must be unchanged"
 
-                        testCase "ServerBuilder.startNow serves a request and can be stopped"
+                        testCase "ServerBuilder.startNow - serves a request and can be stopped"
                         <| fun () ->
                             let port = findAvailablePort ()
                             let routes = get "/built" (HttpHandler.text "from builder")
@@ -315,7 +314,7 @@ let serverTests =
                 testList
                     "Server lifecycle"
                     [
-                        testCase "startServer serves a request then stop tears down"
+                        testCase "startServer - serves a request, then stop tears it down"
                         <| fun () ->
                             let port = findAvailablePort ()
                             let config = ServerConfig.create "127.0.0.1" port

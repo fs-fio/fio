@@ -144,7 +144,7 @@ type internal Scheduler(workerCount: int) =
     member _.UnregisterWaiter () =
         Interlocked.Decrement &waitingWorkers |> ignore
 
-    member _.WaitForWork (cancellationToken: CancellationToken) : Task =
+    member _.WaitForWork (cancellationToken: CancellationToken) =
         task {
             let! _ = workGate.WaitAsync(BackstopMs, cancellationToken)
             ()
@@ -303,7 +303,7 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
     new() = new WorkStealingRuntime(WorkerConfig.Default)
 
     [<TailCall>]
-    member internal runtime.InterpretAsync
+    member internal this.InterpretAsync
         (workItem: WorkItem)
         (evaluationSteps: int)
         (workerId: int) =
@@ -397,7 +397,7 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                                     state.Completed <- true
                             | HandleForkEffect(effect, fiber, fiberContext, daemon) ->
                                 attachFork currentFiberContext fiberContext daemon (state.InterruptionSuppressed > 0)
-                                if daemon then runtime.TrackDaemon fiberContext
+                                if daemon then this.TrackDaemon fiberContext
                                 let forkedWorkItem = scheduler.RentWorkItem(workerId, effect, fiberContext, scheduler.RentContStack workerId)
                                 scheduler.ScheduleLocal(workerId, forkedWorkItem)
                                 processOutcome
@@ -509,9 +509,8 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                 scheduler.ReturnWorkItem(workerId, workItem)
         }
 
-    /// Schedules the given effect on a new fiber and returns immediately with a handle to it. Safe to
-    /// call concurrently and as often as you like: it never waits for, interrupts, or discards any
-    /// fiber already running on this runtime.
+    /// Schedules the given effect on a new fiber and returns its handle at once; it never waits for, interrupts, or
+    /// discards a fiber already running, so call it as often as you like.
     override this.Run<'A, 'E> (effect: FIO<'A, 'E>) : Fiber<'A, 'E> =
         let fiber = new Fiber<'A, 'E>()
         this.Track fiber.Context

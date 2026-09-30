@@ -3,11 +3,11 @@ namespace FIO.WebSockets
 open FIO.DSL
 
 open System
-open System.Collections.Concurrent
 open System.Net
-open System.Text.RegularExpressions
 open System.Threading
 open System.Threading.Tasks
+open System.Collections.Concurrent
+open System.Text.RegularExpressions
 
 [<RequireQualifiedAccess>]
 module WebSocketServer =
@@ -15,8 +15,8 @@ module WebSocketServer =
     type private Connection =
         {
             Socket: WebSocket
-            // Interrupting a fiber publishes its result before its finalizers run, so the shutdown waits on
-            // this instead: it completes once the handler's own finalizers have closed the connection.
+            // An interrupted fiber publishes before its finalizers run, so the shutdown waits on this, which the
+            // handler's finalizers complete once the connection is closed.
             Finished: TaskCompletionSource
             mutable Handler: Fiber<unit, WsError> option
         }
@@ -36,8 +36,8 @@ module WebSocketServer =
     let private allInterfaces (url: string) =
         Regex.Replace(url, @"^(\w+://)(0\.0\.0\.0|\[::\])(?=[:/])", "$1+")
 
-    /// Starts an HTTP listener on the given URL prefix for accepting WebSocket connections. A specific host also
-    /// filters requests by their Host header; 0.0.0.0 and [::] mean HttpListener's + wildcard.
+    /// Starts an HTTP listener on the given URL prefix; a specific host also filters by Host header, 0.0.0.0 and [::]
+    /// mean any host.
     let start (url: string) =
         let url = allInterfaces url
         fio {
@@ -128,8 +128,8 @@ module WebSocketServer =
             return! upgrade listenerCtx config subProtocol
         }
 
-    /// Accepts the next WebSocket connection, optionally negotiating the given subprotocol. Interrupting it stops the
-    /// listener, which also drops the connections it accepted earlier.
+    /// Accepts the next WebSocket connection, optionally negotiating the given subprotocol; interrupting it stops the
+    /// listener and with it the connections accepted earlier.
     let accept (listener: HttpListener) (config: WebSocketConfig) (subProtocol: string option) =
         fio {
             let! cancellationToken = FIO.cancellationToken ()
@@ -143,9 +143,8 @@ module WebSocketServer =
     let acceptDefault (listener: HttpListener) (config: WebSocketConfig) =
         accept listener config None
 
-    /// Continuously accepts connections, forking the handler for each. Interrupting it shuts down gracefully: open
-    /// connections are sent a going-away close, handlers get the configured shutdown timeout to finish before the
-    /// rest are interrupted, and the listener is then stopped; requests that arrive meanwhile are refused with 503.
+    /// Accepts connections continuously, forking the handler for each. Interrupting it shuts down: open connections get
+    /// a going-away close and the shutdown timeout to finish, the rest are interrupted, and the listener stops.
     let acceptLoop (listener: HttpListener) (config: WebSocketConfig) (handler: WebSocket -> FIO<unit, WsError>) =
         FIO.suspend <| fun () ->
             let connections = ConcurrentDictionary<WebSocket, Connection>(HashIdentity.Reference)
@@ -174,8 +173,7 @@ module WebSocketServer =
                     connections.TryRemove connection.Socket |> ignore
                     connection.Finished.TrySetResult() |> ignore)
 
-            // The handler is called in its own fiber: one that throws ends its connection, not the loop, and its
-            // finalizers still mark the connection finished, which the shutdown waits for.
+            // Suspended: a handler that throws ends its connection, not the loop.
             let handleConnection (connection: Connection) =
                 (FIO.suspend (fun () -> handler connection.Socket))
                     .CatchAll(logAndSuppress "connection handler")
@@ -183,9 +181,8 @@ module WebSocketServer =
                     .Ensuring(disposeConnection connection.Socket)
                     .Ensuring(finish connection)
 
-            // Forked inside the uninterruptible hand-off, a handler joins the loop's protected scope: the loop's
-            // interruption leaves it running so the shutdown can send its client a close, and the loop's exit
-            // interrupts whatever the shutdown left behind.
+            // Forked in the uninterruptible hand-off, a handler is protected: the loop's interruption leaves it running
+            // for the shutdown's close, and the loop's exit interrupts what the shutdown left behind.
             let handOff (request: HttpListenerContext) =
                 FIO.uninterruptible (
                     fio {
@@ -196,7 +193,7 @@ module WebSocketServer =
                             let connection =
                                 {
                                     Socket = ws
-                                    Finished = TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)
+                                    Finished = TaskCompletionSource TaskCreationOptions.RunContinuationsAsynchronously
                                     Handler = None
                                 }
 
@@ -236,7 +233,7 @@ module WebSocketServer =
                     match! connection.Socket.State().CatchAll(fun _ -> FIO.succeed Net.WebSockets.WebSocketState.Closed) with
                     | Net.WebSockets.WebSocketState.Open ->
                         do! connection.Socket
-                                .CloseOutput(Net.WebSockets.WebSocketCloseStatus.EndpointUnavailable, "Server is shutting down")
+                                .CloseOutput(WebSockets.WebSocketCloseStatus.EndpointUnavailable, "Server is shutting down")
                                 .CatchAll(function
                                     | Closed _ -> FIO.unit ()
                                     | error -> logAndSuppress "going-away close" error)
@@ -249,8 +246,8 @@ module WebSocketServer =
                     let open' = Seq.toArray connections.Values
                     do! FIO.forEachParDiscard open' closeGoingAway
 
-                    // The hand-off is uninterruptible, so a connection still without a handler fiber here never got
-                    // one, and nothing will mark it finished.
+                    // The hand-off is uninterruptible, so a connection still without a handler fiber will never be
+                    // marked finished.
                     let finished =
                         open'
                         |> Array.choose (fun connection -> connection.Handler |> Option.map (fun _ -> connection.Finished.Task))
@@ -270,8 +267,7 @@ module WebSocketServer =
             // As a finalizer the shutdown is uninterruptible, and what it forks is protected like the handlers.
             step.Forever<unit>().Ensuring(shutdown.CatchAll(logAndSuppress "shutdown"))
 
-    /// Starts a listener, accepts connections, and runs the handler for each until interrupted, then shuts down as
-    /// acceptLoop does and closes the listener.
+    /// Starts a listener and accepts connections until interrupted, then shuts down as acceptLoop does and closes it.
     let serve (url: string) (config: WebSocketConfig) (handler: WebSocket -> FIO<unit, WsError>) =
         FIO.acquireReleaseWith
             (start url)
