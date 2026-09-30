@@ -319,13 +319,6 @@ let inline handleSharedCase
     | AwaitTask(task, onError) ->
         ValueSome(HandleAwaitTask(task, onError))
 
-let inline setupForkRegistration (parentContext: FiberContext) (childContext: FiberContext) =
-    let registration =
-        parentContext.CancellationToken.Register(fun () ->
-            childContext.Interrupt(ParentInterrupted parentContext.Id, "Parent fiber was interrupted."))
-    childContext.AddRegistration registration
-    registration
-
 let inline attachFork (parentContext: FiberContext) (childContext: FiberContext) (daemon: bool) (uninterruptible: bool) =
     if not daemon then
         let scope =

@@ -113,11 +113,6 @@ and [<Sealed; AllowNullLiteral>] internal MailboxQueue<'A> private (channel: Cha
     member internal _.WaitToReadAsync (cancellationToken: CancellationToken) =
         reader.WaitToReadAsync cancellationToken
 
-    member internal _.Clear () =
-        let mutable value = Unchecked.defaultof<'A>
-        while reader.TryRead &value do
-            ()
-
 and [<Sealed>] internal BlockingWorkItemSlot() =
 
     [<VolatileField>]
@@ -363,12 +358,6 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
             this.DisposeRegistrations()
             this.InvokeOnTerminal()
 
-    member internal _.Cancel () =
-        try
-            cancelSource.Cancel(throwOnFirstException = false)
-        with :? ObjectDisposedException ->
-            ()
-
     member private _.InvokeOnTerminal () =
         let callback = onTerminalCallback
 
@@ -572,6 +561,9 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
 
     interface IDisposable with
 
+        /// Releases the fiber's cancellation resources. Dispose a fiber only once it has finished: a running fiber
+        /// reads its cancellation token at every step, so disposing it ends the fiber as a defect and skips its
+        /// remaining finalizers.
         member _.Dispose () =
             (fiberContext :> IDisposable).Dispose()
 
