@@ -710,6 +710,16 @@ let channelTests =
             testList
                 "Bounded, dropping and sliding channels"
                 [
+                    testCase "Bounded, Dropping and Sliding - build a channel of the element type they are asked for" <| fun () ->
+                        for name in [ "Bounded"; "Dropping"; "Sliding" ] do
+                            let constructor = typeof<Channel<int>>.GetMethod name
+
+                            Expect.isFalse
+                                constructor.IsGenericMethod
+                                $"{name} should take its element type from the channel type, not from a type parameter of its own"
+
+                            Expect.equal constructor.ReturnType typeof<Channel<int>> $"Channel<int>.{name} should build a Channel<int>"
+
                     testCase "Bounded, Dropping and Sliding - reject a capacity below 1" <| fun () ->
                         Expect.throwsT<ArgumentOutOfRangeException> (fun () -> Channel<int>.Bounded 0 |> ignore) "Bounded 0"
                         Expect.throwsT<ArgumentOutOfRangeException> (fun () -> Channel<int>.Dropping 0 |> ignore) "Dropping 0"

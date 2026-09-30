@@ -575,16 +575,16 @@ and [<Sealed; AllowNullLiteral>] Channel<'A> private
     new() = Channel(Guid.NewGuid(), MailboxQueue<obj>(), BlockingWorkItemSlot(), Unbounded)
 
     /// Creates a new, empty channel holding at most the given number of messages; a write to a full channel suspends until a message is read.
-    static member Bounded (capacity: int) =
-        Channel(Guid.NewGuid(), bounded capacity BoundedChannelFullMode.Wait, BlockingWorkItemSlot(), Bounded)
+    static member Bounded (capacity: int) : Channel<'A> =
+        Channel<'A>(Guid.NewGuid(), bounded capacity BoundedChannelFullMode.Wait, BlockingWorkItemSlot(), Bounded)
 
     /// Creates a new, empty channel holding at most the given number of messages; a write to a full channel drops the new message.
-    static member Dropping (capacity: int) =
-        Channel(Guid.NewGuid(), bounded capacity BoundedChannelFullMode.Wait, BlockingWorkItemSlot(), Dropping)
+    static member Dropping (capacity: int) : Channel<'A> =
+        Channel<'A>(Guid.NewGuid(), bounded capacity BoundedChannelFullMode.Wait, BlockingWorkItemSlot(), Dropping)
 
     /// Creates a new, empty channel holding at most the given number of messages; a write to a full channel drops the oldest message.
-    static member Sliding (capacity: int) =
-        Channel(Guid.NewGuid(), bounded capacity BoundedChannelFullMode.DropOldest, BlockingWorkItemSlot(), Sliding)
+    static member Sliding (capacity: int) : Channel<'A> =
+        Channel<'A>(Guid.NewGuid(), bounded capacity BoundedChannelFullMode.DropOldest, BlockingWorkItemSlot(), Sliding)
 
     /// This channel's unique identifier.
     member _.Id =
