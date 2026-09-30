@@ -102,7 +102,7 @@ let typesTests =
                         Expect.equal config.SendBufferSize 4096 "Default SendBufferSize"
                         Expect.equal config.MaxMessageSize 1_048_576L "Default MaxMessageSize (1 MB)"
                         Expect.equal config.SendTimeout 30_000 "Default SendTimeout"
-                        Expect.equal config.ReceiveTimeout 30_000 "Default ReceiveTimeout"
+                        Expect.equal config.ReceiveTimeout 0 "Default ReceiveTimeout: none, since a timed-out receive aborts the connection"
 
                     testCase "builder functions update correct fields"
                     <| fun () ->

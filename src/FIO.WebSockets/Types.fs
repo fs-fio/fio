@@ -25,14 +25,16 @@ type WebSocketConfig =
 [<RequireQualifiedAccess>]
 module WebSocketConfig =
 
-    /// The default WebSocket configuration (4 KB buffers, 1 MB message limit, 30 s timeouts, a 10 s shutdown).
+    /// The default WebSocket configuration (4 KB buffers, 1 MB message limit, a 30 s send timeout, no receive
+    /// timeout, a 10 s shutdown). A receive timeout aborts the connection when it elapses, and silence is
+    /// normal for a WebSocket, so set one only for a peer that must speak regularly.
     let defaultConfig =
         {
             ReceiveBufferSize = 4096
             SendBufferSize = 4096
             MaxMessageSize = 1_048_576L
             SendTimeout = 30_000
-            ReceiveTimeout = 30_000
+            ReceiveTimeout = 0
             ShutdownTimeout = 10_000
         }
 

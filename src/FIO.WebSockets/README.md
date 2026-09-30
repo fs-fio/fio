@@ -110,8 +110,9 @@ peer that has stopped reading makes it fail with `TimeoutError` and the connecti
 of holding the finalizer — and with it an app's shutdown — open indefinitely.
 
 A send or receive that reaches its own timeout is cancelled the same way, so it aborts the connection too:
-after a `TimeoutError` nothing more can be sent or received. A connection that may sit idle needs a
-`ReceiveTimeout` longer than its longest silence, or 0 for none; the default is 30 s.
+after a `TimeoutError` nothing more can be sent or received. Silence is normal for a WebSocket, so the
+default configuration has no receive timeout; `withReceiveTimeout` sets one for a peer that must speak
+regularly, and it should be longer than that peer's longest silence.
 
 ## Shutdown
 
