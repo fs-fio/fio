@@ -174,8 +174,10 @@ module WebSocketServer =
                     connections.TryRemove connection.Socket |> ignore
                     connection.Finished.TrySetResult() |> ignore)
 
+            // The handler is called in its own fiber: one that throws ends its connection, not the loop, and its
+            // finalizers still mark the connection finished, which the shutdown waits for.
             let handleConnection (connection: Connection) =
-                (handler connection.Socket)
+                (FIO.suspend (fun () -> handler connection.Socket))
                     .CatchAll(logAndSuppress "connection handler")
                     .Ensuring(connection.Socket.CloseIfOpen())
                     .Ensuring(disposeConnection connection.Socket)
@@ -247,7 +249,11 @@ module WebSocketServer =
                     let open' = Seq.toArray connections.Values
                     do! FIO.forEachParDiscard open' closeGoingAway
 
-                    let finished = open' |> Array.map _.Finished.Task
+                    // The hand-off is uninterruptible, so a connection still without a handler fiber here never got
+                    // one, and nothing will mark it finished.
+                    let finished =
+                        open'
+                        |> Array.choose (fun connection -> connection.Handler |> Option.map (fun _ -> connection.Finished.Task))
                     let limit = if config.ShutdownTimeout > 0 then config.ShutdownTimeout else Timeout.Infinite
                     let! _ = FIO.awaitTask (Task.WhenAny(Task.WhenAll finished, Task.Delay limit)) WsError.fromException
 

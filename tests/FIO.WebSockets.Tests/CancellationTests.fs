@@ -171,6 +171,42 @@ let cancellationTests =
                 Expect.isGreaterThanOrEqual stopwatch.ElapsedMilliseconds 450L "The handler gets the shutdown timeout to finish"
                 Expect.isLessThan stopwatch.ElapsedMilliseconds 5_000L "A handler that outlasts the timeout must be interrupted")
 
+            testAllRuntimes "serve survives a handler that throws, closes its connection and still shuts down" (fun runtime ->
+                let port = findAvailablePort ()
+                let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withShutdownTimeout 500
+                let attempts = ref 0
+
+                let handler (ws: WebSocket) : FIO<unit, WsError> =
+                    if Interlocked.Increment attempts = 1 then
+                        failwith "handler threw"
+                    else
+                        ws.SendText "still alive"
+
+                // The server is this effect's child, so the effect settles only once the server has unwound.
+                let effect =
+                    fio {
+                        let! server = (WebSocketServer.serve $"http://127.0.0.1:{port}/" config handler).Fork()
+                        let! first = connectWhenListening $"ws://127.0.0.1:{port}/"
+                        let! firstOutcome = first.ReceiveMessage().Timeout(TimeSpan.FromSeconds 5.0)
+                        do! first.CloseIfOpen()
+                        let! second = connectWhenListening $"ws://127.0.0.1:{port}/"
+                        let! reply = second.ReceiveMessage().Timeout(TimeSpan.FromSeconds 5.0)
+                        do! second.CloseIfOpen()
+                        do! server.InterruptNow()
+                        return firstOutcome, reply
+                    }
+
+                let stopwatch = Stopwatch.StartNew()
+                let firstOutcome, reply = runWithTimeout runtime effect
+                stopwatch.Stop()
+
+                match firstOutcome with
+                | Some(ConnectionClosed _) -> ()
+                | other -> failtest $"Expected the connection whose handler threw to be closed, but got {other}"
+
+                Expect.equal reply (Some(Frame(Text "still alive"))) "A handler that throws must not stop the server"
+                Expect.isLessThan stopwatch.ElapsedMilliseconds 10_000L "The server must still shut down")
+
             testAllRuntimes "serve refuses a connection that arrives during its shutdown with 503" (fun runtime ->
                 let port = findAvailablePort ()
                 let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withShutdownTimeout 2_000
