@@ -28,9 +28,13 @@ module SocketClient =
             let! cancellationToken = FIO.cancellationToken ()
 
             do!
-                FIO.awaitUnitTask
+                (FIO.awaitUnitTask
                     (netSocket.ConnectAsync(config.Host, config.Port, cancellationToken).AsTask())
-                    (fun ex -> ConnectionFailed(config.Host, config.Port, ex))
+                    (fun ex -> ConnectionFailed(config.Host, config.Port, ex)))
+                    .TapError(fun _ ->
+                        FIO.succeedWith (fun () ->
+                            try netSocket.Dispose()
+                            with _ -> ()))
 
             return new Socket(netSocket, config)
         }
