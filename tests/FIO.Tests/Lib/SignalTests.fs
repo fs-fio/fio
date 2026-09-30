@@ -54,7 +54,7 @@ let signalTests =
                     let effect =
                         fio {
                             let! subscription = Signal.subscribe [ PosixSignal.SIGWINCH ] (fun ex -> ex.GetType().Name) FIO.succeed
-                            return! subscription.Next()
+                            return! subscription.Next().Timeout(TimeSpan.FromSeconds 5.0)
                         }
 
                     match runtime.Run(effect).UnsafeResult() with
