@@ -207,30 +207,33 @@ let cancellationTests =
                 Expect.equal reply (Some(Frame(Text "still alive"))) "A handler that throws must not stop the server"
                 Expect.isLessThan stopwatch.ElapsedMilliseconds 10_000L "The server must still shut down")
 
-            testAllRuntimes "serve refuses a connection that arrives during its shutdown with 503" (fun runtime ->
-                let port = findAvailablePort ()
-                let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withShutdownTimeout 2_000
+            // Sequenced: the 503 is only served inside the shutdown window, and under the load of the parallel
+            // phase the 300 ms sleep has been seen to overrun a 2 s window.
+            testSequenced (
+                testAllRuntimes "serve refuses a connection that arrives during its shutdown with 503" (fun runtime ->
+                    let port = findAvailablePort ()
+                    let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withShutdownTimeout 5_000
 
-                let handler (ws: WebSocket) =
-                    fio {
-                        do! ws.SendText "ready"
-                        do! FIO.never ()
-                    }
+                    let handler (ws: WebSocket) =
+                        fio {
+                            do! ws.SendText "ready"
+                            do! FIO.never ()
+                        }
 
-                let effect =
-                    fio {
-                        let! server = (WebSocketServer.serve $"http://127.0.0.1:{port}/" config handler).Fork()
-                        let! client = connectWhenListening $"ws://127.0.0.1:{port}/"
-                        let! _ready = client.ReceiveMessage()
-                        let! _closer = client.ReceiveMessage().FlatMap(fun _ -> client.CloseIfOpen()).Fork()
-                        do! server.InterruptNow()
-                        do! sleepMs 300.0
-                        return! (WebSocketClient.connectDefault $"ws://127.0.0.1:{port}/").Result()
-                    }
+                    let effect =
+                        fio {
+                            let! server = (WebSocketServer.serve $"http://127.0.0.1:{port}/" config handler).Fork()
+                            let! client = connectWhenListening $"ws://127.0.0.1:{port}/"
+                            let! _ready = client.ReceiveMessage()
+                            let! _closer = client.ReceiveMessage().FlatMap(fun _ -> client.CloseIfOpen()).Fork()
+                            do! server.InterruptNow()
+                            do! sleepMs 300.0
+                            return! (WebSocketClient.connectDefault $"ws://127.0.0.1:{port}/").Result()
+                        }
 
-                match runWithTimeout runtime effect with
-                | Error(ConnectionFailed message) -> Expect.stringContains message "503" "A connection during the shutdown must be refused with 503"
-                | other -> failtest $"Expected ConnectionFailed with a 503 but got {other}")
+                    match runWithTimeout runtime effect with
+                    | Error(ConnectionFailed message) -> Expect.stringContains message "503" "A connection during the shutdown must be refused with 503"
+                    | other -> failtest $"Expected ConnectionFailed with a 503 but got {other}"))
 
             testAllRuntimes "acceptLoop interrupted sends a going-away close, then stops the listener" (fun runtime ->
                 let handler (ws: WebSocket) =
