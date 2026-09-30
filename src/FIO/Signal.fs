@@ -32,8 +32,10 @@ module Signal =
 
             reraise ()
 
-    /// Returns an effect that runs body with a subscription to the given signals and removes it when body ends; each
-    /// signal's default action still runs. On Windows only SIGINT, SIGQUIT, SIGTERM and SIGHUP can be subscribed.
+    /// Returns an effect that runs body with a subscription to the given signals and removes it when body ends. A
+    /// subscription does not cancel a signal's default action: SIGHUP, SIGINT, SIGQUIT and SIGTERM still end the
+    /// process unless another registration cancels them, as a FIOApp does for SIGTERM and Ctrl+C. On Windows only
+    /// SIGINT, SIGQUIT, SIGTERM and SIGHUP can be subscribed.
     let subscribe<'A, 'E> (signals: PosixSignal list) (onError: exn -> 'E) (body: SignalSubscription<'E> -> FIO<'A, 'E>) : FIO<'A, 'E> =
         let acquire =
             FIO.attempt

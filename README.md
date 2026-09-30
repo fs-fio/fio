@@ -151,7 +151,8 @@ from a full bounded or dropping channel. `Read` suspends until a message arrives
 - **Refs** — `Ref<'A>`, an atomic reference cell shared between fibers (with `FIO.DSL` open it shadows FSharp.Core's `Ref<'T>` annotation; `'T ref` is unaffected)
 - **Modules** — `Console` (lines and keys; `tryReadLine` yields `None` at end of input) and `Signal`
   (`Signal.subscribe` awaits POSIX signals such as `SIGWINCH`; on Windows only `SIGINT`, `SIGQUIT`,
-  `SIGTERM` and `SIGHUP`)
+  `SIGTERM` and `SIGHUP`; a subscription does not cancel a signal's default action, so a terminating
+  signal still ends the process unless a `FIOApp` or your own registration cancels it)
 
 ## Runtimes
 

@@ -1367,7 +1367,6 @@ let factoryTests =
                         Expect.isFalse innerRestored "The inner restorer should restore the outer mask's uninterruptible level"
                         Expect.isTrue outerRestored "The outer restorer should restore the caller's interruptible level")
 
-                    // A region in tail position of another pushes no restore frame of its own (restoresOnSameStep).
                     testAllRuntimes "uninterruptibleMask - a restore in tail position leaves the levels around it intact" (fun runtime ->
                         let inTail, afterInner, afterOuter =
                             runtime
@@ -1385,7 +1384,6 @@ let factoryTests =
                         Expect.isFalse afterInner "Code after the inner mask should be uninterruptible again"
                         Expect.isTrue afterOuter "Code after the outer mask should be interruptible")
 
-                    // The one tail position that still needs its frame: popping it is where the interruption takes effect.
                     testAllRuntimes "uninterruptible - a region that ends at an interruptible level in tail position still ends the fiber there" (fun runtime ->
                         let entered = new ManualResetEventSlim(false)
                         let gate = new ManualResetEventSlim(false)

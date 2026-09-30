@@ -39,11 +39,11 @@ FIORuntime (abstract)
 ├── DirectRuntime              — .NET Tasks, waits for blocked fibers
 └── FIOWorkerRuntime (abstract, adds WorkerConfig: EvaluationWorkers/EvaluationSteps/BlockingWorkers)
     ├── PollingRuntime         — Custom fibers, linear-time blocked handling (polling)
-    ├── SignalingRuntime       — Custom fibers, event-driven blocked handling (dedicated BlockingWorker + signal queue; constant-time). Comparison/legacy runtime
+    ├── SignalingRuntime       — Custom fibers, event-driven blocked handling (parks on the channel's own wait and on fiber waiter queues; constant-time, no blocking worker). Comparison/legacy runtime
     └── WorkStealingRuntime    — Custom fibers, work-stealing scheduler (per-worker queues + work-stealing). The default
 ```
 
-`DefaultRuntime = WorkStealingRuntime` (recommended). Worker config fields: **EvaluationWorkers** (evaluation worker count), **EvaluationSteps** (eval steps per work item before rescheduling), **BlockingWorkers** (used by `PollingRuntime`; **ignored by `WorkStealingRuntime`**). The `EWC`/`EWS`/`BWC` acronyms remain as the `ConfigString` display labels and benchmark spec shorthand.
+`DefaultRuntime = WorkStealingRuntime` (recommended). Worker config fields: **EvaluationWorkers** (evaluation worker count), **EvaluationSteps** (eval steps per work item before rescheduling), **BlockingWorkers** (used by `PollingRuntime`; **ignored by `SignalingRuntime` and `WorkStealingRuntime`**). The `EWC`/`EWS`/`BWC` acronyms remain as the `ConfigString` display labels and benchmark spec shorthand.
 
 ### Key Files (compile order matters)
 
@@ -52,7 +52,10 @@ Core DSL (`src/FIO/DSL/`):
 - `Factories.fs` / `Extensions.fs` / `Operators.fs` / `CE.fs` — public surface built on Core.
 
 Console I/O (`src/FIO/Console.fs`):
-- `FIO.Console.Console` (`[<RequireQualifiedAccess>]`): `print`, `printLine`, `readLine`, `write`, `writeLine`, `clear`, each taking `onError: exn -> 'E`.
+- `FIO.Console.Console` (`[<RequireQualifiedAccess>]`): `print`, `printLine`, `readLine`, `tryReadLine`, `readKey`, `write`, `writeLine`, `clear`, each taking `onError: exn -> 'E`.
+
+Signals (`src/FIO/Signal.fs`):
+- `FIO.Signal.Signal.subscribe signals onError body`: a subscription to POSIX signals for the body's duration; `SignalSubscription.Next()` awaits the next one.
 
 Runtime (`src/FIO/Runtime/`):
 - `Runtime.fs` — `FIORuntime` base, `WorkerConfig`, `ContStackPool`, `WorkItemPool`
@@ -66,7 +69,7 @@ Framework (`src/FIO/App.fs`): `FIOApp<'A,'E>` with 7-member surface (`effect`, `
 
 - **Fiber<'A,'E>** — green thread via `.Fork()` / `.Join()`
 - **Channel<'A>** — typed message passing between fibers
-- **InterruptionCause** — `ParentInterrupted` | `ExplicitInterrupt` | `InvalidArgument` | `ResourceExhaustion`
+- **InterruptionCause** — `ParentInterrupted` | `ExplicitInterrupt` | `InvalidArgument` | `ResourceExhaustion` | `Defect` (user code threw where no typed error could be produced)
 
 ### Packages
 

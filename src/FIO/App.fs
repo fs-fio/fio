@@ -98,8 +98,9 @@ type FIOApp<'A, 'E>() as this =
     abstract member onShutdownTimeout: TimeSpan
     default _.onShutdownTimeout = TimeSpan.FromSeconds 10.0
 
-    /// Maps the application's outcome to a process exit code. Defaults to 0 on success, 130 when interrupted, and 1
-    /// on a failure or a fatal error, as in ZIO.
+    /// Maps the application's outcome to a process exit code. Defaults to 0 on success, 1 on a failure or a fatal
+    /// error (as every non-success exit does in ZIO), and 130 when interrupted, the shell's code for a process ended
+    /// by SIGINT.
     abstract member mapExitCode: AppResult<'A, 'E> -> int
     default _.mapExitCode outcome =
         match outcome with

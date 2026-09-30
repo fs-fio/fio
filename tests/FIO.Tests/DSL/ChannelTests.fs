@@ -836,8 +836,8 @@ let channelTests =
 
                         let first, second, value, left = runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.isTrue first "The first offer should be accepted"
-                        Expect.isFalse second "An offer to a full dropping channel should be refused"
+                        Expect.isTrue first "The first TryWrite should be accepted"
+                        Expect.isFalse second "A TryWrite to a full dropping channel should be refused"
                         Expect.equal value 1 "The channel should keep its original message"
                         Expect.equal left 0 "Refused messages should never be buffered")
 

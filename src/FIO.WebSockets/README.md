@@ -109,6 +109,10 @@ The handshake waits for the peer's close frame, so `Close` is bounded by `SendTi
 peer that has stopped reading makes it fail with `TimeoutError` and the connection is aborted, instead
 of holding the finalizer — and with it an app's shutdown — open indefinitely.
 
+A send or receive that reaches its own timeout is cancelled the same way, so it aborts the connection too:
+after a `TimeoutError` nothing more can be sent or received. A connection that may sit idle needs a
+`ReceiveTimeout` longer than its longest silence, or 0 for none; the default is 30 s.
+
 ## Shutdown
 
 Interrupting `serve` or `acceptLoop` shuts the server down gracefully, as the section above recommends:
@@ -116,7 +120,7 @@ Interrupting `serve` or `acceptLoop` shuts the server down gracefully, as the se
 1. Every open connection is sent a going-away close (1001) without interrupting its handler, so a
    handler blocked in a receive sees `ConnectionClosed` and ends normally.
 2. Handlers get `ShutdownTimeout` (10 s by default; set it with `WebSocketConfig.withShutdownTimeout`,
-   and 0 waits indefinitely) to finish. Any still running are then interrupted, and their finalizers
+   and 0 or less waits indefinitely) to finish. Any still running are then interrupted, and their finalizers
    run.
 3. The listener is stopped. `serve` also disposes it.
 

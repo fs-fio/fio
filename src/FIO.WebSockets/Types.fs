@@ -13,9 +13,9 @@ type WebSocketConfig =
         SendBufferSize: int
         /// The maximum message size, in bytes.
         MaxMessageSize: int64
-        /// The send timeout, in milliseconds.
+        /// The send timeout, in milliseconds; 0 or less waits indefinitely. A send that times out aborts the connection.
         SendTimeout: int
-        /// The receive timeout, in milliseconds.
+        /// The receive timeout, in milliseconds; 0 or less waits indefinitely. A receive that times out aborts the connection.
         ReceiveTimeout: int
         /// How long, in milliseconds, a shutting-down server gives its handlers to finish after closing their
         /// connections; 0 or less waits indefinitely.
