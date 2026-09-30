@@ -292,6 +292,9 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
     member internal _.IsTerminal () =
         Volatile.Read &state <> int FiberContextState.Running
 
+    member internal _.HasUnwound =
+        Volatile.Read &published = 1
+
     member private this.Publish value =
         // An interruption that won the state after `completing` was claimed has set the result itself; setting it
         // here as well could win that race and report a fiber both interrupted and succeeded.

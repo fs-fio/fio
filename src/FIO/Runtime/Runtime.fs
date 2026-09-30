@@ -162,36 +162,56 @@ type internal WorkStealingDeque(initialCapacity: int) =
             Monitor.Exit gate
 
 /// Base class for a FIO runtime that runs effects into fibers.
+// The fibers one thread has run on a runtime. Add is called by that thread only and Snapshot by Shutdown,
+// so the lock is uncontended until then. The list is pruned of unwound fibers when it has doubled since the
+// last prune, so a fiber is examined a bounded number of times however many stay live.
+type internal TrackedFibers () =
+    let fibers = ResizeArray<FiberContext>()
+    let mutable pruneAt = 64
+
+    member _.Add (fiberContext: FiberContext) =
+        lock fibers (fun () ->
+            fibers.Add fiberContext
+
+            if fibers.Count >= pruneAt then
+                fibers.RemoveAll(fun tracked -> tracked.HasUnwound) |> ignore
+                pruneAt <- max 64 (fibers.Count * 2))
+
+    member _.Snapshot () =
+        lock fibers (fun () -> fibers.ToArray())
+
 [<AbstractClass>]
 type FIORuntime internal () =
 
-    // Root and daemon fibers that have not fully unwound; scoped children unwind with their roots. Striped
-    // by identity so concurrent Runs rarely share a lock, and a HashSet so tracking a fiber allocates nothing.
-    let live = Array.init 16 (fun _ -> HashSet<FiberContext> HashIdentity.Reference)
+    // Root and daemon fibers that have not fully unwound, in a list per thread that ran them; scoped children
+    // unwind with their roots. A Run touches only its own thread's list, so no cache line is shared with the
+    // workers that unwind fibers, and unwinding costs nothing. Shutdown snapshots every list, so each is
+    // registered once, when its thread first runs a fiber here.
+    let lists = ResizeArray<TrackedFibers>()
 
-    [<VolatileField>]
-    let mutable liveCount = 0
+    let local =
+        new ThreadLocal<TrackedFibers>(fun () ->
+            let tracked = TrackedFibers()
+            lock lists (fun () -> lists.Add tracked)
+            tracked)
 
     [<VolatileField>]
     let mutable disposed = 0
 
-    // Set when the last live fiber unwinds after disposal began, and when the first Shutdown has finished.
+    // The fibers Shutdown found live and has not yet seen unwind, plus one while it is still counting.
+    let mutable awaiting = 0
+
+    // Set when the last of those has unwound, and when the first Shutdown has finished.
     let unwound = TaskCompletionSource TaskCreationOptions.RunContinuationsAsynchronously
 
     let stopped = TaskCompletionSource TaskCreationOptions.RunContinuationsAsynchronously
 
     let disposedMessage = "The runtime was disposed."
 
-    let stripeOf (fiberContext: FiberContext) =
-        live.[RuntimeHelpers.GetHashCode fiberContext &&& 15]
-
-    // One delegate per runtime, so watching a fiber allocates no closure.
+    // One delegate per runtime; Shutdown installs it on the fibers it found live.
     let onUnwound =
-        Action<FiberContext>(fun fiberContext ->
-            let stripe = stripeOf fiberContext
-            lock stripe (fun () -> stripe.Remove fiberContext |> ignore)
-
-            if Interlocked.Decrement &liveCount = 0 && Volatile.Read &disposed = 1 then
+        Action<FiberContext>(fun _ ->
+            if Interlocked.Decrement &awaiting = 0 then
                 unwound.TrySetResult() |> ignore)
 
     /// The runtime's name.
@@ -222,13 +242,12 @@ type FIORuntime internal () =
 
     member val internal StopWorkers: unit -> unit = ignore with get, set
 
-    // Watching before reading the flag pairs with Shutdown setting the flag before reading live: either
-    // Shutdown sees the fiber, or the fiber sees the flag and is interrupted here.
+    // Adding before reading the flag pairs with Shutdown setting the flag before taking its snapshots: either
+    // Shutdown sees the fiber, or the fiber sees the flag and is interrupted here. The barrier orders the
+    // add before the read; Shutdown's claim of the flag is a full fence before its snapshots.
     member private _.Watch (fiberContext: FiberContext) =
-        let stripe = stripeOf fiberContext
-        Interlocked.Increment &liveCount |> ignore
-        lock stripe (fun () -> stripe.Add fiberContext |> ignore)
-        fiberContext.SetOnUnwound onUnwound
+        local.Value.Add fiberContext
+        Interlocked.MemoryBarrier()
 
         if Volatile.Read &disposed = 1 then
             fiberContext.Interrupt(ExplicitInterrupt, disposedMessage)
@@ -257,14 +276,24 @@ type FIORuntime internal () =
             // Interrupting a fiber can throw, when its handle was disposed or a cancellation callback of its own
             // did; that must not keep the other fibers from being interrupted or the workers from being stopped.
             try
-                for stripe in live do
-                    for fiberContext in lock stripe (fun () -> Seq.toArray stripe) do
-                        try
-                            fiberContext.Interrupt(ExplicitInterrupt, disposedMessage)
-                        with _ ->
-                            ()
+                let live =
+                    lock lists (fun () -> lists.ToArray())
+                    |> Array.collect (fun tracked -> tracked.Snapshot())
+                    |> Array.filter (fun fiberContext -> not fiberContext.HasUnwound)
 
-                if Volatile.Read &liveCount > 0 then
+                // One more than the fibers, held until every hook is installed: a fiber that unwinds in the
+                // meantime fires its hook at once, and the count must not reach zero before the loop ends.
+                awaiting <- live.Length + 1
+
+                for fiberContext in live do
+                    try
+                        fiberContext.Interrupt(ExplicitInterrupt, disposedMessage)
+                    with _ ->
+                        ()
+
+                    fiberContext.SetOnUnwound onUnwound
+
+                if Interlocked.Decrement &awaiting > 0 then
                     unwound.Task.Wait timeout |> ignore
             finally
                 try
