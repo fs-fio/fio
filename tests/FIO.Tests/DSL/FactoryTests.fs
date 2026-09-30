@@ -1044,6 +1044,61 @@ let factoryTests =
 
                         Expect.isFalse released.Value "Release should not run when acquire failed")
 
+                    testAllRuntimes "acquireReleaseWith - the failure of an interrupted acquire reaches no error handler" (fun runtime ->
+                        let started = new ManualResetEventSlim false
+                        let proceed = new ManualResetEventSlim false
+                        let unwound = new ManualResetEventSlim false
+                        let handled = ref false
+
+                        let acquire =
+                            (FIO.attempt (fun () ->
+                                started.Set()
+                                proceed.Wait()) id)
+                                .FlatMap(fun () -> FIO.fail (InvalidOperationException "acquire failed" :> exn))
+
+                        let effect =
+                            (FIO.acquireReleaseWith acquire (fun _ -> FIO.unit ()) (fun _ -> FIO.unit ()))
+                                .CatchAll(fun _ ->
+                                    handled.Value <- true
+                                    FIO.unit ())
+                                .Ensuring(FIO.succeedWith (fun () -> unwound.Set()))
+
+                        let fiber = runtime.Run effect
+                        Expect.isTrue (started.Wait(TimeSpan.FromSeconds 5.0)) "Acquire should start"
+                        runtime.Run(fiber.InterruptNow()).Task().Wait()
+                        proceed.Set()
+
+                        Expect.isTrue (unwound.Wait(TimeSpan.FromSeconds 5.0)) "The fiber should unwind"
+                        Expect.isFalse handled.Value "No error handler should run once the fiber was interrupted during acquire")
+
+                    testAllRuntimes "acquireReleaseWith - the failure of an interrupted acquire reaches no error handler in a restored region" (fun runtime ->
+                        let started = new ManualResetEventSlim false
+                        let proceed = new ManualResetEventSlim false
+                        let unwound = new ManualResetEventSlim false
+                        let handlerEffectRan = ref false
+
+                        let acquire =
+                            (FIO.attempt (fun () ->
+                                started.Set()
+                                proceed.Wait()) id)
+                                .FlatMap(fun () -> FIO.fail (InvalidOperationException "acquire failed" :> exn))
+
+                        // The mask's restore frame is popped before the handler, so the loop head never sees level 0
+                        // between the failure and the handler: only the region-exit check of the acquire stops it.
+                        let effect =
+                            (FIO.uninterruptibleMask (fun restorer ->
+                                (restorer.Restore(FIO.acquireReleaseWith acquire (fun _ -> FIO.unit ()) (fun _ -> FIO.unit ())))
+                                    .CatchAll(fun _ -> FIO.succeedWith (fun () -> handlerEffectRan.Value <- true))))
+                                .Ensuring(FIO.succeedWith (fun () -> unwound.Set()))
+
+                        let fiber = runtime.Run effect
+                        Expect.isTrue (started.Wait(TimeSpan.FromSeconds 5.0)) "Acquire should start"
+                        runtime.Run(fiber.InterruptNow()).Task().Wait()
+                        proceed.Set()
+
+                        Expect.isTrue (unwound.Wait(TimeSpan.FromSeconds 5.0)) "The fiber should unwind"
+                        Expect.isFalse handlerEffectRan.Value "No error handler should run once the fiber was interrupted during acquire")
+
                     testAllRuntimes "acquireReleaseWith - acquire and release run uninterruptibly, use at the caller's level" (fun runtime ->
                         let cancellable () = FIO.cancellationToken<exn>().Map(fun token -> token.CanBeCanceled)
                         let inRelease = ref true
