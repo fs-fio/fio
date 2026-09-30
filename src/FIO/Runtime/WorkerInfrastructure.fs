@@ -32,13 +32,13 @@ module internal WorkerLifecycle =
 
     let startWorker (workerName: string) (innerLoop: CancellationToken -> Task<unit>) : struct (CancellationTokenSource * Task) =
         let cancelSource = new CancellationTokenSource()
-        let cancelToken = cancelSource.Token
+        let cancellationToken = cancelSource.Token
 
         let workerTask =
             Task.Factory.StartNew(Func<Task>(fun () ->
                 task {
                     try
-                        do! innerLoop cancelToken
+                        do! innerLoop cancellationToken
                     with
                     | :? OperationCanceledException -> ()
                     | :? ObjectDisposedException -> ()

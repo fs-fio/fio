@@ -58,6 +58,15 @@ bridge raw exceptions. `InvalidState` also covers argument validation (an empty 
 of range, a non-positive buffer size); `BufferOverflow` is raised when a line or frame exceeds the
 buffer you passed.
 
+## Closing
+
+`withConnection` owns the socket from before it connects, so interrupting the fiber at any point —
+while connecting included — closes it. `serve` and `acceptLoop` hand every accepted connection to a
+handler whose finalizer closes it, even when the loop is interrupted mid-accept. Handlers are the
+loop's ordinary children: interrupting the loop interrupts them at once, alongside its own cleanup.
+
+## Pooling
+
 Connection pooling is not implemented yet: `SocketPoolConfig` and the `PoolExhausted` / `PoolClosed`
 error cases are reserved for it and are not produced by any current operation.
 

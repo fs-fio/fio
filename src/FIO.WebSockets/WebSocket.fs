@@ -35,6 +35,15 @@ type WebSocket
     let attempt (func: unit -> 'A) =
         FIO.attempt func WsError.fromException
 
+    // Finalizers run once per message, so each is one action that attempts every release in turn and
+    // logs a failure the way logAndSuppress does.
+    let releaseLogged (context: string) (release: unit -> unit) =
+        try
+            release ()
+        with ex ->
+            try eprintfn $"WebSocket encountered error during {context}: {WsError.fromException ex}"
+            with _ -> ()
+
     // After an abort the exception varies; callers need Closed regardless.
     let closedOr (classify: exn -> WsError) (ex: exn) =
         let state =
@@ -58,90 +67,114 @@ type WebSocket
     // cancelled never took a permit; a wait granted after this fiber has already given up must still
     // hand it back, or the connection's lock stays held for the life of the socket.
     let releasePermitWhenGranted (semaphore: SemaphoreSlim) (permit: Task) =
-        permit.ContinueWith(
-            (fun (completed: Task) ->
-                if completed.IsCompletedSuccessfully then
-                    try semaphore.Release() |> ignore
-                    with _ -> ()),
-            TaskContinuationOptions.ExecuteSynchronously)
-        |> ignore
+        if permit.IsCompletedSuccessfully then
+            try semaphore.Release() |> ignore
+            with _ -> ()
+        else
+            permit.ContinueWith(
+                (fun (completed: Task) ->
+                    if completed.IsCompletedSuccessfully then
+                        try semaphore.Release() |> ignore
+                        with _ -> ()),
+                TaskContinuationOptions.ExecuteSynchronously)
+            |> ignore
 
     // The closing handshake waits for the peer's close frame, so like a send it must be bounded: a
     // peer that has stopped reading would otherwise hold a finalizer, and with it an app's shutdown.
-    let boundedBySendTimeout (cancelToken: CancellationToken) (label: string) (operation: CancellationToken -> FIO<unit, WsError>) =
-        fio {
-            let! timeoutCts = attempt <| fun () ->
-                if config.SendTimeout > 0 then
-                    new CancellationTokenSource(config.SendTimeout)
-                else
-                    new CancellationTokenSource()
+    // The sources are created uninterruptibly by acquireReleaseWith, so an interruption cannot strand them.
+    let boundedBySendTimeout (cancellationToken: CancellationToken) (label: string) (operation: CancellationToken -> FIO<unit, WsError>) =
+        let setup =
+            attempt <| fun () ->
+                let timeoutCts: CancellationTokenSource =
+                    if config.SendTimeout > 0 then new CancellationTokenSource(config.SendTimeout)
+                    else null
 
-            let! linkedCts = attempt <| fun () ->
-                CancellationTokenSource.CreateLinkedTokenSource(cancelToken, timeoutCts.Token)
+                let linkedCts: CancellationTokenSource =
+                    if isNull timeoutCts then null
+                    else CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token)
 
-            let dispose =
-                fio {
-                    do! attempt(fun () -> linkedCts.Dispose())
-                            .CatchAll(logAndSuppress "linkedCts disposal")
-                    do! attempt(fun () -> timeoutCts.Dispose())
-                            .CatchAll(logAndSuppress "timeoutCts disposal")
-                }
+                struct (timeoutCts, linkedCts)
 
+        let release struct (timeoutCts: CancellationTokenSource, linkedCts: CancellationTokenSource) =
+            FIO.succeedWith <| fun () ->
+                releaseLogged "linkedCts disposal" (fun () -> if not (isNull linkedCts) then linkedCts.Dispose())
+                releaseLogged "timeoutCts disposal" (fun () -> if not (isNull timeoutCts) then timeoutCts.Dispose())
+
+        let run struct (timeoutCts: CancellationTokenSource, linkedCts: CancellationTokenSource) =
             let remapTimeout (error: WsError) =
-                if timeoutCts.IsCancellationRequested then
+                if not (isNull timeoutCts) && timeoutCts.IsCancellationRequested then
                     FIO.fail (TimeoutError $"{label} timed out after {config.SendTimeout}ms")
                 else
                     FIO.fail error
 
-            return! ((operation linkedCts.Token).CatchAll remapTimeout).Ensuring dispose
-        }
+            let effectiveToken = if isNull linkedCts then cancellationToken else linkedCts.Token
+            (operation effectiveToken).CatchAll remapTimeout
+
+        FIO.acquireReleaseWith setup release run
 
     /// Receives the next complete message, using the given cancellation token; a close frame from the peer is
     /// yielded as <c>ConnectionClosed</c>. Interrupting a pending receive aborts the connection.
-    member _.ReceiveMessage (cancelToken: CancellationToken) =
-        fio {
-            let! state = attempt <| fun () -> socket.State
+    member _.ReceiveMessage (cancellationToken: CancellationToken) =
+        let bufferSize = config.ReceiveBufferSize
 
-            if state <> WebSocketState.Open && state <> WebSocketState.CloseSent then
-                return! FIO.fail (
-                    stateError
-                        state
-                        [ WebSocketState.Closed; WebSocketState.Aborted; WebSocketState.CloseReceived ]
-                        ReceiveFailed
-                        "receive message")
+        // One setup action per message, run uninterruptibly by acquireReleaseWith, so the lock wait, the token
+        // sources and the pooled buffer always reach the release. Without a receive timeout the fiber's token is
+        // the only one, so no source is needed. Fragments are received into one pooled array that grows as
+        // needed, so a message is decoded straight from it; the release returns whichever array is current.
+        let setup =
+            (attempt <| fun () ->
+                let state = socket.State
 
-            let! timeoutCts = attempt <| fun () ->
-                if config.ReceiveTimeout > 0 then
-                    new CancellationTokenSource(config.ReceiveTimeout)
+                if state <> WebSocketState.Open && state <> WebSocketState.CloseSent then
+                    Error(
+                        stateError
+                            state
+                            [ WebSocketState.Closed; WebSocketState.Aborted; WebSocketState.CloseReceived ]
+                            ReceiveFailed
+                            "receive message")
                 else
-                    new CancellationTokenSource()
+                    let timeoutCts: CancellationTokenSource =
+                        if config.ReceiveTimeout > 0 then new CancellationTokenSource(config.ReceiveTimeout)
+                        else null
 
-            let! linkedCts = attempt <| fun () ->
-                CancellationTokenSource.CreateLinkedTokenSource(cancelToken, timeoutCts.Token)
+                    let linkedCts: CancellationTokenSource =
+                        if isNull timeoutCts then null
+                        else CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token)
 
-            let effectiveToken = linkedCts.Token
+                    let effectiveToken = if isNull linkedCts then cancellationToken else linkedCts.Token
+                    let lockTask = receiveLock.WaitAsync effectiveToken
+                    Ok struct (timeoutCts, linkedCts, effectiveToken, lockTask, ref (ArrayPool<byte>.Shared.Rent bufferSize)))
+                .FlatMap FIO.fromResult
 
-            let! lockTask = attempt <| fun () ->
-                receiveLock.WaitAsync effectiveToken
+        let release struct (timeoutCts: CancellationTokenSource, linkedCts: CancellationTokenSource, _: CancellationToken, lockTask: Task, rented: byte[] ref) =
+            FIO.succeedWith <| fun () ->
+                ArrayPool<byte>.Shared.Return rented.Value
+                releaseLogged "receiveLock release" (fun () -> releasePermitWhenGranted receiveLock lockTask)
+                releaseLogged "linkedCts disposal" (fun () -> if not (isNull linkedCts) then linkedCts.Dispose())
+                releaseLogged "timeoutCts disposal" (fun () -> if not (isNull timeoutCts) then timeoutCts.Dispose())
 
-            let bufferSize = config.ReceiveBufferSize
-            let buffer = ArrayPool<byte>.Shared.Rent bufferSize
-
+        let receive struct (timeoutCts: CancellationTokenSource, _: CancellationTokenSource, effectiveToken: CancellationToken, lockTask: Task, rented: byte[] ref) =
             let computation =
                 fio {
                     do! FIO.awaitUnitTask lockTask receiveError
 
-                    let fragments = ResizeArray<byte>()
+                    let mutable length = 0
                     let mutable endOfMessage = false
                     let mutable messageType = WebSocketMessageType.Text
                     let mutable isCloseFrame = false
                     let mutable totalSize = 0L
 
                     while not endOfMessage do
-                        do! FIO.attempt (fun () -> effectiveToken.ThrowIfCancellationRequested()) receiveError
+                        do! FIO.attempt (fun () ->
+                                effectiveToken.ThrowIfCancellationRequested()
+                                if rented.Value.Length - length < bufferSize then
+                                    let larger = ArrayPool<byte>.Shared.Rent(max (rented.Value.Length * 2) (length + bufferSize))
+                                    Buffer.BlockCopy(rented.Value, 0, larger, 0, length)
+                                    ArrayPool<byte>.Shared.Return rented.Value
+                                    rented.Value <- larger) receiveError
 
                         let! receiveTask = FIO.attempt (fun () ->
-                            socket.ReceiveAsync(ArraySegment(buffer, 0, bufferSize), effectiveToken)) receiveError
+                            socket.ReceiveAsync(ArraySegment(rented.Value, length, bufferSize), effectiveToken)) receiveError
 
                         let! receiveResult = FIO.awaitTask receiveTask receiveError
 
@@ -158,112 +191,108 @@ type WebSocket
                             if totalSize > config.MaxMessageSize then
                                 return! FIO.fail (MessageTooLarge(totalSize, config.MaxMessageSize))
 
-                            fragments.AddRange(ArraySegment(buffer, 0, count))
+                            length <- length + count
 
                     if isCloseFrame then
                         let status = Option.ofNullable socket.CloseStatus
                         let desc = socket.CloseStatusDescription
                         return ConnectionClosed(status, desc)
                     else
-                        let data = fragments.ToArray()
                         match messageType with
                         | WebSocketMessageType.Text ->
-                            let text = Encoding.UTF8.GetString data
+                            let text = Encoding.UTF8.GetString(rented.Value, 0, length)
                             return Frame(Text text)
                         | WebSocketMessageType.Binary ->
-                            return Frame(Binary data)
+                            return Frame(Binary(rented.Value.AsSpan(0, length).ToArray()))
                         | _ ->
                             return! FIO.fail (ReceiveFailed "Unexpected message type")
                 }
 
-            let finalizer =
-                fio {
-                    do! attempt <| fun () ->
-                        ArrayPool<byte>.Shared.Return buffer
-                    do! attempt(fun () -> releasePermitWhenGranted receiveLock lockTask)
-                            .CatchAll(logAndSuppress "receiveLock release")
-                    do! attempt(fun () -> linkedCts.Dispose())
-                            .CatchAll(logAndSuppress "linkedCts disposal")
-                    do! attempt(fun () -> timeoutCts.Dispose())
-                            .CatchAll(logAndSuppress "timeoutCts disposal")
-                }
-
             let remapTimeout (error: WsError) =
-                if timeoutCts.IsCancellationRequested then
+                if not (isNull timeoutCts) && timeoutCts.IsCancellationRequested then
                     FIO.fail (TimeoutError $"Receive operation timed out after {config.ReceiveTimeout}ms")
                 else
                     FIO.fail error
 
-            return! (computation.CatchAll remapTimeout).Ensuring finalizer
-        }
+            computation.CatchAll remapTimeout
+
+        FIO.acquireReleaseWith setup release receive
 
     /// Receives the next complete message, using the fiber's cancellation token.
     member this.ReceiveMessage () =
         fio {
-            let! cancelToken = FIO.cancellationToken ()
-            return! this.ReceiveMessage cancelToken
+            let! cancellationToken = FIO.cancellationToken ()
+            return! this.ReceiveMessage cancellationToken
         }
 
     /// Sends a frame, using the given cancellation token.
-    member _.SendFrame (frame: WebSocketFrame, cancelToken: CancellationToken) =
-        fio {
-            let! state = attempt <| fun () -> socket.State
+    member _.SendFrame (frame: WebSocketFrame, cancellationToken: CancellationToken) =
+        // One setup action per message, run uninterruptibly by acquireReleaseWith, so the lock wait, the token
+        // sources and the pooled text buffer always reach the release. Without a send timeout the fiber's token
+        // is the only one, so no source is needed.
+        let setup =
+            (attempt <| fun () ->
+                let state = socket.State
 
-            let canSend =
-                match frame with
-                | Close _ ->
-                    state = WebSocketState.Open || state = WebSocketState.CloseReceived
-                | _ ->
-                    state = WebSocketState.Open
+                let canSend =
+                    match frame with
+                    | Close _ ->
+                        state = WebSocketState.Open || state = WebSocketState.CloseReceived
+                    | _ ->
+                        state = WebSocketState.Open
 
-            if not canSend then
-                return! FIO.fail (
-                    stateError
-                        state
-                        [ WebSocketState.Closed; WebSocketState.Aborted; WebSocketState.CloseReceived ]
-                        SendFailed
-                        "send frame")
-
-            let! timeoutCts = attempt <| fun () ->
-                if config.SendTimeout > 0 then
-                    new CancellationTokenSource(config.SendTimeout)
+                if not canSend then
+                    Error(
+                        stateError
+                            state
+                            [ WebSocketState.Closed; WebSocketState.Aborted; WebSocketState.CloseReceived ]
+                            SendFailed
+                            "send frame")
                 else
-                    new CancellationTokenSource()
+                    let timeoutCts: CancellationTokenSource =
+                        if config.SendTimeout > 0 then new CancellationTokenSource(config.SendTimeout)
+                        else null
 
-            let! linkedCts = attempt <| fun () ->
-                CancellationTokenSource.CreateLinkedTokenSource(cancelToken, timeoutCts.Token)
+                    let linkedCts: CancellationTokenSource =
+                        if isNull timeoutCts then null
+                        else CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token)
 
-            let effectiveToken = linkedCts.Token
+                    let effectiveToken = if isNull linkedCts then cancellationToken else linkedCts.Token
+                    let lockTask = sendLock.WaitAsync effectiveToken
 
-            let! lockTask = attempt <| fun () ->
-                sendLock.WaitAsync effectiveToken
+                    let buffer =
+                        match frame with
+                        | Text text -> ArrayPool<byte>.Shared.Rent(Encoding.UTF8.GetMaxByteCount text.Length)
+                        | _ -> null
 
+                    Ok struct (timeoutCts, linkedCts, effectiveToken, lockTask, buffer))
+                .FlatMap FIO.fromResult
+
+        let release struct (timeoutCts: CancellationTokenSource, linkedCts: CancellationTokenSource, _: CancellationToken, lockTask: Task, buffer: byte[]) =
+            FIO.succeedWith <| fun () ->
+                if not (isNull buffer) then ArrayPool<byte>.Shared.Return buffer
+                releaseLogged "sendLock release" (fun () -> releasePermitWhenGranted sendLock lockTask)
+                releaseLogged "linkedCts disposal" (fun () -> if not (isNull linkedCts) then linkedCts.Dispose())
+                releaseLogged "timeoutCts disposal" (fun () -> if not (isNull timeoutCts) then timeoutCts.Dispose())
+
+        let send struct (timeoutCts: CancellationTokenSource, _: CancellationTokenSource, effectiveToken: CancellationToken, lockTask: Task, buffer: byte[]) =
             let computation =
                 fio {
                     do! FIO.awaitUnitTask lockTask sendError
 
                     match frame with
                     | Text text ->
-                        let maxByteCount = Encoding.UTF8.GetMaxByteCount text.Length
-                        let buffer = ArrayPool<byte>.Shared.Rent maxByteCount
+                        let! actualByteCount = attempt <| fun () ->
+                            Encoding.UTF8.GetBytes(text, 0, text.Length, buffer, 0)
 
-                        let sendOp =
-                            fio {
-                                let! actualByteCount = attempt <| fun () ->
-                                    Encoding.UTF8.GetBytes(text, 0, text.Length, buffer, 0)
+                        let! sendTask = FIO.attempt (fun () ->
+                            socket.SendAsync(
+                                ArraySegment(buffer, 0, actualByteCount),
+                                WebSocketMessageType.Text,
+                                true,
+                                effectiveToken)) sendError
 
-                                let! sendTask = FIO.attempt (fun () ->
-                                    socket.SendAsync(
-                                        ArraySegment(buffer, 0, actualByteCount),
-                                        WebSocketMessageType.Text,
-                                        true,
-                                        effectiveToken)) sendError
-
-                                do! FIO.awaitUnitTask sendTask sendError
-                            }
-                        let returnBuffer = attempt <| fun () ->
-                            ArrayPool<byte>.Shared.Return buffer
-                        do! sendOp.Ensuring returnBuffer
+                        do! FIO.awaitUnitTask sendTask sendError
                     | Binary data ->
                         let! sendTask = FIO.attempt (fun () ->
                             socket.SendAsync(ArraySegment data, WebSocketMessageType.Binary, true, effectiveToken)) sendError
@@ -274,72 +303,63 @@ type WebSocket
                         do! FIO.awaitUnitTask closeTask sendError
                 }
 
-            let finalizer =
-                fio {
-                    do! attempt(fun () -> releasePermitWhenGranted sendLock lockTask)
-                            .CatchAll(logAndSuppress "sendLock release")
-                    do! attempt(fun () -> linkedCts.Dispose())
-                            .CatchAll(logAndSuppress "linkedCts disposal")
-                    do! attempt(fun () -> timeoutCts.Dispose())
-                            .CatchAll(logAndSuppress "timeoutCts disposal")
-                }
-
             let remapTimeout (error: WsError) =
-                if timeoutCts.IsCancellationRequested then
+                if not (isNull timeoutCts) && timeoutCts.IsCancellationRequested then
                     FIO.fail (TimeoutError $"Send operation timed out after {config.SendTimeout}ms")
                 else
                     FIO.fail error
 
-            return! (computation.CatchAll remapTimeout).Ensuring finalizer
-        }
+            computation.CatchAll remapTimeout
+
+        FIO.acquireReleaseWith setup release send
 
     /// Sends a frame, using the fiber's cancellation token.
     member this.SendFrame (frame: WebSocketFrame) =
         fio {
-            let! cancelToken = FIO.cancellationToken ()
-            return! this.SendFrame(frame, cancelToken)
+            let! cancellationToken = FIO.cancellationToken ()
+            return! this.SendFrame(frame, cancellationToken)
         }
 
     /// Sends a text message, using the given cancellation token.
-    member this.SendText (text: string, cancelToken: CancellationToken) =
-        this.SendFrame(Text text, cancelToken)
+    member this.SendText (text: string, cancellationToken: CancellationToken) =
+        this.SendFrame(Text text, cancellationToken)
 
     /// Sends a text message, using the fiber's cancellation token.
     member this.SendText (text: string) =
         fio {
-            let! cancelToken = FIO.cancellationToken ()
-            return! this.SendText(text, cancelToken)
+            let! cancellationToken = FIO.cancellationToken ()
+            return! this.SendText(text, cancellationToken)
         }
 
     /// Sends a binary message, using the given cancellation token.
-    member this.SendBinary (data: byte[], cancelToken: CancellationToken) =
-        this.SendFrame(Binary data, cancelToken)
+    member this.SendBinary (data: byte[], cancellationToken: CancellationToken) =
+        this.SendFrame(Binary data, cancellationToken)
 
     /// Sends a binary message, using the fiber's cancellation token.
     member this.SendBinary (data: byte[]) =
         fio {
-            let! cancelToken = FIO.cancellationToken ()
-            return! this.SendBinary(data, cancelToken)
+            let! cancellationToken = FIO.cancellationToken ()
+            return! this.SendBinary(data, cancellationToken)
         }
 
     /// Sends a value encoded with the given codec, using the given cancellation token.
-    member this.Send<'A> (codec: WebSocketCodec<'A>, value: 'A, cancelToken: CancellationToken) =
+    member this.Send<'A> (codec: WebSocketCodec<'A>, value: 'A, cancellationToken: CancellationToken) =
         fio {
             let! frameResult = codec.Encode value
-            do! this.SendFrame(frameResult, cancelToken)
+            do! this.SendFrame(frameResult, cancellationToken)
         }
 
     /// Sends a value encoded with the given codec, using the fiber's cancellation token.
     member this.Send<'A> (codec: WebSocketCodec<'A>, value: 'A) =
         fio {
-            let! cancelToken = FIO.cancellationToken ()
-            return! this.Send(codec, value, cancelToken)
+            let! cancellationToken = FIO.cancellationToken ()
+            return! this.Send(codec, value, cancellationToken)
         }
 
     /// Receives and decodes a value with the given codec, using the given cancellation token.
-    member this.Receive<'A> (codec: WebSocketCodec<'A>, cancelToken: CancellationToken) =
+    member this.Receive<'A> (codec: WebSocketCodec<'A>, cancellationToken: CancellationToken) =
         fio {
-            match! this.ReceiveMessage cancelToken with
+            match! this.ReceiveMessage cancellationToken with
             | Frame frame ->
                 return! codec.Decode frame
             | ConnectionClosed(status, desc) ->
@@ -349,15 +369,31 @@ type WebSocket
     /// Receives and decodes a value with the given codec, using the fiber's cancellation token.
     member this.Receive<'A> (codec: WebSocketCodec<'A>) =
         fio {
-            let! cancelToken = FIO.cancellationToken ()
-            return! this.Receive(codec, cancelToken)
+            let! cancellationToken = FIO.cancellationToken ()
+            return! this.Receive(codec, cancellationToken)
+        }
+
+    /// Receives and decodes a value with the given codec, using the given cancellation token; a close or an
+    /// undecodable frame is an outcome, not a failure.
+    member this.TryReceive<'A> (codec: WebSocketCodec<'A>, cancellationToken: CancellationToken) : FIO<ReceiveOutcome<'A>, WsError> =
+        this.Receive(codec, cancellationToken).Map(Received).CatchAll(function
+            | Closed reason -> FIO.succeed (PeerClosed reason)
+            | CodecError reason -> FIO.succeed (Undecodable reason)
+            | error -> FIO.fail error)
+
+    /// Receives and decodes a value with the given codec, using the fiber's cancellation token; a close or an
+    /// undecodable frame is an outcome, not a failure.
+    member this.TryReceive<'A> (codec: WebSocketCodec<'A>) : FIO<ReceiveOutcome<'A>, WsError> =
+        fio {
+            let! cancellationToken = FIO.cancellationToken ()
+            return! this.TryReceive(codec, cancellationToken)
         }
 
     /// Closes the connection with the given status and description, using the given cancellation token and bounded
     /// by the configured send timeout. While another fiber is receiving, only the outgoing side is closed and that
     /// receive ends with <c>ConnectionClosed</c>.
-    member _.Close (closeStatus: WebSocketCloseStatus, statusDescription: string, cancelToken: CancellationToken) =
-        boundedBySendTimeout cancelToken "Close operation" <| fun effectiveToken ->
+    member _.Close (closeStatus: WebSocketCloseStatus, statusDescription: string, cancellationToken: CancellationToken) =
+        boundedBySendTimeout cancellationToken "Close operation" <| fun effectiveToken ->
             fio {
                 let! sendLockTask = attempt <| fun () ->
                     sendLock.WaitAsync effectiveToken
@@ -395,25 +431,25 @@ type WebSocket
     /// Closes the connection with the given status and description, using the fiber's cancellation token.
     member this.Close (closeStatus: WebSocketCloseStatus, statusDescription: string) =
         fio {
-            let! cancelToken = FIO.cancellationToken ()
-            return! this.Close(closeStatus, statusDescription, cancelToken)
+            let! cancellationToken = FIO.cancellationToken ()
+            return! this.Close(closeStatus, statusDescription, cancellationToken)
         }
 
     /// Closes the connection normally, using the given cancellation token.
-    member this.Close (cancelToken: CancellationToken) =
-        this.Close(WebSocketCloseStatus.NormalClosure, "Normal closure", cancelToken)
+    member this.Close (cancellationToken: CancellationToken) =
+        this.Close(WebSocketCloseStatus.NormalClosure, "Normal closure", cancellationToken)
 
     /// Closes the connection normally, using the fiber's cancellation token.
     member this.Close () =
         fio {
-            let! cancelToken = FIO.cancellationToken ()
-            return! this.Close cancelToken
+            let! cancellationToken = FIO.cancellationToken ()
+            return! this.Close cancellationToken
         }
 
     /// Closes the outgoing side of the connection with the given status, using the given cancellation token and
     /// bounded by the configured send timeout.
-    member _.CloseOutput (closeStatus: WebSocketCloseStatus, statusDescription: string, cancelToken: CancellationToken) =
-        boundedBySendTimeout cancelToken "Close output operation" <| fun effectiveToken ->
+    member _.CloseOutput (closeStatus: WebSocketCloseStatus, statusDescription: string, cancellationToken: CancellationToken) =
+        boundedBySendTimeout cancellationToken "Close output operation" <| fun effectiveToken ->
             fio {
                 let! sendLockTask = attempt <| fun () ->
                     sendLock.WaitAsync effectiveToken
@@ -437,8 +473,8 @@ type WebSocket
     /// Closes the outgoing side of the connection with the given status, using the fiber's cancellation token.
     member this.CloseOutput (closeStatus: WebSocketCloseStatus, statusDescription: string) =
         fio {
-            let! cancelToken = FIO.cancellationToken ()
-            return! this.CloseOutput(closeStatus, statusDescription, cancelToken)
+            let! cancellationToken = FIO.cancellationToken ()
+            return! this.CloseOutput(closeStatus, statusDescription, cancellationToken)
         }
 
     /// Closes the outgoing side of the connection normally.
@@ -483,14 +519,15 @@ type WebSocket
     member _.LocalEndPoint =
         localEndPoint
 
-    // Release helper for withConnection and acceptLoop. An interrupted receive leaves the socket Aborted,
-    // which is unclosable and not worth reporting; a peer that already closed is not an error either.
-    member internal this.CloseIfOpen () : FIO<unit, WsError> =
+    /// Closes this connection if it is still open, logging a failed close instead of failing.
+    member this.CloseIfOpen () : FIO<unit, WsError> =
         fio {
+            // An interrupted receive leaves the socket Aborted, which is unclosable and not worth reporting.
             match! this.State().CatchAll(fun _ -> FIO.succeed WebSocketState.Closed) with
             | WebSocketState.Open
             | WebSocketState.CloseReceived
             | WebSocketState.CloseSent ->
+                // A peer that closed first is not an error.
                 do! this.Close().CatchAll(function
                         | Closed _ -> FIO.unit ()
                         | error -> logAndSuppress "close on release" error)

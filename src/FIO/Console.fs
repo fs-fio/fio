@@ -66,9 +66,9 @@ module Console =
     // The registration is not what interrupts the fiber — the runtime's await is. It marks the
     // request abandoned so the reader stashes its input instead of dropping it.
     let private awaitStdin (request: TaskCompletionSource<'T> -> StdinReader.Request) (onError: exn -> 'E) =
-        FIO.cancellationToken().FlatMap <| fun cancelToken ->
+        FIO.cancellationToken().FlatMap <| fun cancellationToken ->
             let tcs = TaskCompletionSource<'T> TaskCreationOptions.RunContinuationsAsynchronously
-            let registration = cancelToken.Register(fun () -> tcs.TrySetCanceled cancelToken |> ignore)
+            let registration = cancellationToken.Register(fun () -> tcs.TrySetCanceled cancellationToken |> ignore)
             StdinReader.enqueue (request tcs)
 
             (FIO.awaitTask tcs.Task onError)
@@ -88,6 +88,13 @@ module Console =
     /// once a read has been interrupted.
     let readLine<'E> (onError: exn -> 'E) : FIO<string, 'E> =
         awaitStdin StdinReader.Line onError
+
+    /// Returns an effect that reads a line from standard input, yielding None at end of input. Interruption
+    /// behaves as in readLine.
+    let tryReadLine<'E> (onError: exn -> 'E) : FIO<string option, 'E> =
+        (awaitStdin StdinReader.Line id).Map(Some).CatchAll(function
+            | :? IO.EndOfStreamException -> FIO.succeed None
+            | ex -> FIO.fail (onError ex))
 
     /// Returns an effect that reads the next key press, without echoing it when intercept is true; fails when
     /// input is redirected. The fiber can be interrupted while waiting; a key typed for an interrupted read

@@ -52,13 +52,37 @@ type DirectRuntime() =
                             ()
                         | ValueSome runtimeCase ->
                             match runtimeCase with
-                            | HandleWriteChan(message, channel) ->
-                                do! channel.WriteAsync message
-                                processOutcome
-                                    &state
-                                    onSuccessComplete
-                                    onErrorComplete
-                                    (OutcomeSucceeded message)
+                            | HandleWriteChan(message, channel, reportAccepted) ->
+                                match tryWriteChannel channel message reportAccepted with
+                                | Written result ->
+                                    processOutcome
+                                        &state
+                                        onSuccessComplete
+                                        onErrorComplete
+                                        (OutcomeSucceeded result)
+                                | MustWait ->
+                                    try
+                                        let cancellationToken =
+                                            if state.InterruptionSuppressed > 0 then
+                                                CancellationToken.None
+                                            else
+                                                currentFiberContext.CancellationToken
+
+                                        do! channel.Queue.WriteAsync(message, cancellationToken)
+
+                                        processOutcome
+                                            &state
+                                            onSuccessComplete
+                                            onErrorComplete
+                                            (OutcomeSucceeded(if reportAccepted then box true else message))
+                                    with
+                                    | :? OperationCanceledException when
+                                        currentFiberContext.CancellationToken.IsCancellationRequested ->
+                                        processOutcome
+                                            &state
+                                            onSuccessComplete
+                                            onErrorComplete
+                                            (OutcomeInterrupted (interruptionFor currentFiberContext "Fiber was interrupted while blocked on a channel write."))
                             | HandleReadChan channel ->
                                 let mutable value = Unchecked.defaultof<_>
                                 if channel.Queue.TryRead &value then
@@ -92,7 +116,8 @@ type DirectRuntime() =
                                             onErrorComplete
                                             (OutcomeInterrupted (interruptionFor currentFiberContext "Fiber was interrupted while blocked on a channel read."))
                             | HandleForkEffect(effect, fiber, fiberContext, daemon) ->
-                                attachFork currentFiberContext fiberContext daemon
+                                attachFork currentFiberContext fiberContext daemon (state.InterruptionSuppressed > 0)
+                                if daemon then this.TrackDaemon fiberContext
                                 Task.Run(fun () -> this.RunFiber effect fiberContext :> Task) |> ignore
                                 processOutcome
                                     &state
@@ -213,5 +238,6 @@ type DirectRuntime() =
     /// fiber already running on this runtime.
     override this.Run<'A, 'E> (effect: FIO<'A, 'E>) : Fiber<'A, 'E> =
         let fiber = new Fiber<'A, 'E>()
+        this.Track fiber.Context
         Task.Run(fun () -> this.RunFiber (effect.UpcastBoth()) fiber.Context :> Task) |> ignore
         fiber

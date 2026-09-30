@@ -76,7 +76,7 @@ type FIOApp<'A, 'E>() as this =
     /// The effect this application runs. Override this.
     abstract member effect: FIO<'A, 'E>
 
-    /// The runtime used to run the effect. Defaults to the recommended runtime.
+    /// The runtime used to run the effect, disposed when the application ends. Defaults to the recommended runtime.
     abstract member runtime: FIORuntime
     default _.runtime = new DefaultRuntime()
 
@@ -98,14 +98,15 @@ type FIOApp<'A, 'E>() as this =
     abstract member onShutdownTimeout: TimeSpan
     default _.onShutdownTimeout = TimeSpan.FromSeconds 10.0
 
-    /// Maps the application's outcome to a process exit code.
+    /// Maps the application's outcome to a process exit code. Defaults to 0 on success, 130 when interrupted, and 1
+    /// on a failure or a fatal error, as in ZIO.
     abstract member mapExitCode: AppResult<'A, 'E> -> int
     default _.mapExitCode outcome =
         match outcome with
         | AppSucceeded _ -> 0
         | AppFailed _ -> 1
         | AppInterrupted _ -> 130
-        | AppFatalError _ -> 2
+        | AppFatalError _ -> 1
 
     /// Returns true from Run or RunAsync until onShutdown has finished.
     member _.IsRunning =

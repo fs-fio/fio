@@ -26,9 +26,11 @@
 
         <!-- Lib -->
         <Compile Include="Lib/ConsoleTests.fs" />
+        <Compile Include="Lib/SignalTests.fs" />
 
         <!-- Framework -->
         <Compile Include="Runtime/ConformanceTests.fs" />
+        <Compile Include="Runtime/InterpreterSizeTests.fs" />
         <Compile Include="Framework/AppTests.fs" />
 
         <Compile Include="Program.fs" />

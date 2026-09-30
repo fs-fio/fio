@@ -138,6 +138,33 @@ let consoleTests =
                     | Failed name -> Expect.equal name "EndOfStreamException" "End of input should be a typed failure, not a null line"
                     | other -> failtest $"Expected Failed but got {other}")
 
+                testCapturedIn "tryReadLine - yields each line, then None at end of input" "first\nsecond" (fun runtime ->
+                    let effect =
+                        fio {
+                            let! first = Console.tryReadLine id
+                            let! second = Console.tryReadLine id
+                            let! atEnd = Console.tryReadLine id
+                            let! stillAtEnd = Console.tryReadLine id
+                            return first, second, atEnd, stillAtEnd
+                        }
+
+                    Expect.equal
+                        (runtime.Run(effect).UnsafeSuccess())
+                        (Some "first", Some "second", None, None)
+                        "Lines should arrive in order, then None for every read past the end")
+
+                testAllRuntimes "tryReadLine - fails through onError when reading fails" (fun runtime ->
+                    let originalIn = Console.In
+                    use reader = new ThrowingReader("stdin broke")
+                    Console.SetIn reader
+
+                    try
+                        match runtime.Run(Console.tryReadLine (fun ex -> ex.Message)).UnsafeResult() with
+                        | Failed message -> Expect.equal message "stdin broke" "A read error is not end of input"
+                        | other -> failtest $"Expected Failed but got {other}"
+                    finally
+                        Console.SetIn originalIn)
+
                 testAllRuntimes "readLine - an abandoned read that hit end of input leaves the next read at end of input" (fun runtime ->
                     let originalIn = Console.In
                     use gate = new ManualResetEventSlim(false)

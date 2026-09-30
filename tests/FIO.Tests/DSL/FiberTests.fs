@@ -655,7 +655,7 @@ let fiberTests =
 
                     testCase "SetOnTerminal - fires exactly once even on post-terminal install"
                     <| fun () ->
-                        let runtime = DirectRuntime()
+                        let runtime = new DirectRuntime()
                         let fiber =
                             runtime.Run(FIO.succeed 1)
                         fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously |> ignore
@@ -677,7 +677,7 @@ let fiberTests =
 
                     testCase "SetOnTerminal - second install after pre-terminal install does not refire"
                     <| fun () ->
-                        let runtime = DirectRuntime()
+                        let runtime = new DirectRuntime()
                         let fiber =
                             runtime.Run(FIO.sleep (TimeSpan.FromMilliseconds 20.0))
 

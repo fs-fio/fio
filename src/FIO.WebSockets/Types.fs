@@ -17,12 +17,15 @@ type WebSocketConfig =
         SendTimeout: int
         /// The receive timeout, in milliseconds.
         ReceiveTimeout: int
+        /// How long, in milliseconds, a shutting-down server gives its handlers to finish after closing their
+        /// connections; 0 or less waits indefinitely.
+        ShutdownTimeout: int
     }
 
 [<RequireQualifiedAccess>]
 module WebSocketConfig =
 
-    /// The default WebSocket configuration (4 KB buffers, 1 MB message limit, 30 s timeouts).
+    /// The default WebSocket configuration (4 KB buffers, 1 MB message limit, 30 s timeouts, a 10 s shutdown).
     let defaultConfig =
         {
             ReceiveBufferSize = 4096
@@ -30,6 +33,7 @@ module WebSocketConfig =
             MaxMessageSize = 1_048_576L
             SendTimeout = 30_000
             ReceiveTimeout = 30_000
+            ShutdownTimeout = 10_000
         }
 
     /// Sets the receive buffer size on a configuration.
@@ -52,6 +56,10 @@ module WebSocketConfig =
     let withReceiveTimeout (timeout: int) (config: WebSocketConfig) =
         { config with ReceiveTimeout = timeout }
 
+    /// Sets the shutdown timeout on a configuration.
+    let withShutdownTimeout (timeout: int) (config: WebSocketConfig) =
+        { config with ShutdownTimeout = timeout }
+
 /// A single WebSocket frame.
 type WebSocketFrame =
     /// A UTF-8 text frame.
@@ -67,6 +75,15 @@ type WebSocketMessage =
     | Frame of WebSocketFrame
     /// The connection was closed by the peer, with an optional status and reason.
     | ConnectionClosed of WebSocketCloseStatus option * string
+
+/// The outcome of receiving with a codec: a decoded message, an undecodable frame, or a closed connection.
+type ReceiveOutcome<'A> =
+    /// A message the codec decoded.
+    | Received of message: 'A
+    /// A frame the codec could not decode, with the reason.
+    | Undecodable of reason: string
+    /// The connection is closed — by the peer, cleanly or not, or already by this side — with a description.
+    | PeerClosed of reason: string
 
 /// An error produced by a WebSocket operation.
 type WsError =

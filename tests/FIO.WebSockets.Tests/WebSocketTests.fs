@@ -53,6 +53,54 @@ let webSocketTests =
                                 })
                             runtime)
 
+                    testAllRuntimes "ReceiveMessage reassembles messages larger than the receive buffer" (fun runtime ->
+                        withTestServer
+                            echoHandler
+                            (fun port ->
+                                fio {
+                                    let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+
+                                    for size in [ 4_095; 4_096; 4_097; 16_384; 100_000 ] do
+                                        let text = String(Array.init size (fun i -> char (int 'a' + i % 26)))
+                                        do! ws.SendText text
+                                        let! textMsg = ws.ReceiveMessage()
+
+                                        match textMsg with
+                                        | Frame(Text s) -> Expect.equal s text $"Text of {size} bytes"
+                                        | other -> failtest $"Expected text frame but got {other}"
+
+                                        let data = Array.init size (fun i -> byte (i % 251))
+                                        do! ws.SendBinary data
+                                        let! binaryMsg = ws.ReceiveMessage()
+
+                                        match binaryMsg with
+                                        | Frame(Binary b) -> Expect.equal b data $"Binary of {size} bytes"
+                                        | other -> failtest $"Expected binary frame but got {other}"
+
+                                    do! ws.Close()
+                                })
+                            runtime)
+
+                    testAllRuntimes "ReceiveMessage fails with MessageTooLarge past MaxMessageSize" (fun runtime ->
+                        withTestServer
+                            echoHandler
+                            (fun port ->
+                                fio {
+                                    let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withMaxMessageSize 10_000L
+                                    let! ws = WebSocketClient.connect (Uri $"ws://localhost:{port}/") config Threading.CancellationToken.None
+                                    do! ws.SendText(String('x', 16_384))
+                                    let! result = ws.ReceiveMessage().Result()
+
+                                    match result with
+                                    | Error(MessageTooLarge(actual, max)) ->
+                                        Expect.equal max 10_000L "The configured limit"
+                                        Expect.isGreaterThan actual 10_000L "The size at which the limit was crossed"
+                                    | other -> failtest $"Expected MessageTooLarge but got {other}"
+
+                                    do! ws.Abort().Ignore()
+                                })
+                            runtime)
+
                     testAllRuntimes "Send/Receive with text codec roundtrip" (fun runtime ->
                         withTestServer
                             echoHandler
@@ -358,8 +406,8 @@ let webSocketTests =
                             (fun port ->
                                 fio {
                                     let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withSendTimeout 500
-                                    let! cancelToken = FIO.cancellationToken ()
-                                    let! ws = WebSocketClient.connect (Uri $"ws://localhost:{port}/") config cancelToken
+                                    let! cancellationToken = FIO.cancellationToken ()
+                                    let! ws = WebSocketClient.connect (Uri $"ws://localhost:{port}/") config cancellationToken
                                     let! outcome = ws.Close().Result()
 
                                     match outcome with
@@ -387,6 +435,136 @@ let webSocketTests =
                                     match outcome with
                                     | Error(Closed _) -> ()
                                     | other -> failtest $"Expected Closed but got {other}"
+                                })
+                            runtime)
+                ]
+
+            testList
+                "TryReceive"
+                [
+                    testAllRuntimes "TryReceive yields Received for a decodable message" (fun runtime ->
+                        withTestServer
+                            echoHandler
+                            (fun port ->
+                                fio {
+                                    let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+                                    do! ws.SendText "hello"
+                                    let! outcome = ws.TryReceive Codec.text
+
+                                    Expect.equal outcome (Received "hello") "A decodable message must be Received"
+
+                                    do! ws.Close()
+                                })
+                            runtime)
+
+                    testAllRuntimes "TryReceive yields Undecodable for a frame the codec rejects" (fun runtime ->
+                        withTestServer
+                            echoHandler
+                            (fun port ->
+                                fio {
+                                    let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+                                    do! ws.SendText "not json"
+                                    let! outcome = ws.TryReceive Codec.json<TestMessage>
+
+                                    match outcome with
+                                    | Undecodable _ -> ()
+                                    | other -> failtest $"Expected Undecodable but got {other}"
+
+                                    do! ws.Close()
+                                })
+                            runtime)
+
+                    testAllRuntimes "TryReceive yields PeerClosed when the peer closes" (fun runtime ->
+                        withTestServer
+                            (fun ws -> ws.Close())
+                            (fun port ->
+                                fio {
+                                    let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+                                    let! outcome = ws.TryReceive Codec.text
+
+                                    match outcome with
+                                    | PeerClosed _ -> ()
+                                    | other -> failtest $"Expected PeerClosed but got {other}"
+
+                                    do! ws.CloseIfOpen()
+                                })
+                            runtime)
+
+                    testAllRuntimes "TryReceive still fails with any other error" (fun runtime ->
+                        withTestServer
+                            echoHandler
+                            (fun port ->
+                                fio {
+                                    let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withMaxMessageSize 10_000L
+                                    let! ws = WebSocketClient.connect (Uri $"ws://localhost:{port}/") config Threading.CancellationToken.None
+                                    do! ws.SendText(String('x', 16_384))
+                                    let! result = (ws.TryReceive Codec.text).Result()
+
+                                    match result with
+                                    | Error(MessageTooLarge _) -> ()
+                                    | other -> failtest $"Expected MessageTooLarge but got {other}"
+
+                                    do! ws.Abort().Ignore()
+                                })
+                            runtime)
+                ]
+
+            testList
+                "CloseIfOpen"
+                [
+                    testAllRuntimes "CloseIfOpen closes an open connection" (fun runtime ->
+                        withTestServer
+                            noopHandler
+                            (fun port ->
+                                fio {
+                                    let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+                                    do! ws.CloseIfOpen()
+                                    let! state = ws.State()
+
+                                    Expect.equal state WebSocketState.Closed "An open connection must end Closed"
+                                })
+                            runtime)
+
+                    testAllRuntimes "CloseIfOpen answers the peer's close" (fun runtime ->
+                        withTestServer
+                            (fun ws ->
+                                fio {
+                                    do! ws.CloseOutput()
+                                    do! ws.ReceiveMessage().Unit().CatchAll(fun _ -> FIO.unit ())
+                                })
+                            (fun port ->
+                                fio {
+                                    let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+                                    let! _ = ws.ReceiveMessage()
+                                    do! ws.CloseIfOpen()
+                                    let! state = ws.State()
+
+                                    Expect.equal state WebSocketState.Closed "A received close must be answered"
+                                })
+                            runtime)
+
+                    testAllRuntimes "CloseIfOpen succeeds on a connection already closed" (fun runtime ->
+                        withTestServer
+                            noopHandler
+                            (fun port ->
+                                fio {
+                                    let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+                                    do! ws.Close()
+                                    do! ws.CloseIfOpen()
+                                })
+                            runtime)
+
+                    testAllRuntimes "CloseIfOpen leaves an aborted connection aborted" (fun runtime ->
+                        withTestServer
+                            noopHandler
+                            (fun port ->
+                                fio {
+                                    let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+                                    do! ws.Abort()
+                                    do! ws.CloseIfOpen()
+                                    let! state = ws.State()
+
+                                    Expect.equal state WebSocketState.Aborted "An aborted connection cannot be closed"
                                 })
                             runtime)
                 ]

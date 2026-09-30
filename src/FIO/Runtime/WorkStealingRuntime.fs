@@ -67,9 +67,13 @@ type internal Scheduler(workerCount: int) =
                 i <- i + 1
             found
 
+    // A signal that arrives after the runtime stopped has no worker left to wake.
     let releaseOne () =
         if Volatile.Read &waitingWorkers > 0 then
-            workGate.Release() |> ignore
+            try
+                workGate.Release() |> ignore
+            with :? ObjectDisposedException ->
+                ()
 
     let signalWork () =
         if Volatile.Read &numSearching = 0 then
@@ -140,9 +144,9 @@ type internal Scheduler(workerCount: int) =
     member _.UnregisterWaiter () =
         Interlocked.Decrement &waitingWorkers |> ignore
 
-    member _.WaitForWork (cancelToken: CancellationToken) : Task =
+    member _.WaitForWork (cancellationToken: CancellationToken) : Task =
         task {
-            let! _ = workGate.WaitAsync(BackstopMs, cancelToken)
+            let! _ = workGate.WaitAsync(BackstopMs, cancellationToken)
             ()
         }
 
@@ -212,9 +216,9 @@ and private Worker(config: EvaluationWorkerConfig) =
     let workerId = config.WorkerId
 
     let struct (cancelSource, _workerTask) =
-        WorkerLifecycle.startWorker $"Worker-{workerId}" <| fun cancelToken ->
+        WorkerLifecycle.startWorker $"Worker-{workerId}" <| fun cancellationToken ->
             task {
-                while not cancelToken.IsCancellationRequested do
+                while not cancellationToken.IsCancellationRequested do
                     let mutable workItem = Unchecked.defaultof<WorkItem>
                     let mutable hasWork = false
                     if scheduler.TryGetLocal(workerId, &workItem) then
@@ -223,7 +227,7 @@ and private Worker(config: EvaluationWorkerConfig) =
                         scheduler.BeginSearch()
                         let mutable got = false
                         let mutable spins = 0
-                        while not got && spins < SpinAttempts && not cancelToken.IsCancellationRequested do
+                        while not got && spins < SpinAttempts && not cancellationToken.IsCancellationRequested do
                             got <- scheduler.TrySteal(workerId, &workItem) || scheduler.TryGetLocal(workerId, &workItem)
                             if not got then
                                 Thread.SpinWait SpinWaitIterations
@@ -232,7 +236,7 @@ and private Worker(config: EvaluationWorkerConfig) =
                             scheduler.EndSearch()
                             scheduler.CascadeWake()
                             hasWork <- true
-                        elif not cancelToken.IsCancellationRequested then
+                        elif not cancellationToken.IsCancellationRequested then
                             scheduler.RegisterWaiter()
                             scheduler.EndSearch()
                             if scheduler.TryGetLocal(workerId, &workItem) || scheduler.TrySteal(workerId, &workItem) then
@@ -240,7 +244,7 @@ and private Worker(config: EvaluationWorkerConfig) =
                                 scheduler.CascadeWake()
                                 hasWork <- true
                             else
-                                do! scheduler.WaitForWork cancelToken
+                                do! scheduler.WaitForWork cancellationToken
                                 scheduler.UnregisterWaiter()
                         else
                             scheduler.EndSearch()
@@ -288,20 +292,18 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                     EvaluationSteps = config.EvaluationSteps
                 })
 
+    do this.StopWorkers <- fun () ->
+        workers |> List.iter (fun w -> (w :> IDisposable).Dispose())
+        scheduler.Dispose()
+
     override _.Name =
         "WorkStealingRuntime"
-
-    interface IDisposable with
-
-        member _.Dispose () =
-            workers |> List.iter (fun w -> (w :> IDisposable).Dispose())
-            scheduler.Dispose()
 
     /// Creates the runtime with the default worker configuration.
     new() = new WorkStealingRuntime(WorkerConfig.Default)
 
     [<TailCall>]
-    member internal _.InterpretAsync
+    member internal runtime.InterpretAsync
         (workItem: WorkItem)
         (evaluationSteps: int)
         (workerId: int) =
@@ -349,19 +351,29 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                         | ValueNone -> ()
                         | ValueSome runtimeCase ->
                             match runtimeCase with
-                            | HandleWriteChan(message, channel) ->
-                                let writeTask = channel.WriteAsync message
-                                if not writeTask.IsCompletedSuccessfully then
-                                    do! writeTask
-                                if channel.BlockingWorkItemCount > 0 then
-                                    let mutable blockedReader = Unchecked.defaultof<WorkItem>
-                                    if channel.TryDequeueBlockingWorkItem &blockedReader then
-                                        scheduler.ScheduleLocal(workerId, blockedReader)
-                                processOutcome
-                                    &state
-                                    onSuccessComplete
-                                    onErrorComplete
-                                    (OutcomeSucceeded message)
+                            | HandleWriteChan(message, channel, reportAccepted) ->
+                                match tryWriteChannel channel message reportAccepted with
+                                | Written result ->
+                                    if channel.BlockingWorkItemCount > 0 then
+                                        let mutable blockedReader = Unchecked.defaultof<WorkItem>
+                                        if channel.TryDequeueBlockingWorkItem &blockedReader then
+                                            scheduler.ScheduleLocal(workerId, blockedReader)
+                                    processOutcome
+                                        &state
+                                        onSuccessComplete
+                                        onErrorComplete
+                                        (OutcomeSucceeded result)
+                                | MustWait ->
+                                    parkUntilWritable
+                                        channel
+                                        state.Effect
+                                        currentFiberContext
+                                        state.ContStack
+                                        state.InterruptionSuppressed
+                                        (fun workItem ->
+                                            scheduler.GlobalQueue.WriteAsync workItem |> ignore
+                                            scheduler.SignalWork())
+                                    state.Completed <- true
                             | HandleReadChan channel ->
                                 let mutable value = Unchecked.defaultof<_>
                                 if channel.Queue.TryRead(&value) then
@@ -384,7 +396,8 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                                             scheduler.ScheduleLocal(workerId, blockedReader)
                                     state.Completed <- true
                             | HandleForkEffect(effect, fiber, fiberContext, daemon) ->
-                                attachFork currentFiberContext fiberContext daemon
+                                attachFork currentFiberContext fiberContext daemon (state.InterruptionSuppressed > 0)
+                                if daemon then runtime.TrackDaemon fiberContext
                                 let forkedWorkItem = scheduler.RentWorkItem(workerId, effect, fiberContext, scheduler.RentContStack workerId)
                                 scheduler.ScheduleLocal(workerId, forkedWorkItem)
                                 processOutcome
@@ -499,8 +512,9 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
     /// Schedules the given effect on a new fiber and returns immediately with a handle to it. Safe to
     /// call concurrently and as often as you like: it never waits for, interrupts, or discards any
     /// fiber already running on this runtime.
-    override _.Run<'A, 'E> (effect: FIO<'A, 'E>) : Fiber<'A, 'E> =
+    override this.Run<'A, 'E> (effect: FIO<'A, 'E>) : Fiber<'A, 'E> =
         let fiber = new Fiber<'A, 'E>()
+        this.Track fiber.Context
 
         let workItem =
             WorkItemPool.Rent(effect.UpcastBoth(), fiber.Context, ContStackPool.Rent())

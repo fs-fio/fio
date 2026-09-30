@@ -503,6 +503,19 @@ let extensionTests =
                         Expect.isFalse successTap "TapBoth should not execute success tap on error"
                         Expect.isTrue errorTap "TapBoth should execute error tap"
 
+                    testPropertyWithConfig fsCheckConfig "TapBoth - a failing success tap does not run the error tap"
+                    <| fun (runtime: FIORuntime, value: int, error: int) ->
+                        let mutable errorTap = false
+
+                        let effect =
+                            FIO.succeed(value)
+                                .TapBoth (fun _ -> FIO.fail error) (fun _ -> FIO.succeed (errorTap <- true))
+
+                        let actual = runtime.Run(effect).UnsafeError()
+
+                        Expect.equal actual error "TapBoth should fail with the success tap's error"
+                        Expect.isFalse errorTap "TapBoth should not run the error tap for the success tap's failure"
+
                     // Debug/DebugError tests must run sequentially because they mutate process-global Console.Out/Error
                     testSequenced (
                         testList
@@ -1233,15 +1246,45 @@ let extensionTests =
 
                         Expect.equal actual (error + 100) "FoldFIO should handle error"
 
-                    testPropertyWithConfig fsCheckConfig "FoldFIO - error handler catches success handler errors"
+                    testPropertyWithConfig fsCheckConfig "FoldFIO - error handler does not catch success handler errors"
                     <| fun (runtime: FIORuntime, value: int, error: int) ->
                         let effect =
                             FIO.succeed(value).FoldFIO (fun e -> FIO.succeed (e * 10)) (fun _ -> FIO.fail error)
 
                         let actual =
-                            runtime.Run(effect).UnsafeSuccess()
+                            runtime.Run(effect).UnsafeError()
 
-                        Expect.equal actual (error * 10) "FoldFIO should catch success handler errors"
+                        Expect.equal actual error "A failure of the success handler should propagate unchanged"
+
+                    testPropertyWithConfig fsCheckConfig "FoldFIO - a failure inside nested success handlers runs no error handler"
+                    <| fun (runtime: FIORuntime, error: int) ->
+                        let mutable handled = 0
+
+                        let rec levels depth : FIO<unit, int> =
+                            if depth = 0 then
+                                FIO.fail error
+                            else
+                                FIO.unit().FoldFIO
+                                    (fun e -> FIO.succeedWith(fun () -> handled <- handled + 1).FlatMap(fun () -> FIO.fail e))
+                                    (fun () -> levels (depth - 1))
+
+                        let actual =
+                            runtime.Run(levels 5).UnsafeError()
+
+                        Expect.equal actual error "The innermost failure should propagate unchanged"
+                        Expect.equal handled 0 "No error handler should run for a success handler's failure"
+
+                    testAllRuntimes "FoldFIO - deep recursion through the success handler completes" (fun runtime ->
+                        let rec loop depth : FIO<int, string> =
+                            if depth = 0 then
+                                FIO.succeed 42
+                            else
+                                FIO.unit().FoldFIO (fun (e: string) -> FIO.fail e) (fun () -> loop (depth - 1))
+
+                        let actual =
+                            runtime.Run(loop 200_000).UnsafeSuccess()
+
+                        Expect.equal actual 42 "A 200,000-deep FoldFIO recursion should complete")
 
                     testPropertyWithConfig fsCheckConfig "OnDone - success branch runs onSuccess and yields unit"
                     <| fun (runtime: FIORuntime, value: int) ->
@@ -1795,6 +1838,27 @@ let extensionTests =
 
                         Expect.equal result None "Forever should not produce a value before timeout"
                         Expect.isGreaterThan count 0 "Forever should have run at least once before timeout")
+
+                    testAllRuntimes "Forever - fails with the first failure and stops repeating" (fun runtime ->
+                        let mutable count = 0
+
+                        let effect =
+                            FIO.attempt
+                                (fun () ->
+                                    count <- count + 1
+                                    if count = 3 then failwith "third run")
+                                (fun ex -> ex.Message)
+
+                        let result = runtime.Run(effect.Forever<int>()).UnsafeError()
+
+                        Expect.equal result "third run" "Forever should fail with the first failure"
+                        Expect.equal count 3 "Forever should not run the effect again after it fails")
+
+                    testAllRuntimes "Forever - takes the result type its context needs" (fun runtime ->
+                        let ticking: FIO<string, exn> = (FIO.sleep (TimeSpan.FromMilliseconds 1.0)).Forever()
+                        let raced = ticking.RaceFirst((FIO.sleep (TimeSpan.FromMilliseconds 20.0)).Map(fun () -> "done"))
+
+                        Expect.equal (runtime.Run(raced).UnsafeSuccess()) "done" "A loop typed as string should race a string effect")
 
                     testAllRuntimes "Delay - returns the underlying result after sleeping" (fun runtime ->
                         let mutable ran = false

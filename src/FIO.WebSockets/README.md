@@ -11,10 +11,11 @@ and failures surface as a typed `WsError` rather than raw exceptions.
 - **Client** — `WebSocketClient.connectDefault` opens a connection (dispose it with `use!`), or
   `withConnectionString` scopes it and closes it for you
 - **Server** — `WebSocketServer.start` / `acceptDefault` / `close` for manual control, or
-  `WebSocketServer.serve` / `acceptLoop` to run a handler per connection, stopping the listener when interrupted;
+  `WebSocketServer.serve` / `acceptLoop` to run a handler per connection, shutting down gracefully when interrupted;
   accepted sockets expose the peer's `RemoteEndPoint` and the `LocalEndPoint`
 - **Typed messages** — match on `Frame(Text …)` / `Frame(Binary …)` / `ConnectionClosed`
-- **Custom codecs** — send and receive typed payloads
+- **Custom codecs** — send and receive typed payloads; `TryReceive` reports a close or an undecodable
+  frame as an outcome instead of a failure
 
 ## Install
 
@@ -52,6 +53,13 @@ let server = fio {
 }
 ```
 
+`start` and `serve` take an `HttpListener` URL prefix, and its host does two jobs: it is the address
+bound — only the first one a name resolves to — and a filter on each request's `Host` header. So
+`http://localhost:8080/` may bind only `::1`, and `http://127.0.0.1:8080/` answers a client that dials
+`localhost` with 404. To listen on every interface, use `+`; `0.0.0.0` and `[::]` mean the same. On
+Linux and macOS `+` binds IPv4 only; on Windows it needs a URL reservation (`netsh http add urlacl`) or
+an elevated process.
+
 ## Errors
 
 Operations fail with a typed `WsError`; each case says what went wrong, so a receive loop can decide
@@ -68,26 +76,54 @@ without inspecting messages:
 | `GeneralError` | anything unclassified |
 
 `WsError.fromException` / `WsError.toException` bridge raw exceptions. A chat-style loop that stops on
-close and skips malformed messages is a `CatchAll` away:
+close and skips malformed messages uses `TryReceive`, which yields those two as outcomes and fails only
+on the rest:
 
 ```fsharp
-socket.Receive(codec).Map(Message).CatchAll(function
-    | Closed _ -> FIO.succeed PeerClosed
-    | CodecError reason -> FIO.succeed (Unreadable reason)
-    | error -> FIO.fail error)
+let rec loop () = fio {
+    match! socket.TryReceive codec with
+    | Received message ->
+        do! handle message
+        return! loop ()
+    | Undecodable reason ->
+        do! report reason
+        return! loop ()
+    | PeerClosed _ -> return ()
+}
 ```
 
 ## Closing
 
-`withConnection` and `acceptLoop` close the socket for you, but only when it can still complete the
-closing handshake. Interrupting a fiber that is blocked in `ReceiveMessage` — losing a race, `Stop()` —
-aborts the connection instead. For a graceful close while a reader is pending, call `Close` from another
-fiber first: it closes the outgoing side, and the pending receive then observes the peer's close frame as
-`ConnectionClosed`.
+`withConnection` and `acceptLoop` close the socket for you with `CloseIfOpen`, which closes a connection
+that is still open — answering a close the peer began — and logs rather than fails when that goes
+wrong; call it yourself for the same best-effort close. `withConnection` owns the socket from before it
+connects, so an interrupt while connecting disposes it, and `serve` and `acceptLoop` hand every
+accepted connection to a handler that closes it, even when interrupted mid-accept.
+
+A close needs a socket that can still complete the closing handshake: interrupting a fiber that is
+blocked in `ReceiveMessage` — losing a race, `Stop()` — aborts the connection instead. For a graceful
+close while a reader is pending, call `Close` from another fiber first: it closes the outgoing side, and
+the pending receive then observes the peer's close frame as `ConnectionClosed`.
 
 The handshake waits for the peer's close frame, so `Close` is bounded by `SendTimeout` like a send: a
 peer that has stopped reading makes it fail with `TimeoutError` and the connection is aborted, instead
 of holding the finalizer — and with it an app's shutdown — open indefinitely.
+
+## Shutdown
+
+Interrupting `serve` or `acceptLoop` shuts the server down gracefully, as the section above recommends:
+
+1. Every open connection is sent a going-away close (1001) without interrupting its handler, so a
+   handler blocked in a receive sees `ConnectionClosed` and ends normally.
+2. Handlers get `ShutdownTimeout` (10 s by default; set it with `WebSocketConfig.withShutdownTimeout`,
+   and 0 waits indefinitely) to finish. Any still running are then interrupted, and their finalizers
+   run.
+3. The listener is stopped. `serve` also disposes it.
+
+Requests that arrive during the shutdown are refused with 503. Handlers are the loop's children, forked
+while it hands a connection off uninterruptibly, so interrupting the loop leaves them running until the
+shutdown is done with them rather than aborting their receives. Interrupting a single `accept` is
+different: it stops the listener, which drops every connection accepted earlier.
 
 ## Links
 

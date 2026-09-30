@@ -14,6 +14,10 @@ open System.Net
 open Expecto
 open FsCheck.FSharp
 
+// Two workers, as in the core suite: a default config per test spawns a thread per core per
+// runtime, and the resulting load makes wall-clock deadline assertions flake.
+let testConfig = { WorkerConfig.Default with EvaluationWorkers = 2 }
+
 module FsCheckProperties =
 
     type Generators =
@@ -22,9 +26,9 @@ module FsCheckProperties =
             Gen.oneof
                 [
                     Gen.constant (new DirectRuntime() :> FIORuntime)
-                    Gen.constant (new PollingRuntime() :> FIORuntime)
-                    Gen.constant (new SignalingRuntime() :> FIORuntime)
-                    Gen.constant (new WorkStealingRuntime() :> FIORuntime)
+                    Gen.constant (new PollingRuntime(testConfig) :> FIORuntime)
+                    Gen.constant (new SignalingRuntime(testConfig) :> FIORuntime)
+                    Gen.constant (new WorkStealingRuntime(testConfig) :> FIORuntime)
                 ]
             |> Arb.fromGen
 
@@ -40,9 +44,9 @@ type TestMessage = { Id: int; Text: string }
 let runtimes () =
     [
         new DirectRuntime() :> FIORuntime
-        new PollingRuntime() :> FIORuntime
-        new SignalingRuntime() :> FIORuntime
-        new WorkStealingRuntime() :> FIORuntime
+        new PollingRuntime(testConfig) :> FIORuntime
+        new SignalingRuntime(testConfig) :> FIORuntime
+        new WorkStealingRuntime(testConfig) :> FIORuntime
     ]
 
 let private disposeRuntime (rt: FIORuntime) =
@@ -102,11 +106,11 @@ let runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, WsError>) =
     | Failed error -> failtest $"Effect failed: {error}"
     | Interrupted ex -> failtest $"Interrupted: {ex.Message}"
 
-let startTestListener () =
+let startTestListenerOn (host: string) =
     let rec attempt remaining =
         fio {
             let port = findAvailablePort ()
-            let url = $"http://localhost:{port}/"
+            let url = $"http://{host}:{port}/"
 
             let! outcome =
                 (WebSocketServer.start url)
@@ -124,6 +128,9 @@ let startTestListener () =
         }
 
     attempt 10
+
+let startTestListener () =
+    startTestListenerOn "localhost"
 
 let private portConflict (error: WsError) =
     match error with
@@ -179,7 +186,7 @@ let withTestServer (handler: WebSocket -> FIO<unit, WsError>) (action: int -> FI
 
     runWithTimeout runtime effect
 
-let withTestEchoServer (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
+let withTestEchoServerOn (host: string) (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
     let closingEchoHandler (ws: WebSocket) =
         fio {
             do! echoHandler ws
@@ -188,7 +195,7 @@ let withTestEchoServer (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
 
     let effect =
         fio {
-            let! port, listener = startTestListener ()
+            let! port, listener = startTestListenerOn host
 
             let! serverFiber =
                 (WebSocketServer.acceptLoop listener WebSocketConfig.defaultConfig closingEchoHandler).Fork()
@@ -200,3 +207,6 @@ let withTestEchoServer (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
         }
 
     runWithTimeout runtime effect
+
+let withTestEchoServer (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
+    withTestEchoServerOn "localhost" action runtime

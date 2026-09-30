@@ -4,8 +4,18 @@ open System
 open System.Threading
 open System.Threading.Tasks
 
+/// Restores, inside an uninterruptibleMask region, the interruptibility that was in force outside it.
+[<Sealed>]
+type InterruptibilityRestorer internal (level: int) =
+
+    /// Returns an effect that runs the given effect with the interruptibility in force outside the region.
+    member _.Restore<'A, 'E> (effect: FIO<'A, 'E>) : FIO<'A, 'E> =
+        WithSuppression((fun _ -> level), fun _ -> effect)
+
 [<RequireQualifiedAccess>]
 module FIO =
+
+    let private raiseSuppression (level: int) = level + 1
 
     /// Creates an effect that succeeds with unit.
     let unit<'E> () : FIO<unit, 'E> =
@@ -72,8 +82,8 @@ module FIO =
 
     /// Creates an effect that runs an F# async and yields its result, mapping any exception to a typed error.
     let inline awaitAsync<'A, 'E> (async: Async<'A>) (onError: exn -> 'E) : FIO<'A, 'E> =
-        cancellationToken().FlatMap <| fun cancelToken ->
-            awaitTask (Async.StartAsTask(async, cancellationToken = cancelToken)) onError
+        cancellationToken().FlatMap <| fun cancellationToken ->
+            awaitTask (Async.StartAsTask(async, cancellationToken = cancellationToken)) onError
 
     /// Creates an effect that starts a non-generic task on a new fiber, mapping any exception to a typed error.
     let inline forkUnitTask<'E, 'E1> (taskFactory: unit -> Task) (onError: exn -> 'E) : FIO<Fiber<unit, 'E>, 'E1> =
@@ -93,10 +103,10 @@ module FIO =
 
     /// Creates an effect from a callback-based asynchronous operation, completed by invoking the registered callback.
     let inline async<'A, 'E> (register: (Result<'A, 'E> -> unit) -> unit) (onError: exn -> 'E) : FIO<'A, 'E> =
-        cancellationToken().FlatMap <| fun cancelToken ->
+        cancellationToken().FlatMap <| fun cancellationToken ->
             let resultSource = TaskCompletionSource<Result<'A, 'E>>()
-            let registration = cancelToken.Register(fun () ->
-                resultSource.TrySetCanceled cancelToken |> ignore)
+            let registration = cancellationToken.Register(fun () ->
+                resultSource.TrySetCanceled cancellationToken |> ignore)
             try
                 register <| fun result ->
                     if resultSource.TrySetResult result then
@@ -114,8 +124,8 @@ module FIO =
         elif duration.TotalMilliseconds > float (UInt32.MaxValue - 1u) then
             interrupt (InvalidArgument("duration", "must not exceed 4294967294 ms (about 49.7 days)")) $"Cannot sleep for {duration}"
         else
-            cancellationToken().FlatMap <| fun cancelToken ->
-                awaitUnitTask (Task.Delay(duration, cancelToken)) Rethrow<_>.Instance
+            cancellationToken().FlatMap <| fun cancellationToken ->
+                awaitUnitTask (Task.Delay(duration, cancellationToken)) Rethrow<_>.Instance
 
     /// Creates an effect that yields control, letting other fibers run before continuing.
     let yieldNow<'E> () : FIO<unit, 'E> =
@@ -138,15 +148,35 @@ module FIO =
         else
             JoinAllFailFast fiberContexts
 
+    /// Returns an effect that runs the given effect uninterruptibly: an interruption takes effect once it ends.
+    let uninterruptible<'A, 'E> (effect: FIO<'A, 'E>) : FIO<'A, 'E> =
+        WithSuppression(raiseSuppression, fun _ -> effect)
+
+    /// Returns an effect that runs the given function's effect uninterruptibly, passing it a restorer for the parts that should stay interruptible.
+    let uninterruptibleMask<'A, 'E> (body: InterruptibilityRestorer -> FIO<'A, 'E>) : FIO<'A, 'E> =
+        WithSuppression(raiseSuppression, fun level -> body (InterruptibilityRestorer level))
+
     /// Acquires a resource, uses it, and releases it afterwards on success, failure, or interruption.
-    let inline acquireReleaseWith<'A, 'A1, 'E>
+    /// Acquire and release run uninterruptibly, so keep them short; use runs as interruptibly as the caller.
+    let acquireReleaseWith<'A, 'A1, 'E>
         (acquire: FIO<'A1, 'E>)
         (release: 'A1 -> FIO<unit, 'E>)
         (useResource: 'A1 -> FIO<'A, 'E>)
         : FIO<'A, 'E> =
-        acquire.FlatMap <| fun resource ->
-            (useResource resource)
-                .Ensuring(release resource)
+        // The finalizer is built before useResource is called, so a useResource that throws still has it run.
+        AcquireRelease(
+            acquire.UpcastResult(),
+            fun resource ->
+                let resource = resource :?> 'A1
+                let finalizer = (release resource).UpcastBoth()
+
+                let used =
+                    try
+                        useResource resource
+                    with ex ->
+                        Interrupt(Defect ex, ex.Message)
+
+                OnFinalize(used, finalizer))
 
     /// Runs the given effect for each item in sequence, collecting the results into a list.
     let inline forEach<'A, 'A1, 'E> (items: seq<'A1>) (func: 'A1 -> FIO<'A, 'E>) : FIO<'A list, 'E> =

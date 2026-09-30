@@ -7,27 +7,29 @@ open System.Net
 [<RequireQualifiedAccess>]
 module SocketClient =
 
+    let private createNetSocket (config: SocketConfig) =
+        FIO.attempt
+            (fun () ->
+                let socket =
+                    new Sockets.Socket(config.AddressFamily, config.SocketType, config.ProtocolType)
+                socket.SendBufferSize <- config.SendBufferSize
+                socket.ReceiveBufferSize <- config.ReceiveBufferSize
+                socket.SendTimeout <- config.SendTimeout
+                socket.ReceiveTimeout <- config.ReceiveTimeout
+                socket.NoDelay <- config.NoDelay
+                socket)
+            SocketError.fromException
+
     /// Connects to a remote host using the given configuration, returning an open socket.
     let connect (config: SocketConfig) =
         fio {
-            let! netSocket =
-                FIO.attempt
-                    (fun () ->
-                        let socket =
-                            new Sockets.Socket(config.AddressFamily, config.SocketType, config.ProtocolType)
-                        socket.SendBufferSize <- config.SendBufferSize
-                        socket.ReceiveBufferSize <- config.ReceiveBufferSize
-                        socket.SendTimeout <- config.SendTimeout
-                        socket.ReceiveTimeout <- config.ReceiveTimeout
-                        socket.NoDelay <- config.NoDelay
-                        socket)
-                    SocketError.fromException
+            let! netSocket = createNetSocket config
 
-            let! cancelToken = FIO.cancellationToken ()
+            let! cancellationToken = FIO.cancellationToken ()
 
             do!
                 FIO.awaitUnitTask
-                    (netSocket.ConnectAsync(config.Host, config.Port, cancelToken).AsTask())
+                    (netSocket.ConnectAsync(config.Host, config.Port, cancellationToken).AsTask())
                     (fun ex -> ConnectionFailed(config.Host, config.Port, ex))
 
             return new Socket(netSocket, config)
@@ -42,7 +44,25 @@ module SocketClient =
 
     /// Connects, runs an action with the open socket, then closes the connection.
     let withConnection (config: SocketConfig) (action: Socket -> FIO<'A, SocketError>) =
-        FIO.acquireReleaseWith (connect config) (fun socket -> socket.Close().Ignore()) action
+        // Acquire runs uninterruptibly, so it only creates the socket; the connect happens in use,
+        // where an interruption still cancels it, and release also covers a socket that never connected.
+        let release (netSocket: Sockets.Socket) =
+            (FIO.attempt (fun () -> netSocket.Dispose()) SocketError.fromException).Ignore()
+
+        let connectThenAct (netSocket: Sockets.Socket) =
+            fio {
+                let! cancellationToken = FIO.cancellationToken ()
+
+                do!
+                    FIO.awaitUnitTask
+                        (netSocket.ConnectAsync(config.Host, config.Port, cancellationToken).AsTask())
+                        (fun ex -> ConnectionFailed(config.Host, config.Port, ex))
+
+                let socket = new Socket(netSocket, config)
+                return! (action socket).Ensuring(socket.Close().Ignore())
+            }
+
+        FIO.acquireReleaseWith (createNetSocket config) release connectThenAct
 
     /// Connects to the given host and port, runs an action with the open socket, then closes the connection.
     let withConnectionTo (host: string) (port: int) (action: Socket -> FIO<'A, SocketError>) =

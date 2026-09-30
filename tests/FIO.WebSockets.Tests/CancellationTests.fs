@@ -83,6 +83,149 @@ let cancellationTests =
 
                 Expect.isTrue interrupted "Connect fiber should report Interrupted state after Interrupt")
 
+            testAllRuntimes "withConnection interruption against unreachable URL unwinds promptly" (fun runtime ->
+                let effect =
+                    fio {
+                        // 192.0.2.0/24 (TEST-NET-1) is reserved; routable but always discards.
+                        let! connectFiber =
+                            (WebSocketClient.withConnectionString "ws://192.0.2.1:9/" (fun _ -> FIO.unit ())).Fork()
+
+                        do! sleepMs 100.0
+                        do! connectFiber.InterruptNow ()
+                    }
+
+                let stopwatch = Stopwatch.StartNew()
+                let unwound = (runtime.Run effect).Task().Wait(TimeSpan.FromSeconds 5.0)
+
+                Expect.isTrue unwound $"The scope should unwind within 5s; took {stopwatch.ElapsedMilliseconds}ms")
+
+            testAllRuntimes "serve interrupted while waiting for a connection unwinds promptly" (fun runtime ->
+                let port = findAvailablePort ()
+
+                let effect =
+                    fio {
+                        let! server =
+                            (WebSocketServer.serve $"http://127.0.0.1:{port}/" WebSocketConfig.defaultConfig (fun _ -> FIO.unit ())).Fork()
+
+                        do! sleepMs 200.0
+                        do! server.InterruptNow ()
+                    }
+
+                let stopwatch = Stopwatch.StartNew()
+                let unwound = (runtime.Run effect).Task().Wait(TimeSpan.FromSeconds 5.0)
+
+                Expect.isTrue unwound $"The scope should unwind within 5s; took {stopwatch.ElapsedMilliseconds}ms")
+
+            testAllRuntimes "serve interrupted with a connection open sends its client a going-away close" (fun runtime ->
+                let port = findAvailablePort ()
+
+                let handler (ws: WebSocket) =
+                    fio {
+                        do! ws.SendText "ready"
+                        do! noopHandler ws
+                    }
+
+                let effect =
+                    fio {
+                        let! server = (WebSocketServer.serve $"http://127.0.0.1:{port}/" WebSocketConfig.defaultConfig handler).Fork()
+                        let! client = connectWhenListening $"ws://127.0.0.1:{port}/"
+                        let! _ready = client.ReceiveMessage()
+                        let! pending = client.ReceiveMessage().Fork()
+                        do! sleepMs 100.0
+                        do! server.InterruptNow()
+                        let! outcome = pending.Await().Timeout(TimeSpan.FromSeconds 5.0)
+                        do! client.CloseIfOpen()
+                        do! server.Await().Unit()
+                        return outcome
+                    }
+
+                match runWithTimeout runtime effect with
+                | Some(Succeeded(ConnectionClosed(Some Net.WebSockets.WebSocketCloseStatus.EndpointUnavailable, _))) -> ()
+                | other -> failtest $"Expected the client to receive a going-away close, but got {other}")
+
+            testAllRuntimes "serve interrupts a handler that outlasts the shutdown timeout, once its finalizers have run" (fun runtime ->
+                let port = findAvailablePort ()
+                let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withShutdownTimeout 500
+                let finalized = ref false
+
+                let handler (ws: WebSocket) =
+                    (fio {
+                        do! ws.SendText "ready"
+                        do! FIO.never ()
+                    }).Ensuring(FIO.succeedWith (fun () -> finalized.Value <- true))
+
+                let effect =
+                    fio {
+                        let! server = (WebSocketServer.serve $"http://127.0.0.1:{port}/" config handler).Fork()
+                        let! client = connectWhenListening $"ws://127.0.0.1:{port}/"
+                        let! _ready = client.ReceiveMessage()
+                        let! _closer = client.ReceiveMessage().FlatMap(fun _ -> client.CloseIfOpen()).Fork()
+                        do! server.InterruptNow()
+                    }
+
+                let stopwatch = Stopwatch.StartNew()
+                runWithTimeout runtime effect
+                stopwatch.Stop()
+
+                Expect.isTrue finalized.Value "The handler's finalizers must run before serve has shut down"
+                Expect.isGreaterThanOrEqual stopwatch.ElapsedMilliseconds 450L "The handler gets the shutdown timeout to finish"
+                Expect.isLessThan stopwatch.ElapsedMilliseconds 5_000L "A handler that outlasts the timeout must be interrupted")
+
+            testAllRuntimes "serve refuses a connection that arrives during its shutdown with 503" (fun runtime ->
+                let port = findAvailablePort ()
+                let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withShutdownTimeout 2_000
+
+                let handler (ws: WebSocket) =
+                    fio {
+                        do! ws.SendText "ready"
+                        do! FIO.never ()
+                    }
+
+                let effect =
+                    fio {
+                        let! server = (WebSocketServer.serve $"http://127.0.0.1:{port}/" config handler).Fork()
+                        let! client = connectWhenListening $"ws://127.0.0.1:{port}/"
+                        let! _ready = client.ReceiveMessage()
+                        let! _closer = client.ReceiveMessage().FlatMap(fun _ -> client.CloseIfOpen()).Fork()
+                        do! server.InterruptNow()
+                        do! sleepMs 300.0
+                        return! (WebSocketClient.connectDefault $"ws://127.0.0.1:{port}/").Result()
+                    }
+
+                match runWithTimeout runtime effect with
+                | Error(ConnectionFailed message) -> Expect.stringContains message "503" "A connection during the shutdown must be refused with 503"
+                | other -> failtest $"Expected ConnectionFailed with a 503 but got {other}")
+
+            testAllRuntimes "acceptLoop interrupted sends a going-away close, then stops the listener" (fun runtime ->
+                let handler (ws: WebSocket) =
+                    fio {
+                        do! ws.SendText "ready"
+                        do! noopHandler ws
+                    }
+
+                let effect =
+                    fio {
+                        let! port, listener = startTestListener ()
+                        let! loop = (WebSocketServer.acceptLoop listener WebSocketConfig.defaultConfig handler).Fork()
+                        let! client = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+                        let! _ready = client.ReceiveMessage()
+                        let! pending = client.ReceiveMessage().Fork()
+                        do! sleepMs 100.0
+                        do! loop.InterruptNow()
+                        let! outcome = pending.Await().Timeout(TimeSpan.FromSeconds 5.0)
+                        do! client.CloseIfOpen()
+                        return outcome, listener
+                    }
+
+                let outcome, listener = runWithTimeout runtime effect
+
+                match outcome with
+                | Some(Succeeded(ConnectionClosed(Some Net.WebSockets.WebSocketCloseStatus.EndpointUnavailable, _))) -> ()
+                | other -> failtest $"Expected a going-away close but got {other}"
+
+                Expect.isFalse listener.IsListening "The loop must stop the listener once it has shut down"
+                listener.Close())
+
             testAllRuntimes "Explicit pre-cancelled CT short-circuits ReceiveMessage" (fun runtime ->
                 withTestServer
                     (fun ws ->

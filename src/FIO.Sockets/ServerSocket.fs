@@ -4,6 +4,7 @@ open FIO.DSL
 
 open System
 open System.Net
+open System.Threading
 
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
@@ -73,13 +74,10 @@ module ServerSocket =
     let withServerSocket (config: ServerSocketConfig) (action: ServerSocket -> FIO<'A, SocketError>) =
         FIO.acquireReleaseWith (acquire config) release action
 
-    /// Accepts the next incoming connection, returning a socket for the accepted client.
-    let accept (serverSocket: ServerSocket) =
+    let private acceptWith (serverSocket: ServerSocket) (cancellationToken: CancellationToken) =
         fio {
-            let! cancelToken = FIO.cancellationToken ()
-
             let! netSocket =
-                FIO.awaitTask (serverSocket.NetSocket.AcceptAsync(cancelToken).AsTask()) AcceptFailed
+                FIO.awaitTask (serverSocket.NetSocket.AcceptAsync(cancellationToken).AsTask()) AcceptFailed
 
             let config =
                 match serverSocket.Config.AcceptedSocketConfig with
@@ -104,6 +102,10 @@ module ServerSocket =
             return new Socket(netSocket, config)
         }
 
+    /// Accepts the next incoming connection, returning a socket for the accepted client.
+    let accept (serverSocket: ServerSocket) =
+        FIO.cancellationToken().FlatMap(acceptWith serverSocket)
+
     /// The default maximum number of concurrently running connection handlers.
     [<Literal>]
     let DefaultMaxConcurrentHandlers = 1024
@@ -118,27 +120,42 @@ module ServerSocket =
 
             do! FIO.forEachDiscard [ 1 .. max 1 maxConcurrentHandlers ] (fun _ -> slots.Write())
 
+            // The accept is awaited uninterruptibly and cancelled through the fiber's token instead, so a
+            // connection it accepts always reaches a handler whose finalizer closes it. Only the fork is restored
+            // to the loop's interruptibility, which keeps the handler an ordinary child, interrupted with the
+            // loop; an interruption that lands before the fork leaves the socket and its slot to the finalizer.
+            let acceptAndHandOff (cancellationToken: CancellationToken) =
+                FIO.uninterruptibleMask <| fun restore ->
+                    fio {
+                        let! socket = acceptWith serverSocket cancellationToken
+                        let closeSocket = socket.Close().CatchAll(logAndSuppress "accepted socket close")
+                        let handedOff = ref false
+
+                        let handlerWithCleanup =
+                            (handler socket)
+                                .Ensuring(closeSocket)
+                                .Ensuring(slots.Write())
+
+                        do! restore
+                                .Restore(handlerWithCleanup.Fork().Map(fun _ -> handedOff.Value <- true))
+                                .Ensuring(FIO.suspend (fun () ->
+                                    if handedOff.Value then FIO.unit ()
+                                    else closeSocket.FlatMap(fun () -> slots.Write())))
+                    }
+
             let step =
                 (fio {
                     do! slots.Read()
-                    let! socket = accept serverSocket
-
-                    let handlerWithCleanup =
-                        FIO.acquireReleaseWith
-                            (FIO.succeed socket)
-                            (fun socket -> socket.Close().CatchAll(logAndSuppress "accepted socket close"))
-                            handler
-
-                    let! _fiber = handlerWithCleanup.Ensuring(slots.Write()).Fork()
-                    return ()
+                    let! cancellationToken = FIO.cancellationToken ()
+                    do! acceptAndHandOff cancellationToken
                 }).CatchAll(fun error ->
                     fio {
                         do! logAndSuppress "accept loop iteration" error
                         do! slots.Write()
-                        do! FIO.sleep (System.TimeSpan.FromMilliseconds 25.0)
+                        do! FIO.sleep (TimeSpan.FromMilliseconds 25.0)
                     })
 
-            return! step.Forever()
+            return! step.Forever<unit>()
         }
 
     /// Continuously accepts connections, running the handler for each using the default concurrency limit.

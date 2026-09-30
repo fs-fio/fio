@@ -46,6 +46,30 @@ let webSocketServerTests =
                 ]
 
             testList
+                "Wildcard hosts"
+                [
+                    for host in [ "0.0.0.0"; "[::]" ] do
+                        testAllRuntimes $"start on {host} serves both 127.0.0.1 and localhost" (fun runtime ->
+                            if OperatingSystem.IsWindows() then
+                                skiptest "http.sys needs a URL reservation to listen on every interface"
+
+                            withTestEchoServerOn
+                                host
+                                (fun port ->
+                                    FIO.forEachDiscard [ "127.0.0.1"; "localhost" ] (fun target ->
+                                        fio {
+                                            let! ws = WebSocketClient.connectDefault $"ws://{target}:{port}/"
+                                            do! ws.SendText target
+                                            let! echoed = ws.Receive Codec.text
+
+                                            Expect.equal echoed target $"The echo through {target}"
+
+                                            do! ws.Close()
+                                        }))
+                                runtime)
+                ]
+
+            testList
                 "Accept"
                 [
                     testAllRuntimes "accept yields the peer's endpoints" (fun runtime ->

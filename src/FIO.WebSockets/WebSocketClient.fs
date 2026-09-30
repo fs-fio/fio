@@ -20,7 +20,7 @@ module WebSocketClient =
         }
 
     /// Connects to a WebSocket server at the given URI using the given configuration and cancellation token.
-    let connect (uri: Uri) (config: WebSocketConfig) (cancelToken: CancellationToken) =
+    let connect (uri: Uri) (config: WebSocketConfig) (cancellationToken: CancellationToken) =
         fio {
             let! clientSocket =
                 FIO.attempt
@@ -31,7 +31,7 @@ module WebSocketClient =
                 fio {
                     let! connectTask =
                         FIO.attempt
-                            (fun () -> clientSocket.ConnectAsync(uri, cancelToken))
+                            (fun () -> clientSocket.ConnectAsync(uri, cancellationToken))
                             WsError.connectionFailed
                     do! FIO.awaitUnitTask connectTask WsError.connectionFailed
                     return new WebSocket(clientSocket, config, None, None)
@@ -48,22 +48,22 @@ module WebSocketClient =
     /// Connects to the given URI using default configuration and the fiber's cancellation token.
     let connectWith (uri: Uri) =
         fio {
-            let! cancelToken = FIO.cancellationToken ()
-            return! connect uri WebSocketConfig.defaultConfig cancelToken
+            let! cancellationToken = FIO.cancellationToken ()
+            return! connect uri WebSocketConfig.defaultConfig cancellationToken
         }
 
     /// Connects to the given URL string using the given configuration and cancellation token.
-    let connectString (url: string) (config: WebSocketConfig) (cancelToken: CancellationToken) =
+    let connectString (url: string) (config: WebSocketConfig) (cancellationToken: CancellationToken) =
         fio {
             let! uri = FIO.attempt (fun () -> Uri url) WsError.connectionFailed
-            return! connect uri config cancelToken
+            return! connect uri config cancellationToken
         }
 
     /// Connects to the given URL string using default configuration and the fiber's cancellation token.
     let connectStringWith (url: string) =
         fio {
-            let! cancelToken = FIO.cancellationToken ()
-            return! connectString url WebSocketConfig.defaultConfig cancelToken
+            let! cancellationToken = FIO.cancellationToken ()
+            return! connectString url WebSocketConfig.defaultConfig cancellationToken
         }
 
     /// Connects to the given URL string using default configuration. Alias for connectStringWith.
@@ -72,19 +72,33 @@ module WebSocketClient =
 
     /// Connects, runs an action with the open connection, then closes it.
     let withConnection<'A> (uri: Uri) (config: WebSocketConfig) (action: WebSocket -> FIO<'A, WsError>) =
+        // Acquire runs uninterruptibly, so it only creates the socket; the connect happens in use,
+        // where an interruption still cancels it, and release also covers a socket that never connected.
         let acquire =
-            fio {
-                let! cancelToken = FIO.cancellationToken ()
-                return! connect uri config cancelToken
-            }
+            FIO.attempt
+                (fun () ->
+                    let clientSocket = new Net.WebSockets.ClientWebSocket()
+                    clientSocket, new WebSocket(clientSocket, config, None, None))
+                WsError.connectionFailed
 
-        let release (ws: WebSocket) =
+        let release (_: Net.WebSockets.ClientWebSocket, ws: WebSocket) =
             (ws.CloseIfOpen())
                 .Ensuring(
                     (FIO.attempt (fun () -> (ws :> IDisposable).Dispose()) WsError.fromException)
                         .CatchAll(logAndSuppress "websocket disposal"))
 
-        FIO.acquireReleaseWith acquire release action
+        let connectThenAct (clientSocket: Net.WebSockets.ClientWebSocket, ws: WebSocket) =
+            fio {
+                let! cancellationToken = FIO.cancellationToken ()
+                let! connectTask =
+                    FIO.attempt
+                        (fun () -> clientSocket.ConnectAsync(uri, cancellationToken))
+                        WsError.connectionFailed
+                do! FIO.awaitUnitTask connectTask WsError.connectionFailed
+                return! action ws
+            }
+
+        FIO.acquireReleaseWith acquire release connectThenAct
 
     /// Connects to the given URL string, runs an action with the open connection, then closes it.
     let withConnectionString<'A> (url: string) (action: WebSocket -> FIO<'A, WsError>) =

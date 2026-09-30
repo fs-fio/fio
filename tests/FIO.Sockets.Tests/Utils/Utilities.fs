@@ -14,6 +14,10 @@ open System.Net
 open Expecto
 open FsCheck.FSharp
 
+// Two workers, as in the core suite: a default config per test spawns a thread per core per
+// runtime, and the resulting load makes wall-clock deadline assertions flake.
+let testConfig = { WorkerConfig.Default with EvaluationWorkers = 2 }
+
 module FsCheckProperties =
 
     type Generators =
@@ -21,9 +25,9 @@ module FsCheckProperties =
             Gen.oneof
                 [
                     Gen.constant (new DirectRuntime() :> FIORuntime)
-                    Gen.constant (new PollingRuntime() :> FIORuntime)
-                    Gen.constant (new SignalingRuntime() :> FIORuntime)
-                    Gen.constant (new WorkStealingRuntime() :> FIORuntime)
+                    Gen.constant (new PollingRuntime(testConfig) :> FIORuntime)
+                    Gen.constant (new SignalingRuntime(testConfig) :> FIORuntime)
+                    Gen.constant (new WorkStealingRuntime(testConfig) :> FIORuntime)
                 ]
             |> Arb.fromGen
 
@@ -39,9 +43,9 @@ type TestMessage = { Id: int; Text: string }
 let runtimes () =
     [
         new DirectRuntime() :> FIORuntime
-        new PollingRuntime() :> FIORuntime
-        new SignalingRuntime() :> FIORuntime
-        new WorkStealingRuntime() :> FIORuntime
+        new PollingRuntime(testConfig) :> FIORuntime
+        new SignalingRuntime(testConfig) :> FIORuntime
+        new WorkStealingRuntime(testConfig) :> FIORuntime
     ]
 
 let private disposeRuntime (runtime: FIORuntime) =

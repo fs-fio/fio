@@ -61,18 +61,12 @@ type private TestApp
 
     override _.mapExitCode outcome =
         match outcome with
-        | AppSucceeded _ ->
-            log.Add "outcome:Succeeded"
-            0
-        | AppFailed _ ->
-            log.Add "outcome:Failed"
-            1
-        | AppInterrupted _ ->
-            log.Add "outcome:Interrupted"
-            130
-        | AppFatalError _ ->
-            log.Add "outcome:FatalError"
-            2
+        | AppSucceeded _ -> log.Add "outcome:Succeeded"
+        | AppFailed _ -> log.Add "outcome:Failed"
+        | AppInterrupted _ -> log.Add "outcome:Interrupted"
+        | AppFatalError _ -> log.Add "outcome:FatalError"
+
+        base.mapExitCode outcome
 
 type private MinimalApp(effect: FIO<int, string>) =
     inherit FIOApp<int, string>()
@@ -238,7 +232,7 @@ let appTests =
 
                             let exitCode = app.Run()
 
-                            Expect.equal exitCode 2 "A defect is a crash, not an interruption"
+                            Expect.equal exitCode 1 "A defect is a crash, not an interruption"
                             Expect.contains (Seq.toList log) "outcome:FatalError" "mapExitCode should see AppFatalError"
 
                             match seen.Value with
@@ -253,10 +247,10 @@ let appTests =
 
                             let exitCode = app.Run()
 
-                            Expect.equal exitCode 2 "A rejected argument is a crash, not an interruption"
+                            Expect.equal exitCode 1 "A rejected argument is a crash, not an interruption"
                             Expect.contains (Seq.toList log) "outcome:FatalError" "mapExitCode should see AppFatalError")
 
-                    testCase "Run - fatal error (runtime construction throws) returns exit code 2 by default"
+                    testCase "Run - fatal error (runtime construction throws) returns exit code 1 by default"
                     <| fun () ->
                         silenceErr (fun () ->
                             let app =
@@ -266,7 +260,7 @@ let appTests =
 
                             let exitCode = app.Run()
 
-                            Expect.equal exitCode 2 "Fatal error should return exit code 2")
+                            Expect.equal exitCode 1 "Fatal error should return exit code 1, as in ZIO")
 
                     testCase "Run - fatal error path invokes mapExitCode with AppFatalError"
                     <| fun () ->
@@ -279,7 +273,7 @@ let appTests =
                             Expect.equal exitCode 99 "Custom fatal-error code should win"
                             Expect.contains (Seq.toList log) "outcome:FatalError" "mapExitCode should see AppFatalError")
 
-                    testCase "mapExitCode - default classification is 0/1/130/2"
+                    testCase "mapExitCode - default classification is 0/1/130/1"
                     <| fun () ->
                         let app = MinimalApp(FIO.succeed 1)
 
@@ -288,7 +282,7 @@ let appTests =
 
                         let ex = FiberInterruptedException(Guid.NewGuid(), ExplicitInterrupt, "x") :?> FiberInterruptedException
                         Expect.equal (app.mapExitCode (AppInterrupted ex)) 130 "AppInterrupted -> 130"
-                        Expect.equal (app.mapExitCode (AppFatalError (exn "x"))) 2 "AppFatalError -> 2"
+                        Expect.equal (app.mapExitCode (AppFatalError (exn "x"))) 1 "AppFatalError -> 1"
 
                     testCase "Custom mapExitCode - success uses custom code"
                     <| fun () ->

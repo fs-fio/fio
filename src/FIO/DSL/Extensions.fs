@@ -441,9 +441,13 @@ module Extensions =
                         else FIO.succeed value
             loop ()
 
-        /// Returns an effect that runs this effect repeatedly, forever.
-        member inline this.Forever () : FIO<'A, 'E> =
-            let rec loop () =
+        /// Returns an effect that runs this effect uninterruptibly: an interruption takes effect once it ends.
+        member inline this.Uninterruptible () : FIO<'A, 'E> =
+            FIO.uninterruptible this
+
+        /// Returns an effect that repeats this effect until its first failure; it never succeeds, so its result type is free.
+        member inline this.Forever<'B> () : FIO<'B, 'E> =
+            let rec loop () : FIO<'B, 'E> =
                 this.FlatMap <| fun _ -> loop ()
             loop ()
 

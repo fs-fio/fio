@@ -4,7 +4,9 @@ open FIO.DSL
 
 open System
 open System.Threading
+open System.Threading.Tasks
 open System.Collections.Generic
+open System.Runtime.CompilerServices
 
 module internal WorkerRuntimeDefaults =
     let ProcessorReserve = 1
@@ -163,6 +165,35 @@ type internal WorkStealingDeque(initialCapacity: int) =
 [<AbstractClass>]
 type FIORuntime internal () =
 
+    // Root and daemon fibers that have not fully unwound; scoped children unwind with their roots. Striped
+    // by identity so concurrent Runs rarely share a lock, and a HashSet so tracking a fiber allocates nothing.
+    let live = Array.init 16 (fun _ -> HashSet<FiberContext> HashIdentity.Reference)
+
+    [<VolatileField>]
+    let mutable liveCount = 0
+
+    [<VolatileField>]
+    let mutable disposed = 0
+
+    // Set when the last live fiber unwinds after disposal began, and when the first Shutdown has finished.
+    let unwound = TaskCompletionSource TaskCreationOptions.RunContinuationsAsynchronously
+
+    let stopped = TaskCompletionSource TaskCreationOptions.RunContinuationsAsynchronously
+
+    let disposedMessage = "The runtime was disposed."
+
+    let stripeOf (fiberContext: FiberContext) =
+        live.[RuntimeHelpers.GetHashCode fiberContext &&& 15]
+
+    // One delegate per runtime, so watching a fiber allocates no closure.
+    let onUnwound =
+        Action<FiberContext>(fun fiberContext ->
+            let stripe = stripeOf fiberContext
+            lock stripe (fun () -> stripe.Remove fiberContext |> ignore)
+
+            if Interlocked.Decrement &liveCount = 0 && Volatile.Read &disposed = 1 then
+                unwound.TrySetResult() |> ignore)
+
     /// The runtime's name.
     abstract member Name: string
 
@@ -188,6 +219,50 @@ type FIORuntime internal () =
 
     override this.ToString () =
         this.ConfigString
+
+    member val internal StopWorkers: unit -> unit = ignore with get, set
+
+    // Watching before reading the flag pairs with Shutdown setting the flag before reading live: either
+    // Shutdown sees the fiber, or the fiber sees the flag and is interrupted here.
+    member private _.Watch (fiberContext: FiberContext) =
+        let stripe = stripeOf fiberContext
+        Interlocked.Increment &liveCount |> ignore
+        lock stripe (fun () -> stripe.Add fiberContext |> ignore)
+        fiberContext.SetOnUnwound onUnwound
+
+        if Volatile.Read &disposed = 1 then
+            fiberContext.Interrupt(ExplicitInterrupt, disposedMessage)
+
+    member internal this.Track (fiberContext: FiberContext) =
+        if Volatile.Read &disposed = 1 then
+            raise (ObjectDisposedException(this.Name, disposedMessage))
+
+        this.Watch fiberContext
+
+    member internal this.TrackDaemon (fiberContext: FiberContext) =
+        this.Watch fiberContext
+
+    /// Interrupts every fiber still running on this runtime, waits up to the given time for them to unwind, then stops the runtime's workers.
+    /// A concurrent or later call waits for the first one; running an effect afterwards throws. Do not call it from one of this runtime's own fibers.
+    member this.Shutdown (timeout: TimeSpan) =
+        if tryClaim &disposed then
+            for stripe in live do
+                for fiberContext in lock stripe (fun () -> Seq.toArray stripe) do
+                    fiberContext.Interrupt(ExplicitInterrupt, disposedMessage)
+
+            if Volatile.Read &liveCount > 0 then
+                unwound.Task.Wait timeout |> ignore
+
+            this.StopWorkers()
+            stopped.TrySetResult() |> ignore
+        else
+            stopped.Task.Wait timeout |> ignore
+
+    interface IDisposable with
+
+        /// Shuts the runtime down, giving its fibers up to ten seconds to unwind.
+        member this.Dispose () =
+            this.Shutdown(TimeSpan.FromSeconds 10.0)
 
 /// Worker counts and scheduling parameters for a worker-based runtime.
 type WorkerConfig =

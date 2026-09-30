@@ -5,13 +5,32 @@ open FIO.Tests.Utilities.FsCheckProperties
 
 open FIO.DSL
 open FIO.Runtime
+open FIO.Runtime.Direct
 open FIO.Runtime.Polling
+open FIO.Runtime.Signaling
+open FIO.Runtime.WorkStealing
 
 open Expecto
 
 open System
 open System.Threading
+open System.Diagnostics
 open System.Threading.Tasks
+open System.Collections.Concurrent
+
+let private testFreshRuntimes name (test: FIORuntime -> unit) =
+    testList
+        name
+        [
+            for runtimeName, make in
+                [
+                    "DirectRuntime", (fun () -> new DirectRuntime() :> FIORuntime)
+                    "PollingRuntime", (fun () -> new PollingRuntime(testConfig) :> FIORuntime)
+                    "SignalingRuntime", (fun () -> new SignalingRuntime(testConfig) :> FIORuntime)
+                    "WorkStealingRuntime", (fun () -> new WorkStealingRuntime(testConfig) :> FIORuntime)
+                ] ->
+                testCase runtimeName (fun () -> test (make ()))
+        ]
 
 let private expectDefect (runtime: FIORuntime) (label: string) (effect: FIO<int, string>) =
     let name = runtime.GetType().Name
@@ -444,5 +463,153 @@ let conformanceTests =
                                 | other -> failtest $"{runtime.GetType().Name}: expected Succeeded but got {other}")
 
                         Expect.equal (List.sort results) [ 1..8 ] "Every concurrently started fiber must complete with its own value"
+                ]
+
+            testList
+                "Runtime disposal"
+                [
+                    testFreshRuntimes "Dispose - interrupts a running fiber and returns after its finalizer ran" (fun runtime ->
+                        let started = new ManualResetEventSlim(false)
+                        let finalized = ref false
+
+                        let effect : FIO<unit, string> =
+                            FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never ())
+
+                        let fiber = runtime.Run(effect.Ensuring(FIO.succeedWith (fun () -> finalized.Value <- true)))
+                        Expect.isTrue (started.Wait(TimeSpan.FromSeconds 5.0)) "The fiber should start"
+                        (runtime :> IDisposable).Dispose()
+
+                        Expect.isTrue finalized.Value "Dispose should return only once the fiber's finalizer has run"
+
+                        match fiber.UnsafeResult() with
+                        | Interrupted _ -> ()
+                        | other -> failtest $"Expected Interrupted but got {other}")
+
+                    testFreshRuntimes "Dispose - interrupts daemon fibers and runs their finalizers" (fun runtime ->
+                        let started = new ManualResetEventSlim(false)
+                        let finalized = ref false
+
+                        let daemon : FIO<unit, string> =
+                            (FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never ()))
+                                .Ensuring(FIO.succeedWith (fun () -> finalized.Value <- true))
+
+                        runtime.Run(daemon.ForkDaemon<string>()).UnsafeResult() |> ignore
+                        Expect.isTrue (started.Wait(TimeSpan.FromSeconds 5.0)) "The daemon should start"
+                        (runtime :> IDisposable).Dispose()
+
+                        Expect.isTrue finalized.Value "Dispose should interrupt the daemon and wait for its finalizer")
+
+                    testFreshRuntimes "Dispose - waits for scoped children to unwind" (fun runtime ->
+                        let started = new ManualResetEventSlim(false)
+                        let childFinalized = ref false
+
+                        let child : FIO<unit, string> =
+                            (FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never ()))
+                                .Ensuring(FIO.sleep(TimeSpan.FromMilliseconds 50.0).FlatMap(fun () ->
+                                    FIO.succeedWith (fun () -> childFinalized.Value <- true)))
+
+                        runtime.Run(child.Fork().FlatMap(fun fiber -> fiber.Join())) |> ignore
+                        Expect.isTrue (started.Wait(TimeSpan.FromSeconds 5.0)) "The child should start"
+                        (runtime :> IDisposable).Dispose()
+
+                        Expect.isTrue childFinalized.Value "Dispose should wait for a scoped child's finalizer too")
+
+                    testFreshRuntimes "Dispose - a fiber parked on a task completes as interrupted" (fun runtime ->
+                        let gate = TaskCompletionSource<int>()
+                        let parked = runtime.Run(FIO.awaitTask gate.Task (fun ex -> ex.Message))
+                        Thread.Sleep 50
+                        (runtime :> IDisposable).Dispose()
+
+                        Expect.isTrue (parked.Task().Wait(TimeSpan.FromSeconds 5.0)) "The parked fiber should complete"
+
+                        match parked.Task().Result with
+                        | Interrupted _ -> ()
+                        | other -> failtest $"Expected Interrupted but got {other}")
+
+                    testFreshRuntimes "Dispose - running an effect afterwards throws ObjectDisposedException" (fun runtime ->
+                        (runtime :> IDisposable).Dispose()
+
+                        Expect.throwsT<ObjectDisposedException>
+                            (fun () -> runtime.Run(FIO.unit<string> ()) |> ignore)
+                            "Run after Dispose should throw")
+
+                    testFreshRuntimes "Dispose - a second call is harmless" (fun runtime ->
+                        (runtime :> IDisposable).Dispose()
+                        (runtime :> IDisposable).Dispose())
+
+                    testFreshRuntimes "Shutdown - gives up after its timeout when a finalizer never ends" (fun runtime ->
+                        let started = new ManualResetEventSlim(false)
+
+                        let effect : FIO<unit, string> =
+                            (FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never ())).Ensuring(FIO.never ())
+
+                        runtime.Run effect |> ignore
+                        Expect.isTrue (started.Wait(TimeSpan.FromSeconds 5.0)) "The fiber should start"
+                        let stopwatch = Stopwatch.StartNew()
+                        runtime.Shutdown(TimeSpan.FromMilliseconds 300.0)
+
+                        Expect.isLessThan stopwatch.ElapsedMilliseconds 3_000L "Shutdown should stop waiting at its timeout")
+
+                    testFreshRuntimes "Shutdown - a concurrent second call waits for the first to finish" (fun runtime ->
+                        let started = new ManualResetEventSlim false
+                        let finalized = ref false
+
+                        let effect : FIO<unit, string> =
+                            (FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never ()))
+                                .Ensuring(FIO.sleep(TimeSpan.FromMilliseconds 300.0).FlatMap(fun () ->
+                                    FIO.succeedWith (fun () -> finalized.Value <- true)))
+
+                        runtime.Run effect |> ignore
+                        Expect.isTrue (started.Wait(TimeSpan.FromSeconds 5.0)) "The fiber should start"
+                        let first = Task.Run(fun () -> runtime.Shutdown(TimeSpan.FromSeconds 5.0))
+                        Thread.Sleep 50
+                        runtime.Shutdown(TimeSpan.FromSeconds 5.0)
+
+                        Expect.isTrue finalized.Value "Either call should return only once the fiber's finalizer has run"
+                        first.Wait())
+
+                    testList
+                        "Stress - Run racing Dispose never loses a fiber"
+                        [
+                            for runtimeName, make in
+                                [
+                                    "DirectRuntime", (fun () -> new DirectRuntime() :> FIORuntime)
+                                    "PollingRuntime", (fun () -> new PollingRuntime(testConfig) :> FIORuntime)
+                                    "SignalingRuntime", (fun () -> new SignalingRuntime(testConfig) :> FIORuntime)
+                                    "WorkStealingRuntime", (fun () -> new WorkStealingRuntime(testConfig) :> FIORuntime)
+                                ] ->
+                                stressTestCase runtimeName (fun () ->
+                                    let deadline = Stopwatch.StartNew()
+                                    let mutable lost = 0
+
+                                    while deadline.ElapsedMilliseconds < 3_000L && lost = 0 do
+                                        let runtime = make ()
+                                        let fibers = ConcurrentBag<Fiber<int, string>>()
+                                        use go = new ManualResetEventSlim false
+
+                                        let spammers =
+                                            [|
+                                                for _ in 1..4 ->
+                                                    Task.Run(fun () ->
+                                                        go.Wait()
+                                                        let mutable running = true
+                                                        while running do
+                                                            try
+                                                                fibers.Add(runtime.Run(FIO.succeed 1))
+                                                            with :? ObjectDisposedException ->
+                                                                running <- false)
+                                            |]
+
+                                        go.Set()
+                                        Thread.SpinWait(Random.Shared.Next(0, 20_000))
+                                        (runtime :> IDisposable).Dispose()
+                                        Task.WaitAll spammers
+
+                                        for fiber in fibers do
+                                            if not (fiber.Task().Wait(TimeSpan.FromSeconds 2.0)) then
+                                                lost <- lost + 1
+
+                                    Expect.equal lost 0 "Every fiber a successful Run returned should complete")
+                        ]
                 ]
         ]

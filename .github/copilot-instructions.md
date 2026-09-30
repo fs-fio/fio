@@ -30,7 +30,7 @@ dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --list flat        
 
 `FIO<'A, 'E>` is a discriminated union representing lazy effects. DU cases are `internal` — external code uses factory functions and instance methods.
 
-Key DU cases: `Success`/`Failure` (terminal), `Interrupt` (self-interrupt), `Action` (sync side effects), `WriteChan`/`ReadChan` (channels), `ForkEffect` (forking), `JoinFiber` (waiting), `JoinFirst` (first of several fibers to settle), `JoinAllFailFast` (all fibers, settling early on first failure), `AwaitTask` (.NET Task interop), `ChainSuccess`/`ChainError`/`ChainBoth` (bind), `OnFinalize` (finalizer infrastructure), `FiberCancellationToken` (current fiber token), `Suspend` (deferred construction).
+Key DU cases: `Success`/`Failure` (terminal), `Interrupt` (self-interrupt), `Action` (sync side effects), `WriteChan`/`ReadChan` (channels), `ForkEffect` (forking), `JoinFiber` (waiting), `JoinFirst` (first of several fibers to settle), `JoinAllFailFast` (all fibers, settling early on first failure), `AwaitTask` (.NET Task interop), `ChainSuccess`/`ChainError`/`ChainBoth` (bind), `OnFinalize` (finalizer infrastructure), `WithSuppression` (uninterruptible regions and `restore`), `AcquireRelease` (`acquireReleaseWith`: acquire uninterruptibly, then restore interruptibility and register release in one step), `FiberCancellationToken` (current fiber token), `Suspend` (deferred construction).
 
 ### Runtime Hierarchy
 
@@ -116,8 +116,9 @@ let effect = someEffect >>= fun x -> FIO.succeed (x + 1)
 ### Running Effects
 
 ```fsharp
-// Direct
-let fiber = DefaultRuntime().Run effect
+// Direct (a runtime is IDisposable: disposing it interrupts what is still running)
+use runtime = new DefaultRuntime()
+let fiber = runtime.Run effect
 match fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously with
 | Succeeded v -> ...
 | Failed e -> ...

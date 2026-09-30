@@ -11,12 +11,12 @@ module WebSocketExtensions =
     type WebSocket with
 
         /// Sends a value as JSON text, optionally using the given serializer options and cancellation token.
-        member this.SendJson<'A> (value: 'A, ?options: JsonSerializerOptions, ?cancelToken: CancellationToken) =
+        member this.SendJson<'A> (value: 'A, ?options: JsonSerializerOptions, ?cancellationToken: CancellationToken) =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
 
-                let! cancelToken =
-                    match cancelToken with
+                let! cancellationToken =
+                    match cancellationToken with
                     | Some token -> FIO.succeed token
                     | None -> FIO.cancellationToken ()
 
@@ -25,20 +25,20 @@ module WebSocketExtensions =
                         (fun () -> JsonSerializer.Serialize(value, opts))
                         WsError.codecError
 
-                do! this.SendText(jsonString, cancelToken)
+                do! this.SendText(jsonString, cancellationToken)
             }
 
         /// Receives a JSON value, optionally using the given serializer options and cancellation token.
-        member this.ReceiveJson<'A> (?options: JsonSerializerOptions, ?cancelToken: CancellationToken) =
+        member this.ReceiveJson<'A> (?options: JsonSerializerOptions, ?cancellationToken: CancellationToken) =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
 
-                let! cancelToken =
-                    match cancelToken with
+                let! cancellationToken =
+                    match cancellationToken with
                     | Some token -> FIO.succeed token
                     | None -> FIO.cancellationToken ()
 
-                match! this.ReceiveMessage cancelToken with
+                match! this.ReceiveMessage cancellationToken with
                 | Frame(Text json) ->
                     return! FIO.attempt
                         (fun () -> JsonSerializer.Deserialize<'A>(json, opts))

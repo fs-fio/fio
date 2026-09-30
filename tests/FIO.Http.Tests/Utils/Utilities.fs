@@ -19,15 +19,19 @@ open Microsoft.Extensions.Logging
 
 open Expecto
 
+// Two workers, as in the core suite: a default config per test spawns a thread per core per
+// runtime, and the resulting load makes wall-clock deadline assertions flake.
+let testConfig = { WorkerConfig.Default with EvaluationWorkers = 2 }
+
 [<CLIMutable>]
 type TestMessage = { Id: int; Text: string }
 
 let runtimes () =
     [
         new DirectRuntime() :> FIORuntime
-        new PollingRuntime() :> FIORuntime
-        new SignalingRuntime() :> FIORuntime
-        new WorkStealingRuntime() :> FIORuntime
+        new PollingRuntime(testConfig) :> FIORuntime
+        new SignalingRuntime(testConfig) :> FIORuntime
+        new WorkStealingRuntime(testConfig) :> FIORuntime
     ]
 
 let private disposeRuntime (rt: FIORuntime) =

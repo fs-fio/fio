@@ -25,6 +25,7 @@
         <Compile Include="DSL\Operators.fs" />
         <Compile Include="DSL\CE.fs" />
         <Compile Include="Console.fs" />
+        <Compile Include="Signal.fs" />
         <Compile Include="Runtime\Runtime.fs" />
         <Compile Include="Runtime\WorkerInfrastructure.fs" />
         <Compile Include="Runtime\InterpreterCore.fs" />

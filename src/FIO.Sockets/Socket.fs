@@ -46,19 +46,19 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
         (taskFactory: CancellationToken -> Task<'A>)
         (onError: exn -> SocketError) =
         fio {
-            let! cancelToken = FIO.cancellationToken ()
+            let! cancellationToken = FIO.cancellationToken ()
 
             if timeoutMs <= 0 then
                 let task =
                     try
-                        taskFactory cancelToken
+                        taskFactory cancellationToken
                     with ex ->
                         Task.FromException<'A> ex
                 return! FIO.awaitTask task onError
             else
                 return!
                     FIO.suspend <| fun () ->
-                        let linked = CancellationTokenSource.CreateLinkedTokenSource cancelToken
+                        let linked = CancellationTokenSource.CreateLinkedTokenSource cancellationToken
                         linked.CancelAfter timeoutMs
 
                         let task =
@@ -68,7 +68,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
                                 Task.FromException<'A> ex
 
                         let mapError (ex: exn) =
-                            if linked.IsCancellationRequested && not cancelToken.IsCancellationRequested then
+                            if linked.IsCancellationRequested && not cancellationToken.IsCancellationRequested then
                                 TimeoutError $"Operation timed out after {timeoutMs} ms"
                             else
                                 onError ex
@@ -82,12 +82,12 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
         (taskFactory: CancellationToken -> Task)
         (onError: exn -> SocketError) =
         fio {
-            let! cancelToken = FIO.cancellationToken ()
+            let! cancellationToken = FIO.cancellationToken ()
 
             if timeoutMs <= 0 then
                 let task =
                     try
-                        taskFactory cancelToken
+                        taskFactory cancellationToken
                     with ex ->
                         Task.FromException ex
 
@@ -95,7 +95,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
             else
                 return!
                     FIO.suspend <| fun () ->
-                        let linked = CancellationTokenSource.CreateLinkedTokenSource cancelToken
+                        let linked = CancellationTokenSource.CreateLinkedTokenSource cancellationToken
                         linked.CancelAfter timeoutMs
 
                         let task =
@@ -105,7 +105,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
                                 Task.FromException ex
 
                         let mapError (ex: exn) =
-                            if linked.IsCancellationRequested && not cancelToken.IsCancellationRequested then
+                            if linked.IsCancellationRequested && not cancellationToken.IsCancellationRequested then
                                 TimeoutError $"Operation timed out after {timeoutMs} ms"
                             else
                                 onError ex
