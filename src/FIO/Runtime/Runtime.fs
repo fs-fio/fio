@@ -245,16 +245,32 @@ type FIORuntime internal () =
     /// Interrupts every fiber still running on this runtime, waits up to the given time for them to unwind, then stops the runtime's workers.
     /// A concurrent or later call waits for the first one; running an effect afterwards throws. Do not call it from one of this runtime's own fibers.
     member this.Shutdown (timeout: TimeSpan) =
+        if timeout <> Timeout.InfiniteTimeSpan
+           && (timeout < TimeSpan.Zero || timeout.TotalMilliseconds > float Int32.MaxValue) then
+            raise (
+                ArgumentOutOfRangeException(
+                    nameof timeout,
+                    timeout,
+                    "The timeout must be between zero and Int32.MaxValue milliseconds, or Timeout.InfiniteTimeSpan."))
+
         if tryClaim &disposed then
-            for stripe in live do
-                for fiberContext in lock stripe (fun () -> Seq.toArray stripe) do
-                    fiberContext.Interrupt(ExplicitInterrupt, disposedMessage)
+            // Interrupting a fiber can throw, when its handle was disposed or a cancellation callback of its own
+            // did; that must not keep the other fibers from being interrupted or the workers from being stopped.
+            try
+                for stripe in live do
+                    for fiberContext in lock stripe (fun () -> Seq.toArray stripe) do
+                        try
+                            fiberContext.Interrupt(ExplicitInterrupt, disposedMessage)
+                        with _ ->
+                            ()
 
-            if Volatile.Read &liveCount > 0 then
-                unwound.Task.Wait timeout |> ignore
-
-            this.StopWorkers()
-            stopped.TrySetResult() |> ignore
+                if Volatile.Read &liveCount > 0 then
+                    unwound.Task.Wait timeout |> ignore
+            finally
+                try
+                    this.StopWorkers()
+                finally
+                    stopped.TrySetResult() |> ignore
         else
             stopped.Task.Wait timeout |> ignore
 

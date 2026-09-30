@@ -537,6 +537,47 @@ let conformanceTests =
                         (runtime :> IDisposable).Dispose()
                         (runtime :> IDisposable).Dispose())
 
+                    testFreshRuntimes "Dispose - a fiber whose interruption throws does not keep the others from unwinding" (fun runtime ->
+                        let bystanders = 32
+                        let started = new CountdownEvent(bystanders + 1)
+                        let finalized = ref 0
+
+                        let hostile : FIO<unit, string> =
+                            FIO.cancellationToken<string>().FlatMap(fun token ->
+                                token.Register(fun () -> failwith "a cancellation callback threw") |> ignore
+                                started.Signal() |> ignore
+                                FIO.never ())
+
+                        let bystander : FIO<unit, string> =
+                            (FIO.succeedWith(fun () -> started.Signal() |> ignore).FlatMap(fun () -> FIO.never ()))
+                                .Ensuring(FIO.succeedWith (fun () -> Interlocked.Increment finalized |> ignore))
+
+                        runtime.Run hostile |> ignore
+
+                        for _ in 1..bystanders do
+                            runtime.Run bystander |> ignore
+
+                        Expect.isTrue (started.Wait(TimeSpan.FromSeconds 5.0)) "Every fiber should start"
+                        (runtime :> IDisposable).Dispose()
+
+                        Expect.equal finalized.Value bystanders "Dispose should interrupt every fiber and wait for its finalizer"
+
+                        let second = Stopwatch.StartNew()
+                        (runtime :> IDisposable).Dispose()
+                        Expect.isLessThan second.ElapsedMilliseconds 2_000L "The first Dispose should have stopped the workers")
+
+                    testFreshRuntimes "Shutdown - rejects a timeout it cannot wait for, and leaves the runtime running" (fun runtime ->
+                        Expect.throwsT<ArgumentOutOfRangeException>
+                            (fun () -> runtime.Shutdown TimeSpan.MaxValue)
+                            "A timeout beyond what a wait accepts should be rejected"
+
+                        Expect.throwsT<ArgumentOutOfRangeException>
+                            (fun () -> runtime.Shutdown(TimeSpan.FromSeconds -5.0))
+                            "A negative timeout should be rejected"
+
+                        Expect.equal (runtime.Run(FIO.succeed 7 : FIO<int, string>).UnsafeSuccess()) 7 "A rejected Shutdown should not have disposed the runtime"
+                        (runtime :> IDisposable).Dispose())
+
                     testFreshRuntimes "Shutdown - gives up after its timeout when a finalizer never ends" (fun runtime ->
                         let started = new ManualResetEventSlim(false)
 
