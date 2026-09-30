@@ -159,8 +159,12 @@ let cancellationTests =
                         let! server = (WebSocketServer.serve $"http://127.0.0.1:{port}/" config handler).Fork()
                         let! client = connectWhenListening $"ws://127.0.0.1:{port}/"
                         let! _ready = client.ReceiveMessage()
-                        let! _closer = client.ReceiveMessage().FlatMap(fun _ -> client.CloseIfOpen()).Fork()
+                        let! closer = client.ReceiveMessage().FlatMap(fun _ -> client.CloseIfOpen()).Fork()
                         do! server.InterruptNow()
+                        // Ending this effect would interrupt the closer, a scoped child, before the going-away close
+                        // reached it; the handler's finalizer would then close against an aborted peer and wait
+                        // out the send timeout on Linux and Windows. Let the client answer the close first.
+                        do! closer.Await().Unit()
                     }
 
                 let stopwatch = Stopwatch.StartNew()
