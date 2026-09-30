@@ -182,8 +182,9 @@ type FIOApp<'A, 'E>() as this =
                                         PosixSignalRegistration.Create(
                                             signal,
                                             fun context ->
-                                                let claimed = requestShutdownFrom (string context.Signal)
-                                                context.Cancel <- claimed))
+                                                // Only set, never cleared: another handler may have cancelled the signal.
+                                                if requestShutdownFrom (string context.Signal) then
+                                                    context.Cancel <- true))
                                 with ex ->
                                     eprintfn "FIOApp failed to register %O handler: %s" signal ex.Message
                                     None)
@@ -191,8 +192,9 @@ type FIOApp<'A, 'E>() as this =
                         let handler =
                             ConsoleCancelEventHandler(fun _ args ->
                                 let source = string args.SpecialKey
-                                let claimed = requestShutdownFrom source
-                                args.Cancel <- claimed)
+
+                                if requestShutdownFrom source then
+                                    args.Cancel <- true)
 
                         try
                             Console.CancelKeyPress.AddHandler handler
