@@ -134,21 +134,12 @@ type FIOApp<'A, 'E>() as this =
             | ex ->
                 eprintfn "FIOApp %s hook threw: %s" label ex.Message
 
-            if timedOut then
-                match fiberOpt with
-                | Some fiber ->
-                    fiber.Context.Interrupt(
-                        ExplicitInterrupt,
-                        sprintf "%s hook exceeded timeout." label)
-
-                    try
-                        let! _ = (fiber.Task()).WaitAsync(TimeSpan.FromSeconds 2.0)
-                        ()
-                    with :? TimeoutException ->
-                        ()
-                | None -> ()
-
             match fiberOpt with
+            | Some fiber when timedOut ->
+                // An interrupted fiber publishes before its finalizers run, so there is nothing to wait for here: the
+                // runtime's disposal waits for it to unwind. Its handle is not disposed either, since disposing the
+                // cancellation source a finalizer still reads would end that finalizer as a defect.
+                fiber.Context.Interrupt(ExplicitInterrupt, sprintf "%s hook exceeded timeout." label)
             | Some fiber -> (fiber :> IDisposable).Dispose()
             | None -> ()
         }

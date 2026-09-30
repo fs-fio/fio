@@ -351,6 +351,26 @@ let appTests =
                             let exitCode = app.Run()
 
                             Expect.equal exitCode 0 "Timed-out shutdown should still produce the main outcome's exit code")
+
+                    testCase "onShutdownTimeout - a timed-out hook still runs all its finalizers before Run returns"
+                    <| fun () ->
+                        silenceErr (fun () ->
+                            let log = ResizeArray()
+                            let outerFinalizerRan = ref false
+
+                            // The inner finalizer outlives the timeout; the outer one runs only if the fiber survives it.
+                            let hook: FIO<unit, string> =
+                                (FIO.never ())
+                                    .Ensuring(FIO.sleep (TimeSpan.FromMilliseconds 300.0))
+                                    .Ensuring(FIO.succeedWith (fun () -> outerFinalizerRan.Value <- true))
+
+                            let app =
+                                TestApp(FIO.succeed 42, log, onShutdown = hook, shutdownTimeout = TimeSpan.FromMilliseconds 100.0)
+
+                            let exitCode = app.Run()
+
+                            Expect.equal exitCode 0 "A timed-out shutdown hook should keep the main outcome's exit code"
+                            Expect.isTrue outerFinalizerRan.Value "Every finalizer of the interrupted hook should run before Run returns")
                 ]
 
             testList
