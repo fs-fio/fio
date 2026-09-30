@@ -331,9 +331,20 @@ let inline attachFork (parentContext: FiberContext) (childContext: FiberContext)
         let scope =
             if uninterruptible then parentContext.ProtectedChildScopeToken else parentContext.ChildScopeToken
 
+        // Interrupting a child interrupts its own children from inside this callback, one level of stack each.
         let registration =
             scope.Register(fun () ->
-                childContext.Interrupt(ParentInterrupted parentContext.Id, "Parent fiber scope closed."))
+                if RuntimeHelpers.TryEnsureSufficientExecutionStack() then
+                    childContext.Interrupt(ParentInterrupted parentContext.Id, "Parent fiber scope closed.")
+                else
+                    ThreadPool.UnsafeQueueUserWorkItem(
+                        WaitCallback(fun _ ->
+                            try
+                                childContext.Interrupt(ParentInterrupted parentContext.Id, "Parent fiber scope closed.")
+                            with _ ->
+                                ()),
+                        null)
+                    |> ignore)
         childContext.AddRegistration registration
         childContext.AttachTo parentContext
 

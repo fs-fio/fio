@@ -7,6 +7,7 @@ open System.Threading.Channels
 open System.Collections.Generic
 open System.Collections.Concurrent
 open System.Runtime.ExceptionServices
+open System.Runtime.CompilerServices
 
 // The mapper for effects that cannot fail: a throwing mapper becomes a Defect in the interpreter. It
 // rethrows via ExceptionDispatchInfo because a plain raise would reset the original stack trace.
@@ -312,9 +313,15 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
            && tryClaim &published then
             this.Publish pendingValue
 
+    // A child's publish finishes its parent, whose publish finishes its own parent: one set of frames per level
+    // of a chain of nested forks, on the thread that completed the leaf.
     member private this.OnChildUnwound () =
         Interlocked.Decrement &outstanding |> ignore
-        this.TryFinish()
+
+        if RuntimeHelpers.TryEnsureSufficientExecutionStack() then
+            this.TryFinish()
+        else
+            ThreadPool.UnsafeQueueUserWorkItem(WaitCallback(fun _ -> this.TryFinish()), null) |> ignore
 
     member internal this.Complete value =
         this.CompleteInternal(value, null)
