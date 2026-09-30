@@ -143,17 +143,33 @@ type WebSocket
 
                     let effectiveToken = if isNull linkedCts then cancellationToken else linkedCts.Token
                     let lockTask = receiveLock.WaitAsync effectiveToken
-                    Ok struct (timeoutCts, linkedCts, effectiveToken, lockTask, ref (ArrayPool<byte>.Shared.Rent bufferSize)))
+                    let pending: Task<WebSocketReceiveResult> ref = ref null
+                    Ok struct (timeoutCts, linkedCts, effectiveToken, lockTask, ref (ArrayPool<byte>.Shared.Rent bufferSize), pending))
                 .FlatMap FIO.fromResult
 
-        let release struct (timeoutCts: CancellationTokenSource, linkedCts: CancellationTokenSource, _: CancellationToken, lockTask: Task, rented: byte[] ref) =
+        // A receive the fiber gave up on, through an interruption or a caller's token that is not the fiber's, still
+        // reads into the rented array and holds the lock, so the clean-up waits for it instead of handing the array
+        // to the next renter under a pending read.
+        let release struct (timeoutCts: CancellationTokenSource, linkedCts: CancellationTokenSource, _: CancellationToken, lockTask: Task, rented: byte[] ref, pending: Task<WebSocketReceiveResult> ref) =
             FIO.succeedWith <| fun () ->
-                ArrayPool<byte>.Shared.Return rented.Value
-                releaseLogged "receiveLock release" (fun () -> releasePermitWhenGranted receiveLock lockTask)
-                releaseLogged "linkedCts disposal" (fun () -> if not (isNull linkedCts) then linkedCts.Dispose())
-                releaseLogged "timeoutCts disposal" (fun () -> if not (isNull timeoutCts) then timeoutCts.Dispose())
+                let cleanUp () =
+                    ArrayPool<byte>.Shared.Return rented.Value
+                    releaseLogged "receiveLock release" (fun () -> releasePermitWhenGranted receiveLock lockTask)
+                    releaseLogged "linkedCts disposal" (fun () -> if not (isNull linkedCts) then linkedCts.Dispose())
+                    releaseLogged "timeoutCts disposal" (fun () -> if not (isNull timeoutCts) then timeoutCts.Dispose())
 
-        let receive struct (timeoutCts: CancellationTokenSource, _: CancellationTokenSource, effectiveToken: CancellationToken, lockTask: Task, rented: byte[] ref) =
+                match pending.Value with
+                | null -> cleanUp ()
+                | receive when receive.IsCompleted -> cleanUp ()
+                | receive ->
+                    receive.ContinueWith(
+                        (fun (completed: Task<WebSocketReceiveResult>) ->
+                            completed.Exception |> ignore
+                            cleanUp ()),
+                        TaskContinuationOptions.ExecuteSynchronously)
+                    |> ignore
+
+        let receive struct (timeoutCts: CancellationTokenSource, _: CancellationTokenSource, effectiveToken: CancellationToken, lockTask: Task, rented: byte[] ref, pending: Task<WebSocketReceiveResult> ref) =
             let computation =
                 fio {
                     do! FIO.awaitUnitTask lockTask receiveError
@@ -173,8 +189,10 @@ type WebSocket
                                     ArrayPool<byte>.Shared.Return rented.Value
                                     rented.Value <- larger) receiveError
 
-                        let! receiveTask = FIO.attempt (fun () ->
-                            socket.ReceiveAsync(ArraySegment(rented.Value, length, bufferSize), effectiveToken)) receiveError
+                        let! receiveTask =
+                            FIO.attempt (fun () ->
+                                pending.Value <- socket.ReceiveAsync(ArraySegment(rented.Value, length, bufferSize), effectiveToken)
+                                pending.Value) receiveError
 
                         let! receiveResult = FIO.awaitTask receiveTask receiveError
 
