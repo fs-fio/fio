@@ -53,7 +53,7 @@ jobs:
       - name: Run tests
         run: >
           dotnet test --no-build --verbosity normal ./FIO.slnx
-          --logger "trx;LogFileName=${{ matrix.os }}.trx"
+          --logger "trx;LogFilePrefix=${{ matrix.os }}"
           --results-directory ./test-results
 
       - name: Upload test results
