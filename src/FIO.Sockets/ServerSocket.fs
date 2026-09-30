@@ -131,8 +131,9 @@ module ServerSocket =
                         let closeSocket = socket.Close().CatchAll(logAndSuppress "accepted socket close")
                         let handedOff = ref false
 
+                        // The handler is called in its own fiber: one that throws ends its connection, not the loop.
                         let handlerWithCleanup =
-                            (handler socket)
+                            (FIO.suspend (fun () -> handler socket))
                                 .Ensuring(closeSocket)
                                 .Ensuring(slots.Write())
 

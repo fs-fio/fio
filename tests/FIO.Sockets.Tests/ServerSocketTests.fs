@@ -263,5 +263,43 @@ let serverSocketTests =
 
                         Expect.equal reply "still alive" "A failing handler must not stop the accept loop"
                         Expect.isGreaterThanOrEqual attempts.Value 2 "The loop must have accepted a second connection")
+
+                    testAllRuntimes "acceptLoop survives a handler that throws, closes its connection and keeps serving" (fun runtime ->
+                        let attempts = ref 0
+
+                        let throwingHandler (socket: Socket) : FIO<unit, SocketError> =
+                            if Interlocked.Increment attempts = 1 then
+                                failwith "handler threw"
+                            else
+                                fio {
+                                    do! socket.Send(Codec.line, "still alive")
+                                    do! socket.Close()
+                                }
+
+                        let effect =
+                            fio {
+                                let! config = ServerSocketConfig.create "127.0.0.1" 0
+                                let! server = ServerSocket.bind config
+                                let! ep = ServerSocket.getLocalEndPoint server
+                                let port = (ep :?> IPEndPoint).Port
+                                let! loopFiber = (ServerSocket.acceptLoop throwingHandler server).Fork()
+
+                                let! first = connectWhenListening "127.0.0.1" port
+                                let! firstOutcome = first.Receive(Codec.line, 1024).Timeout(System.TimeSpan.FromSeconds 5.0).Result()
+                                do! first.Close()
+
+                                let! second = connectWhenListening "127.0.0.1" port
+                                let! reply = second.Receive(Codec.line, 1024).Timeout(System.TimeSpan.FromSeconds 5.0)
+                                do! second.Close()
+
+                                do! loopFiber.InterruptNow()
+                                do! ServerSocket.close server
+                                return firstOutcome, reply
+                            }
+
+                        let firstOutcome, reply = runWithTimeout runtime effect
+
+                        Expect.isError firstOutcome "The connection whose handler threw should be closed, not left open"
+                        Expect.equal reply (Some "still alive") "A handler that throws must not stop the accept loop")
                 ]
         ]
