@@ -192,6 +192,9 @@ its parameters, and the A/B comparison protocol are documented in
 Each extension library has its own README with API details:
 [Http](https://github.com/fs-fio/fio/blob/main/src/FIO.Http/README.md) · [Sockets](https://github.com/fs-fio/fio/blob/main/src/FIO.Sockets/README.md) · [WebSockets](https://github.com/fs-fio/fio/blob/main/src/FIO.WebSockets/README.md).
 
+What changed in each release, including the breaking changes, is in the
+[changelog](https://github.com/fs-fio/fio/blob/main/CHANGELOG.md).
+
 ## Contributing
 
 [Issues](https://github.com/fs-fio/fio/issues) and pull requests welcome. See
