@@ -101,6 +101,27 @@ let webSocketTests =
                                 })
                             runtime)
 
+                    testAllRuntimes "ReceiveMessage past MaxMessageSize aborts the connection rather than returning the rest as a message" (fun runtime ->
+                        withTestServer
+                            echoHandler
+                            (fun port ->
+                                fio {
+                                    let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withMaxMessageSize 10_000L
+                                    let! ws = WebSocketClient.connect (Uri $"ws://localhost:{port}/") config Threading.CancellationToken.None
+                                    do! ws.SendText(String('x', 16_384))
+                                    let! first = ws.ReceiveMessage().Result()
+                                    let! second = ws.ReceiveMessage().Result()
+
+                                    match first with
+                                    | Error(MessageTooLarge _) -> ()
+                                    | other -> failtest $"Expected MessageTooLarge but got {other}"
+
+                                    match second with
+                                    | Error(Closed _) -> ()
+                                    | other -> failtest $"Expected a closed connection after an oversized message, but the next receive gave {other}"
+                                })
+                            runtime)
+
                     testAllRuntimes "Send/Receive with text codec roundtrip" (fun runtime ->
                         withTestServer
                             echoHandler

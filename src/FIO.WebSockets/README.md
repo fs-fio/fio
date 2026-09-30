@@ -72,7 +72,7 @@ without inspecting messages:
 | `ReceiveFailed` / `SendFailed` | a transport fault while receiving or sending |
 | `ConnectionFailed` | connecting, listening, or accepting |
 | `TimeoutError` | the configured send or receive timeout elapsed |
-| `MessageTooLarge` | a message exceeded `MaxMessageSize` |
+| `MessageTooLarge` | a message exceeded `MaxMessageSize`; the connection is aborted, since the rest of the message is unread |
 | `GeneralError` | anything unclassified |
 
 `WsError.fromException` / `WsError.toException` bridge raw exceptions. A chat-style loop that stops on

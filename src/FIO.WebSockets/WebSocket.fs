@@ -188,7 +188,9 @@ type WebSocket
                             let count = receiveResult.Count
                             totalSize <- totalSize + int64 count
 
+                            // The rest of the message is unread, and a later receive would take it for a new one.
                             if totalSize > config.MaxMessageSize then
+                                do! attempt (fun () -> socket.Abort())
                                 return! FIO.fail (MessageTooLarge(totalSize, config.MaxMessageSize))
 
                             length <- length + count
