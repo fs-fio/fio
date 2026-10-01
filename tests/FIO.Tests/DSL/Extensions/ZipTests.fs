@@ -376,7 +376,7 @@ let tests =
                         Expect.equal handled 0 "No error handler should run for a success handler's failure"
 
                     testAllRuntimes "FoldFIO - deep recursion through the success handler completes" (fun runtime ->
-                        let rec loop depth : FIO<int, string> =
+                        let rec loop depth =
                             if depth = 0 then
                                 FIO.succeed 42
                             else

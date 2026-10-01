@@ -38,7 +38,7 @@ module WebSocketServer =
 
     /// Starts an HTTP listener on the given URL prefix; a specific host also filters by Host header, 0.0.0.0 and [::]
     /// mean any host.
-    let start (url: string) =
+    let start (url: string) : FIO<HttpListener, WsError> =
         let url = allInterfaces url
         fio {
             let! listener =
@@ -55,18 +55,18 @@ module WebSocketServer =
         }
 
     /// Starts an HTTP listener bound to the given URL prefix. Alias for start.
-    let startDefault (url: string) =
+    let startDefault (url: string) : FIO<HttpListener, WsError> =
         start url
 
     /// Stops a listener, gracefully completing in-flight requests, suppressing errors.
-    let close (listener: HttpListener) =
+    let close (listener: HttpListener) : FIO<unit, WsError> =
         (FIO.attempt
             (fun () -> listener.Stop())
             WsError.fromException
         ).CatchAll(logAndSuppress "websocket listener close")
 
     /// Aborts a listener immediately, dropping in-flight requests, suppressing errors.
-    let abort (listener: HttpListener) =
+    let abort (listener: HttpListener) : FIO<unit, WsError> =
         (FIO.attempt
             (fun () -> listener.Abort())
             WsError.fromException
@@ -130,7 +130,7 @@ module WebSocketServer =
 
     /// Accepts the next WebSocket connection, optionally negotiating the given subprotocol; interrupting it stops the
     /// listener and with it the connections accepted earlier.
-    let accept (listener: HttpListener) (config: WebSocketConfig) (subProtocol: string option) =
+    let accept (listener: HttpListener) (config: WebSocketConfig) (subProtocol: string option) : FIO<WebSocket, WsError> =
         fio {
             let! cancellationToken = FIO.cancellationToken ()
 
@@ -140,16 +140,16 @@ module WebSocketServer =
         }
 
     /// Accepts the next WebSocket connection without negotiating a subprotocol.
-    let acceptDefault (listener: HttpListener) (config: WebSocketConfig) =
+    let acceptDefault (listener: HttpListener) (config: WebSocketConfig) : FIO<WebSocket, WsError> =
         accept listener config None
 
     /// Accepts connections continuously, forking the handler for each. Interrupting it shuts down: open connections get
     /// a going-away close and the shutdown timeout to finish, the rest are interrupted, and the listener stops.
-    let acceptLoop (listener: HttpListener) (config: WebSocketConfig) (handler: WebSocket -> FIO<unit, WsError>) =
+    let acceptLoop (listener: HttpListener) (config: WebSocketConfig) (handler: WebSocket -> FIO<unit, WsError>) : FIO<unit, WsError> =
         FIO.suspend <| fun () ->
             let connections = ConcurrentDictionary<WebSocket, Connection>(HashIdentity.Reference)
             // The request being awaited outlives an interruption, so the shutdown refuses it instead of losing it.
-            let pending: Task<HttpListenerContext> ref = ref null
+            let pending = ref null
 
             let nextRequest =
                 (FIO.attempt
@@ -211,7 +211,7 @@ module WebSocketServer =
                             do! FIO.sleep (TimeSpan.FromMilliseconds 25.0)
                         })
 
-            let rec refuse () : FIO<unit, WsError> =
+            let rec refuse () =
                 fio {
                     match! nextRequest.Map(Some).CatchAll(fun _ -> FIO.succeed None) with
                     | Some request ->
@@ -268,7 +268,7 @@ module WebSocketServer =
             step.Forever<unit>().Ensuring(shutdown.CatchAll(logAndSuppress "shutdown"))
 
     /// Starts a listener and accepts connections until interrupted, then shuts down as acceptLoop does and closes it.
-    let serve (url: string) (config: WebSocketConfig) (handler: WebSocket -> FIO<unit, WsError>) =
+    let serve (url: string) (config: WebSocketConfig) (handler: WebSocket -> FIO<unit, WsError>) : FIO<unit, WsError> =
         FIO.acquireReleaseWith
             (start url)
             (fun listener -> (close listener).FlatMap(fun () -> dispose listener))
@@ -280,7 +280,7 @@ module WebSocketServer =
         (config: WebSocketConfig)
         (requestCodec: WebSocketCodec<'A>)
         (responseCodec: WebSocketCodec<'A1>)
-        (handler: 'A -> FIO<'A1, WsError>) =
+        (handler: 'A -> FIO<'A1, WsError>) : FIO<unit, WsError> =
         let wsHandler (ws: WebSocket) =
             fio {
                 let! request = ws.Receive requestCodec

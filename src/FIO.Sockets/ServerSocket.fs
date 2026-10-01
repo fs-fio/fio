@@ -32,7 +32,7 @@ module ServerSocket =
                 | None -> raise (ArgumentException $"Could not resolve bind address '{config.BindAddress}'")
 
     /// Binds and starts listening on the given configuration, returning an open server socket.
-    let bind (config: ServerSocketConfig) =
+    let bind (config: ServerSocketConfig) : FIO<ServerSocket, SocketError> =
         fio {
             let! netSocket =
                 FIO.attempt
@@ -54,7 +54,7 @@ module ServerSocket =
         }
 
     /// Closes a server socket, suppressing errors.
-    let close (serverSocket: ServerSocket) =
+    let close (serverSocket: ServerSocket) : FIO<unit, SocketError> =
         (FIO.attempt
             (fun () ->
                 serverSocket.NetSocket.Close()
@@ -63,15 +63,15 @@ module ServerSocket =
         ).CatchAll(logAndSuppress "server socket close")
 
     /// Binds a server socket for use as a resource acquisition. Alias for bind.
-    let acquire (config: ServerSocketConfig) =
+    let acquire (config: ServerSocketConfig) : FIO<ServerSocket, SocketError> =
         bind config
 
     /// Closes a server socket for use as a resource release. Alias for close.
-    let release (serverSocket: ServerSocket) =
+    let release (serverSocket: ServerSocket) : FIO<unit, SocketError> =
         close serverSocket
 
     /// Binds a server socket, runs an action with it, then closes it.
-    let withServerSocket (config: ServerSocketConfig) (action: ServerSocket -> FIO<'A, SocketError>) =
+    let withServerSocket (config: ServerSocketConfig) (action: ServerSocket -> FIO<'A, SocketError>) : FIO<'A, SocketError> =
         FIO.acquireReleaseWith (acquire config) release action
 
     let private acceptWith (serverSocket: ServerSocket) (cancellationToken: CancellationToken) =
@@ -103,18 +103,18 @@ module ServerSocket =
         }
 
     /// Accepts the next incoming connection, returning a socket for the accepted client.
-    let accept (serverSocket: ServerSocket) =
+    let accept (serverSocket: ServerSocket) : FIO<Socket, SocketError> =
         FIO.cancellationToken().FlatMap(acceptWith serverSocket)
 
     /// The default maximum number of concurrently running connection handlers.
     [<Literal>]
-    let DefaultMaxConcurrentHandlers = 1024
+    let DefaultMaxConcurrentHandlers : int = 1024
 
     /// Continuously accepts connections, running the handler for each with bounded concurrency.
     let acceptLoopWith
         (maxConcurrentHandlers: int)
         (handler: Socket -> FIO<unit, SocketError>)
-        (serverSocket: ServerSocket) =
+        (serverSocket: ServerSocket) : FIO<unit, SocketError> =
         fio {
             let slots = Channel<unit>()
 
@@ -158,19 +158,19 @@ module ServerSocket =
         }
 
     /// Continuously accepts connections, running the handler for each using the default concurrency limit.
-    let acceptLoop (handler: Socket -> FIO<unit, SocketError>) (serverSocket: ServerSocket) =
+    let acceptLoop (handler: Socket -> FIO<unit, SocketError>) (serverSocket: ServerSocket) : FIO<unit, SocketError> =
         acceptLoopWith DefaultMaxConcurrentHandlers handler serverSocket
 
     /// The configuration the given server socket was created with.
-    let getConfig (serverSocket: ServerSocket) =
+    let getConfig (serverSocket: ServerSocket) : ServerSocketConfig =
         serverSocket.Config
 
     /// Returns an effect that yields the local endpoint the given server socket is bound to.
-    let getLocalEndPoint (serverSocket: ServerSocket) =
+    let getLocalEndPoint (serverSocket: ServerSocket) : FIO<EndPoint, SocketError> =
         FIO.attempt (fun () -> serverSocket.NetSocket.LocalEndPoint) SocketError.fromException
 
     /// Binds, accepts connections, and runs the handler for each until interrupted, then closes the server.
-    let serve (config: ServerSocketConfig) (handler: Socket -> FIO<unit, SocketError>) =
+    let serve (config: ServerSocketConfig) (handler: Socket -> FIO<unit, SocketError>) : FIO<unit, SocketError> =
         withServerSocket config (fun serverSocket -> acceptLoop handler serverSocket)
 
     /// Serves a request/response protocol, decoding each request and encoding each reply with the given buffer size.
@@ -179,7 +179,7 @@ module ServerSocket =
         (responseCodec: SocketCodec<'A1>)
         (handler: 'A -> FIO<'A1, SocketError>)
         (config: ServerSocketConfig)
-        (bufferSize: int) =
+        (bufferSize: int) : FIO<unit, SocketError> =
         let connectionHandler (socket: Socket) =
             fio {
                 let! request = socket.Receive(requestCodec, bufferSize)
@@ -193,5 +193,5 @@ module ServerSocket =
         (requestCodec: SocketCodec<'A>)
         (responseCodec: SocketCodec<'A1>)
         (handler: 'A -> FIO<'A1, SocketError>)
-        (config: ServerSocketConfig) =
+        (config: ServerSocketConfig) : FIO<unit, SocketError> =
         serveWithBufferSize requestCodec responseCodec handler config 8192

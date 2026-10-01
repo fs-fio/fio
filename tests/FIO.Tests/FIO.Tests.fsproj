@@ -41,7 +41,6 @@
 
         <!-- Lib -->
         <Compile Include="Lib/ConsoleTests.fs" />
-        <Compile Include="Lib/SignalTests.fs" />
 
         <!-- Framework -->
         <Compile Include="Runtime/ConformanceTests.fs" />

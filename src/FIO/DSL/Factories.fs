@@ -347,7 +347,7 @@ module FIO =
         let all = Seq.append (Seq.singleton head) tail
         (collectAllPar all).Map(List.reduce func)
 
-    let inline private splitResults<'A, 'E> (results: Result<'A, 'E> list) : 'E list * 'A list =
+    let inline private splitResults<'A, 'E> (results: Result<'A, 'E> list) =
         let folder (errors, values) = function
             | Ok value -> errors, value :: values
             | Error error -> error :: errors, values

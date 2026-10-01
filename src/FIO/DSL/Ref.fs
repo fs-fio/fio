@@ -7,10 +7,10 @@ open System.Threading
 [<Sealed>]
 type Ref<'A>(initial: 'A) =
 
-    let mutable cell: obj = box initial
+    let mutable cell = box initial
 
     [<TailCall>]
-    let rec cas (transition: 'A -> 'B * 'A) : 'B =
+    let rec cas (transition: 'A -> 'B * 'A) =
         let current = Volatile.Read &cell
         let result, next = transition (unbox<'A> current)
 

@@ -19,18 +19,18 @@ type FIOWorkerRuntime internal (config: WorkerConfig) as this =
     do validateWorkerConfiguration ()
 
     /// The worker configuration this runtime was created with.
-    member _.WorkerConfig =
+    member _.WorkerConfig : WorkerConfig =
         config
 
-    override _.ConfigString =
+    override _.ConfigString : string =
         $"""EWC: %s{config.EvaluationWorkers.ToString("N0", cultureEnUs)} EWS: %s{config.EvaluationSteps.ToString("N0", cultureEnUs)} BWC: %s{config.BlockingWorkers.ToString("N0", cultureEnUs)}"""
 
-    override this.ToString () =
+    override this.ToString () : string =
         $"{this.Name} ({this.ConfigString})"
 
 module internal WorkerLifecycle =
 
-    let startWorker (workerName: string) (innerLoop: CancellationToken -> Task<unit>) : struct (CancellationTokenSource * Task) =
+    let startWorker (workerName: string) (innerLoop: CancellationToken -> Task<unit>) =
         let cancelSource = new CancellationTokenSource()
         let cancellationToken = cancelSource.Token
 
@@ -59,8 +59,7 @@ module internal WorkerBuilders =
         (blockingCount: int)
         (evaluationCount: int)
         ([<InlineIfLambda>] blockingFactory: int -> 'A)
-        ([<InlineIfLambda>] evaluationFactory: int -> 'A -> 'A1)
-        : struct ('A list * 'A1 list) =
+        ([<InlineIfLambda>] evaluationFactory: int -> 'A -> 'A1) =
         let blockingWorkers = List.init blockingCount blockingFactory
         let blockingWorkerCount = blockingWorkers.Length
 

@@ -21,7 +21,7 @@ module SocketClient =
             SocketError.fromException
 
     /// Connects to a remote host using the given configuration, returning an open socket.
-    let connect (config: SocketConfig) =
+    let connect (config: SocketConfig) : FIO<Socket, SocketError> =
         fio {
             let! netSocket = createNetSocket config
 
@@ -40,14 +40,14 @@ module SocketClient =
         }
 
     /// Connects to the given host and port using default configuration, returning an open socket.
-    let connectWith (host: string) (port: int) =
+    let connectWith (host: string) (port: int) : FIO<Socket, SocketError> =
         fio {
             let! config = SocketConfig.create host port
             return! connect config
         }
 
     /// Connects, runs an action with the open socket, then closes the connection.
-    let withConnection (config: SocketConfig) (action: Socket -> FIO<'A, SocketError>) =
+    let withConnection (config: SocketConfig) (action: Socket -> FIO<'A, SocketError>) : FIO<'A, SocketError> =
         // Acquire runs uninterruptibly, so it only creates the socket; the connect happens in use,
         // where an interruption still cancels it, and release also covers a socket that never connected.
         let release (netSocket: Sockets.Socket) =
@@ -69,16 +69,16 @@ module SocketClient =
         FIO.acquireReleaseWith (createNetSocket config) release connectThenAct
 
     /// Connects to the given host and port, runs an action with the open socket, then closes the connection.
-    let withConnectionTo (host: string) (port: int) (action: Socket -> FIO<'A, SocketError>) =
+    let withConnectionTo (host: string) (port: int) (action: Socket -> FIO<'A, SocketError>) : FIO<'A, SocketError> =
         fio {
             let! config = SocketConfig.create host port
             return! withConnection config action
         }
 
     /// Connects, sends a single value encoded with the given codec, then closes the connection.
-    let sendWith<'A> (codec: SocketCodec<'A>) (value: 'A) (config: SocketConfig) =
+    let sendWith<'A> (codec: SocketCodec<'A>) (value: 'A) (config: SocketConfig) : FIO<unit, SocketError> =
         withConnection config (fun socket -> socket.Send(codec, value))
 
     /// Connects, receives a single value decoded with the given codec, then closes the connection.
-    let receiveWith<'A> (codec: SocketCodec<'A>) (maxBytes: int) (config: SocketConfig) =
+    let receiveWith<'A> (codec: SocketCodec<'A>) (maxBytes: int) (config: SocketConfig) : FIO<'A, SocketError> =
         withConnection config (fun socket -> socket.Receive(codec, maxBytes))

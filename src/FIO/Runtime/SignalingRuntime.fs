@@ -78,7 +78,7 @@ and SignalingRuntime(config: WorkerConfig) as this =
     do this.StopWorkers <- fun () ->
         evaluationWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
 
-    override _.Name =
+    override _.Name : string =
         "SignalingRuntime"
 
     /// Creates the runtime with the default worker configuration.

@@ -158,7 +158,7 @@ let cancellationTests =
                 let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withShutdownTimeout 500
                 let attempts = ref 0
 
-                let handler (ws: WebSocket) : FIO<unit, WsError> =
+                let handler (ws: WebSocket) =
                     if Interlocked.Increment attempts = 1 then
                         failwith "handler threw"
                     else

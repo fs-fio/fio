@@ -295,7 +295,7 @@ and PollingRuntime(config: WorkerConfig) as this =
         blockingWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
         evaluationWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
 
-    override _.Name = "PollingRuntime"
+    override _.Name : string = "PollingRuntime"
 
     /// Creates the runtime with the default worker configuration.
     new() = new PollingRuntime(WorkerConfig.Default)

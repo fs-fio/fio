@@ -17,9 +17,9 @@ module private StdinReader =
 
     let private requests = new BlockingCollection<Request>()
 
-    let mutable private pendingLine: string voption = ValueNone
+    let mutable private pendingLine = ValueNone
 
-    let mutable private pendingKey: ConsoleKeyInfo voption = ValueNone
+    let mutable private pendingKey = ValueNone
 
     let private serve (tcs: TaskCompletionSource<'T>) (stash: byref<'T voption>) (read: unit -> 'T) =
         match stash with
@@ -30,7 +30,7 @@ module private StdinReader =
                 stash <- ValueSome value
         | ValueNone ->
             let mutable value = Unchecked.defaultof<'T>
-            let mutable thrown: exn = null
+            let mutable thrown = null
 
             try
                 value <- read ()

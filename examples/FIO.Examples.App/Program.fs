@@ -406,8 +406,8 @@ type FiberFromTaskApp() =
 
         fio {
             let! fiber35 = fibonacci 35L
-            and! fiber40 = fibonacci 40L
-            and! fiber45 = fibonacci 45L
+            let! fiber40 = fibonacci 40L
+            let! fiber45 = fibonacci 45L
 
             do! await fiber35 <&&> await fiber40 <&&> await fiber45
         }
@@ -434,8 +434,8 @@ type FiberFromGenericTaskApp() =
 
         fio {
             let! fiber35 = fibonacci 35L
-            and! fiber40 = fibonacci 40L
-            and! fiber45 = fibonacci 45L
+            let! fiber40 = fibonacci 40L
+            let! fiber45 = fibonacci 45L
 
             do! awaitAndPrint fiber35 <&&> awaitAndPrint fiber40 <&&> awaitAndPrint fiber45
         }

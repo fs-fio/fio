@@ -244,7 +244,7 @@ let tests =
 
                     testCase "firstSuccessOf - only evaluates effects up to the first success"
                     <| fun () ->
-                        let runtime: FIORuntime = new WorkStealingRuntime() :> FIORuntime
+                        let runtime = new WorkStealingRuntime() :> FIORuntime
                         let mutable evaluated = 0
                         let bump effect =
                             FIO.suspend (fun () ->
@@ -402,7 +402,7 @@ let tests =
                     stressTestAllRuntimes "raceAll - stress: repeated re-parks over surviving racers" (fun runtime ->
                         let iterations = 500
 
-                        let rec loop i : FIO<unit, exn> =
+                        let rec loop i =
                             if i = 0 then
                                 FIO.unit ()
                             else

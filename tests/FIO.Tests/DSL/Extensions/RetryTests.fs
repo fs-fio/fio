@@ -23,7 +23,7 @@ let private failingExnCounter (count: int ref) : FIO<int, exn> =
         return! FIO.fail (exn (string count.Value))
     }
 
-let private failingUntil (limit: int) (count: int ref) : FIO<int, exn> =
+let private failingUntil (limit: int) (count: int ref) =
     fio {
         count.Value <- count.Value + 1
 
@@ -33,14 +33,14 @@ let private failingUntil (limit: int) (count: int ref) : FIO<int, exn> =
             return count.Value
     }
 
-let private countingAttempt (count: int ref) : FIO<int, exn> =
+let private countingAttempt (count: int ref) =
     FIO.attempt
         (fun () ->
             count.Value <- count.Value + 1
             count.Value)
         id
 
-let private predicateFailingAt (limit: int) (otherwise: bool) (n: int) : FIO<bool, exn> =
+let private predicateFailingAt (limit: int) (otherwise: bool) (n: int) =
     if n >= limit then FIO.fail (exn "pred-error") else FIO.succeed otherwise
 
 let private stackSafety name (run: int ref -> FIORuntime -> int) =

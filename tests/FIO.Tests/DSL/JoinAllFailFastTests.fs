@@ -133,7 +133,7 @@ let joinAllFailFastTests =
                 let sentinel = -1
                 let iterations = 1000
 
-                let rec loop i : FIO<unit, int> =
+                let rec loop i =
                     if i = 0 then
                         FIO.unit ()
                     else

@@ -17,7 +17,7 @@ let private partialEffect a h lo hi =
         id
 
 // Builds the Trapezoidal workload: parallel numerical integration approximating pi.
-let effect workerCount pointCount : FIO<unit, exn> =
+let effect workerCount pointCount =
     fio {
         let a, b = 0.0, 1.0
         let h = (b - a) / float pointCount

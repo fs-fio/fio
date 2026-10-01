@@ -29,7 +29,7 @@ type FIOApp<'A, 'E>() as this =
     let mutable running = 0
 
     [<VolatileField>]
-    let mutable effectContext: FiberContext option = None
+    let mutable effectContext = None
 
     [<VolatileField>]
     let mutable shutdownRequested = 0
@@ -77,30 +77,30 @@ type FIOApp<'A, 'E>() as this =
 
     /// The runtime used to run the effect, disposed when the application ends. Defaults to the recommended runtime.
     abstract member runtime: FIORuntime
-    default _.runtime = new DefaultRuntime()
+    default _.runtime : FIORuntime = new DefaultRuntime()
 
     /// An effect run with the application's settled outcome, after the effect's finalizers and before onShutdown;
     /// no-op by default.
     abstract member onOutcome: AppResult<'A, 'E> -> FIO<unit, 'E>
-    default _.onOutcome _ = FIO.unit ()
+    default _.onOutcome _ : FIO<unit, 'E> = FIO.unit ()
 
     /// How long to wait for the outcome effect before continuing to shutdown. Defaults to 10 seconds.
     abstract member onOutcomeTimeout: TimeSpan
-    default _.onOutcomeTimeout = TimeSpan.FromSeconds 10.0
+    default _.onOutcomeTimeout : TimeSpan = TimeSpan.FromSeconds 10.0
 
     /// An effect run after onOutcome, before the process exits; the effect's finalizers have already run, so this is
     /// for process-level work. No-op by default.
     abstract member onShutdown: unit -> FIO<unit, 'E>
-    default _.onShutdown () = FIO.unit ()
+    default _.onShutdown () : FIO<unit, 'E> = FIO.unit ()
 
     /// How long to wait for the shutdown effect before forcing exit. Defaults to 10 seconds.
     abstract member onShutdownTimeout: TimeSpan
-    default _.onShutdownTimeout = TimeSpan.FromSeconds 10.0
+    default _.onShutdownTimeout : TimeSpan = TimeSpan.FromSeconds 10.0
 
     /// Maps the application's outcome to a process exit code: 0 on success, 1 on a failure or a fatal error (as in
     /// ZIO), 130 when interrupted.
     abstract member mapExitCode: AppResult<'A, 'E> -> int
-    default _.mapExitCode outcome =
+    default _.mapExitCode outcome : int =
         match outcome with
         | AppSucceeded _ -> 0
         | AppFailed _ -> 1
@@ -108,11 +108,11 @@ type FIOApp<'A, 'E>() as this =
         | AppFatalError _ -> 1
 
     /// Returns true from Run or RunAsync until onShutdown has finished.
-    member _.IsRunning =
+    member _.IsRunning : bool =
         Volatile.Read &running = 1
 
     /// Requests shutdown, interrupting the running effect.
-    member _.Stop () =
+    member _.Stop () : unit =
         requestShutdown "programmatically" |> ignore
 
     member private _.RunHookAsync (runtime: FIORuntime) (label: string) (timeout: TimeSpan) (effect: FIO<unit, 'E>) =
@@ -146,15 +146,15 @@ type FIOApp<'A, 'E>() as this =
         this.RunHookAsync runtime "shutdown" this.onShutdownTimeout (this.onShutdown ())
 
     /// Runs the application asynchronously and returns its process exit code.
-    member this.RunAsync () =
+    member this.RunAsync () : System.Threading.Tasks.Task<int> =
         if not <| tryClaim &runStarted then
             invalidOp "FIOApp can only be run once per instance; create a new instance to run again."
 
         Volatile.Write(&running, 1)
 
         task {
-            let mutable signalRegistrations: PosixSignalRegistration list = []
-            let mutable cancelKeyHandler: ConsoleCancelEventHandler option = None
+            let mutable signalRegistrations = []
+            let mutable cancelKeyHandler = None
 
             try
                 try
@@ -262,5 +262,5 @@ type FIOApp<'A, 'E>() as this =
         }
 
     /// Runs the application and returns its process exit code.
-    member this.Run () =
+    member this.Run () : int =
         this.RunAsync().GetAwaiter().GetResult()

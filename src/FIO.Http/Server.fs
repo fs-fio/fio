@@ -25,7 +25,7 @@ type ServerConfig =
 module ServerConfig =
 
     /// The default server configuration (127.0.0.1:8080, 30 MB body limit).
-    let defaultConfig =
+    let defaultConfig : ServerConfig =
         {
             Host = "127.0.0.1"
             Port = 8080
@@ -33,7 +33,7 @@ module ServerConfig =
         }
 
     /// Creates a server configuration for the given host and port.
-    let create host port =
+    let create host port : ServerConfig =
         {
             Host = host
             Port = port
@@ -41,7 +41,7 @@ module ServerConfig =
         }
 
     /// Sets the maximum request body size on a configuration.
-    let withMaxBodySize maxSize config =
+    let withMaxBodySize maxSize config : ServerConfig =
         { config with MaxRequestBodySize = maxSize }
 
 /// A configured HTTP server instance.
@@ -59,7 +59,7 @@ type FIOServer =
 module Server =
 
     /// Creates a server using the given runtime.
-    let createWithRuntime (config: ServerConfig) (routes: Routes<exn>) (runtime: DefaultRuntime) =
+    let createWithRuntime (config: ServerConfig) (routes: Routes<exn>) (runtime: DefaultRuntime) : FIO<FIOServer, exn> =
         FIO.attempt (fun () ->
             {
                 Config = config
@@ -71,7 +71,7 @@ module Server =
             id
 
     /// Creates a server with its own default runtime.
-    let create (config: ServerConfig) (routes: Routes<exn>) =
+    let create (config: ServerConfig) (routes: Routes<exn>) : FIO<FIOServer, exn> =
         FIO.attempt (fun () ->
             {
                 Config = config
@@ -83,7 +83,7 @@ module Server =
             id
 
     /// Starts the server listening, returning the running server.
-    let start (server: FIOServer) =
+    let start (server: FIOServer) : FIO<FIOServer, exn> =
         fio {
             let! app =
                 FIO.attempt (fun () ->
@@ -131,7 +131,7 @@ module Server =
         }
 
     /// Stops the server and releases its resources.
-    let stop (server: FIOServer) =
+    let stop (server: FIOServer) : FIO<FIOServer, exn> =
         fio {
             match server.Host.Value with
             | Some host ->
@@ -151,7 +151,7 @@ module Server =
         }
 
     /// Waits until the running server shuts down.
-    let run (server: FIOServer) =
+    let run (server: FIOServer) : FIO<unit, exn> =
         fio {
             match server.Host.Value with
             | Some host ->
@@ -164,7 +164,7 @@ module Server =
     let startServerWithRuntime
         (config: ServerConfig)
         (routes: Routes<exn>)
-        (runtime: DefaultRuntime) =
+        (runtime: DefaultRuntime) : FIO<FIOServer, exn> =
         fio {
             let! server = createWithRuntime config routes runtime
             let! startedServer = start server
@@ -172,7 +172,7 @@ module Server =
         }
 
     /// Creates and starts a server with its own default runtime.
-    let startServer (config: ServerConfig) (routes: Routes<exn>) =
+    let startServer (config: ServerConfig) (routes: Routes<exn>) : FIO<FIOServer, exn> =
         fio {
             let! server = create config routes
             let! startedServer = start server
@@ -180,14 +180,14 @@ module Server =
         }
 
     /// Creates, starts, and runs a server using the given runtime until shutdown, then stops it.
-    let runServerWithRuntime (config: ServerConfig) (routes: Routes<exn>) (runtime: DefaultRuntime) =
+    let runServerWithRuntime (config: ServerConfig) (routes: Routes<exn>) (runtime: DefaultRuntime) : FIO<unit, exn> =
         fio {
             let! server = startServerWithRuntime config routes runtime
             do! (run server).Ensuring((stop server).Unit())
         }
 
     /// Creates, starts, and runs a server with its own default runtime until shutdown, then stops it.
-    let runServer (config: ServerConfig) (routes: Routes<exn>) =
+    let runServer (config: ServerConfig) (routes: Routes<exn>) : FIO<unit, exn> =
         fio {
             let! server = startServer config routes
             do! (run server).Ensuring((stop server).Unit())
@@ -196,21 +196,21 @@ module Server =
 module ServerBuilder =
 
     /// Sets the host on a configuration.
-    let host host (config: ServerConfig) =
+    let host host (config: ServerConfig) : ServerConfig =
         { config with Host = host }
 
     /// Sets the port on a configuration.
-    let port port (config: ServerConfig) =
+    let port port (config: ServerConfig) : ServerConfig =
         { config with Port = port }
 
     /// Sets the maximum request body size on a configuration.
-    let maxBodySize size (config: ServerConfig) =
+    let maxBodySize size (config: ServerConfig) : ServerConfig =
         { config with MaxRequestBodySize = size }
 
     /// Creates and starts a server from the configuration and routes.
-    let startNow (routes: Routes<exn>) (config: ServerConfig) =
+    let startNow (routes: Routes<exn>) (config: ServerConfig) : FIO<FIOServer, exn> =
         Server.startServer config routes
 
     /// Creates, starts, and runs a server from the configuration and routes.
-    let runNow (routes: Routes<exn>) (config: ServerConfig) =
+    let runNow (routes: Routes<exn>) (config: ServerConfig) : FIO<unit, exn> =
         Server.runServer config routes

@@ -14,7 +14,7 @@ type DirectRuntime() =
 
 
 
-    override _.Name = "DirectRuntime"
+    override _.Name : string = "DirectRuntime"
 
     [<TailCall>]
     member private this.InterpretAsync effect (currentFiberContext: FiberContext) =

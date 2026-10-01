@@ -75,9 +75,6 @@ Console I/O (`src/FIO/Console.fs`):
 - Namespace `FIO.Console`, module `Console` (`[<RequireQualifiedAccess>]`). Output functions wrap `System.Console` via `FIO.attempt`; every function takes an `onError: exn -> 'E` argument because console I/O genuinely throws. `print`/`printLine` take a `Printf.TextWriterFormat<unit>` (formatted output); `write`/`writeLine` take a plain `string`; plus `clear`.
 - `readLine` and `readKey` go through one process-global background stdin reader thread (`StdinReader`, private) and await a `TaskCompletionSource`, so a waiting fiber is interruptible and no evaluation worker is blocked. Input that arrives for an interrupted read is stashed and delivered to the next read of the same kind — tests that abandon a read must release and drain it (`withBlockingStdIn` in `ConsoleTests.fs`). `readKey` fails through `onError` when stdin is redirected, and `readLine` at end of input (`EndOfStreamException`); `tryReadLine` yields `None` there instead.
 
-Signals (`src/FIO/Signal.fs`, after `Console.fs`):
-- Namespace `FIO.Signal`, module `Signal`. `Signal.subscribe signals onError body` registers a `PosixSignalRegistration` per signal for the body's duration (through `acquireReleaseWith`, so they are disposed on every outcome) and feeds an internal unbounded .NET channel that `SignalSubscription.Next()` awaits with the fiber's token. It never sets `context.Cancel`, so each signal's default action still runs. `Next()` after the body has ended fails through `onError` (`ChannelClosedException`). On Windows only `SIGINT`, `SIGQUIT`, `SIGTERM` and `SIGHUP` register; any other signal fails through `onError` with `PlatformNotSupportedException`.
-
 Runtime (`src/FIO/Runtime/`):
 - `Runtime.fs` - `FIORuntime` (abstract base, `IDisposable`: `Shutdown timeout` and `Dispose` interrupt the live roots and daemons it tracks, wait for them to unwind, then stop the workers through the per-runtime `StopWorkers` hook), `WorkerConfig`, `ContStackPool`, `WorkItemPool`
 - `WorkerInfrastructure.fs` - `FIOWorkerRuntime` (adds EvaluationWorkers/EvaluationSteps/BlockingWorkers params), `WorkerLifecycle`
@@ -149,7 +146,7 @@ Worker config fields: **EvaluationWorkers** (worker count), **EvaluationSteps** 
 
 ### Concurrency Primitives
 
-Concurrency is built on the core types: **Fiber<'A,'E>** (green threads via `.Fork()`/`.Join()`), **Channel<'A>** (typed message passing) and **Ref<'A>** (atomic reference cell, `src/FIO/DSL/Ref.fs`). There are no Promise/Semaphore primitives yet; `Console` and `Signal` are the library modules.
+Concurrency is built on the core types: **Fiber<'A,'E>** (green threads via `.Fork()`/`.Join()`), **Channel<'A>** (typed message passing) and **Ref<'A>** (atomic reference cell, `src/FIO/DSL/Ref.fs`). There are no Promise/Semaphore primitives yet; `Console` is the library module.
 
 ### Operator Reference
 
@@ -247,7 +244,6 @@ Macro benchmarks live in `benchmarks/FIO.Benchmarks/` (BenchmarkDotNet 0.15.8). 
 - `tests/FIO.Tests/Runtime/ConformanceTests.fs` asserts the four runtimes are observationally equivalent — defect paths, typed-error integrity, `Await`/`UnsafeResult` agreement, `RunConcurrent`. It deliberately uses `'E = string`, because `Fiber.Task()` casts the error channel with `error :?> 'E`: a non-`'E` value there raises `InvalidCastException`, which `'E = exn` silently absorbs
 - Heavy stress/regression tests (deadlock & lost-wakeup guards) are **opt-in** via the `FIO_RUN_STRESS=1` env var (`stressEnabled`/`stressTestCase` in `tests/FIO.Tests/Utils/Utilities.fs`) — off by default locally, enabled in CI
 - Console tests use `System.Console.SetOut`/`SetIn` with `StringWriter`/`StringReader` for deterministic capture — must use `testSequenced` (not parallel) because `System.Console` has process-global state
-- Signal tests (`Lib/SignalTests.fs`) are sequenced too, since a signal reaches every subscription in the process; the `SIGWINCH` ones send it to the test process with `kill` and are skipped on Windows
 - Four test projects:
   - `FIO.Tests` — core library, organized into `DSL/`, `Lib/`, `Framework/`, `Runtime/` subfolders; the factory functions and extension methods are split by sub-group into `DSL/Factories/*.fs` and `DSL/Extensions/*.fs`, each file a `[<Tests>]` list under the same top label ("Factory Functions" / "Extension Methods"). Test names follow `Subject - sentence` (the member under test, then the behaviour) in all four projects
   - `FIO.Sockets.Tests` — TCP sockets, flat structure with `testAllRuntimes` + `withTestServer`/`withTestEchoServer` helpers

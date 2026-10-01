@@ -12,7 +12,7 @@ open System.Threading
 
 open Expecto
 
-let private silenceErr (body: unit -> 'a) : 'a =
+let private silenceErr (body: unit -> 'a) =
     let original = Console.Error
     Console.SetError TextWriter.Null
     try body ()
@@ -358,7 +358,7 @@ let appTests =
                             let log = ResizeArray()
                             let outerFinalizerRan = ref false
 
-                            let hook: FIO<unit, string> =
+                            let hook =
                                 (FIO.never ())
                                     .Ensuring(FIO.sleep (TimeSpan.FromMilliseconds 300.0))
                                     .Ensuring(FIO.succeedWith (fun () -> outerFinalizerRan.Value <- true))
@@ -419,7 +419,7 @@ let appTests =
                     <| fun () ->
                         let log = ResizeArray()
 
-                        let effect: FIO<int, string> =
+                        let effect =
                             (FIO.succeed 42)
                                 .Ensuring(FIO.attempt (fun () -> log.Add "finalizerRan") (fun (ex: exn) -> ex.Message))
 
@@ -438,11 +438,11 @@ let appTests =
                         silenceErr (fun () ->
                             let log = ResizeArray()
 
-                            let finalizer: FIO<unit, string> =
+                            let finalizer =
                                 (FIO.sleep (TimeSpan.FromMilliseconds 100.0))
                                     .FlatMap(fun () -> FIO.attempt (fun () -> log.Add "finalizerRan") (fun (ex: exn) -> ex.Message))
 
-                            let effect: FIO<int, string> = (FIO.never ()).Ensuring finalizer
+                            let effect = (FIO.never ()).Ensuring finalizer
 
                             let app = TestApp(effect, log)
                             let runTask = app.RunAsync()

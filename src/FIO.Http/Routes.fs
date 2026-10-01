@@ -68,7 +68,7 @@ module Routes =
         }
 
     /// Creates a route collection from one pattern and a parameter-aware handler.
-    let single (pattern: RoutePattern) (handler: obj list -> HttpHandler<'E>) =
+    let single (pattern: RoutePattern) (handler: obj list -> HttpHandler<'E>) : Routes<'E> =
         let route = { Pattern = pattern; Handler = handler }
         let index, parameterized = buildIndex [ route ]
         {
@@ -80,11 +80,11 @@ module Routes =
         }
 
     /// Creates a route collection from one pattern and a handler.
-    let route (pattern: RoutePattern) (handler: HttpHandler<'E>) =
+    let route (pattern: RoutePattern) (handler: HttpHandler<'E>) : Routes<'E> =
         single pattern (fun _ -> handler)
 
     /// Combines two route collections, preferring the first on conflicts.
-    let combine (routes: Routes<'E>) (routes': Routes<'E>) =
+    let combine (routes: Routes<'E>) (routes': Routes<'E>) : Routes<'E> =
         let mergedIndex =
             routes'.ExactMatchIndex
             |> Map.fold
@@ -99,7 +99,7 @@ module Routes =
         }
 
     /// Sets the handler used when no route matches.
-    let withNotFound (handler: HttpHandler<'E>) (routes: Routes<'E>) =
+    let withNotFound (handler: HttpHandler<'E>) (routes: Routes<'E>) : Routes<'E> =
         { routes with NotFoundHandler = handler }
 
     let private allowedMethodsFor (request: HttpRequest) (routes: Routes<'E>) =
@@ -126,7 +126,7 @@ module Routes =
             | None -> tryRoutes req rest
 
     /// Dispatches a request to the matching route, falling back to not-found or 405 Method Not Allowed.
-    let dispatch (request: HttpRequest) (routes: Routes<'E>) =
+    let dispatch (request: HttpRequest) (routes: Routes<'E>) : FIO<HttpResponse, 'E> =
         let tryDispatch (req: HttpRequest) =
             let normalizedPath = "/" + String.concat "/" req.PathSegments
             let key = req.Method, normalizedPath
@@ -155,7 +155,7 @@ module Routes =
                         routes.MethodNotAllowedHandler (methods |> List.map (fun m -> m.ToString())) request
 
     /// Adds a pattern and parameter-aware handler to a route collection.
-    let add (pattern: RoutePattern) (handler: obj list -> HttpHandler<'E>) (routes: Routes<'E>) =
+    let add (pattern: RoutePattern) (handler: obj list -> HttpHandler<'E>) (routes: Routes<'E>) : Routes<'E> =
         let newRoute = { Pattern = pattern; Handler = handler }
         let updatedRoutes = routes.RouteList @ [ newRoute ]
         if isExactMatch pattern then
@@ -178,11 +178,11 @@ module Routes =
             }
 
     /// Adds a pattern and handler to a route collection.
-    let addRoute (pattern: RoutePattern) (handler: HttpHandler<'E>) (routes: Routes<'E>) =
+    let addRoute (pattern: RoutePattern) (handler: HttpHandler<'E>) (routes: Routes<'E>) : Routes<'E> =
         add pattern (fun _ -> handler) routes
 
     /// Builds a route collection from a list of pattern/handler pairs.
-    let fromList (routes: (RoutePattern * HttpHandler<'E>) list) =
+    let fromList (routes: (RoutePattern * HttpHandler<'E>) list) : Routes<'E> =
         let routeList =
             routes |> List.map (fun (pattern, handler) ->
                 { Pattern = pattern; Handler = fun _ -> handler })
@@ -196,7 +196,7 @@ module Routes =
         }
 
     /// Transforms every handler in a route collection, including the not-found handler.
-    let map (func: HttpHandler<'E> -> HttpHandler<'E>) (routes: Routes<'E>) =
+    let map (func: HttpHandler<'E> -> HttpHandler<'E>) (routes: Routes<'E>) : Routes<'E> =
         let transformedRoutes =
             routes.RouteList
             |> List.map (fun route ->
@@ -213,32 +213,32 @@ module Routes =
         }
 
     /// Transforms every handler in a route collection. Alias for map.
-    let transform (func: HttpHandler<'E> -> HttpHandler<'E>) (routes: Routes<'E>) =
+    let transform (func: HttpHandler<'E> -> HttpHandler<'E>) (routes: Routes<'E>) : Routes<'E> =
         map func routes
 
 module RouteBuilder =
 
     type RouteCollector<'E>() =
 
-        member _.Yield (routes: Routes<'E>) =
+        member _.Yield (routes: Routes<'E>) : Routes<'E> =
             routes
 
-        member _.Combine (routes: Routes<'E>, routes': Routes<'E>) =
+        member _.Combine (routes: Routes<'E>, routes': Routes<'E>) : Routes<'E> =
             Routes.combine routes routes'
 
-        member _.Delay (func: unit -> Routes<'E>) =
+        member _.Delay (func: unit -> Routes<'E>) : Routes<'E> =
             func ()
 
-        member _.Zero () =
+        member _.Zero () : Routes<'E> =
             Routes.empty<'E>
 
     /// A computation expression for composing route collections.
-    let routes<'E> = RouteCollector<'E>()
+    let routes<'E> : RouteCollector<'E> = RouteCollector<'E>()
 
 module RoutesOperators =
 
     /// Combines two route collections. Operator form of <c>Routes.combine</c>.
-    let (++) (routes: Routes<'E>) (routes': Routes<'E>) =
+    let (++) (routes: Routes<'E>) (routes': Routes<'E>) : Routes<'E> =
         Routes.combine routes routes'
 
     /// Pairs a pattern with a handler. Operator form of <c>Routes.route</c>.
@@ -252,27 +252,27 @@ module RoutesOperators =
 module TypedRoutes =
 
     /// Creates a GET route from a path and handler.
-    let get (path: string) (handler: HttpHandler<'E>) =
+    let get (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
         Routes.route (Route.get path) handler
 
     /// Creates a POST route from a path and handler.
-    let post (path: string) (handler: HttpHandler<'E>) =
+    let post (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
         Routes.route (Route.post path) handler
 
     /// Creates a PUT route from a path and handler.
-    let put (path: string) (handler: HttpHandler<'E>) =
+    let put (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
         Routes.route (Route.put path) handler
 
     /// Creates a DELETE route from a path and handler.
-    let delete (path: string) (handler: HttpHandler<'E>) =
+    let delete (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
         Routes.route (Route.delete path) handler
 
     /// Creates a PATCH route from a path and handler.
-    let patch (path: string) (handler: HttpHandler<'E>) =
+    let patch (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
         Routes.route (Route.patch path) handler
 
     /// Creates a GET route capturing an integer path parameter.
-    let getInt (before: string list) (after: string list) (handler: int -> HttpHandler<'E>) =
+    let getInt (before: string list) (after: string list) (handler: int -> HttpHandler<'E>) : Routes<'E> =
         let pattern = RoutePattern.get <| RoutePath.withInt before after
         Routes.single pattern <| fun parameters ->
             match parameters with
@@ -282,7 +282,7 @@ module TypedRoutes =
                 HttpHandler.badRequestText "Invalid parameters"
 
     /// Creates a GET route capturing a string path parameter.
-    let getString (before: string list) (after: string list) (handler: string -> HttpHandler<'E>) =
+    let getString (before: string list) (after: string list) (handler: string -> HttpHandler<'E>) : Routes<'E> =
         let pattern = RoutePattern.get <| RoutePath.withString before after
         Routes.single pattern <| fun parameters ->
             match parameters with
@@ -292,7 +292,7 @@ module TypedRoutes =
                 HttpHandler.badRequestText "Invalid parameters"
 
     /// Creates a POST route capturing an integer path parameter.
-    let postInt (before: string list) (after: string list) (handler: int -> HttpHandler<'E>) =
+    let postInt (before: string list) (after: string list) (handler: int -> HttpHandler<'E>) : Routes<'E> =
         let pattern = RoutePattern.post <| RoutePath.withInt before after
         Routes.single pattern <| fun parameters ->
             match parameters with
@@ -302,7 +302,7 @@ module TypedRoutes =
                 HttpHandler.badRequestText "Invalid parameters"
 
     /// Creates a PUT route capturing an integer path parameter.
-    let putInt (before: string list) (after: string list) (handler: int -> HttpHandler<'E>) =
+    let putInt (before: string list) (after: string list) (handler: int -> HttpHandler<'E>) : Routes<'E> =
         let pattern = RoutePattern.put <| RoutePath.withInt before after
         Routes.single pattern <| fun parameters ->
             match parameters with
@@ -312,7 +312,7 @@ module TypedRoutes =
                 HttpHandler.badRequestText "Invalid parameters"
 
     /// Creates a DELETE route capturing an integer path parameter.
-    let deleteInt (before: string list) (after: string list) (handler: int -> HttpHandler<'E>) =
+    let deleteInt (before: string list) (after: string list) (handler: int -> HttpHandler<'E>) : Routes<'E> =
         let pattern = RoutePattern.delete <| RoutePath.withInt before after
         Routes.single pattern <| fun parameters ->
             match parameters with
@@ -324,21 +324,21 @@ module TypedRoutes =
 module SimpleRoutes =
 
     /// Creates a GET route from a path and handler.
-    let get (path: string) (handler: HttpHandler<'E>) =
+    let get (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
         TypedRoutes.get path handler
 
     /// Creates a POST route from a path and handler.
-    let post (path: string) (handler: HttpHandler<'E>) =
+    let post (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
         TypedRoutes.post path handler
 
     /// Creates a PUT route from a path and handler.
-    let put (path: string) (handler: HttpHandler<'E>) =
+    let put (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
         TypedRoutes.put path handler
 
     /// Creates a DELETE route from a path and handler.
-    let delete (path: string) (handler: HttpHandler<'E>) =
+    let delete (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
         TypedRoutes.delete path handler
 
     /// Creates a PATCH route from a path and handler.
-    let patch (path: string) (handler: HttpHandler<'E>) =
+    let patch (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
         TypedRoutes.patch path handler

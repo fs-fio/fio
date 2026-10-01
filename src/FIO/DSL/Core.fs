@@ -50,7 +50,7 @@ and [<Sealed>] internal BlockingWaiter(workItem: WorkItem) =
 
     let mutable claimed = 0
 
-    let mutable registration: CancellationTokenRegistration = Unchecked.defaultof<CancellationTokenRegistration>
+    let mutable registration = Unchecked.defaultof<CancellationTokenRegistration>
 
     member _.WorkItem =
         workItem
@@ -145,13 +145,13 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
     let cancelSource = new CancellationTokenSource()
 
     [<VolatileField>]
-    let mutable registrations: ConcurrentBag<IDisposable> = null
+    let mutable registrations = null
 
     [<VolatileField>]
-    let mutable childScope: CancellationTokenSource = null
+    let mutable childScope = null
 
     [<VolatileField>]
-    let mutable protectedScope: CancellationTokenSource = null
+    let mutable protectedScope = null
 
     let cancelScope (source: CancellationTokenSource) =
         match source with
@@ -163,7 +163,7 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
                 ()
 
     [<VolatileField>]
-    let mutable parent: FiberContext = null
+    let mutable parent = null
 
     // Scoped children that have not yet unwound.
     [<VolatileField>]
@@ -178,19 +178,19 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
     let mutable pendingValue = Unchecked.defaultof<Result<obj, obj>>
 
     [<VolatileField>]
-    let mutable pendingQueue: MailboxQueue<WorkItem> = null
+    let mutable pendingQueue = null
 
     [<VolatileField>]
     let mutable disposed = 0
 
     [<VolatileField>]
-    let mutable onTerminalCallback: unit -> unit = Unchecked.defaultof<_>
+    let mutable onTerminalCallback = Unchecked.defaultof<_>
 
     [<VolatileField>]
     let mutable onTerminalFired = 0
 
     [<VolatileField>]
-    let mutable onUnwoundCallback: Action<FiberContext> = null
+    let mutable onUnwoundCallback = null
 
     member internal _.Id =
         id
@@ -414,15 +414,15 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
     let fiberContext = new FiberContext()
 
     /// This fiber's unique identifier.
-    member _.Id =
+    member _.Id : Guid =
         fiberContext.Id
 
     /// A cancellation token tied to this fiber's lifetime; cancelled when the fiber is interrupted.
-    member _.CancellationToken =
+    member _.CancellationToken : CancellationToken =
         fiberContext.CancellationToken
 
     /// Returns a task that completes with this fiber's result, for interop with task-based code.
-    member _.Task () =
+    member _.Task () : Task<FiberResult<'A, 'E>> =
         task {
             match! fiberContext.Task with
             | Ok value ->
@@ -490,25 +490,25 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
             | Interrupted ex -> onInterrupted ex
 
     /// Returns true if this fiber ran to completion (success or failure), as opposed to being interrupted.
-    member _.IsCompleted () =
+    member _.IsCompleted () : bool =
         fiberContext.IsCompleted()
 
     /// Returns true if this fiber was interrupted.
-    member _.IsInterrupted () =
+    member _.IsInterrupted () : bool =
         fiberContext.IsInterrupted()
 
     /// Returns true if this fiber is no longer running — either completed or interrupted.
-    member _.IsTerminal () =
+    member _.IsTerminal () : bool =
         fiberContext.IsTerminal()
 
     /// Blocks the calling thread until this fiber completes and returns its result. Prefer Await inside effects.
-    member this.UnsafeResult () =
+    member this.UnsafeResult () : FiberResult<'A, 'E> =
         this.Task()
         |> Async.AwaitTask
         |> Async.RunSynchronously
 
     /// Blocks the calling thread until this fiber completes and returns its success value, raising if it failed or was interrupted.
-    member this.UnsafeSuccess () =
+    member this.UnsafeSuccess () : 'A =
         match this.UnsafeResult() with
         | Succeeded value ->
             value
@@ -518,7 +518,7 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
             raise (InvalidOperationException $"Fiber was interrupted: {ex.Message}")
 
     /// Blocks the calling thread until this fiber completes and returns its error, raising if it succeeded or was interrupted.
-    member this.UnsafeError () =
+    member this.UnsafeError () : 'E =
         match this.UnsafeResult() with
         | Succeeded value ->
             raise (InvalidOperationException $"Fiber succeeded with value: {value}")
@@ -528,18 +528,18 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
             raise (InvalidOperationException $"Fiber was interrupted: {ex.Message}")
 
     /// Blocks the calling thread until this fiber completes and prints its result.
-    member this.UnsafePrintResult () =
+    member this.UnsafePrintResult () : unit =
         printfn "%A" (this.UnsafeResult())
 
     member internal _.Context =
         fiberContext
 
-    override this.ToString () =
+    override this.ToString () : string =
         this.Id.ToString()
 
     interface IDisposable with
 
-        member _.Dispose () =
+        member _.Dispose () : unit =
             (fiberContext :> IDisposable).Dispose()
 
 /// A typed, asynchronous channel for passing messages between fibers.
@@ -549,7 +549,7 @@ and [<Sealed; AllowNullLiteral>] Channel<'A> private
     blockingSlot: BlockingWorkItemSlot,
     mode: ChannelMode) =
     [<VolatileField>]
-    let mutable upcastChannel: Channel<obj> = null
+    let mutable upcastChannel = null
 
     static let bounded (capacity: int) (fullMode: BoundedChannelFullMode) =
         if capacity < 1 then
@@ -573,11 +573,11 @@ and [<Sealed; AllowNullLiteral>] Channel<'A> private
         Channel<'A>(Guid.NewGuid(), bounded capacity BoundedChannelFullMode.DropOldest, BlockingWorkItemSlot(), Sliding)
 
     /// This channel's unique identifier.
-    member _.Id =
+    member _.Id : Guid =
         id
 
     /// The number of messages currently buffered in this channel.
-    member _.Count =
+    member _.Count : int =
         valueQueue.Count
 
     /// Returns an effect that writes a message to this channel, yielding the written message; a write to a full bounded channel suspends until a message is read.
@@ -609,7 +609,7 @@ and [<Sealed; AllowNullLiteral>] Channel<'A> private
         let queue = blockingSlot.GetOrCreate()
         queue.WriteAsync waiter
 
-    member internal _.TryDequeueBlockingWorkItem (workItem: byref<WorkItem>) : bool =
+    member internal _.TryDequeueBlockingWorkItem (workItem: byref<WorkItem>) =
         let queue = blockingSlot.TryGet()
         if isNull queue then
             false
@@ -719,8 +719,7 @@ and FIO<'A, 'E> =
     static member inline private flattenOnFinalize
         (leafUpcast: FIO<'A, 'E> -> FIO<'OR, 'OE>)
         (effect: FIO<'A, 'E>)
-        (outerFinalizer: FIO<obj, obj>)
-        : FIO<'OR, 'OE> =
+        (outerFinalizer: FIO<obj, obj>) =
         match effect with
         | OnFinalize _ ->
             let finalizers = ResizeArray<FIO<obj, obj>>()
@@ -748,8 +747,7 @@ and FIO<'A, 'E> =
         (innerContWrap: (obj -> FIO<obj, 'E>) -> (obj -> FIO<obj, 'OE>))
         (outerContWrap: (obj -> FIO<'A, 'E>) -> (obj -> FIO<'OR, 'OE>))
         (effect: FIO<obj, 'E>)
-        (outerCont: obj -> FIO<'A, 'E>)
-        : FIO<'OR, 'OE> =
+        (outerCont: obj -> FIO<'A, 'E>) =
         match effect with
         | ChainSuccess _ ->
             let innerConts = ResizeArray<obj -> FIO<obj, 'E>>()
@@ -776,8 +774,7 @@ and FIO<'A, 'E> =
         (innerContWrap: (obj -> FIO<'A, obj>) -> (obj -> FIO<'OR, obj>))
         (outerContWrap: (obj -> FIO<'A, 'E>) -> (obj -> FIO<'OR, 'OE>))
         (effect: FIO<'A, obj>)
-        (outerCont: obj -> FIO<'A, 'E>)
-        : FIO<'OR, 'OE> =
+        (outerCont: obj -> FIO<'A, 'E>) =
         match effect with
         | ChainError _ ->
             let innerConts = ResizeArray<obj -> FIO<'A, obj>>()

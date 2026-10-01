@@ -18,17 +18,17 @@ open System.Diagnostics
 type private ThrowingWriter(message: string) =
     inherit StringWriter()
     override _.Write(_: char) : unit = raise (InvalidOperationException message)
-    override _.Write(value: string) : unit =
+    override _.Write(value: string) =
         if isNull value then () else raise (InvalidOperationException message)
 
 type private ThrowingReader(message: string) =
     inherit StringReader("")
-    override _.Read() : int = raise (InvalidOperationException message)
-    override _.ReadLine() : string = raise (InvalidOperationException message)
+    override _.Read() = raise (InvalidOperationException message)
+    override _.ReadLine() = raise (InvalidOperationException message)
 
 type private BlockingReader(gate: ManualResetEventSlim, line: string) =
     inherit StringReader("")
-    override _.ReadLine() : string =
+    override _.ReadLine() =
         gate.Wait()
         line
 

@@ -15,7 +15,7 @@ open Microsoft.AspNetCore.Http
 module KestrelBridge =
 
     /// The default JSON serializer options (camelCase).
-    let defaultJsonOptions =
+    let defaultJsonOptions : JsonSerializerOptions =
         let options =
             JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
         options.TypeInfoResolver <- Serialization.Metadata.DefaultJsonTypeInfoResolver()
@@ -87,7 +87,7 @@ module KestrelBridge =
         }
 
     /// Converts a Kestrel HttpContext into an HttpRequest, enforcing the maximum body size.
-    let convertRequestAsync (ctx: HttpContext) (maxBodySize: int64) =
+    let convertRequestAsync (ctx: HttpContext) (maxBodySize: int64) : Task<Result<FIO.Http.HttpRequest, int * string>> =
         task {
             if
                 ctx.Request.ContentLength.HasValue
@@ -162,7 +162,7 @@ module KestrelBridge =
     let writeResponseWithOptions
         (jsonOptions: JsonSerializerOptions)
         (ctx: HttpContext)
-        (response: FIO.Http.HttpResponse) =
+        (response: FIO.Http.HttpResponse) : Task<unit> =
         task {
             let! bodyBytes =
                 task {
@@ -232,13 +232,13 @@ module KestrelBridge =
     let writeResponseWith
         (jsonOptions: JsonSerializerOptions option)
         (ctx: HttpContext)
-        (response: FIO.Http.HttpResponse) =
+        (response: FIO.Http.HttpResponse) : Task<unit> =
         match jsonOptions with
         | Some options -> writeResponseWithOptions options ctx response
         | None -> writeResponseWithOptions defaultJsonOptions ctx response
 
     /// Writes an HttpResponse to the Kestrel context using the default JSON options.
-    let writeResponse (ctx: HttpContext) (response: FIO.Http.HttpResponse) =
+    let writeResponse (ctx: HttpContext) (response: FIO.Http.HttpResponse) : Task<unit> =
         writeResponseWith None ctx response
 
     let private logError (ctx: HttpContext) (errorType: string) (message: string) (error: exn option) =
@@ -264,7 +264,7 @@ module KestrelBridge =
         (routes: Routes<exn>)
         (maxBodySize: int64)
         (jsonOptions: JsonSerializerOptions)
-        (ctx: HttpContext) =
+        (ctx: HttpContext) : Task<unit> =
         task {
             let writeStatusBody (status: int) (text: string) =
                 task {
@@ -302,7 +302,7 @@ module KestrelBridge =
         (routes: Routes<exn>)
         (maxBodySize: int64)
         (jsonOptions: JsonSerializerOptions option)
-        (ctx: HttpContext) =
+        (ctx: HttpContext) : Task<unit> =
         match jsonOptions with
         | Some options -> handleRequestWithOptions runtime routes maxBodySize options ctx
         | None -> handleRequestWithOptions runtime routes maxBodySize defaultJsonOptions ctx

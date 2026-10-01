@@ -90,8 +90,8 @@ let operatorTests =
                     testPropertyWithConfig fsCheckConfig "( *> ) - evaluates its operands left to right"
                     <| fun (runtime: FIORuntime, a: int, b: int) ->
                         let log = ResizeArray<string>()
-                        let left: FIO<int, string> = FIO.attempt (fun () -> log.Add "left"; a) (fun ex -> ex.Message)
-                        let right: FIO<int, string> = FIO.attempt (fun () -> log.Add "right"; b) (fun ex -> ex.Message)
+                        let left = FIO.attempt (fun () -> log.Add "left"; a) (fun ex -> ex.Message)
+                        let right = FIO.attempt (fun () -> log.Add "right"; b) (fun ex -> ex.Message)
 
                         let result = runtime.Run(left *> right).UnsafeSuccess()
 
@@ -101,8 +101,8 @@ let operatorTests =
                     testPropertyWithConfig fsCheckConfig "( <* ) - evaluates its operands left to right"
                     <| fun (runtime: FIORuntime, a: int, b: int) ->
                         let log = ResizeArray<string>()
-                        let left: FIO<int, string> = FIO.attempt (fun () -> log.Add "left"; a) (fun ex -> ex.Message)
-                        let right: FIO<int, string> = FIO.attempt (fun () -> log.Add "right"; b) (fun ex -> ex.Message)
+                        let left = FIO.attempt (fun () -> log.Add "left"; a) (fun ex -> ex.Message)
+                        let right = FIO.attempt (fun () -> log.Add "right"; b) (fun ex -> ex.Message)
 
                         let result = runtime.Run(left <* right).UnsafeSuccess()
 
@@ -112,8 +112,8 @@ let operatorTests =
                     testPropertyWithConfig fsCheckConfig "( <*> ) - evaluates its operands left to right"
                     <| fun (runtime: FIORuntime, a: int, b: int) ->
                         let log = ResizeArray<string>()
-                        let left: FIO<int, string> = FIO.attempt (fun () -> log.Add "left"; a) (fun ex -> ex.Message)
-                        let right: FIO<int, string> = FIO.attempt (fun () -> log.Add "right"; b) (fun ex -> ex.Message)
+                        let left = FIO.attempt (fun () -> log.Add "left"; a) (fun ex -> ex.Message)
+                        let right = FIO.attempt (fun () -> log.Add "right"; b) (fun ex -> ex.Message)
 
                         let result = runtime.Run(left <*> right).UnsafeSuccess()
 
@@ -123,7 +123,7 @@ let operatorTests =
                     testPropertyWithConfig fsCheckConfig "( >>= ) - evaluates the source before the continuation"
                     <| fun (runtime: FIORuntime, a: int, b: int) ->
                         let log = ResizeArray<string>()
-                        let source: FIO<int, string> = FIO.attempt (fun () -> log.Add "source"; a) (fun ex -> ex.Message)
+                        let source = FIO.attempt (fun () -> log.Add "source"; a) (fun ex -> ex.Message)
 
                         let effect =
                             source >>= fun _ ->
@@ -138,7 +138,7 @@ let operatorTests =
                     <| fun (runtime: FIORuntime, error: string) ->
                         let log = ResizeArray<string>()
                         let left: FIO<int, string> = FIO.fail error
-                        let right: FIO<int, string> = FIO.attempt (fun () -> log.Add "right"; 0) (fun ex -> ex.Message)
+                        let right = FIO.attempt (fun () -> log.Add "right"; 0) (fun ex -> ex.Message)
 
                         let result = runtime.Run(left *> right).UnsafeError()
 

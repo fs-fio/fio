@@ -1,7 +1,6 @@
 namespace FIO.Benchmarks.Benchmarks
 
 open FIO.DSL
-open FIO.Runtime
 open FIO.Benchmarks
 open FIO.Benchmarks.Effects
 
@@ -13,7 +12,7 @@ open System
 [<MemoryDiagnoser>]
 [<RankColumn>]
 type ZipRaceBenchmark() =
-    let mutable runtime: FIORuntime = Unchecked.defaultof<_>
+    let mutable runtime = Unchecked.defaultof<_>
     let mutable effect = Unchecked.defaultof<_>
 
     member _.RoundCounts =

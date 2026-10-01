@@ -15,7 +15,7 @@ type InterruptionCause =
     /// The fiber died because user code threw an exception that could not be reported as a typed error.
     | Defect of ex: exn
 
-    override this.ToString () =
+    override this.ToString () : string =
         match this with
         | ParentInterrupted id -> $"ParentInterrupted ({id})"
         | ExplicitInterrupt -> "ExplicitInterrupt"

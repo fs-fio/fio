@@ -26,7 +26,7 @@ module WebSocketConfig =
 
     /// The default configuration: 4 KB buffers, a 1 MB message limit, a 30 s send timeout, no receive timeout, a 10 s
     /// shutdown.
-    let defaultConfig =
+    let defaultConfig : WebSocketConfig =
         {
             ReceiveBufferSize = 4096
             SendBufferSize = 4096
@@ -37,27 +37,27 @@ module WebSocketConfig =
         }
 
     /// Sets the receive buffer size on a configuration.
-    let withReceiveBufferSize (size: int) (config: WebSocketConfig) =
+    let withReceiveBufferSize (size: int) (config: WebSocketConfig) : WebSocketConfig =
         { config with ReceiveBufferSize = size }
 
     /// Sets the send buffer size on a configuration.
-    let withSendBufferSize (size: int) (config: WebSocketConfig) =
+    let withSendBufferSize (size: int) (config: WebSocketConfig) : WebSocketConfig =
         { config with SendBufferSize = size }
 
     /// Sets the maximum message size on a configuration.
-    let withMaxMessageSize (size: int64) (config: WebSocketConfig) =
+    let withMaxMessageSize (size: int64) (config: WebSocketConfig) : WebSocketConfig =
         { config with MaxMessageSize = size }
 
     /// Sets the send timeout on a configuration.
-    let withSendTimeout (timeout: int) (config: WebSocketConfig) =
+    let withSendTimeout (timeout: int) (config: WebSocketConfig) : WebSocketConfig =
         { config with SendTimeout = timeout }
 
     /// Sets the receive timeout on a configuration.
-    let withReceiveTimeout (timeout: int) (config: WebSocketConfig) =
+    let withReceiveTimeout (timeout: int) (config: WebSocketConfig) : WebSocketConfig =
         { config with ReceiveTimeout = timeout }
 
     /// Sets the shutdown timeout on a configuration.
-    let withShutdownTimeout (timeout: int) (config: WebSocketConfig) =
+    let withShutdownTimeout (timeout: int) (config: WebSocketConfig) : WebSocketConfig =
         { config with ShutdownTimeout = timeout }
 
 /// A single WebSocket frame.
@@ -119,7 +119,7 @@ type WsError =
 module WsError =
 
     /// Classifies an exception as a WebSocket error, giving timeouts, JSON failures and a prematurely closed connection their own case.
-    let fromException (ex: exn) =
+    let fromException (ex: exn) : WsError =
         match ex with
         | :? TimeoutException as ex ->
             TimeoutError ex.Message
@@ -160,7 +160,7 @@ module WsError =
             $"Peer closed the connection ({statusText}): {description}"
 
     /// Converts a WebSocket error back into an exception.
-    let toException (error: WsError) =
+    let toException (error: WsError) : exn =
         match error with
         | ConnectionFailed message -> Exception $"Connection failed: {message}"
         | SendFailed message -> Exception $"Send failed: {message}"

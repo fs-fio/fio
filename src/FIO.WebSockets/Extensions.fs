@@ -11,7 +11,7 @@ module WebSocketExtensions =
     type WebSocket with
 
         /// Sends a value as JSON text, optionally using the given serializer options and cancellation token.
-        member this.SendJson<'A> (value: 'A, ?options: JsonSerializerOptions, ?cancellationToken: CancellationToken) =
+        member this.SendJson<'A> (value: 'A, ?options: JsonSerializerOptions, ?cancellationToken: CancellationToken) : FIO<unit, WsError> =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
 
@@ -29,7 +29,7 @@ module WebSocketExtensions =
             }
 
         /// Receives a JSON value, optionally using the given serializer options and cancellation token.
-        member this.ReceiveJson<'A> (?options: JsonSerializerOptions, ?cancellationToken: CancellationToken) =
+        member this.ReceiveJson<'A> (?options: JsonSerializerOptions, ?cancellationToken: CancellationToken) : FIO<'A, WsError> =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
 
@@ -54,11 +54,11 @@ module WebSocketExtensions =
             }
 
         /// Sends a text message.
-        member this.SendString (text: string) =
+        member this.SendString (text: string) : FIO<unit, WsError> =
             this.SendText text
 
         /// Receives a text message, failing if the next frame is not text.
-        member this.ReceiveString () =
+        member this.ReceiveString () : FIO<string, WsError> =
             fio {
                 match! this.ReceiveMessage() with
                 | Frame(Text text) ->
@@ -72,11 +72,11 @@ module WebSocketExtensions =
             }
 
         /// Sends a binary message.
-        member this.SendBytes (data: byte[]) =
+        member this.SendBytes (data: byte[]) : FIO<unit, WsError> =
             this.SendBinary data
 
         /// Receives a binary message, failing if the next frame is not binary.
-        member this.ReceiveBytes () =
+        member this.ReceiveBytes () : FIO<byte[], WsError> =
             fio {
                 match! this.ReceiveMessage() with
                 | Frame(Binary data) ->

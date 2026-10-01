@@ -33,7 +33,7 @@ let private complement = function
 // The meeting-place actor: pairs up arriving creatures until the meeting budget runs out.
 let private mallEffect (mallChannel: Channel<Request>) meetingCount creatureCount =
     let mutable meetingsLeft = meetingCount
-    let mutable waiter: Request option = None
+    let mutable waiter = None
     let mutable doneCount = 0
 
     let rec loop () =

@@ -5,7 +5,6 @@ open FIO.Runtime.InterpreterCore
 
 open System
 open System.Threading
-open System.Threading.Tasks
 open System.Collections.Generic
 
 [<Literal>]
@@ -41,13 +40,13 @@ type internal Scheduler(workerCount: int) =
 
     let runNext: WorkItem[] = Array.zeroCreate workerCount
 
-    let deques: WorkStealingDeque[] = Array.init workerCount (fun _ -> WorkStealingDeque(DequeCapacity))
+    let deques = Array.init workerCount (fun _ -> WorkStealingDeque(DequeCapacity))
 
-    let tick: int[] = Array.zeroCreate workerCount
+    let tick = Array.zeroCreate workerCount
 
-    let contStackPools: Stack<Stack<Cont>>[] = Array.init workerCount (fun _ -> Stack<Stack<Cont>>())
+    let contStackPools = Array.init workerCount (fun _ -> Stack<Stack<Cont>>())
 
-    let workItemPools: Stack<WorkItem>[] = Array.init workerCount (fun _ -> Stack<WorkItem>())
+    let workItemPools = Array.init workerCount (fun _ -> Stack<WorkItem>())
 
     let workGate = new SemaphoreSlim(0)
 
@@ -95,7 +94,7 @@ type internal Scheduler(workerCount: int) =
             deques.[workerId].PushBottom previous
         signalWork ()
 
-    member _.TryGetLocal (workerId: int, workItem: byref<WorkItem>) : bool =
+    member _.TryGetLocal (workerId: int, workItem: byref<WorkItem>) =
         tick.[workerId] <- tick.[workerId] + 1
         if tick.[workerId] % GlobalCheckInterval = 0 && globalQueue.TryRead &workItem then
             true
@@ -109,7 +108,7 @@ type internal Scheduler(workerCount: int) =
             else
                 globalQueue.TryRead &workItem
 
-    member _.TrySteal (workerId: int, workItem: byref<WorkItem>) : bool =
+    member _.TrySteal (workerId: int, workItem: byref<WorkItem>) =
         let start = Random.Shared.Next workerCount
         let mutable offset = 0
         let mutable found = false
@@ -153,7 +152,7 @@ type internal Scheduler(workerCount: int) =
     member _.Dispose () =
         workGate.Dispose()
 
-    member _.RentContStack (workerId: int) : Stack<Cont> =
+    member _.RentContStack (workerId: int) =
         let pool = contStackPools.[workerId]
         if pool.Count > 0 then
             let stack = pool.Pop()
@@ -168,7 +167,7 @@ type internal Scheduler(workerCount: int) =
             stack.Clear()
             pool.Push stack
 
-    member _.RentWorkItem (workerId: int, effect: FIO<obj, obj>, fiberContext: FiberContext, contStack: Stack<Cont>) : WorkItem =
+    member _.RentWorkItem (workerId: int, effect: FIO<obj, obj>, fiberContext: FiberContext, contStack: Stack<Cont>) =
         let pool = workItemPools.[workerId]
         if pool.Count > 0 then
             let workItem = pool.Pop()
@@ -296,7 +295,7 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
         workers |> List.iter (fun w -> (w :> IDisposable).Dispose())
         scheduler.Dispose()
 
-    override _.Name =
+    override _.Name : string =
         "WorkStealingRuntime"
 
     /// Creates the runtime with the default worker configuration.

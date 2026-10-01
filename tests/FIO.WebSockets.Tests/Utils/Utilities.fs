@@ -158,7 +158,7 @@ let withServedUrl (startServer: string -> FIO<unit, WsError>) (action: string ->
             let port = findAvailablePort ()
             let! serverFiber = (startServer $"http://localhost:{port}/").Fork()
 
-            let serverDied: FIO<'A, WsError> =
+            let serverDied =
                 (serverFiber.Join())
                     .FlatMap(fun _ -> FIO.fail (ConnectionFailed "server exited before the client connected"))
 

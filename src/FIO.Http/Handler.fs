@@ -12,23 +12,23 @@ type HttpHandler<'E> = HttpRequest -> FIO<HttpResponse, 'E>
 module HttpHandler =
 
     /// Creates a handler that always returns the given response.
-    let succeed (response: HttpResponse) =
+    let succeed (response: HttpResponse) : HttpHandler<'E> =
         fun _ -> FIO.succeed response
 
     /// Creates a handler that always fails with the given error.
-    let fail (error: 'E) =
+    let fail (error: 'E) : HttpHandler<'E> =
         fun _ -> FIO.fail error
 
     /// Creates a handler that ignores the request and runs the given effect.
-    let fromFIO (effect: FIO<HttpResponse, 'E>) =
+    let fromFIO (effect: FIO<HttpResponse, 'E>) : HttpHandler<'E> =
         fun _ -> effect
 
     /// Creates a handler from a pure request-to-response function, capturing exceptions.
-    let fromFunc (func: HttpRequest -> HttpResponse) =
+    let fromFunc (func: HttpRequest -> HttpResponse) : HttpHandler<exn> =
         fun request -> FIO.attempt (fun () -> func request) id
 
     /// Creates a handler from a request-to-effect function.
-    let fromFuncFIO (func: HttpRequest -> FIO<HttpResponse, 'E>) =
+    let fromFuncFIO (func: HttpRequest -> FIO<HttpResponse, 'E>) : HttpHandler<'E> =
         func
 
     /// A handler that returns 200 OK.
@@ -103,7 +103,7 @@ module HttpHandler =
             succeed <| Response.found location
 
     /// Transforms a handler's response with the given function.
-    let map (mapper: HttpResponse -> HttpResponse) (handler: HttpHandler<'E>) =
+    let map (mapper: HttpResponse -> HttpResponse) (handler: HttpHandler<'E>) : HttpHandler<'E> =
         fun request ->
             fio {
                 let! response = handler request
@@ -111,7 +111,7 @@ module HttpHandler =
             }
 
     /// Chains a handler into another handler that depends on its response.
-    let bind (cont: HttpResponse -> HttpHandler<'E>) (handler: HttpHandler<'E>) =
+    let bind (cont: HttpResponse -> HttpHandler<'E>) (handler: HttpHandler<'E>) : HttpHandler<'E> =
         fun request ->
             fio {
                 let! response = handler request
@@ -122,7 +122,7 @@ module HttpHandler =
     let zipWith
         (combiner: HttpResponse -> HttpResponse -> HttpResponse)
         (handler: HttpHandler<'E>)
-        (handler': HttpHandler<'E>) =
+        (handler': HttpHandler<'E>) : HttpHandler<'E> =
         fun request ->
             fio {
                 let! response = handler request
@@ -131,15 +131,15 @@ module HttpHandler =
             }
 
     /// Returns a handler that falls back to another if the first fails.
-    let orElse (handler': HttpHandler<'E>) (handler: HttpHandler<'E>) =
+    let orElse (handler': HttpHandler<'E>) (handler: HttpHandler<'E>) : HttpHandler<'E> =
         fun request -> handler request <|> handler' request
 
     /// Transforms a handler's error with the given function.
-    let mapError (mapper: 'E -> 'E1) (handler: HttpHandler<'E>) =
+    let mapError (mapper: 'E -> 'E1) (handler: HttpHandler<'E>) : HttpHandler<'E1> =
         fun request -> (handler request).MapError mapper
 
     /// Runs a side effect on a handler's response, keeping the response.
-    let tap (func: HttpResponse -> FIO<unit, 'E>) (handler: HttpHandler<'E>) =
+    let tap (func: HttpResponse -> FIO<unit, 'E>) (handler: HttpHandler<'E>) : HttpHandler<'E> =
         fun request ->
             fio {
                 let! response = handler request
@@ -148,7 +148,7 @@ module HttpHandler =
             }
 
     /// Runs a side effect on a handler's request and response, keeping the response.
-    let tapWithRequest (func: HttpRequest -> HttpResponse -> FIO<unit, 'E>) (handler: HttpHandler<'E>) =
+    let tapWithRequest (func: HttpRequest -> HttpResponse -> FIO<unit, 'E>) (handler: HttpHandler<'E>) : HttpHandler<'E> =
         fun request ->
             fio {
                 let! response = handler request
@@ -157,15 +157,15 @@ module HttpHandler =
             }
 
     /// Creates a handler that derives a value from the request.
-    let asks (func: HttpRequest -> 'A) =
+    let asks (func: HttpRequest -> 'A) : HttpRequest -> FIO<'A, 'E> =
         fun request -> FIO.succeed <| func request
 
     /// Returns a handler that transforms the request before passing it on.
-    let local (func: HttpRequest -> HttpRequest) (handler: HttpHandler<'E>) =
+    let local (func: HttpRequest -> HttpRequest) (handler: HttpHandler<'E>) : HttpHandler<'E> =
         fun request -> handler <| func request
 
     /// Runs the handler when the predicate holds, otherwise returns the fallback response.
-    let when' (predicate: HttpRequest -> bool) (handler: HttpHandler<'E>) (fallback: HttpResponse) =
+    let when' (predicate: HttpRequest -> bool) (handler: HttpHandler<'E>) (fallback: HttpResponse) : HttpHandler<'E> =
         fun request ->
             if predicate request then
                 handler request
@@ -176,7 +176,7 @@ module HttpHandler =
     let ifElse
         (predicate: HttpRequest -> bool)
         (trueHandler: HttpHandler<'E>)
-        (falseHandler: HttpHandler<'E>) =
+        (falseHandler: HttpHandler<'E>) : HttpHandler<'E> =
         fun request ->
             if predicate request then
                 trueHandler request
@@ -200,7 +200,7 @@ module HttpHandler =
                 id
 
     /// Creates a handler that parses the JSON request body and passes it to the given function.
-    let jsonBody<'A, 'E> (func: 'A -> FIO<HttpResponse, 'E>) (onError: exn -> 'E) =
+    let jsonBody<'A, 'E> (func: 'A -> FIO<HttpResponse, 'E>) (onError: exn -> 'E) : HttpHandler<'E> =
         fun request ->
             fio {
                 let! body = (parseJsonBody<'A> None request).MapError onError
@@ -211,7 +211,7 @@ module HttpHandler =
     let jsonBodyWith<'A, 'E>
         (options: JsonSerializerOptions)
         (func: 'A -> FIO<HttpResponse, 'E>)
-        (onError: exn -> 'E) =
+        (onError: exn -> 'E) : HttpHandler<'E> =
         fun request ->
             fio {
                 let! body = (parseJsonBody<'A> (Some options) request).MapError onError

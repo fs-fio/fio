@@ -35,7 +35,7 @@ let private producerEffect (mailbox: Channel<Message>) replyChannel messageCount
     }
 
 // Builds the Counting workload: one producer feeding a counter actor.
-let effect messageCount : FIO<unit, exn> =
+let effect messageCount =
     fio {
         let mailbox = Channel<Message>()
         let replyChannel = Channel<int>()

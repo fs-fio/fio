@@ -267,7 +267,7 @@ let serverSocketTests =
                     testAllRuntimes "acceptLoop - survives a handler that throws, closes its connection and keeps serving" (fun runtime ->
                         let attempts = ref 0
 
-                        let throwingHandler (socket: Socket) : FIO<unit, SocketError> =
+                        let throwingHandler (socket: Socket) =
                             if Interlocked.Increment attempts = 1 then
                                 failwith "handler threw"
                             else

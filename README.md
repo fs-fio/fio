@@ -149,10 +149,7 @@ from a full bounded or dropping channel. `Read` suspends until a message arrives
 - **Structured concurrency** — fail-fast `ZipPar`, `Race`, and `forEachPar` that interrupt losers automatically
 - **Composition** — `fio { }` CE, operators (`>>=`, `<&>`, `<|>`), combinators
 - **Refs** — `Ref<'A>`, an atomic reference cell shared between fibers (with `FIO.DSL` open it shadows FSharp.Core's `Ref<'T>` annotation; `'T ref` is unaffected)
-- **Modules** — `Console` (lines and keys; `tryReadLine` yields `None` at end of input) and `Signal`
-  (`Signal.subscribe` awaits POSIX signals such as `SIGWINCH`; on Windows only `SIGINT`, `SIGQUIT`,
-  `SIGTERM` and `SIGHUP`; a subscription does not cancel a signal's default action, so a terminating
-  signal still ends the process unless a `FIOApp` or your own registration cancels it)
+- **Console** — lines and keys as effects; `tryReadLine` yields `None` at end of input
 
 ## Runtimes
 
@@ -191,9 +188,6 @@ its parameters, and the A/B comparison protocol are documented in
 
 Each extension library has its own README with API details:
 [Http](https://github.com/fs-fio/fio/blob/main/src/FIO.Http/README.md) · [Sockets](https://github.com/fs-fio/fio/blob/main/src/FIO.Sockets/README.md) · [WebSockets](https://github.com/fs-fio/fio/blob/main/src/FIO.WebSockets/README.md).
-
-What changed in each release, including the breaking changes, is in the
-[changelog](https://github.com/fs-fio/fio/blob/main/CHANGELOG.md).
 
 ## Contributing
 

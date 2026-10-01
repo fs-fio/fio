@@ -115,7 +115,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
         }
 
     /// Sends a buffer of raw bytes over this socket.
-    member _.SendBytes (buffer: byte[]) =
+    member _.SendBytes (buffer: byte[]) : FIO<unit, SocketError> =
         fio {
             if isNull buffer then
                 return! FIO.fail (InvalidState("non-null buffer", "null"))
@@ -133,7 +133,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
         }
 
     /// Receives up to the given number of bytes from this socket, returning the bytes read and their count.
-    member _.ReceiveBytes (maxBytes: int) =
+    member _.ReceiveBytes (maxBytes: int) : FIO<byte[] * int, SocketError> =
         fio {
             if maxBytes <= 0 then
                 return! FIO.fail (InvalidState("positive buffer size", $"{maxBytes}"))
@@ -163,7 +163,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
         }
 
     /// Receives exactly the given number of bytes from this socket, blocking until they arrive.
-    member _.ReceiveExactly (numBytes: int) =
+    member _.ReceiveExactly (numBytes: int) : FIO<byte[], SocketError> =
         fio {
             if numBytes <= 0 then
                 return! FIO.fail (InvalidState("positive byte count", $"{numBytes}"))
@@ -196,33 +196,33 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
         }
 
     /// Sends a value over this socket, encoded with the given codec.
-    member this.Send<'A> (codec: SocketCodec<'A>, value: 'A) =
+    member this.Send<'A> (codec: SocketCodec<'A>, value: 'A) : FIO<unit, SocketError> =
         fio {
             let! bytes = codec.Encode value
             do! this.SendBytes bytes
         }
 
     /// Receives a value from this socket, decoded with the given codec.
-    member this.Receive<'A> (codec: SocketCodec<'A>, maxBytes: int) =
+    member this.Receive<'A> (codec: SocketCodec<'A>, maxBytes: int) : FIO<'A, SocketError> =
         fio {
             let! bytes, _ = this.ReceiveBytes maxBytes
             return! codec.Decode bytes
         }
 
     /// Sends a UTF-8 string over this socket.
-    member this.SendString (str: string) =
+    member this.SendString (str: string) : FIO<unit, SocketError> =
         this.Send(Codec.string, str)
 
     /// Receives a UTF-8 string from this socket.
-    member this.ReceiveString (maxBytes: int) =
+    member this.ReceiveString (maxBytes: int) : FIO<string, SocketError> =
         this.Receive(Codec.string, maxBytes)
 
     /// Sends a newline-terminated string over this socket.
-    member this.SendLine (line: string) =
+    member this.SendLine (line: string) : FIO<unit, SocketError> =
         this.Send(Codec.line, line)
 
     /// Receives a single newline-terminated line from this socket.
-    member this.ReceiveLine (maxBytes: int) =
+    member this.ReceiveLine (maxBytes: int) : FIO<string, SocketError> =
         fio {
             if maxBytes <= 0 then
                 return! FIO.fail (InvalidState("positive buffer size", $"{maxBytes}"))
@@ -246,30 +246,30 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
         }
 
     /// Sends a value as JSON over this socket.
-    member this.SendJson<'A> (value: 'A) =
+    member this.SendJson<'A> (value: 'A) : FIO<unit, SocketError> =
         this.Send(Codec.json, value)
 
     /// Receives a JSON value from this socket.
-    member this.ReceiveJson<'A> (maxBytes: int) =
+    member this.ReceiveJson<'A> (maxBytes: int) : FIO<'A, SocketError> =
         this.Receive<'A>(Codec.json, maxBytes)
 
     /// Sends a value as a newline-terminated JSON message over this socket.
-    member this.SendJsonLine<'A> (value: 'A) =
+    member this.SendJsonLine<'A> (value: 'A) : FIO<unit, SocketError> =
         this.Send(Codec.jsonLine None, value)
 
     /// Receives a newline-terminated JSON value from this socket.
-    member this.ReceiveJsonLine<'A> (maxBytes: int) =
+    member this.ReceiveJsonLine<'A> (maxBytes: int) : FIO<'A, SocketError> =
         this.Receive<'A>(Codec.jsonLine None, maxBytes)
 
     /// Sends a value as a length-prefixed frame, encoded with the given codec.
-    member this.SendFramed<'A> (codec: SocketCodec<'A>, value: 'A) =
+    member this.SendFramed<'A> (codec: SocketCodec<'A>, value: 'A) : FIO<unit, SocketError> =
         fio {
             let! frame = (Codec.lengthPrefixed codec).Encode value
             do! this.SendBytes frame
         }
 
     /// Receives a length-prefixed frame, decoded with the given codec, rejecting frames larger than the maximum size.
-    member this.ReceiveFramed<'A> (codec: SocketCodec<'A>, maxFrameSize: int) =
+    member this.ReceiveFramed<'A> (codec: SocketCodec<'A>, maxFrameSize: int) : FIO<'A, SocketError> =
         fio {
             let! header = this.ReceiveExactly 4
             let length = IPAddress.NetworkToHostOrder(BitConverter.ToInt32(header, 0))
@@ -288,11 +288,11 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
         }
 
     /// Receives a length-prefixed frame, decoded with the given codec, using a default 16 MB frame limit.
-    member this.ReceiveFramed<'A> (codec: SocketCodec<'A>) =
+    member this.ReceiveFramed<'A> (codec: SocketCodec<'A>) : FIO<'A, SocketError> =
         this.ReceiveFramed(codec, 16 * 1024 * 1024)
 
     /// Gracefully shuts down and closes this socket, suppressing errors.
-    member _.Close () =
+    member _.Close () : FIO<unit, SocketError> =
         fio {
             do! (attempt <| fun () ->
                     if not disposed then
@@ -312,33 +312,33 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
         }
 
     /// Indicates whether this socket is currently connected.
-    member _.IsConnected () =
+    member _.IsConnected () : bool =
         try
             netSocket.Connected
         with _ ->
             false
 
     /// Returns an effect that yields the remote endpoint this socket is connected to.
-    member _.GetRemoteEndPoint () =
+    member _.GetRemoteEndPoint () : FIO<EndPoint, SocketError> =
         attempt <| fun () -> netSocket.RemoteEndPoint
 
     /// Returns an effect that yields the local endpoint this socket is bound to.
-    member _.GetLocalEndPoint () =
+    member _.GetLocalEndPoint () : FIO<EndPoint, SocketError> =
         attempt <| fun () -> netSocket.LocalEndPoint
 
     /// The configuration this socket was created with.
-    member _.GetConfig () =
+    member _.GetConfig () : SocketConfig =
         config
 
     /// Releases the resources held by this socket.
-    member _.Dispose () =
+    member _.Dispose () : FIO<unit, SocketError> =
         attempt releaseResources
 
     interface IDisposable with
 
-        member this.Dispose () =
+        member this.Dispose () : unit =
             releaseResources ()
             GC.SuppressFinalize this
 
-    override _.Finalize () =
+    override _.Finalize () : unit =
         releaseResources ()

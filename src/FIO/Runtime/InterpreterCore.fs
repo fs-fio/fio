@@ -231,7 +231,7 @@ let inline handleSharedCase
         processOutcome &state onSuccessComplete onErrorComplete (OutcomeSucceeded(token :> obj))
         ValueNone
     | Action(func, onError) ->
-        let mutable thrown: exn = null
+        let mutable thrown = null
         let mutable value = Unchecked.defaultof<obj>
 
         try
@@ -344,13 +344,13 @@ let inline resumeWith (state: byref<InterpreterState>) (workItem: WorkItem) =
     workItem.InterruptionSuppressed <- state.InterruptionSuppressed
     workItem
 
-let inline awaitedTask (awaited: Task<'T>) (suppressed: int) (fiberContext: FiberContext) : Task<'T> =
+let inline awaitedTask (awaited: Task<'T>) (suppressed: int) (fiberContext: FiberContext) =
     if suppressed > 0 then
         awaited
     else
         awaited.WaitAsync fiberContext.CancellationToken
 
-let settledTaskEffect (waited: Task<obj>) (fiberContext: FiberContext) (onError: exn -> obj) : FIO<obj, obj> =
+let settledTaskEffect (waited: Task<obj>) (fiberContext: FiberContext) (onError: exn -> obj) =
     if waited.IsCompletedSuccessfully then
         Success waited.Result
     elif waited.IsCanceled && fiberContext.CancellationToken.IsCancellationRequested then

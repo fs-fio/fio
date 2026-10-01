@@ -13,8 +13,7 @@ let private applyMiddleware
     (middleware: Middleware<exn>)
     (handler: HttpHandler<exn>)
     (request: HttpRequest)
-    (runtime: FIO.Runtime.FIORuntime)
-    : HttpResponse =
+    (runtime: FIO.Runtime.FIORuntime) =
     let routes = Routes.route (Route.get "/test") handler |> Middleware.apply middleware
     dispatchAndRun runtime routes request
 

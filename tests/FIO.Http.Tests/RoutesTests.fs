@@ -288,14 +288,14 @@ let routesTests =
                 "RouteBuilder CE"
                 [
                     testAllRuntimes "routes - yields an empty collection" (fun runtime ->
-                        let collected: Routes<exn> = RouteBuilder.routes { () }
+                        let collected = RouteBuilder.routes { () }
                         let request = makeGetRequest "/anything"
                         let response = dispatchAndRun runtime collected request
 
                         Expect.equal response.Status HttpStatusCode.NotFound "An empty CE must route nothing")
 
                     testAllRuntimes "routes - combines yielded collections" (fun runtime ->
-                        let collected: Routes<exn> =
+                        let collected =
                             RouteBuilder.routes {
                                 yield SimpleRoutes.get "/a" (HttpHandler.text "A")
                                 yield SimpleRoutes.get "/b" (HttpHandler.text "B")
@@ -311,7 +311,7 @@ let routesTests =
                         | other -> failtest $"Expected text bodies from both routes, got {other}")
 
                     testAllRuntimes "routes - preserves first-match order" (fun runtime ->
-                        let collected: Routes<exn> =
+                        let collected =
                             RouteBuilder.routes {
                                 yield SimpleRoutes.get "/dup" (HttpHandler.text "first")
                                 yield SimpleRoutes.get "/dup" (HttpHandler.text "second")

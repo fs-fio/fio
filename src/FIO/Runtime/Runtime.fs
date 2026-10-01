@@ -98,7 +98,7 @@ type internal WorkItemPool private () =
             pool.Push workItem
 
 type internal WorkStealingDeque(initialCapacity: int) =
-    let mutable items: WorkItem[] = Array.zeroCreate initialCapacity
+    let mutable items = Array.zeroCreate initialCapacity
 
     let mutable mask = initialCapacity - 1
 
@@ -123,7 +123,7 @@ type internal WorkStealingDeque(initialCapacity: int) =
         try
             if bottom - top >= items.Length then
                 let count = bottom - top
-                let grown: WorkItem[] = Array.zeroCreate (items.Length * 2)
+                let grown = Array.zeroCreate (items.Length * 2)
                 for i in 0 .. count - 1 do
                     grown.[i] <- items.[(top + i) &&& mask]
                 items <- grown
@@ -221,7 +221,7 @@ type FIORuntime internal () =
     /// A display string describing the runtime and its configuration.
     abstract member ConfigString: string
 
-    default this.ConfigString =
+    default this.ConfigString : string =
         this.Name
 
     /// Schedules the given effect on a new fiber and returns its handle at once; it never waits for, interrupts, or
@@ -229,7 +229,7 @@ type FIORuntime internal () =
     abstract member Run<'A, 'E> : FIO<'A, 'E> -> Fiber<'A, 'E>
 
     /// Returns a filesystem-safe form of this runtime's configuration string.
-    member this.ToFileString () =
+    member this.ToFileString () : string =
         this.ToString()
             .ToLowerInvariant()
             .Replace("(", "")
@@ -237,7 +237,7 @@ type FIORuntime internal () =
             .Replace(":", "")
             .Replace(' ', '-')
 
-    override this.ToString () =
+    override this.ToString () : string =
         this.ConfigString
 
     member val internal StopWorkers: unit -> unit = ignore with get, set
@@ -259,7 +259,7 @@ type FIORuntime internal () =
 
     /// Interrupts every fiber still running, waits up to the given time for them to unwind, then stops the workers; a
     /// later call waits for the first, and running an effect afterwards throws. Do not call it from one of its fibers.
-    member this.Shutdown (timeout: TimeSpan) =
+    member this.Shutdown (timeout: TimeSpan) : unit =
         if timeout <> Timeout.InfiniteTimeSpan
            && (timeout < TimeSpan.Zero || timeout.TotalMilliseconds > float Int32.MaxValue) then
             raise (
@@ -300,7 +300,7 @@ type FIORuntime internal () =
     interface IDisposable with
 
         /// Shuts the runtime down, giving its fibers up to ten seconds to unwind.
-        member this.Dispose () =
+        member this.Dispose () : unit =
             this.Shutdown(TimeSpan.FromSeconds 10.0)
 
 /// Worker counts and scheduling parameters for a worker-based runtime.
@@ -315,7 +315,7 @@ type WorkerConfig =
     }
 
     /// The default configuration, sized to the current machine.
-    static member Default =
+    static member Default : WorkerConfig =
         {
             EvaluationWorkers = WorkerRuntimeDefaults.ComputeEvaluationWorkerCount()
             EvaluationSteps = WorkerRuntimeDefaults.EvaluationWorkerSteps

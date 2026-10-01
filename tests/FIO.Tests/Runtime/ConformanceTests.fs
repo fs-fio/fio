@@ -128,10 +128,10 @@ let conformanceTests =
                     let interruptAndAwaitFinalizer (runtime: FIORuntime) (finalizer: bool ref -> FIO<unit, string>) =
                         let finished = ref false
 
-                        let child: FIO<unit, string> =
+                        let child =
                             (FIO.never ()).Ensuring(finalizer finished)
 
-                        let effect: FIO<unit, string> =
+                        let effect =
                             child.ForkDaemon().FlatMap(fun (fiber: Fiber<unit, string>) ->
                                 (FIO.sleep (TimeSpan.FromMilliseconds 100.0))
                                     .FlatMap(fun () -> fiber.InterruptNow())
@@ -174,11 +174,11 @@ let conformanceTests =
                     <| fun runtime ->
                         let finalized = ref false
 
-                        let slowFinalizer: FIO<unit, string> =
+                        let slowFinalizer =
                             (FIO.sleep (TimeSpan.FromMilliseconds 200.0))
                                 .FlatMap(fun () -> FIO.attempt (fun () -> finalized.Value <- true) (fun ex -> ex.Message))
 
-                        let child: FIO<unit, string> =
+                        let child =
                             (FIO.never ()).Ensuring slowFinalizer
 
                         let parent: FIO<unit, string> =
@@ -194,11 +194,11 @@ let conformanceTests =
                     <| fun runtime ->
                         let started = new ManualResetEventSlim false
 
-                        let child: FIO<unit, string> =
+                        let child =
                             (FIO.attempt (fun () -> started.Set()) (fun ex -> ex.Message))
                                 .FlatMap(fun () -> FIO.never ())
 
-                        let parent: FIO<obj, string> =
+                        let parent =
                             child.ForkDaemon().FlatMap(fun (fiber: Fiber<unit, string>) ->
                                 (FIO.attempt (fun () -> started.Wait(TimeSpan.FromSeconds 5.0) |> ignore) (fun ex -> ex.Message))
                                     .FlatMap(fun () -> FIO.succeed (fiber :> obj)))
@@ -217,14 +217,14 @@ let conformanceTests =
                         let runs = 3
                         let forkCount = ref 0
 
-                        let effect: FIO<int, string> =
+                        let effect =
                             (FIO.suspend (fun () ->
                                 Interlocked.Increment forkCount |> ignore
                                 FIO.succeed 1))
                                 .Fork()
                                 .FlatMap(fun (fiber: Fiber<int, string>) -> fiber.Join())
 
-                        let bounded: FIO<int, string> =
+                        let bounded =
                             effect.TimeoutFail "re-run blocked: the fork was skipped" (TimeSpan.FromSeconds 10.0)
 
                         let results = [ for _ in 1..runs -> runtime.Run(bounded).UnsafeSuccess() ]
@@ -241,7 +241,7 @@ let conformanceTests =
 
                     testAllRuntimes "Fork - a re-run effect observes state written by that run only"
                     <| fun runtime ->
-                        let effect: FIO<int, string> =
+                        let effect =
                             FIO.suspend (fun () ->
 
                                 let cell = ref 0
@@ -249,7 +249,7 @@ let conformanceTests =
                                     .Fork()
                                     .FlatMap(fun (fiber: Fiber<int, string>) -> fiber.Join()))
 
-                        let bounded: FIO<int, string> =
+                        let bounded =
                             effect.TimeoutFail "re-run blocked: the fork was skipped" (TimeSpan.FromSeconds 10.0)
 
                         for attempt in 1..3 do
@@ -288,7 +288,7 @@ let conformanceTests =
                 [
                     testAllRuntimes "Interrupt - a custom cause survives interruption while blocked on a channel"
                     <| fun runtime ->
-                        let causes: InterruptionCause list =
+                        let causes =
                             [ ResourceExhaustion "out of memory"
                               InvalidArgument("count", "must be positive")
                               ParentInterrupted(Guid.NewGuid())
@@ -346,7 +346,7 @@ let conformanceTests =
                         let childCount = 400
                         let finalized = ref 0
 
-                        let child: FIO<unit, string> =
+                        let child =
                             FIO.succeed()
                                 .Unit()
                                 .Ensuring(
@@ -374,7 +374,7 @@ let conformanceTests =
                         let finalized = ref false
                         let channel = Channel<int>()
 
-                        let child: FIO<unit, string> =
+                        let child =
                             channel
                                 .Read()
                                 .Unit()

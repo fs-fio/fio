@@ -78,7 +78,7 @@ let private createActors actorCount =
         { actor with SendingChannels = sendingChannels; SendingCount = List.length sendingChannels })
 
 // Builds the Big workload: all-to-all ping/pong across a mesh of actors.
-let effect actorCount roundCount : FIO<unit, exn> =
+let effect actorCount roundCount =
     fio {
         let actors = createActors actorCount
         do! FIO.forEachParDiscard (List.indexed actors) <| fun (index, actor) ->

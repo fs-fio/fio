@@ -33,7 +33,7 @@ let tests =
                         let finished = ref false
                         let after = ref false
 
-                        let region : FIO<unit, exn> =
+                        let region =
                             (FIO.attempt (fun () ->
                                 entered.Set()
                                 gate.Wait()) id)
@@ -61,12 +61,12 @@ let tests =
                         let after = ref false
                         let unwound = ref false
 
-                        let region : FIO<unit, exn> =
+                        let region =
                             FIO.attempt (fun () ->
                                 entered.Set()
                                 gate.Wait()) id
 
-                        let effect : FIO<unit, exn> =
+                        let effect =
                             fio {
                                 do! FIO.uninterruptible region
                                 after.Value <- true
@@ -152,7 +152,7 @@ let tests =
 
                         let started = new ManualResetEventSlim false
 
-                        let body : FIO<unit, exn> =
+                        let body =
                             FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never<unit, exn> ())
 
                         let fiber = runtime.Run(body.Ensuring finalizer)
@@ -212,13 +212,13 @@ let tests =
                         let finished = ref false
                         let after = ref false
 
-                        let body : FIO<unit, exn> =
+                        let body =
                             (FIO.attempt (fun () ->
                                 entered.Set()
                                 gate.Wait()) id)
                                 .FlatMap(fun () -> FIO.succeedWith (fun () -> finished.Value <- true))
 
-                        let effect : FIO<unit, exn> =
+                        let effect =
                             FIO.uninterruptibleMask(fun mask ->
                                 (FIO.uninterruptible (mask.Restore(FIO.uninterruptible body)))
                                     .FlatMap(fun () -> FIO.succeedWith (fun () -> after.Value <- true)))
@@ -240,10 +240,10 @@ let tests =
                         let started = new ManualResetEventSlim(false)
                         let cleaned = ref false
 
-                        let cleanup : FIO<unit, exn> =
+                        let cleanup =
                             FIO.succeedWith (fun () -> cleaned.Value <- true)
 
-                        let body : FIO<unit, exn> =
+                        let body =
                             FIO.unit<exn>().Fork()
                                 .FlatMap(fun _ -> FIO.succeedWith (fun () -> started.Set()))
                                 .FlatMap(fun () -> FIO.never<unit, exn> ())
@@ -264,7 +264,7 @@ let tests =
                                 .FlatMap(fun () -> FIO.sleep (TimeSpan.FromMilliseconds 100.0))
                                 .Map(fun () -> 1)
 
-                        let right : FIO<int, exn> =
+                        let right =
                             (FIO.sleep (TimeSpan.FromMilliseconds 100.0)).Map(fun () -> 2)
 
                         let region : FIO<unit, exn> =
@@ -284,7 +284,7 @@ let tests =
                         let entered = new ManualResetEventSlim(false)
                         let released = ref false
 
-                        let acquire : FIO<int, exn> =
+                        let acquire =
                             (FIO.succeedWith(fun () -> entered.Set())
                                 .FlatMap(fun () -> FIO.sleep (TimeSpan.FromMilliseconds 100.0))
                                 .Map(fun () -> 42))
@@ -305,10 +305,10 @@ let tests =
                     testAllRuntimes "Ensuring - a fiber a finalizer forks is interrupted when the fiber exits" (fun runtime ->
                         let forkedFinalized = ref false
 
-                        let forked : FIO<unit, exn> =
+                        let forked =
                             FIO.never<unit, exn>().Ensuring(FIO.succeedWith (fun () -> forkedFinalized.Value <- true))
 
-                        let effect : FIO<unit, exn> =
+                        let effect =
                             fio {
                                 let! fiber = (FIO.never<unit, exn>().Ensuring(forked.Fork().Unit())).Fork()
                                 do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
@@ -324,7 +324,7 @@ let tests =
                         let finalizerDone = ref false
                         let childInterrupted = ref false
 
-                        let effect : FIO<unit, exn> =
+                        let effect =
                             FIO.never<unit, exn>().Fork().FlatMap(fun child ->
                                 FIO.succeedWith(fun () -> started.Set())
                                     .FlatMap(fun () -> FIO.never<unit, exn> ())
