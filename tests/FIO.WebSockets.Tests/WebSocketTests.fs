@@ -529,7 +529,6 @@ let webSocketTests =
                                         let! ws =
                                             WebSocketClient.connect (Uri $"ws://localhost:{port}/") config Threading.CancellationToken.None
                                         let chunk = Array.zeroCreate<byte> (1024 * 1024)
-                                        // Loopback buffers absorb a few megabytes, so the flood is bounded well above that.
                                         let rec flood (sent: int) =
                                             if sent >= 64 then
                                                 FIO.succeed None
@@ -547,7 +546,7 @@ let webSocketTests =
 
                         match outcome with
                         | Some(TimeoutError _) -> ()
-                        | other -> failtest $"Expected TimeoutError but got {other}")
+                        | other -> failtest $"Expected TimeoutError within 64 one-megabyte messages to a peer that never reads (loopback buffers absorb a few megabytes), got %A{other}")
 
                     testAllRuntimes "ReceiveMessage - on an aborted socket fails with Closed" (fun runtime ->
                         let outcome =

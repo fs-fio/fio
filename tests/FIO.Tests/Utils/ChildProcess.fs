@@ -84,7 +84,6 @@ let private disposeParkedWriter () =
 
     0
 
-/// Runs a scenario inside a child process started by `ChildProcess`.
 let run (scenario: string) : int =
     match scenario with
     | "app" -> runApp (SignalApp false)
@@ -97,7 +96,7 @@ let run (scenario: string) : int =
 
 type private Marker = class end
 
-/// A child process running this test assembly in `--child <scenario>` mode.
+// Re-runs this test assembly as a child process, for behaviour that needs a process of its own.
 type ChildProcess(scenario: string) =
     let lines = ConcurrentQueue<string>()
 

@@ -154,11 +154,11 @@ let cancellationTests =
 
                                 use client = new Sockets.TcpClient()
                                 client.Connect(IPAddress.Loopback, port)
+                                client.ReceiveTimeout <- 1_000
                                 Thread.Sleep 50
                                 control.Run(server.InterruptNow()).Task().Wait()
                                 unblock.Set()
                                 blocker.Task().Wait()
-                                client.ReceiveTimeout <- 1_000
                                 let closed =
                                     try
                                         client.GetStream().Read(Array.zeroCreate<byte> 1, 0, 1) = 0

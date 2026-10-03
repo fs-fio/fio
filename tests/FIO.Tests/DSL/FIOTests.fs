@@ -507,7 +507,6 @@ let fioTests =
 
                         Expect.equal result depth $"Deep MapBoth chain should yield {depth}"
 
-                    // Sequenced: 10,000 fibers flood the shared thread pool, which stalls DirectRuntime tests running alongside.
                     testAllRuntimesSequenced "Stack safety - interrupting the root of a 10,000-deep chain of nested forks"
                     <| fun (runtime: FIORuntime) ->
                         let leafStarted = new Threading.ManualResetEventSlim(false)
@@ -521,7 +520,7 @@ let fioTests =
 
                         let root = runtime.Run(chain 10000)
 
-                        Expect.isTrue (leafStarted.Wait(TimeSpan.FromSeconds 60.0)) "Every level should have forked"
+                        Expect.isTrue (leafStarted.Wait(TimeSpan.FromSeconds 60.0)) "Every level should have forked (sequenced: 10,000 fibers stall DirectRuntime tests running alongside)"
 
                         runtime.Run(root.InterruptNow()).UnsafeSuccess()
 
@@ -531,8 +530,6 @@ let fioTests =
                     <| fun (runtime: FIORuntime) ->
                         let gate = Threading.Tasks.TaskCompletionSource()
                         let leafReached = new Threading.ManualResetEventSlim(false)
-                        // A fiber that completes interrupts what it forked, so every level waits for the gate after forking;
-                        // the leaf is then interrupted by its parent and the unwinding climbs the chain from the bottom.
                         let rec chain (level: int) : FIO<unit, string> =
                             if level = 0 then
                                 FIO.succeedWith(fun () -> leafReached.Set()).FlatMap(fun () -> FIO.never ())
@@ -541,12 +538,12 @@ let fioTests =
 
                         let root = runtime.Run(chain 10000)
 
-                        Expect.isTrue (leafReached.Wait(TimeSpan.FromSeconds 60.0)) "Every level should have forked"
+                        Expect.isTrue (leafReached.Wait(TimeSpan.FromSeconds 60.0)) "Every level should have forked and be waiting on the gate"
 
                         gate.SetResult()
                         let result = root.Task()
 
-                        Expect.isTrue (result.Wait(TimeSpan.FromSeconds 60.0)) "The root should publish once its subtree has unwound"
+                        Expect.isTrue (result.Wait(TimeSpan.FromSeconds 60.0)) "The root should publish once the leaf's interruption has unwound back up the chain"
                         Expect.equal result.Result (Succeeded ()) "The chain should complete"
                 ]
 

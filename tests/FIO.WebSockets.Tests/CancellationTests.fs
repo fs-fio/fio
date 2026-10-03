@@ -330,8 +330,6 @@ let cancellationTests =
                                 let! ws = WebSocketClient.connectStringWith $"ws://localhost:{port}/"
                                 let! holder = ws.ReceiveMessage().Fork()
                                 do! sleepMs 200.0
-                                // B waits for the lock with a token that never cancels, so only the fiber gives up, and the
-                                // scope completes only once B's release has run while the holder still has the lock.
                                 let! scope =
                                     (fio {
                                         let! queued = ws.ReceiveMessage(CancellationToken.None).Fork()
@@ -349,7 +347,7 @@ let cancellationTests =
                         runtime
 
                 Expect.equal first (Frame(Text "one")) "The holder should receive the first message"
-                Expect.equal second (Some(Frame(Text "two"))) "The lock must be free once the abandoned wait is granted")
+                Expect.equal second (Some(Frame(Text "two"))) "The lock must be free once the abandoned wait (on a token that never cancels) is granted")
 
             testAllRuntimes "ReceiveMessage - the receive timeout still fires when the fiber is not interrupted" (fun runtime ->
                 let attemptResult, elapsedMs =

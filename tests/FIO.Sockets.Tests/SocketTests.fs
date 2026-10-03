@@ -620,6 +620,7 @@ let socketTests =
                         | other -> failtest $"Expected TimeoutError but got {other}")
 
                     testAllRuntimes "SendBytes - times out with TimeoutError when the peer stops reading" (fun runtime ->
+                        let chunk = Array.zeroCreate<byte> (1024 * 1024)
                         let result =
                             withTestServer
                                 (fun _socket -> FIO.never<unit, SocketError> ())
@@ -627,10 +628,17 @@ let socketTests =
                                     fio {
                                         let! baseConfig = SocketConfig.create "127.0.0.1" port
                                         let! socket = SocketClient.connect (SocketConfig.withSendTimeout 200 baseConfig)
-                                        let! result =
-                                            (socket.SendBytes(Array.zeroCreate (64 * 1024 * 1024)))
-                                                .Map(fun _ -> None)
-                                                .CatchAll(fun error -> FIO.succeed (Some error))
+                                        let rec flood (sent: int) =
+                                            if sent >= 64 then
+                                                FIO.succeed None
+                                            else
+                                                (socket.SendBytes chunk)
+                                                    .Map(fun () -> Ok())
+                                                    .CatchAll(fun error -> FIO.succeed (Error error))
+                                                    .FlatMap(function
+                                                        | Ok() -> flood (sent + 1)
+                                                        | Error error -> FIO.succeed (Some error))
+                                        let! result = flood 0
                                         do! socket.Close()
                                         return result
                                     })
@@ -638,7 +646,7 @@ let socketTests =
 
                         match result with
                         | Some(TimeoutError _) -> ()
-                        | other -> failtest $"Expected TimeoutError but got {other}")
+                        | other -> failtest $"Expected TimeoutError within 64 one-megabyte sends to a peer that never reads (Windows accepts a single send of any size), got %A{other}")
 
                     testAllRuntimes "Receive - times out with TimeoutError when the peer never sends" (fun runtime ->
                         let silentHandler (_socket: Socket) = FIO.never<unit, SocketError> ()
