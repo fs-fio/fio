@@ -235,7 +235,8 @@ module Extensions =
                 effect.Map <| fun _ ->
                     value
 
-        /// Returns an effect that runs this effect and the given effect concurrently, pairing their success values, failing fast by interrupting the other side on the first failure. When both sides fail, the surfaced error is whichever settled first.
+        /// Returns an effect that runs this effect and the given effect concurrently, pairing their success values; the first
+        /// failure interrupts the other side and is the error surfaced.
         member this.ZipPar<'A1> (effect: FIO<'A1, 'E>) : FIO<'A * 'A1, 'E> =
             FIO.suspend <| fun () ->
                 this.Fork().FlatMap <| fun fiber1 ->
@@ -267,7 +268,8 @@ module Extensions =
                                     | Interrupted ex ->
                                         (interruptBoth ()).FlatMap <| fun () -> FIO.interrupt ex.cause ex.message
 
-        /// Returns an effect that runs this effect and the given effect concurrently, pairing their errors. Succeeds fast: the first side to succeed interrupts the other. The error pair is surfaced only if both fail; when both succeed, the surfaced value is whichever settled first (unspecified).
+        /// Returns an effect that runs this effect and the given effect concurrently, succeeding with whichever succeeds first
+        /// and interrupting the other; it fails with both errors only when both fail.
         member this.ZipParError (effect: FIO<'A, 'E>) : FIO<'A, 'E * 'E> =
             FIO.suspend <| fun () ->
                 this.Fork().FlatMap <| fun fiber1 ->
@@ -441,9 +443,13 @@ module Extensions =
                         else FIO.succeed value
             loop ()
 
-        /// Returns an effect that runs this effect repeatedly, forever.
-        member inline this.Forever () : FIO<'A, 'E> =
-            let rec loop () =
+        /// Returns an effect that runs this effect uninterruptibly: an interruption takes effect once it ends.
+        member inline this.Uninterruptible () : FIO<'A, 'E> =
+            FIO.uninterruptible this
+
+        /// Returns an effect that repeats this effect until its first failure; it never succeeds, so its result type is free.
+        member inline this.Forever<'B> () : FIO<'B, 'E> =
+            let rec loop () : FIO<'B, 'E> =
                 this.FlatMap <| fun _ -> loop ()
             loop ()
 

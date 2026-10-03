@@ -15,7 +15,7 @@ open Microsoft.AspNetCore.Http
 module KestrelBridge =
 
     /// The default JSON serializer options (camelCase).
-    let defaultJsonOptions =
+    let defaultJsonOptions : JsonSerializerOptions =
         let options =
             JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
         options.TypeInfoResolver <- Serialization.Metadata.DefaultJsonTypeInfoResolver()
@@ -87,7 +87,7 @@ module KestrelBridge =
         }
 
     /// Converts a Kestrel HttpContext into an HttpRequest, enforcing the maximum body size.
-    let convertRequestAsync (ctx: HttpContext) (maxBodySize: int64) =
+    let convertRequestAsync (ctx: HttpContext) (maxBodySize: int64) : Task<Result<FIO.Http.HttpRequest, int * string>> =
         task {
             if
                 ctx.Request.ContentLength.HasValue
@@ -162,7 +162,7 @@ module KestrelBridge =
     let writeResponseWithOptions
         (jsonOptions: JsonSerializerOptions)
         (ctx: HttpContext)
-        (response: FIO.Http.HttpResponse) =
+        (response: FIO.Http.HttpResponse) : Task<unit> =
         task {
             let! bodyBytes =
                 task {
@@ -232,13 +232,13 @@ module KestrelBridge =
     let writeResponseWith
         (jsonOptions: JsonSerializerOptions option)
         (ctx: HttpContext)
-        (response: FIO.Http.HttpResponse) =
+        (response: FIO.Http.HttpResponse) : Task<unit> =
         match jsonOptions with
         | Some options -> writeResponseWithOptions options ctx response
         | None -> writeResponseWithOptions defaultJsonOptions ctx response
 
     /// Writes an HttpResponse to the Kestrel context using the default JSON options.
-    let writeResponse (ctx: HttpContext) (response: FIO.Http.HttpResponse) =
+    let writeResponse (ctx: HttpContext) (response: FIO.Http.HttpResponse) : Task<unit> =
         writeResponseWith None ctx response
 
     let private logError (ctx: HttpContext) (errorType: string) (message: string) (error: exn option) =
@@ -264,13 +264,18 @@ module KestrelBridge =
         (routes: Routes<exn>)
         (maxBodySize: int64)
         (jsonOptions: JsonSerializerOptions)
-        (ctx: HttpContext) =
+        (ctx: HttpContext) : Task<unit> =
         task {
             let writeStatusBody (status: int) (text: string) =
                 task {
-                    if not ctx.Response.HasStarted then
+                    if ctx.Response.HasStarted then
+                        ctx.Abort()
+                    else
+                        ctx.Response.Clear()
                         ctx.Response.StatusCode <- status
+                        ctx.Response.ContentType <- "text/plain; charset=utf-8"
                         let bytes = Encoding.UTF8.GetBytes text
+                        ctx.Response.ContentLength <- Nullable(int64 bytes.Length)
                         do! ctx.Response.Body.WriteAsync(bytes, 0, bytes.Length)
                 }
 
@@ -291,7 +296,12 @@ module KestrelBridge =
                         logError ctx "HandlerError" ex.Message (Some ex)
                         do! writeStatusBody 500 "Internal Server Error"
                     | Interrupted _ -> do! writeStatusBody 503 "Service Unavailable"
-            with ex ->
+            with
+            // Kestrel rejects a request it won't read, such as a body over the limit, by throwing this from the read.
+            | :? BadHttpRequestException as rejection ->
+                logError ctx "RequestValidation" rejection.Message None
+                do! writeStatusBody rejection.StatusCode rejection.Message
+            | ex ->
                 logError ctx "UnhandledException" ex.Message (Some ex)
                 do! writeStatusBody 500 "Internal Server Error"
         }
@@ -302,7 +312,7 @@ module KestrelBridge =
         (routes: Routes<exn>)
         (maxBodySize: int64)
         (jsonOptions: JsonSerializerOptions option)
-        (ctx: HttpContext) =
+        (ctx: HttpContext) : Task<unit> =
         match jsonOptions with
         | Some options -> handleRequestWithOptions runtime routes maxBodySize options ctx
         | None -> handleRequestWithOptions runtime routes maxBodySize defaultJsonOptions ctx

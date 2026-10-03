@@ -19,14 +19,14 @@ type WebSocketCodec<'A> =
 module Codec =
 
     /// A codec that passes WebSocket frames through unchanged.
-    let frame =
+    let frame : WebSocketCodec<WebSocketFrame> =
         {
             Encode = fun frame -> FIO.succeed frame
             Decode = fun frame -> FIO.succeed frame
         }
 
     /// A codec for binary frames.
-    let binary =
+    let binary : WebSocketCodec<byte[]> =
         {
             Encode = fun bytes -> FIO.succeed (Binary bytes)
             Decode = fun frame ->
@@ -37,7 +37,7 @@ module Codec =
         }
 
     /// A codec for text frames.
-    let text =
+    let text : WebSocketCodec<string> =
         {
             Encode = fun str -> FIO.succeed (Text str)
             Decode = fun frame ->
@@ -48,7 +48,7 @@ module Codec =
         }
 
     /// Creates a JSON codec using the given serializer options.
-    let jsonWithOptions<'A> (options: JsonSerializerOptions) =
+    let jsonWithOptions<'A> (options: JsonSerializerOptions) : WebSocketCodec<'A> =
         {
             Encode = fun value ->
                 FIO.attempt
@@ -78,10 +78,10 @@ module Codec =
         options
 
     /// A JSON codec using default serializer options.
-    let json<'A> = jsonWithOptions<'A> defaultJsonOptions
+    let json<'A> : WebSocketCodec<'A> = jsonWithOptions<'A> defaultJsonOptions
 
     /// A newline-terminated JSON codec, optionally using the given serializer options.
-    let jsonLine<'A> (options: JsonSerializerOptions option) =
+    let jsonLine<'A> (options: JsonSerializerOptions option) : WebSocketCodec<'A> =
         let opts = defaultArg options (JsonSerializerOptions())
         {
             Encode = fun value ->
@@ -109,7 +109,7 @@ module Codec =
         }
 
     /// Adapts a codec to a new type using forward and backward conversions.
-    let map (forward: 'A -> 'A1) (backward: 'A1 -> 'A) (codec: WebSocketCodec<'A>) =
+    let map (forward: 'A -> 'A1) (backward: 'A1 -> 'A) (codec: WebSocketCodec<'A>) : WebSocketCodec<'A1> =
         {
             Encode = fun value -> codec.Encode(backward value)
             Decode = fun frame ->
@@ -168,11 +168,11 @@ module Codec =
         }
 
     /// Creates a codec from effectful encode and decode functions.
-    let create (encode: 'A -> FIO<WebSocketFrame, WsError>) (decode: WebSocketFrame -> FIO<'A, WsError>) =
+    let create (encode: 'A -> FIO<WebSocketFrame, WsError>) (decode: WebSocketFrame -> FIO<'A, WsError>) : WebSocketCodec<'A> =
         { Encode = encode; Decode = decode }
 
     /// Creates a codec from pure encode and decode functions, mapping thrown exceptions to errors.
-    let createPure (encode: 'A -> WebSocketFrame) (decode: WebSocketFrame -> 'A) =
+    let createPure (encode: 'A -> WebSocketFrame) (decode: WebSocketFrame -> 'A) : WebSocketCodec<'A> =
         {
             Encode = fun value ->
                 FIO.attempt

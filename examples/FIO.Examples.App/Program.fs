@@ -128,7 +128,6 @@ type GuessNumberApp() =
 type PingPongApp() =
     inherit FIOApp<unit, exn>()
 
-    // Sends "ping", then awaits and prints the "pong" reply.
     let pinger (pingChannel: Channel<string>) (pongChannel: Channel<string>) =
         pingChannel.Write "ping" >>= fun ping ->
         Console.printLine $"pinger sent: %s{ping}" id >>= fun _ ->
@@ -136,7 +135,6 @@ type PingPongApp() =
         Console.printLine $"pinger received: %s{pong}" id >>= fun _ ->
         FIO.unit ()
 
-    // Awaits "ping", then replies with "pong".
     let ponger (pingChannel: Channel<string>) (pongChannel: Channel<string>) =
         pingChannel.Read() >>= fun ping ->
         Console.printLine $"ponger received: %s{ping}" id >>= fun _ ->
@@ -153,7 +151,6 @@ type PingPongApp() =
 type PingPongCEApp() =
     inherit FIOApp<unit, exn>()
 
-    // Sends "ping", then awaits and prints the "pong" reply.
     let pinger (pingChannel: Channel<string>) (pongChannel: Channel<string>) =
         fio {
             let! ping = pingChannel.Write "ping"
@@ -162,7 +159,6 @@ type PingPongCEApp() =
             do! Console.printLine $"pinger received: %s{pong}" id
         }
 
-    // Awaits "ping", then replies with "pong".
     let ponger (pingChannel: Channel<string>) (pongChannel: Channel<string>) =
         fio {
             let! ping = pingChannel.Read()
@@ -186,7 +182,6 @@ type Message =
 type PingPongMatchApp() =
     inherit FIOApp<unit, string>()
 
-    // Sends Ping, then expects a Pong reply and fails the effect otherwise.
     let pinger (pingChannel: Channel<Message>) (pongChannel: Channel<Message>) =
         fio {
             let! ping = pingChannel.Write Ping
@@ -197,7 +192,6 @@ type PingPongMatchApp() =
             | Ping -> return! FIO.fail $"pinger received %A{Ping} when %A{Pong} was expected!"
         }
 
-    // Awaits Ping, then replies with a randomly chosen Ping or Pong.
     let ponger (pingChannel: Channel<Message>) (pongChannel: Channel<Message>) =
         fio {
             match! pingChannel.Read() with
@@ -230,7 +224,6 @@ type AppError =
 type ErrorHandlingApp() =
     inherit FIOApp<string * char, AppError>()
 
-    // Simulates a database read that randomly succeeds with data or fails.
     let readFromDatabase: FIO<string, bool> =
         fio {
             let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> true)
@@ -238,7 +231,6 @@ type ErrorHandlingApp() =
             else return! FIO.fail false
         }
 
-    // Simulates a webservice call that randomly succeeds or fails with a 404.
     let awaitWebservice: FIO<char, int> =
         fio {
             let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> -1)
@@ -246,14 +238,12 @@ type ErrorHandlingApp() =
             else return! FIO.fail 404
         }
 
-    // Maps a database failure into a domain AppError.
     let databaseResult: FIO<string, AppError> =
         fio {
             return! readFromDatabase
                 .CatchAll(fun error -> FIO.fail (DbError error))
         }
 
-    // Maps a webservice failure into a domain AppError.
     let webserviceResult: FIO<char, AppError> =
         fio {
             return! awaitWebservice
@@ -270,7 +260,6 @@ type ErrorHandlingApp() =
 type ErrorHandlingWithRetryApp() =
     inherit FIOApp<string * char, AppError>()
 
-    // Simulates a database read that randomly succeeds with data or fails.
     let readFromDatabase: FIO<string, bool> =
         fio {
             let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> true)
@@ -278,7 +267,6 @@ type ErrorHandlingWithRetryApp() =
             else return! FIO.fail false
         }
 
-    // Simulates a webservice call that randomly succeeds or fails with a 404.
     let awaitWebservice: FIO<char, int> =
         fio {
             let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> -1)
@@ -286,7 +274,6 @@ type ErrorHandlingWithRetryApp() =
             else return! FIO.fail 404
         }
 
-    // Retries the database read up to four times before mapping the failure.
     let databaseResult: FIO<string, AppError> =
         fio {
             let onEachRetry (error, retry, maxRetries) =
@@ -297,7 +284,6 @@ type ErrorHandlingWithRetryApp() =
                 .CatchAll(fun error -> FIO.fail (DbError error))
         }
 
-    // Retries the webservice call up to four times before mapping the failure.
     let webserviceResult: FIO<char, AppError> =
         fio {
             let onEachRetry (error, retry, maxRetries) =
@@ -318,7 +304,6 @@ type ErrorHandlingWithRetryApp() =
 type AsyncErrorHandlingApp() =
     inherit FIOApp<string * int, AppError>()
 
-    // An async that randomly returns data or raises a database error.
     let databaseReadTask: Async<string> =
         async {
             do printfn $"Reading from database..."
@@ -329,7 +314,6 @@ type AsyncErrorHandlingApp() =
                 return raise (Exception "Database error!")
         }
 
-    // An async that randomly returns 200 or raises a webservice error.
     let webserviceAwaitTask: Async<int> =
         async {
             do printfn $"Awaiting webservice..."
@@ -340,12 +324,10 @@ type AsyncErrorHandlingApp() =
                 return raise (Exception "Webservice error!")
         }
 
-    // Awaits the async database read as an effect, recovering from exceptions.
     let databaseResult: FIO<string, AppError> =
         (FIO.awaitAsync databaseReadTask id)
             .CatchAll(fun ex -> FIO.fail (GeneralError ex.Message))
 
-    // Awaits the async webservice call as an effect, recovering from exceptions.
     let webserviceResult: FIO<int, AppError> =
         (FIO.awaitAsync webserviceAwaitTask id)
             .CatchAll(fun ex -> FIO.fail (GeneralError ex.Message))
@@ -359,7 +341,6 @@ type AsyncErrorHandlingApp() =
 type HighlyConcurrentApp() =
     inherit FIOApp<unit, exn>()
 
-    // Sends one random number to the shared channel.
     let sender (channel: Channel<int>) senderId =
         fio {
             let! message = FIO.attempt (fun () -> Random.Shared.Next(100, 501)) id
@@ -367,7 +348,6 @@ type HighlyConcurrentApp() =
             do! Console.printLine $"Sender[%i{senderId}] sent: %i{message}" id
         }
 
-    // Reads the expected number of messages, then reports completion.
     let rec receiver (channel: Channel<int>) count (max: int) =
         fio {
             if count = 0 then
@@ -407,7 +387,6 @@ let fib n =
 type FiberFromTaskApp() =
     inherit FIOApp<unit, exn>()
 
-    // Forks a task that computes the nth Fibonacci number for its side effect.
     let fibonacci n =
         FIO.forkTask (fun () ->
             task {
@@ -427,8 +406,8 @@ type FiberFromTaskApp() =
 
         fio {
             let! fiber35 = fibonacci 35L
-            and! fiber40 = fibonacci 40L
-            and! fiber45 = fibonacci 45L
+            let! fiber40 = fibonacci 40L
+            let! fiber45 = fibonacci 45L
 
             do! await fiber35 <&&> await fiber40 <&&> await fiber45
         }
@@ -437,7 +416,6 @@ type FiberFromTaskApp() =
 type FiberFromGenericTaskApp() =
     inherit FIOApp<unit, exn>()
 
-    // Forks a task that computes the nth Fibonacci number and returns it as a string.
     let fibonacci n =
         FIO.forkTask (fun () ->
             task {
@@ -456,8 +434,8 @@ type FiberFromGenericTaskApp() =
 
         fio {
             let! fiber35 = fibonacci 35L
-            and! fiber40 = fibonacci 40L
-            and! fiber45 = fibonacci 45L
+            let! fiber40 = fibonacci 40L
+            let! fiber45 = fibonacci 45L
 
             do! awaitAndPrint fiber35 <&&> awaitAndPrint fiber40 <&&> awaitAndPrint fiber45
         }
@@ -554,7 +532,6 @@ type CustomExitCodeApp() =
 type RaceTimeoutApp() =
     inherit FIOApp<unit, exn>()
 
-    // Produces a value after a delay, used to drive the race and the timeout.
     let delayed label ms value =
         fio {
             do! FIO.sleep (TimeSpan.FromMilliseconds(float ms))
@@ -615,7 +592,6 @@ type AccountMessage =
 type StatefulActorApp() =
     inherit FIOApp<unit, exn>()
 
-    // Folds deposits and withdrawals into a running balance and replies to balance queries.
     let account (inbox: Channel<AccountMessage>) =
         let rec loop balance =
             inbox.Read().FlatMap(function

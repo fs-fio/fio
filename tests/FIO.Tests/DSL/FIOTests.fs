@@ -9,7 +9,6 @@ open FIO.Runtime
 open Expecto
 
 open System
-open System.Threading
 
 [<Tests>]
 let fioTests =
@@ -31,7 +30,6 @@ let fioTests =
                     testPropertyWithConfig fsCheckConfig "FlatMap - short-circuits on error"
                     <| fun (runtime: FIORuntime, error: string) ->
                         let mutable contRan = false
-
                         let effect =
                             FIO.fail(error).FlatMap(fun (_: int) ->
                                 contRan <- true
@@ -91,7 +89,6 @@ let fioTests =
                     testPropertyWithConfig fsCheckConfig "CatchAll - does not affect success"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable handlerRan = false
-
                         let effect =
                             FIO.succeed(value)
                                 .CatchAll(fun (_: string) ->
@@ -176,7 +173,6 @@ let fioTests =
                     testAllRuntimes "Ensuring - finalizer runs on self-interruption"
                     <| fun (runtime: FIORuntime) ->
                         let flag = ref false
-
                         let effect =
                             fio {
                                 let! fiber =
@@ -194,7 +190,6 @@ let fioTests =
                     testAllRuntimes "Ensuring - finalizer runs on external interruption"
                     <| fun (runtime: FIORuntime) ->
                         let flag = ref false
-
                         let effect =
                             fio {
                                 let! fiber =
@@ -216,7 +211,6 @@ let fioTests =
                     <| fun (runtime: FIORuntime) ->
                         let flag1 = ref false
                         let flag2 = ref false
-
                         let effect =
                             fio {
                                 let! fiber =
@@ -240,7 +234,6 @@ let fioTests =
                     <| fun (runtime: FIORuntime) ->
                         let flag = ref false
                         let channel = Channel<int>()
-
                         let effect =
                             fio {
                                 let! fiber =
@@ -263,7 +256,6 @@ let fioTests =
                     testAllRuntimes "Ensuring - finalizer runs on interruption while blocked on fiber join"
                     <| fun (runtime: FIORuntime) ->
                         let flag = ref false
-
                         let effect =
                             fio {
                                 let! target = (FIO.sleep (TimeSpan.FromSeconds 60.0)).Fork()
@@ -343,8 +335,9 @@ let fioTests =
 
                         let fiber =
                             runtime.Run(effect).UnsafeSuccess()
+                        let result = fiber.UnsafeResult()
 
-                        match fiber.UnsafeResult() with
+                        match result with
                         | Failed e -> Expect.equal e error "Forked error effect should fail with the error"
                         | other -> failtest $"Expected Failed but got: {other}"
 
@@ -386,13 +379,14 @@ let fioTests =
                 [
                     testAllRuntimes "Action - throwing onError surfaces the original exception as a defect (E-1)" (fun runtime ->
                         let originalExn = InvalidOperationException "original"
-
                         let effect: FIO<int, exn> =
                             FIO.attempt
                                 (fun () -> raise originalExn)
                                 (fun _ -> failwith "onError also throws")
 
-                        match runtime.Run(effect).UnsafeResult() with
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        match result with
                         | Interrupted ex ->
                             match ex.cause with
                             | Defect defect ->
@@ -407,7 +401,9 @@ let fioTests =
                             FIO.succeed(42)
                                 .FlatMap(fun (_: int) -> failwith "continuation throws")
 
-                        match runtime.Run(effect).UnsafeResult() with
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        match result with
                         | Interrupted ex ->
                             match ex.cause with
                             | Defect defect ->
@@ -420,7 +416,9 @@ let fioTests =
                             FIO.fail(InvalidOperationException "typed error")
                                 .CatchAll(fun _ -> failwith "handler throws")
 
-                        match runtime.Run(effect).UnsafeResult() with
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        match result with
                         | Interrupted ex ->
                             match ex.cause with
                             | Defect defect ->
@@ -439,13 +437,10 @@ let fioTests =
                     <| fun (runtime: FIORuntime) ->
                         let depth = 10000
                         let mutable effect = FIO.succeed 0
-
                         for _ in 1..depth do
                             effect <- effect.FlatMap(fun n -> FIO.succeed (n + 1))
-
                         let forked = effect.Fork()
                         let caught = effect.CatchAll(fun _ -> FIO.succeed -1)
-
                         let joined =
                             fio {
                                 let! fiber = forked
@@ -464,12 +459,9 @@ let fioTests =
                     <| fun (runtime: FIORuntime) ->
                         let depth = 10000
                         let mutable effect = FIO.fail (exn "seed")
-
                         for _ in 1..depth do
                             effect <- effect.CatchAll(fun _ -> FIO.fail (exn "next"))
-
                         let recovered = effect.CatchAll(fun _ -> FIO.succeed 42)
-
                         let joined =
                             fio {
                                 let! fiber = recovered.Fork()
@@ -485,10 +477,8 @@ let fioTests =
                     <| fun (runtime: FIORuntime) ->
                         let depth = 10000
                         let mutable effect = FIO.succeed 0
-
                         for _ in 1..depth do
                             effect <- effect.Ensuring(FIO.unit ())
-
                         let joined =
                             fio {
                                 let! fiber = effect.Fork()
@@ -504,10 +494,8 @@ let fioTests =
                     <| fun (runtime: FIORuntime) ->
                         let depth = 10000
                         let mutable effect : FIO<int, string> = FIO.succeed 0
-
                         for _ in 1..depth do
                             effect <- effect.MapBoth (fun n -> n + 1) id
-
                         let joined =
                             fio {
                                 let! fiber = effect.Fork()
@@ -518,6 +506,45 @@ let fioTests =
                             runtime.Run(joined).UnsafeSuccess()
 
                         Expect.equal result depth $"Deep MapBoth chain should yield {depth}"
+
+                    testAllRuntimesSequenced "Stack safety - interrupting the root of a 10,000-deep chain of nested forks"
+                    <| fun (runtime: FIORuntime) ->
+                        let leafStarted = new Threading.ManualResetEventSlim(false)
+                        let leafFinalized = new Threading.ManualResetEventSlim(false)
+                        let rec chain (level: int) : FIO<unit, string> =
+                            if level = 0 then
+                                (FIO.succeedWith(fun () -> leafStarted.Set()).FlatMap(fun () -> FIO.never ()))
+                                    .Ensuring(FIO.succeedWith (fun () -> leafFinalized.Set()))
+                            else
+                                FIO.suspend(fun () -> chain (level - 1)).Fork().FlatMap(fun _ -> FIO.never ())
+
+                        let root = runtime.Run(chain 10000)
+
+                        Expect.isTrue (leafStarted.Wait(TimeSpan.FromSeconds 60.0)) "Every level should have forked (sequenced: 10,000 fibers stall DirectRuntime tests running alongside)"
+
+                        runtime.Run(root.InterruptNow()).UnsafeSuccess()
+
+                        Expect.isTrue (leafFinalized.Wait(TimeSpan.FromSeconds 60.0)) "The interruption should reach the deepest fork"
+
+                    testAllRuntimes "Stack safety - completing a 10,000-deep chain of nested forks"
+                    <| fun (runtime: FIORuntime) ->
+                        let gate = Threading.Tasks.TaskCompletionSource()
+                        let leafReached = new Threading.ManualResetEventSlim(false)
+                        let rec chain (level: int) : FIO<unit, string> =
+                            if level = 0 then
+                                FIO.succeedWith(fun () -> leafReached.Set()).FlatMap(fun () -> FIO.never ())
+                            else
+                                FIO.suspend(fun () -> chain (level - 1)).Fork().FlatMap(fun _ -> FIO.awaitUnitTask gate.Task (fun ex -> ex.Message))
+
+                        let root = runtime.Run(chain 10000)
+
+                        Expect.isTrue (leafReached.Wait(TimeSpan.FromSeconds 60.0)) "Every level should have forked and be waiting on the gate"
+
+                        gate.SetResult()
+                        let result = root.Task()
+
+                        Expect.isTrue (result.Wait(TimeSpan.FromSeconds 60.0)) "The root should publish once the leaf's interruption has unwound back up the chain"
+                        Expect.equal result.Result (Succeeded ()) "The chain should complete"
                 ]
 
             testList
@@ -526,7 +553,6 @@ let fioTests =
                     testAllRuntimes "AddRegistration - fast-completing forked effects do not wedge under load"
                     <| fun (runtime: FIORuntime) ->
                         let counter = ref 0
-
                         let effect =
                             fio {
                                 for _ in 1..200 do
@@ -541,54 +567,5 @@ let fioTests =
                             runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result 200 "All fast-completing forks should be observed"
-                ]
-
-            testList
-                "Run lifecycle"
-                [
-                    // Run schedules and nothing more. It used to interrupt the previous root fiber's tree,
-                    // which is incompatible with calling Run per request; cleaning up a fiber you started is
-                    // now the caller's job, done through the handle they already hold. Interrupting unwinds the
-                    // fiber properly, which the old queue-clearing reset did not.
-                    testAllRuntimes "Run - a later Run leaves an existing fiber alone; the caller interrupts it" (fun runtime ->
-                        let childStarted = new ManualResetEventSlim false
-
-                        let childEffect: FIO<unit, exn> =
-                            fio {
-                                do! FIO.attempt (fun () -> childStarted.Set()) id
-                                return! FIO.never ()
-                            }
-
-                        let parentEffect: FIO<obj, exn> =
-                            fio {
-                                let! fiber = childEffect.ForkDaemon()
-                                do! FIO.attempt (fun () -> childStarted.Wait(TimeSpan.FromSeconds 5.0) |> ignore) id
-                                return fiber :> obj
-                            }
-
-                        let fiber1 = runtime.Run parentEffect
-                        let childFiber = fiber1.UnsafeSuccess() :?> Fiber<unit, exn>
-
-                        let fiber2 = runtime.Run(FIO.succeed 99)
-                        Expect.equal (fiber2.UnsafeSuccess()) 99 "Second run should succeed"
-
-                        Expect.isFalse
-                            (childFiber.IsTerminal())
-                            "A later Run must leave a fiber that is already running untouched"
-
-                        runtime.Run(childFiber.InterruptNow()).UnsafeSuccess()
-
-                        match childFiber.UnsafeResult() with
-                        | Interrupted _ -> ()
-                        | other -> failtestf "Expected the child fiber to be Interrupted once asked, got %A" other
-
-                        childStarted.Dispose())
-
-                    testAllRuntimes "Run - second Run produces correct result after first completes" (fun runtime ->
-                        let fiber1 = runtime.Run(FIO.succeed 1)
-                        Expect.equal (fiber1.UnsafeSuccess()) 1 "First run"
-
-                        let fiber2 = runtime.Run(FIO.succeed 2)
-                        Expect.equal (fiber2.UnsafeSuccess()) 2 "Second run")
                 ]
         ]

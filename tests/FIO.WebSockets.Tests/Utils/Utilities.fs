@@ -10,9 +10,13 @@ open FIO.Runtime.WorkStealing
 
 open System
 open System.Net
+open System.Net.Sockets
+open System.Diagnostics
 
 open Expecto
 open FsCheck.FSharp
+
+let testConfig = { WorkerConfig.Default with EvaluationWorkers = 2 }
 
 module FsCheckProperties =
 
@@ -22,9 +26,9 @@ module FsCheckProperties =
             Gen.oneof
                 [
                     Gen.constant (new DirectRuntime() :> FIORuntime)
-                    Gen.constant (new PollingRuntime() :> FIORuntime)
-                    Gen.constant (new SignalingRuntime() :> FIORuntime)
-                    Gen.constant (new WorkStealingRuntime() :> FIORuntime)
+                    Gen.constant (new PollingRuntime(testConfig) :> FIORuntime)
+                    Gen.constant (new SignalingRuntime(testConfig) :> FIORuntime)
+                    Gen.constant (new WorkStealingRuntime(testConfig) :> FIORuntime)
                 ]
             |> Arb.fromGen
 
@@ -40,9 +44,9 @@ type TestMessage = { Id: int; Text: string }
 let runtimes () =
     [
         new DirectRuntime() :> FIORuntime
-        new PollingRuntime() :> FIORuntime
-        new SignalingRuntime() :> FIORuntime
-        new WorkStealingRuntime() :> FIORuntime
+        new PollingRuntime(testConfig) :> FIORuntime
+        new SignalingRuntime(testConfig) :> FIORuntime
+        new WorkStealingRuntime(testConfig) :> FIORuntime
     ]
 
 let private disposeRuntime (rt: FIORuntime) =
@@ -63,11 +67,26 @@ let testAllRuntimes name (f: FIORuntime -> unit) =
         ]
 
 let findAvailablePort () =
-    let listener = new Sockets.TcpListener(IPAddress.Loopback, 0)
+    let listener = new TcpListener(IPAddress.Loopback, 0)
     listener.Start()
     let port = (listener.LocalEndpoint :?> IPEndPoint).Port
     listener.Stop()
     port
+
+let sleepMs (ms: float) =
+    FIO.sleep (TimeSpan.FromMilliseconds ms)
+
+let waitForTerminal (fiber: Fiber<'A, 'E>) (budgetMs: int) =
+    fio {
+        let stopwatch = Stopwatch.StartNew()
+        let mutable terminal = fiber.IsCompleted() || fiber.IsInterrupted()
+
+        while not terminal && stopwatch.ElapsedMilliseconds < int64 budgetMs do
+            do! sleepMs 20.0
+            terminal <- fiber.IsCompleted() || fiber.IsInterrupted()
+
+        return terminal, stopwatch.ElapsedMilliseconds
+    }
 
 let noopHandler (ws: WebSocket) =
     let rec loop () =
@@ -102,11 +121,11 @@ let runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, WsError>) =
     | Failed error -> failtest $"Effect failed: {error}"
     | Interrupted ex -> failtest $"Interrupted: {ex.Message}"
 
-let startTestListener () =
+let startTestListenerOn (host: string) =
     let rec attempt remaining =
         fio {
             let port = findAvailablePort ()
-            let url = $"http://localhost:{port}/"
+            let url = $"http://{host}:{port}/"
 
             let! outcome =
                 (WebSocketServer.start url)
@@ -125,6 +144,9 @@ let startTestListener () =
 
     attempt 10
 
+let startTestListener () =
+    startTestListenerOn "localhost"
+
 let private portConflict (error: WsError) =
     match error with
     | ConnectionFailed message -> message.Contains "conflicts with an existing registration"
@@ -136,7 +158,7 @@ let withServedUrl (startServer: string -> FIO<unit, WsError>) (action: string ->
             let port = findAvailablePort ()
             let! serverFiber = (startServer $"http://localhost:{port}/").Fork()
 
-            let serverDied: FIO<'A, WsError> =
+            let serverDied =
                 (serverFiber.Join())
                     .FlatMap(fun _ -> FIO.fail (ConnectionFailed "server exited before the client connected"))
 
@@ -179,7 +201,7 @@ let withTestServer (handler: WebSocket -> FIO<unit, WsError>) (action: int -> FI
 
     runWithTimeout runtime effect
 
-let withTestEchoServer (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
+let withTestEchoServerOn (host: string) (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
     let closingEchoHandler (ws: WebSocket) =
         fio {
             do! echoHandler ws
@@ -188,7 +210,7 @@ let withTestEchoServer (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
 
     let effect =
         fio {
-            let! port, listener = startTestListener ()
+            let! port, listener = startTestListenerOn host
 
             let! serverFiber =
                 (WebSocketServer.acceptLoop listener WebSocketConfig.defaultConfig closingEchoHandler).Fork()
@@ -200,3 +222,6 @@ let withTestEchoServer (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
         }
 
     runWithTimeout runtime effect
+
+let withTestEchoServer (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
+    withTestEchoServerOn "localhost" action runtime

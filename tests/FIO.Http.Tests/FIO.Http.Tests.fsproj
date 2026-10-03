@@ -15,6 +15,7 @@
         <Compile Include="RoutePatternTests.fs" />
         <Compile Include="RoutesTests.fs" />
         <Compile Include="MiddlewareTests.fs" />
+        <Compile Include="KestrelBridgeTests.fs" />
         <Compile Include="ServerTests.fs" />
         <Compile Include="Program.fs" />
     </ItemGroup>

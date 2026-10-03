@@ -18,73 +18,81 @@ let typesTests =
                 "WsError"
                 [
 
-                    testCase "fromException maps TimeoutException to TimeoutError"
+                    testCase "fromException - maps TimeoutException to TimeoutError"
                     <| fun () ->
                         let ex = TimeoutException "timed out"
+
                         let error = WsError.fromException ex
 
                         match error with
                         | TimeoutError msg -> Expect.stringContains msg "timed out" "Message should match"
                         | other -> failtest $"Expected TimeoutError but got {other}"
 
-                    testCase "fromException maps WebSocketException to GeneralError"
+                    testCase "fromException - maps WebSocketException to GeneralError"
                     <| fun () ->
                         let ex = WebSocketException "ws error"
+
                         let error = WsError.fromException ex
 
                         match error with
                         | GeneralError msg -> Expect.stringContains msg "ws error" "Message should match"
                         | other -> failtest $"Expected GeneralError but got {other}"
 
-                    testCase "fromException maps a prematurely closed connection to Closed"
+                    testCase "fromException - maps a prematurely closed connection to Closed"
                     <| fun () ->
                         let ex = WebSocketException WebSocketError.ConnectionClosedPrematurely
+
                         let error = WsError.fromException ex
 
                         match error with
                         | Closed _ -> ()
                         | other -> failtest $"Expected Closed but got {other}"
 
-                    testCase "fromException maps JsonException to CodecError"
+                    testCase "fromException - maps JsonException to CodecError"
                     <| fun () ->
                         let ex = Text.Json.JsonException "bad json"
+
                         let error = WsError.fromException ex
 
                         match error with
                         | CodecError msg -> Expect.stringContains msg "bad json" "Message should match"
                         | other -> failtest $"Expected CodecError but got {other}"
 
-                    testCase "fromException maps generic Exception to GeneralError"
+                    testCase "fromException - maps a generic Exception to GeneralError"
                     <| fun () ->
                         let ex = Exception "generic"
+
                         let error = WsError.fromException ex
 
                         match error with
                         | GeneralError msg -> Expect.stringContains msg "generic" "Message should match"
                         | other -> failtest $"Expected GeneralError but got {other}"
 
-                    testCase "toException maps TimeoutError to TimeoutException"
+                    testCase "toException - maps TimeoutError to TimeoutException"
                     <| fun () ->
                         let error = TimeoutError "timeout msg"
+
                         let ex = WsError.toException error
 
                         Expect.isTrue (ex :? TimeoutException) "Should be TimeoutException"
 
-                    testCase "toException maps GeneralError to WebSocketException"
+                    testCase "toException - maps GeneralError to WebSocketException"
                     <| fun () ->
                         let error = GeneralError "general msg"
+
                         let ex = WsError.toException error
 
                         Expect.isTrue (ex :? WebSocketException) "Should be WebSocketException"
 
-                    testCase "toException maps other variants to Exception with message"
+                    testCase "toException - maps the other cases to an Exception with the message"
                     <| fun () ->
                         let error = ConnectionFailed "conn fail"
+                        let err2 = Closed "peer closed"
+
                         let ex = WsError.toException error
 
                         Expect.stringContains ex.Message "conn fail" "Exception message should contain error details"
 
-                        let err2 = Closed "peer closed"
                         let ex2 = WsError.toException err2
 
                         Expect.stringContains ex2.Message "peer closed" "Closed message should match"
@@ -94,7 +102,7 @@ let typesTests =
                 "WebSocketConfig"
                 [
 
-                    testCase "defaultConfig has expected values"
+                    testCase "defaultConfig - has the expected values"
                     <| fun () ->
                         let config = WebSocketConfig.defaultConfig
 
@@ -102,26 +110,23 @@ let typesTests =
                         Expect.equal config.SendBufferSize 4096 "Default SendBufferSize"
                         Expect.equal config.MaxMessageSize 1_048_576L "Default MaxMessageSize (1 MB)"
                         Expect.equal config.SendTimeout 30_000 "Default SendTimeout"
-                        Expect.equal config.ReceiveTimeout 30_000 "Default ReceiveTimeout"
+                        Expect.equal config.ReceiveTimeout 0 "Default ReceiveTimeout: none, since a timed-out receive aborts the connection"
 
-                    testCase "builder functions update correct fields"
+                    testCase "builders - update their fields"
                     <| fun () ->
                         let config = WebSocketConfig.defaultConfig
 
                         let c1 = WebSocketConfig.withReceiveBufferSize 8192 config
+                        let c2 = WebSocketConfig.withSendBufferSize 16384 config
+                        let c3 = WebSocketConfig.withMaxMessageSize 2_097_152L config
+                        let c4 = WebSocketConfig.withSendTimeout 5000 config
+                        let c5 = WebSocketConfig.withReceiveTimeout 10000 config
+
                         Expect.equal c1.ReceiveBufferSize 8192 "ReceiveBufferSize updated"
                         Expect.equal c1.SendBufferSize 4096 "SendBufferSize preserved"
-
-                        let c2 = WebSocketConfig.withSendBufferSize 16384 config
                         Expect.equal c2.SendBufferSize 16384 "SendBufferSize updated"
-
-                        let c3 = WebSocketConfig.withMaxMessageSize 2_097_152L config
                         Expect.equal c3.MaxMessageSize 2_097_152L "MaxMessageSize updated"
-
-                        let c4 = WebSocketConfig.withSendTimeout 5000 config
                         Expect.equal c4.SendTimeout 5000 "SendTimeout updated"
-
-                        let c5 = WebSocketConfig.withReceiveTimeout 10000 config
                         Expect.equal c5.ReceiveTimeout 10000 "ReceiveTimeout updated"
                 ]
 
@@ -129,7 +134,7 @@ let typesTests =
                 "WebSocketFrame"
                 [
 
-                    testCase "Text frame construction"
+                    testCase "WebSocketFrame - constructs a Text frame"
                     <| fun () ->
                         let frame = Text "hello"
 
@@ -137,16 +142,17 @@ let typesTests =
                         | Text s -> Expect.equal s "hello" "Text content"
                         | _ -> failtest "Expected Text frame"
 
-                    testCase "Binary frame construction"
+                    testCase "WebSocketFrame - constructs a Binary frame"
                     <| fun () ->
                         let data = [| 1uy; 2uy; 3uy |]
+
                         let frame = Binary data
 
                         match frame with
                         | Binary b -> Expect.equal b data "Binary content"
                         | _ -> failtest "Expected Binary frame"
 
-                    testCase "Close frame construction"
+                    testCase "WebSocketFrame - constructs a Close frame"
                     <| fun () ->
                         let frame = Close(WebSocketCloseStatus.NormalClosure, "goodbye")
 
@@ -161,7 +167,7 @@ let typesTests =
                 "WebSocketMessage"
                 [
 
-                    testCase "Frame wraps WebSocketFrame"
+                    testCase "WebSocketMessage - Frame wraps a WebSocketFrame"
                     <| fun () ->
                         let msg = Frame(Text "hello")
 
@@ -169,7 +175,7 @@ let typesTests =
                         | Frame(Text s) -> Expect.equal s "hello" "Frame text content"
                         | _ -> failtest "Expected Frame message"
 
-                    testCase "ConnectionClosed carries optional status"
+                    testCase "WebSocketMessage - ConnectionClosed carries an optional status"
                     <| fun () ->
                         let msg = ConnectionClosed(Some WebSocketCloseStatus.NormalClosure, "bye")
 

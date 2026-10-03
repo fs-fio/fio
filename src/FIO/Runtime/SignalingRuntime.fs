@@ -24,12 +24,12 @@ and private EvaluationWorker(config: EvaluationWorkerConfig, workerId: int) =
         config.Runtime.InterpretAsync workItem config.EvaluationSteps config.ActiveWorkItemQueue
 
     let struct (cancelSource, _workerTask) =
-        WorkerLifecycle.startWorker $"EvaluationWorker-{workerId}" <| fun cancelToken ->
+        WorkerLifecycle.startWorker $"EvaluationWorker-{workerId}" <| fun cancellationToken ->
             task {
                 let mutable loop = true
-                while loop && not cancelToken.IsCancellationRequested do
-                    let! hasWorkItem = config.ActiveWorkItemQueue.WaitToReadAsync cancelToken
-                    if not hasWorkItem || cancelToken.IsCancellationRequested then
+                while loop && not cancellationToken.IsCancellationRequested do
+                    let! hasWorkItem = config.ActiveWorkItemQueue.WaitToReadAsync cancellationToken
+                    if not hasWorkItem || cancellationToken.IsCancellationRequested then
                         loop <- false
                     else
                         let! workItem = config.ActiveWorkItemQueue.ReadAsync()
@@ -57,8 +57,8 @@ and private EvaluationWorker(config: EvaluationWorkerConfig, workerId: int) =
             cancelSource.Cancel()
             cancelSource.Dispose()
 
-/// A multi-threaded, event-driven runtime with custom fibers. Blocked channel reads async-park on the
-/// channel's native wait; blocked fiber joins park until the joined fiber completes.
+/// A multi-threaded, event-driven runtime with custom fibers: a blocked read parks on the channel's own wait, a
+/// blocked join on the joined fiber.
 and SignalingRuntime(config: WorkerConfig) as this =
     inherit FIOWorkerRuntime(config)
 
@@ -75,19 +75,17 @@ and SignalingRuntime(config: WorkerConfig) as this =
                 i
             ))
 
-    override _.Name =
+    do this.StopWorkers <- fun () ->
+        evaluationWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
+
+    override _.Name : string =
         "SignalingRuntime"
-
-    interface IDisposable with
-
-        member _.Dispose () =
-            evaluationWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
 
     /// Creates the runtime with the default worker configuration.
     new() = new SignalingRuntime(WorkerConfig.Default)
 
     [<TailCall>]
-    member internal _.InterpretAsync
+    member internal this.InterpretAsync
         (workItem: WorkItem)
         (evaluationSteps: int)
         (activeWorkItemQueue: MailboxQueue<WorkItem>) =
@@ -135,15 +133,23 @@ and SignalingRuntime(config: WorkerConfig) as this =
                         | ValueNone -> ()
                         | ValueSome runtimeCase ->
                             match runtimeCase with
-                            | HandleWriteChan(message, channel) ->
-                                let writeTask = channel.WriteAsync message
-                                if not writeTask.IsCompletedSuccessfully then
-                                    do! writeTask
-                                processOutcome
-                                    &state
-                                    onSuccessComplete
-                                    onErrorComplete
-                                    (OutcomeSucceeded message)
+                            | HandleWriteChan(message, channel, reportAccepted) ->
+                                match tryWriteChannel channel message reportAccepted with
+                                | Written result ->
+                                    processOutcome
+                                        &state
+                                        onSuccessComplete
+                                        onErrorComplete
+                                        (OutcomeSucceeded result)
+                                | MustWait ->
+                                    parkUntilWritable
+                                        channel
+                                        state.Effect
+                                        currentFiberContext
+                                        state.ContStack
+                                        state.InterruptionSuppressed
+                                        (fun workItem -> activeWorkItemQueue.WriteAsync workItem |> ignore)
+                                    state.Completed <- true
                             | HandleReadChan channel ->
                                 let mutable value = Unchecked.defaultof<_>
                                 if channel.Queue.TryRead(&value) then
@@ -192,7 +198,8 @@ and SignalingRuntime(config: WorkerConfig) as this =
                                         waited.GetAwaiter().OnCompleted(Action resume)
                                         state.Completed <- true
                             | HandleForkEffect(effect, fiber, fiberContext, daemon) ->
-                                attachFork currentFiberContext fiberContext daemon
+                                attachFork currentFiberContext fiberContext daemon (state.InterruptionSuppressed > 0)
+                                if daemon then this.TrackDaemon fiberContext
                                 let workItem = WorkItemPool.Rent(effect, fiberContext, ContStackPool.Rent())
                                 do! activeWorkItemQueue.WriteAsync workItem
                                 processOutcome
@@ -278,11 +285,11 @@ and SignalingRuntime(config: WorkerConfig) as this =
                 WorkItemPool.Return workItem
         }
 
-    /// Schedules the given effect on a new fiber and returns immediately with a handle to it. Safe to
-    /// call concurrently and as often as you like: it never waits for, interrupts, or discards any
-    /// fiber already running on this runtime.
-    override _.Run<'A, 'E> (effect: FIO<'A, 'E>) : Fiber<'A, 'E> =
+    /// Schedules the given effect on a new fiber and returns its handle at once; it never waits for, interrupts, or
+    /// discards a fiber already running, so call it as often as you like.
+    override this.Run<'A, 'E> (effect: FIO<'A, 'E>) : Fiber<'A, 'E> =
         let fiber = new Fiber<'A, 'E>()
+        this.Track fiber.Context
 
         let workItem =
             WorkItemPool.Rent(effect.UpcastBoth(), fiber.Context, ContStackPool.Rent())

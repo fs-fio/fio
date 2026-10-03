@@ -92,4 +92,4 @@ module CE =
             effect.ZipPar effect'
 
     /// Builds effects with `let!`, `do!`, `return`, `for`, `while`, `use`, and `try/with`/`try/finally`.
-    let fio = FIOBuilder()
+    let fio : FIOBuilder = FIOBuilder()

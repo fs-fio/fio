@@ -6,6 +6,7 @@ open System.Threading.Tasks
 open System.Threading.Channels
 open System.Collections.Generic
 open System.Collections.Concurrent
+open System.Runtime.CompilerServices
 open System.Runtime.ExceptionServices
 
 // The mapper for effects that cannot fail: a throwing mapper becomes a Defect in the interpreter. It
@@ -18,16 +19,24 @@ type internal Rethrow<'A>() =
     static member Instance = instance
 
 [<Struct>]
+type internal ChannelMode =
+    | Unbounded
+    | Bounded
+    | Dropping
+    | Sliding
+
+[<Struct>]
 type internal PostFinalizerSaved =
     | PostFinalizerSucceeded of value: obj
     | PostFinalizerFailed of error: obj
     | PostFinalizerInterrupted of error: obj
 
 and [<Struct>] internal Cont =
-    | SuccessCont of successCont: (obj -> FIO<obj, obj>)
-    | FailureCont of failureCont: (obj -> FIO<obj, obj>)
+    | ChainCont of successCont: (obj -> FIO<obj, obj>) * failureCont: (obj -> FIO<obj, obj>)
     | FinalizerCont of finalizer: FIO<obj, obj>
-    | PostFinalizerCont of saved: PostFinalizerSaved
+    | PostFinalizerCont of saved: PostFinalizerSaved * level: int
+    | RestoreSuppressionCont of level: int
+    | AcquiredCont of successCont: (obj -> FIO<obj, obj>) * level: int
 
 and internal WorkItem =
     {
@@ -41,7 +50,7 @@ and [<Sealed>] internal BlockingWaiter(workItem: WorkItem) =
 
     let mutable claimed = 0
 
-    let mutable registration: CancellationTokenRegistration = Unchecked.defaultof<CancellationTokenRegistration>
+    let mutable registration = Unchecked.defaultof<CancellationTokenRegistration>
 
     member _.WorkItem =
         workItem
@@ -69,10 +78,14 @@ and FiberResult<'A, 'E> =
     /// The fiber was interrupted before producing a result.
     | Interrupted of ex: FiberInterruptedException
 
-and [<Sealed; AllowNullLiteral>] internal MailboxQueue<'A>() =
-    let channel = Channel.CreateUnbounded<'A>()
+and [<Sealed; AllowNullLiteral>] internal MailboxQueue<'A> private (channel: Channels.Channel<'A>) =
     let reader = channel.Reader
     let writer = channel.Writer
+
+    new() = MailboxQueue<'A>(Channel.CreateUnbounded<'A>())
+
+    static member internal Bounded (capacity: int, fullMode: BoundedChannelFullMode) =
+        MailboxQueue<'A>(Channel.CreateBounded<'A>(BoundedChannelOptions(capacity, FullMode = fullMode)))
 
     member internal _.Count =
         reader.Count
@@ -80,19 +93,23 @@ and [<Sealed; AllowNullLiteral>] internal MailboxQueue<'A>() =
     member internal _.WriteAsync value =
         writer.WriteAsync value
 
+    member internal _.WriteAsync (value, cancellationToken: CancellationToken) =
+        writer.WriteAsync(value, cancellationToken)
+
+    member internal _.TryWrite value =
+        writer.TryWrite value
+
+    member internal _.WaitToWriteAsync (cancellationToken: CancellationToken) =
+        writer.WaitToWriteAsync cancellationToken
+
     member internal _.ReadAsync () =
         reader.ReadAsync()
 
     member internal _.TryRead (value: byref<'A>) =
         reader.TryRead &value
 
-    member internal _.WaitToReadAsync (cancelToken: CancellationToken) =
-        reader.WaitToReadAsync cancelToken
-
-    member internal _.Clear () =
-        let mutable value = Unchecked.defaultof<'A>
-        while reader.TryRead &value do
-            ()
+    member internal _.WaitToReadAsync (cancellationToken: CancellationToken) =
+        reader.WaitToReadAsync cancellationToken
 
 and [<Sealed>] internal BlockingWorkItemSlot() =
 
@@ -128,23 +145,30 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
     let cancelSource = new CancellationTokenSource()
 
     [<VolatileField>]
-    let mutable registrations: ConcurrentBag<IDisposable> = null
+    let mutable registrations = null
 
-    // One signal that interrupts every scoped child. Deliberately separate from cancelSource, whose
-    // token is handed to user code by FIO.cancellationToken: a fiber finishing normally must not
-    // present itself as cancelled.
     [<VolatileField>]
-    let mutable childScope: CancellationTokenSource = null
+    let mutable childScope = null
 
-    // Set on a scoped child so it can tell its parent it has finished unwinding.
     [<VolatileField>]
-    let mutable parent: FiberContext = null
+    let mutable protectedScope = null
+
+    let cancelScope (source: CancellationTokenSource) =
+        match source with
+        | null -> ()
+        | source ->
+            try
+                source.Cancel(throwOnFirstException = false)
+            with :? ObjectDisposedException ->
+                ()
+
+    [<VolatileField>]
+    let mutable parent = null
 
     // Scoped children that have not yet unwound.
     [<VolatileField>]
     let mutable outstanding = 0
 
-    // This fiber's effect has finished and a result is waiting on its children.
     [<VolatileField>]
     let mutable completing = 0
 
@@ -154,16 +178,19 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
     let mutable pendingValue = Unchecked.defaultof<Result<obj, obj>>
 
     [<VolatileField>]
-    let mutable pendingQueue: MailboxQueue<WorkItem> = null
+    let mutable pendingQueue = null
 
     [<VolatileField>]
     let mutable disposed = 0
 
     [<VolatileField>]
-    let mutable onTerminalCallback: (unit -> unit) voption = ValueNone
+    let mutable onTerminalCallback = Unchecked.defaultof<_>
 
     [<VolatileField>]
     let mutable onTerminalFired = 0
+
+    [<VolatileField>]
+    let mutable onUnwoundCallback = null
 
     member internal _.Id =
         id
@@ -175,9 +202,14 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
         cancelSource.Token
 
     member internal this.SetOnTerminal (callback: unit -> unit) =
-        onTerminalCallback <- ValueSome callback
+        Interlocked.Exchange<unit -> unit>(&onTerminalCallback, callback) |> ignore
         if this.IsTerminal() then
             this.InvokeOnTerminal()
+
+    member internal this.SetOnUnwound (callback: Action<FiberContext>) =
+        Interlocked.Exchange<Action<FiberContext>>(&onUnwoundCallback, callback) |> ignore
+        if Volatile.Read &published = 1 then
+            this.InvokeOnUnwound()
 
     member internal this.AddBlockingWorkItem (waiter: BlockingWaiter) =
         let queue = this.GetOrCreateBlockingQueue()
@@ -205,6 +237,9 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
     member internal _.ChildScopeToken =
         (initIfNull &childScope (fun () -> new CancellationTokenSource())).Token
 
+    member internal _.ProtectedChildScopeToken =
+        (initIfNull &protectedScope (fun () -> new CancellationTokenSource())).Token
+
     member internal _.RegisterChild () =
         Interlocked.Increment &outstanding |> ignore
 
@@ -213,13 +248,7 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
         newParent.RegisterChild()
 
     member private _.CancelChildScope () =
-        match Volatile.Read &childScope with
-        | null -> ()
-        | source ->
-            try
-                source.Cancel(throwOnFirstException = false)
-            with :? ObjectDisposedException ->
-                ()
+        cancelScope (Volatile.Read &childScope)
 
     member internal this.AddRegistration (registration: IDisposable) =
         let bag = initIfNull &registrations (fun () -> ConcurrentBag<IDisposable>())
@@ -241,10 +270,16 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
     member internal _.IsTerminal () =
         Volatile.Read &state <> int FiberContextState.Running
 
+    member internal _.HasUnwound =
+        Volatile.Read &published = 1
+
     member private this.Publish value =
-        transitionFrom &state (int FiberContextState.Running) (int FiberContextState.Completed) |> ignore
+        let previous = transitionFrom &state (int FiberContextState.Running) (int FiberContextState.Completed)
         this.DisposeRegistrations()
-        resultSource.TrySetResult value |> ignore
+
+        if previous = int FiberContextState.Running then
+            resultSource.TrySetResult value |> ignore
+
         this.InvokeOnTerminal()
 
         match Volatile.Read &pendingQueue with
@@ -258,6 +293,8 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
         | null -> ()
         | scope -> scope.OnChildUnwound()
 
+        this.InvokeOnUnwound()
+
     member private this.TryFinish () =
         if Volatile.Read &completing = 1
            && Volatile.Read &outstanding = 0
@@ -266,7 +303,11 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
 
     member private this.OnChildUnwound () =
         Interlocked.Decrement &outstanding |> ignore
-        this.TryFinish()
+
+        if RuntimeHelpers.TryEnsureSufficientExecutionStack() then
+            this.TryFinish()
+        else
+            ThreadPool.UnsafeQueueUserWorkItem(WaitCallback(fun _ -> this.TryFinish()), null) |> ignore
 
     member internal this.Complete value =
         this.CompleteInternal(value, null)
@@ -281,6 +322,7 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
 
         if Interlocked.Exchange(&completing, 1) = 0 then
             this.CancelChildScope()
+            cancelScope (Volatile.Read &protectedScope)
             this.TryFinish()
 
     member internal this.Interrupt (?cause, ?message) =
@@ -290,23 +332,30 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
            && tryTransition &state (int FiberContextState.Running) (int FiberContextState.Interrupted) then
             let interruptError = Error(FiberInterruptedException(id, cause, message) :> obj)
             resultSource.TrySetResult interruptError |> ignore
-            cancelSource.Cancel(throwOnFirstException = false)
+
+            // A callback registered on the token belongs to user code; its failure must not stop the interruption.
+            try
+                cancelSource.Cancel(throwOnFirstException = false)
+            with _ ->
+                ()
+
             this.CancelChildScope()
             this.DisposeRegistrations()
             this.InvokeOnTerminal()
 
-    member internal _.Cancel () =
-        try
-            cancelSource.Cancel(throwOnFirstException = false)
-        with :? ObjectDisposedException ->
-            ()
-
     member private _.InvokeOnTerminal () =
-        match onTerminalCallback with
-        | ValueSome callback when tryClaim &onTerminalFired ->
+        let callback = onTerminalCallback
+
+        if not (isNull (box callback)) && tryClaim &onTerminalFired then
             try callback ()
             with _ -> ()
-        | _ -> ()
+
+    member private this.InvokeOnUnwound () =
+        match Interlocked.Exchange(&onUnwoundCallback, null) with
+        | null -> ()
+        | callback ->
+            try callback.Invoke this
+            with _ -> ()
 
     member private _.GetOrCreateBlockingQueue () : MailboxQueue<BlockingWaiter> =
         initIfNull &blockingWorkItemQueue (fun () -> MailboxQueue<BlockingWaiter>())
@@ -327,6 +376,10 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
                 cancelSource.Dispose()
 
                 match Volatile.Read &childScope with
+                | null -> ()
+                | source -> source.Dispose()
+
+                match Volatile.Read &protectedScope with
                 | null -> ()
                 | source -> source.Dispose()
 
@@ -367,15 +420,15 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
     let fiberContext = new FiberContext()
 
     /// This fiber's unique identifier.
-    member _.Id =
+    member _.Id : Guid =
         fiberContext.Id
 
     /// A cancellation token tied to this fiber's lifetime; cancelled when the fiber is interrupted.
-    member _.CancellationToken =
+    member _.CancellationToken : CancellationToken =
         fiberContext.CancellationToken
 
     /// Returns a task that completes with this fiber's result, for interop with task-based code.
-    member _.Task () =
+    member _.Task () : Task<FiberResult<'A, 'E>> =
         task {
             match! fiberContext.Task with
             | Ok value ->
@@ -443,25 +496,25 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
             | Interrupted ex -> onInterrupted ex
 
     /// Returns true if this fiber ran to completion (success or failure), as opposed to being interrupted.
-    member _.IsCompleted () =
+    member _.IsCompleted () : bool =
         fiberContext.IsCompleted()
 
     /// Returns true if this fiber was interrupted.
-    member _.IsInterrupted () =
+    member _.IsInterrupted () : bool =
         fiberContext.IsInterrupted()
 
     /// Returns true if this fiber is no longer running — either completed or interrupted.
-    member _.IsTerminal () =
+    member _.IsTerminal () : bool =
         fiberContext.IsTerminal()
 
     /// Blocks the calling thread until this fiber completes and returns its result. Prefer Await inside effects.
-    member this.UnsafeResult () =
+    member this.UnsafeResult () : FiberResult<'A, 'E> =
         this.Task()
         |> Async.AwaitTask
         |> Async.RunSynchronously
 
     /// Blocks the calling thread until this fiber completes and returns its success value, raising if it failed or was interrupted.
-    member this.UnsafeSuccess () =
+    member this.UnsafeSuccess () : 'A =
         match this.UnsafeResult() with
         | Succeeded value ->
             value
@@ -471,7 +524,7 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
             raise (InvalidOperationException $"Fiber was interrupted: {ex.Message}")
 
     /// Blocks the calling thread until this fiber completes and returns its error, raising if it succeeded or was interrupted.
-    member this.UnsafeError () =
+    member this.UnsafeError () : 'E =
         match this.UnsafeResult() with
         | Succeeded value ->
             raise (InvalidOperationException $"Fiber succeeded with value: {value}")
@@ -481,49 +534,69 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
             raise (InvalidOperationException $"Fiber was interrupted: {ex.Message}")
 
     /// Blocks the calling thread until this fiber completes and prints its result.
-    member this.UnsafePrintResult () =
+    member this.UnsafePrintResult () : unit =
         printfn "%A" (this.UnsafeResult())
 
     member internal _.Context =
         fiberContext
 
-    override this.ToString () =
+    override this.ToString () : string =
         this.Id.ToString()
 
     interface IDisposable with
 
-        member _.Dispose () =
+        member _.Dispose () : unit =
             (fiberContext :> IDisposable).Dispose()
 
 /// A typed, asynchronous channel for passing messages between fibers.
 and [<Sealed; AllowNullLiteral>] Channel<'A> private
     (id: Guid,
     valueQueue: MailboxQueue<obj>,
-    blockingSlot: BlockingWorkItemSlot) =
+    blockingSlot: BlockingWorkItemSlot,
+    mode: ChannelMode) =
     [<VolatileField>]
-    let mutable upcastChannel: Channel<obj> = null
+    let mutable upcastChannel = null
 
-    /// Creates a new, empty channel.
-    new() = Channel(Guid.NewGuid(), MailboxQueue<obj>(), BlockingWorkItemSlot())
+    static let bounded (capacity: int) (fullMode: BoundedChannelFullMode) =
+        if capacity < 1 then
+            raise (ArgumentOutOfRangeException(nameof capacity, capacity, "A channel's capacity must be at least 1."))
+
+        MailboxQueue<obj>.Bounded(capacity, fullMode)
+
+    /// Creates a new, empty channel with no capacity limit.
+    new() = Channel(Guid.NewGuid(), MailboxQueue<obj>(), BlockingWorkItemSlot(), Unbounded)
+
+    /// Creates a new, empty channel holding at most the given number of messages; a write to a full channel suspends until a message is read.
+    static member Bounded (capacity: int) : Channel<'A> =
+        Channel<'A>(Guid.NewGuid(), bounded capacity BoundedChannelFullMode.Wait, BlockingWorkItemSlot(), Bounded)
+
+    /// Creates a new, empty channel holding at most the given number of messages; a write to a full channel drops the new message.
+    static member Dropping (capacity: int) : Channel<'A> =
+        Channel<'A>(Guid.NewGuid(), bounded capacity BoundedChannelFullMode.Wait, BlockingWorkItemSlot(), Dropping)
+
+    /// Creates a new, empty channel holding at most the given number of messages; a write to a full channel drops the oldest message.
+    static member Sliding (capacity: int) : Channel<'A> =
+        Channel<'A>(Guid.NewGuid(), bounded capacity BoundedChannelFullMode.DropOldest, BlockingWorkItemSlot(), Sliding)
 
     /// This channel's unique identifier.
-    member _.Id =
+    member _.Id : Guid =
         id
 
     /// The number of messages currently buffered in this channel.
-    member _.Count =
+    member _.Count : int =
         valueQueue.Count
 
-    /// Returns an effect that writes a message to this channel, yielding the written message.
-    member this.Write<'E> message : FIO<'A, 'E> =
-        WriteChan(message, this)
+    /// Returns an effect that writes a message to this channel, yielding the written message; a write to a full bounded channel suspends until a message is read.
+    member this.Write<'E> (message: 'A) : FIO<'A, 'E> =
+        WriteChan(box message, this.Upcast(), false)
+
+    /// Returns an effect that writes a message to this channel only if it has room now, yielding whether it did; it never suspends.
+    member this.TryWrite<'E> (message: 'A) : FIO<bool, 'E> =
+        WriteChan(box message, this.Upcast(), true)
 
     /// Returns an effect that reads the next message from this channel, suspending the fiber until one is available.
     member this.Read<'E> () : FIO<'A, 'E> =
         ReadChan this
-
-    member internal _.WriteAsync (value: 'A) =
-        valueQueue.WriteAsync value
 
     member internal _.ReadAsync () =
         let valueTask = valueQueue.ReadAsync()
@@ -542,7 +615,7 @@ and [<Sealed; AllowNullLiteral>] Channel<'A> private
         let queue = blockingSlot.GetOrCreate()
         queue.WriteAsync waiter
 
-    member internal _.TryDequeueBlockingWorkItem (workItem: byref<WorkItem>) : bool =
+    member internal _.TryDequeueBlockingWorkItem (workItem: byref<WorkItem>) =
         let queue = blockingSlot.TryGet()
         if isNull queue then
             false
@@ -558,8 +631,11 @@ and [<Sealed; AllowNullLiteral>] Channel<'A> private
     member internal _.Queue =
         valueQueue
 
+    member internal _.Mode =
+        mode
+
     member internal _.Upcast () =
-        initIfNull &upcastChannel (fun () -> Channel<obj>(id, valueQueue, blockingSlot))
+        initIfNull &upcastChannel (fun () -> Channel<obj>(id, valueQueue, blockingSlot, mode))
 
 /// A lazy, type-safe description of an effect that, when run, either succeeds with a value or fails with a typed error.
 and FIO<'A, 'E> =
@@ -568,7 +644,7 @@ and FIO<'A, 'E> =
     | Failure of error: 'E
     | Interrupt of cause: InterruptionCause * message: string
     | Action of func: (unit -> 'A) * onError: (exn -> 'E)
-    | WriteChan of value: 'A * channel: Channel<'A>
+    | WriteChan of message: obj * channel: Channel<obj> * reportAccepted: bool
     | ReadChan of channel: Channel<'A>
     | ForkEffect of effect: FIO<obj, obj> * fiber: obj * fiberContext: FiberContext * daemon: bool
     | JoinFiber of fiberContext: FiberContext
@@ -581,6 +657,8 @@ and FIO<'A, 'E> =
     | OnFinalize of effect: FIO<'A, 'E> * finalizer: FIO<obj, obj>
     | FiberCancellationToken
     | Suspend of thunk: (unit -> FIO<'A, 'E>)
+    | WithSuppression of update: (int -> int) * body: (int -> FIO<'A, 'E>)
+    | AcquireRelease of acquire: FIO<obj, 'E> * onAcquired: (obj -> FIO<'A, 'E>)
 
     /// Returns an effect that passes this effect's success value into the given function.
     member this.FlatMap<'A1> (cont: 'A -> FIO<'A1, 'E>) : FIO<'A1, 'E> =
@@ -594,19 +672,15 @@ and FIO<'A, 'E> =
     member this.Ensuring (finalizer: FIO<unit, 'E>) : FIO<'A, 'E> =
         OnFinalize(this, finalizer.UpcastBoth())
 
-    /// Returns an effect that runs this effect on a new fiber, yielding the fiber immediately.
-    /// The forked fiber is scoped to this one: when this fiber finishes it interrupts the child and
-    /// waits for it to unwind, so every finalizer in the subtree has run before this fiber's result
-    /// becomes observable. Await the child here if you need its result. Use ForkDaemon for a fiber that
-    /// should outlive its parent.
+    /// Returns an effect that runs this effect on a new fiber scoped to this one, yielding its handle: the child is
+    /// interrupted when this fiber is interrupted or finishes, and finishing waits for it to unwind. See ForkDaemon.
     member this.Fork<'E1> () : FIO<Fiber<'A, 'E>, 'E1> =
         Suspend(fun () ->
             let fiber = new Fiber<'A, 'E>()
             ForkEffect(this.UpcastBoth(), fiber, fiber.Context, false))
 
-    /// Returns an effect that runs this effect on a new unscoped fiber, yielding the fiber immediately.
-    /// Unlike Fork, the forked fiber is independent of this one: it is neither interrupted nor awaited
-    /// when this fiber finishes, so its lifetime — and its finalizers — become the caller's to manage.
+    /// Returns an effect that runs this effect on a new unscoped fiber, yielding its handle: it is neither interrupted
+    /// nor awaited when this fiber finishes, so its lifetime and finalizers are the caller's to manage.
     member this.ForkDaemon<'E1> () : FIO<Fiber<'A, 'E>, 'E1> =
         Suspend(fun () ->
             let fiber = new Fiber<'A, 'E>()
@@ -651,8 +725,7 @@ and FIO<'A, 'E> =
     static member inline private flattenOnFinalize
         (leafUpcast: FIO<'A, 'E> -> FIO<'OR, 'OE>)
         (effect: FIO<'A, 'E>)
-        (outerFinalizer: FIO<obj, obj>)
-        : FIO<'OR, 'OE> =
+        (outerFinalizer: FIO<obj, obj>) =
         match effect with
         | OnFinalize _ ->
             let finalizers = ResizeArray<FIO<obj, obj>>()
@@ -680,8 +753,7 @@ and FIO<'A, 'E> =
         (innerContWrap: (obj -> FIO<obj, 'E>) -> (obj -> FIO<obj, 'OE>))
         (outerContWrap: (obj -> FIO<'A, 'E>) -> (obj -> FIO<'OR, 'OE>))
         (effect: FIO<obj, 'E>)
-        (outerCont: obj -> FIO<'A, 'E>)
-        : FIO<'OR, 'OE> =
+        (outerCont: obj -> FIO<'A, 'E>) =
         match effect with
         | ChainSuccess _ ->
             let innerConts = ResizeArray<obj -> FIO<obj, 'E>>()
@@ -708,8 +780,7 @@ and FIO<'A, 'E> =
         (innerContWrap: (obj -> FIO<'A, obj>) -> (obj -> FIO<'OR, obj>))
         (outerContWrap: (obj -> FIO<'A, 'E>) -> (obj -> FIO<'OR, 'OE>))
         (effect: FIO<'A, obj>)
-        (outerCont: obj -> FIO<'A, 'E>)
-        : FIO<'OR, 'OE> =
+        (outerCont: obj -> FIO<'A, 'E>) =
         match effect with
         | ChainError _ ->
             let innerConts = ResizeArray<obj -> FIO<'A, obj>>()
@@ -741,8 +812,8 @@ and FIO<'A, 'E> =
             Interrupt(cause, message)
         | Action(func, onError) ->
             Action(boxFunc func, onError)
-        | WriteChan(value, channel) ->
-            WriteChan(value :> obj, channel.Upcast())
+        | WriteChan(message, channel, reportAccepted) ->
+            WriteChan(message, channel, reportAccepted)
         | ReadChan channel ->
             ReadChan(channel.Upcast())
         | ForkEffect(effect, fiber, fiberContext, daemon) ->
@@ -776,6 +847,10 @@ and FIO<'A, 'E> =
             FiberCancellationToken
         | Suspend thunk ->
             Suspend(fun () -> (thunk()).UpcastResult())
+        | WithSuppression(update, body) ->
+            WithSuppression(update, fun level -> (body level).UpcastResult())
+        | AcquireRelease(acquire, onAcquired) ->
+            AcquireRelease(acquire, fun resource -> (onAcquired resource).UpcastResult())
 
     member internal this.UpcastError () : FIO<'A, obj> =
         match this with
@@ -787,8 +862,8 @@ and FIO<'A, 'E> =
             Interrupt(cause, message)
         | Action(func, onError) ->
             Action(func, boxOnError onError)
-        | WriteChan(value, channel) ->
-            WriteChan(value, channel)
+        | WriteChan(message, channel, reportAccepted) ->
+            WriteChan(message, channel, reportAccepted)
         | ReadChan channel ->
             ReadChan channel
         | ForkEffect(effect, fiber, fiberContext, daemon) ->
@@ -822,6 +897,10 @@ and FIO<'A, 'E> =
             FiberCancellationToken
         | Suspend thunk ->
             Suspend(fun () -> (thunk()).UpcastError())
+        | WithSuppression(update, body) ->
+            WithSuppression(update, fun level -> (body level).UpcastError())
+        | AcquireRelease(acquire, onAcquired) ->
+            AcquireRelease(acquire.UpcastError(), fun resource -> (onAcquired resource).UpcastError())
 
     member internal this.UpcastBoth () : FIO<obj, obj> =
         match this with
@@ -833,8 +912,8 @@ and FIO<'A, 'E> =
             Interrupt(cause, message)
         | Action(func, onError) ->
             Action(boxFunc func, boxOnError onError)
-        | WriteChan(value, channel) ->
-            WriteChan(value :> obj, channel.Upcast())
+        | WriteChan(message, channel, reportAccepted) ->
+            WriteChan(message, channel, reportAccepted)
         | ReadChan channel ->
             ReadChan(channel.Upcast())
         | ForkEffect(effect, fiber, fiberContext, daemon) ->
@@ -872,3 +951,7 @@ and FIO<'A, 'E> =
             FiberCancellationToken
         | Suspend thunk ->
             Suspend(fun () -> (thunk()).UpcastBoth())
+        | WithSuppression(update, body) ->
+            WithSuppression(update, fun level -> (body level).UpcastBoth())
+        | AcquireRelease(acquire, onAcquired) ->
+            AcquireRelease(acquire.UpcastError(), fun resource -> (onAcquired resource).UpcastBoth())

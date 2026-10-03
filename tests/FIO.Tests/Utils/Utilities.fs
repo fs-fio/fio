@@ -14,7 +14,7 @@ open FsCheck.FSharp
 
 let testConfig = { WorkerConfig.Default with EvaluationWorkers = 2 }
 
-let allRuntimes () : FIORuntime list =
+let allRuntimes () =
     [
         new DirectRuntime() :> FIORuntime
         new PollingRuntime(testConfig) :> FIORuntime

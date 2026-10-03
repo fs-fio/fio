@@ -4,4 +4,6 @@ open Expecto
 
 [<EntryPoint>]
 let main args =
-    runTestsInAssemblyWithCLIArgs [ Parallel; Summary; Colours 256 ] args
+    match args with
+    | [| "--child"; scenario |] -> ChildProcess.run scenario
+    | _ -> runTestsInAssemblyWithCLIArgs [ Parallel; Summary; Colours 256 ] args

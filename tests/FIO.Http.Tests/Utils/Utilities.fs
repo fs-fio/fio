@@ -13,21 +13,58 @@ open System
 open System.Net
 open System.Text
 open System.Threading
+open System.Net.Sockets
 open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Hosting
 open Microsoft.Extensions.Logging
 
 open Expecto
 
+let testConfig = { WorkerConfig.Default with EvaluationWorkers = 2 }
+
 [<CLIMutable>]
 type TestMessage = { Id: int; Text: string }
+
+type FailingStream(prefix: byte array) =
+    inherit IO.Stream()
+
+    let mutable position = 0
+
+    override _.CanRead = true
+
+    override _.CanSeek = false
+
+    override _.CanWrite = false
+
+    override _.Length = raise (NotSupportedException())
+
+    override _.Position
+        with get () = raise (NotSupportedException())
+        and set _ = raise (NotSupportedException())
+
+    override _.Flush () = ()
+
+    override _.Read (buffer: byte array, offset: int, count: int) : int =
+        if position >= prefix.Length then
+            raise (IO.IOException "The response body's source failed.")
+
+        let copied = min count (prefix.Length - position)
+        Array.blit prefix position buffer offset copied
+        position <- position + copied
+        copied
+
+    override _.Seek (_: int64, _: IO.SeekOrigin) : int64 = raise (NotSupportedException())
+
+    override _.SetLength (_: int64) = raise (NotSupportedException())
+
+    override _.Write (_: byte array, _: int, _: int) = raise (NotSupportedException())
 
 let runtimes () =
     [
         new DirectRuntime() :> FIORuntime
-        new PollingRuntime() :> FIORuntime
-        new SignalingRuntime() :> FIORuntime
-        new WorkStealingRuntime() :> FIORuntime
+        new PollingRuntime(testConfig) :> FIORuntime
+        new SignalingRuntime(testConfig) :> FIORuntime
+        new WorkStealingRuntime(testConfig) :> FIORuntime
     ]
 
 let private disposeRuntime (rt: FIORuntime) =
@@ -93,23 +130,47 @@ let getWhenListening (url: string) =
     | Some body -> body
     | None -> failtest $"Server at {url} never became ready"
 
+// Kestrel aborts a connection whose client half-closes, which would race the response, so the request must ask for
+// `Connection: close` and the socket stays open until the server ends it.
+let sendRawRequest (port: int) (request: string) =
+    use tcp = new TcpClient()
+    tcp.Connect("127.0.0.1", port)
+    use stream = tcp.GetStream()
+
+    let bytes = Encoding.ASCII.GetBytes request
+    stream.Write(bytes, 0, bytes.Length)
+    stream.Flush()
+
+    stream.ReadTimeout <- 5000
+    use reader = new IO.StreamReader(stream, Encoding.ASCII)
+    try reader.ReadToEnd() with _ -> ""
+
 let findAvailablePort () =
-    let listener = new Sockets.TcpListener(IPAddress.Loopback, 0)
+    let listener = new TcpListener(IPAddress.Loopback, 0)
     listener.Start()
     let port = (listener.LocalEndpoint :?> IPEndPoint).Port
     listener.Stop()
     port
 
+// Windows retries a refused loopback connect for about two seconds, so a connect that does not finish quickly counts as
+// nothing listening.
+let isListening (port: int) =
+    use tcp = new TcpClient()
+
+    try
+        tcp.ConnectAsync("127.0.0.1", port).Wait(TimeSpan.FromMilliseconds 500.0) && tcp.Connected
+    with _ ->
+        false
+
 let private startTestHttpApp (routes: Routes<exn>) (maxBodySize: int64) (runtime: DefaultRuntime) =
     let rec attempt remaining =
         let port = findAvailablePort ()
-        let config = ServerConfig.create "127.0.0.1" port
 
-        let builder = Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder()
+        let builder = WebApplication.CreateBuilder()
         builder.Logging.ClearProviders() |> ignore
 
         builder.WebHost.ConfigureKestrel(fun options ->
-            options.Listen(System.Net.IPAddress.Parse "127.0.0.1", port))
+            options.Listen(IPAddress.Parse "127.0.0.1", port))
             |> ignore
 
         let app = builder.Build()
@@ -139,7 +200,7 @@ let private startTestHttpApp (routes: Routes<exn>) (maxBodySize: int64) (runtime
 
     attempt 10
 
-let withTestHttpServerMaxBody (maxBodySize: int64) (routes: Routes<exn>) (action: int -> unit) =
+let withTestHttpServerMaxBody (maxBodySize: int64) (routes: Routes<exn>) (action: int -> 'T) : 'T =
     let runtime = new DefaultRuntime()
     let port, app = startTestHttpApp routes maxBodySize runtime
 
@@ -151,5 +212,5 @@ let withTestHttpServerMaxBody (maxBodySize: int64) (routes: Routes<exn>) (action
         app.DisposeAsync().AsTask().Wait()
         (runtime :> IDisposable).Dispose()
 
-let withTestHttpServer (routes: Routes<exn>) (action: int -> unit) =
+let withTestHttpServer (routes: Routes<exn>) (action: int -> 'T) : 'T =
     withTestHttpServerMaxBody (ServerConfig.create "127.0.0.1" 0).MaxRequestBodySize routes action

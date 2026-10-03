@@ -14,80 +14,86 @@ type RoutePath =
 [<RequireQualifiedAccess>]
 module RoutePath =
 
+    [<TailCall>]
+    let rec private matchSegments
+        (patternSegments: string list)
+        (urlSegments: string list)
+        (captured: obj list) =
+        match patternSegments, urlSegments with
+        | [], [] ->
+            Some(List.rev captured, [])
+        | patternSegment :: patternRest, urlSegment :: urlRest when patternSegment.StartsWith ":" ->
+            matchSegments patternRest urlRest (box urlSegment :: captured)
+        | patternSegment :: patternRest, urlSegment :: urlRest when patternSegment = urlSegment ->
+            matchSegments patternRest urlRest captured
+        | _ ->
+            None
+
+    [<TailCall>]
+    let rec private matchPrefix (exp: string list) (seg: string list) =
+        match exp, seg with
+        | [], remaining ->
+            Some([], remaining)
+        | e :: et, s :: st when e = s ->
+            matchPrefix et st
+        | _ ->
+            None
+
+    [<TailCall>]
+    let rec private matchBefore (b: string list) (s: string list) =
+        match b, s with
+        | [], remaining ->
+            Some remaining
+        | bh :: bt, sh :: st when bh = sh ->
+            matchBefore bt st
+        | _ ->
+            None
+
+    [<TailCall>]
+    let rec private matchAfter (a: string list) (s: string list) (acc: obj list) =
+        match a, s with
+        | [], remaining ->
+            Some(List.rev acc, remaining)
+        | ah :: at, sh :: st when ah = sh ->
+            matchAfter at st acc
+        | _ ->
+            None
+
     /// Creates a path that matches the given segments exactly.
-    let exact (segments: string list) =
+    let exact (segments: string list) : RoutePath =
         Exact segments
 
     /// Creates a path that matches any request beginning with the given segments.
-    let prefix (segments: string list) =
+    let prefix (segments: string list) : RoutePath =
         Prefix segments
 
     /// Parses a path string into a route path, treating `:name` segments as parameters.
-    let parse (path: string) =
+    let parse (path: string) : RoutePath =
         let segments =
             path.Split([| '/' |], StringSplitOptions.RemoveEmptyEntries) |> Array.toList
 
         if segments |> List.exists (fun (segment: string) -> segment.StartsWith ":") then
             Pattern <| fun requestSegments ->
-                let rec matchSegments
-                    (patternSegments: string list)
-                    (urlSegments: string list)
-                    (captured: obj list) =
-                    match patternSegments, urlSegments with
-                    | [], [] ->
-                        Some(List.rev captured, [])
-                    | patternSegment :: patternRest, urlSegment :: urlRest when patternSegment.StartsWith ":" ->
-                        matchSegments patternRest urlRest (box urlSegment :: captured)
-                    | patternSegment :: patternRest, urlSegment :: urlRest when patternSegment = urlSegment ->
-                        matchSegments patternRest urlRest captured
-                    | _ ->
-                        None
                 matchSegments segments requestSegments []
         else
             Exact segments
 
     /// Parses a path string into a route path.
-    let fromString (path: string) =
+    let fromString (path: string) : RoutePath =
         parse path
 
     /// Tries to match segments against a route path, returning captured parameters and any remainder.
-    let tryMatch (routePath: RoutePath) (segments: string list) =
+    let tryMatch (routePath: RoutePath) (segments: string list) : (obj list * string list) option =
         match routePath with
         | Exact expected -> if segments = expected then Some([], []) else None
         | Prefix expected ->
-            let rec matchPrefix exp seg =
-                match exp, seg with
-                | [], remaining ->
-                    Some([], remaining)
-                | e :: et, s :: st when e = s ->
-                    matchPrefix et st
-                | _ ->
-                    None
             matchPrefix expected segments
         | Pattern matcher ->
             matcher segments
 
     /// Creates a pattern matching an integer parameter between the given before and after segments.
-    let withInt (before: string list) (after: string list) =
+    let withInt (before: string list) (after: string list) : RoutePath =
         Pattern <| fun segments ->
-            let rec matchBefore b s =
-                match b, s with
-                | [], remaining ->
-                    Some remaining
-                | bh :: bt, sh :: st when bh = sh ->
-                    matchBefore bt st
-                | _ ->
-                    None
-
-            let rec matchAfter a s acc =
-                match a, s with
-                | [], remaining ->
-                    Some(List.rev acc, remaining)
-                | ah :: at, sh :: st when ah = sh ->
-                    matchAfter at st acc
-                | _ ->
-                    None
-
             match matchBefore before segments with
             | Some(param :: remaining) ->
                 match Int32.TryParse param with
@@ -99,26 +105,8 @@ module RoutePath =
                 None
 
     /// Creates a pattern matching a string parameter between the given before and after segments.
-    let withString (before: string list) (after: string list) =
+    let withString (before: string list) (after: string list) : RoutePath =
         Pattern <| fun segments ->
-            let rec matchBefore b s =
-                match b, s with
-                | [], remaining ->
-                    Some remaining
-                | bh :: bt, sh :: st when bh = sh ->
-                    matchBefore bt st
-                | _ ->
-                    None
-
-            let rec matchAfter a s acc =
-                match a, s with
-                | [], remaining ->
-                    Some(List.rev acc, remaining)
-                | ah :: at, sh :: st when ah = sh ->
-                    matchAfter at st acc
-                | _ ->
-                    None
-
             match matchBefore before segments with
             | Some(param :: remaining) ->
                 matchAfter after remaining [ box param ]
@@ -140,7 +128,7 @@ type RoutePattern =
 module RoutePattern =
 
     /// Creates a route pattern for the given method and path.
-    let create (method: HttpMethod) (path: RoutePath) =
+    let create (method: HttpMethod) (path: RoutePath) : RoutePattern =
         {
             Method = method
             Path = path
@@ -158,35 +146,35 @@ module RoutePattern =
         }
 
     /// Creates a GET route pattern for the given path.
-    let get (path: RoutePath) =
+    let get (path: RoutePath) : RoutePattern =
         create HttpMethod.GET path
 
     /// Creates a POST route pattern for the given path.
-    let post (path: RoutePath) =
+    let post (path: RoutePath) : RoutePattern =
         create HttpMethod.POST path
 
     /// Creates a PUT route pattern for the given path.
-    let put (path: RoutePath) =
+    let put (path: RoutePath) : RoutePattern =
         create HttpMethod.PUT path
 
     /// Creates a DELETE route pattern for the given path.
-    let delete (path: RoutePath) =
+    let delete (path: RoutePath) : RoutePattern =
         create HttpMethod.DELETE path
 
     /// Creates a PATCH route pattern for the given path.
-    let patch (path: RoutePath) =
+    let patch (path: RoutePath) : RoutePattern =
         create HttpMethod.PATCH path
 
     /// Creates a HEAD route pattern for the given path.
-    let head (path: RoutePath) =
+    let head (path: RoutePath) : RoutePattern =
         create HttpMethod.HEAD path
 
     /// Creates an OPTIONS route pattern for the given path.
-    let options (path: RoutePath) =
+    let options (path: RoutePath) : RoutePattern =
         create HttpMethod.OPTIONS path
 
     /// Tries to match a request against a pattern, returning captured parameters.
-    let tryMatch (pattern: RoutePattern) (request: HttpRequest) =
+    let tryMatch (pattern: RoutePattern) (request: HttpRequest) : obj list option =
         if request.Method = pattern.Method then
             pattern.ParamExtractor request.PathSegments
         else
@@ -196,7 +184,7 @@ module RoutePattern =
 module Route =
 
     /// Parses a `METHOD /path` route string into a route pattern.
-    let fromString (routeStr: string) =
+    let fromString (routeStr: string) : RoutePattern =
         let parts = routeStr.Split([| ' ' |], StringSplitOptions.RemoveEmptyEntries)
         match parts with
         | [| methodStr; pathStr |] ->
@@ -208,31 +196,31 @@ module Route =
             invalidArg "routeStr" errorMessage
 
     /// Creates a GET route pattern from a path string.
-    let get (path: string) =
+    let get (path: string) : RoutePattern =
         RoutePattern.get (RoutePath.fromString path)
 
     /// Creates a POST route pattern from a path string.
-    let post (path: string) =
+    let post (path: string) : RoutePattern =
         RoutePattern.post (RoutePath.fromString path)
 
     /// Creates a PUT route pattern from a path string.
-    let put (path: string) =
+    let put (path: string) : RoutePattern =
         RoutePattern.put (RoutePath.fromString path)
 
     /// Creates a DELETE route pattern from a path string.
-    let delete (path: string) =
+    let delete (path: string) : RoutePattern =
         RoutePattern.delete (RoutePath.fromString path)
 
     /// Creates a PATCH route pattern from a path string.
-    let patch (path: string) =
+    let patch (path: string) : RoutePattern =
         RoutePattern.patch (RoutePath.fromString path)
 
     /// Creates a HEAD route pattern from a path string.
-    let head (path: string) =
+    let head (path: string) : RoutePattern =
         RoutePattern.head (RoutePath.fromString path)
 
     /// Creates an OPTIONS route pattern from a path string.
-    let options (path: string) =
+    let options (path: string) : RoutePattern =
         RoutePattern.options (RoutePath.fromString path)
 
 module RouteOperators =
@@ -242,29 +230,29 @@ module RouteOperators =
         RoutePattern.create method (RoutePath.fromString path)
 
     /// Creates a GET route pattern from a path string.
-    let get path =
+    let get path : RoutePattern =
         Route.get path
 
     /// Creates a POST route pattern from a path string.
-    let post path =
+    let post path : RoutePattern =
         Route.post path
 
     /// Creates a PUT route pattern from a path string.
-    let put path =
+    let put path : RoutePattern =
         Route.put path
 
     /// Creates a DELETE route pattern from a path string.
-    let delete path =
+    let delete path : RoutePattern =
         Route.delete path
 
     /// Creates a PATCH route pattern from a path string.
-    let patch path =
+    let patch path : RoutePattern =
         Route.patch path
 
     /// Creates a HEAD route pattern from a path string.
-    let head path =
+    let head path : RoutePattern =
         Route.head path
 
     /// Creates an OPTIONS route pattern from a path string.
-    let options path =
+    let options path : RoutePattern =
         Route.options path

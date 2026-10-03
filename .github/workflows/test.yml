@@ -53,7 +53,7 @@ jobs:
       - name: Run tests
         run: >
           dotnet test --no-build --verbosity normal ./FIO.slnx
-          --logger "trx;LogFileName=${{ matrix.os }}.trx"
+          --logger "trx;LogFilePrefix=${{ matrix.os }}"
           --results-directory ./test-results
 
       - name: Upload test results
@@ -61,5 +61,52 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: test-results-${{ matrix.os }}
+          path: ./test-results/*.trx
+          if-no-files-found: warn
+
+  # Release is what ships, and F# compiles task { } into state machines only in optimized builds: this job tests that
+  # code, and it is where the interpreter JIT-limit guard (InterpreterSizeTests) runs, since Debug builds skip it.
+  release:
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 30
+
+    env:
+      FIO_RUN_STRESS: "1"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v6
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj', 'Directory.Packages.props', 'global.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Restore dependencies
+        run: dotnet restore ./FIO.slnx
+
+      - name: Build (Release)
+        run: dotnet build -c Release --no-restore ./FIO.slnx
+
+      - name: Run tests (Release)
+        run: >
+          dotnet test -c Release --no-build --verbosity normal ./FIO.slnx
+          --logger "trx;LogFilePrefix=release"
+          --results-directory ./test-results
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-release
           path: ./test-results/*.trx
           if-no-files-found: warn

@@ -56,9 +56,14 @@ see [For AI agents & contributors](#for-ai-agents--contributors).
 - The `FIOBuilder` computation-expression *methods* (`Bind`, `Return`, `Delay`,
   …). They're infrastructure the user never calls by name. Document the `fio`
   value instead.
-- Test, benchmark, and example projects — they ship no XML docs. Examples and
-  benchmarks carry concise `//` teaching comments (one per app/benchmark and key
-  helper); tests rely on their Expecto labels and stay otherwise comment-free.
+- Test, benchmark, and example projects — they ship no XML docs, and their `//`
+  budget is fixed: **tests carry none** (a non-obvious choice such as sequencing, a
+  held worker or a mutant guard goes into the test's name or its assertion
+  message; a shared helper may carry one line when its *why* is invisible);
+  **examples carry one line per app and per example function**, nothing on the
+  helpers inside; **benchmarks carry one line per benchmark class and per
+  workload actor or builder**, nothing on `[<Params>]` properties, setup, cleanup
+  or `Run`.
 - `System.Object` overrides (`ToString`, `Finalize`, `Equals`, `GetHashCode`) —
   conventional, left bare uniformly.
 
@@ -79,6 +84,16 @@ grep -o '<member name="[MPTF]:[^("]*' src/FIO/bin/Release/net10.0/FIO.xml \
 
 Use an inline `//` for these instead: the explanation is usually worth keeping, it is
 only the marker that is wrong.
+
+The length rules are mechanical too. Every `///` block of more than two lines, and
+every `//` line per area:
+
+```bash
+for f in $(find src -name '*.fs' -not -path '*/obj/*' -not -path '*/bin/*'); do
+  awk -v f="$f" '/^[[:space:]]*\/\/\//{ if(n==0) s=NR; n++; next } { if(n>2) print f":"s" ("n" lines)"; n=0 }' "$f"; done
+for d in src tests examples benchmarks; do
+  echo "$d: $(find $d -name '*.fs' -not -path '*/obj/*' -not -path '*/bin/*' -exec grep -hE '^\s*//[^/]' {} + | wc -l)"; done
+```
 
 ---
 
@@ -303,7 +318,11 @@ let fio = FIOBuilder()
 
 ## 6. Length budget
 
-- **Default:** one `///` summary line.
+- **Default:** one `///` summary line. A second line only for a caveat the caller
+  must know — interruption, the finalizer guarantee, laziness, thread-safety, a
+  destructive default. Never a third: if it does not fit in two, it belongs in
+  the README.
+- **`//` on internals:** one line; two at most (§7).
 - **`<param>`:** avoid it — fold any needed clarification into the summary. If you do
   use one, you must document *every* parameter (param-completeness, §3), so it's all
   or none.
@@ -312,6 +331,34 @@ let fio = FIOBuilder()
 - **`<example>`:** only when correct composition is non-obvious.
 - **`<remarks>`:** only for a genuine caveat — laziness, interruption behaviour,
   the finalizer guarantee, or thread-safety. Not for general prose.
+
+---
+
+## 7. Inline comments on internals
+
+Internals are comment-free by default. An inline `//` earns its place only when the
+*why* is not visible in the code — an ordering another thread depends on, a
+JIT limit, a .NET quirk being worked around, a guarantee the next line exists to
+keep. Then:
+
+- **One line; two at most.** The long form — the interleaving, the measurement,
+  the history — goes in the commit message, where `git blame` finds it.
+- **Why, never what.** A comment that could be replaced by reading the next line
+  is deleted, not shortened.
+- **Name the pairing, don't narrate the protocol.** For ordering between threads
+  say what pairs with what ("read under the list's lock, which Shutdown takes only
+  after claiming the flag"), not the sequence of events on each side.
+- **No commented-out code**, and no `TODO` without an issue number.
+
+```fsharp
+// ✗ four lines that narrate
+// A receive the fiber gave up on, through an interruption or a caller's token that is not the fiber's, still
+// reads into the rented array and holds the lock, so the clean-up waits for it instead of handing the array
+// to the next renter under a pending read.
+
+// ✓ one line that says why
+// A receive the fiber abandoned still writes into the array and holds the lock: clean up once it ends.
+```
 
 ---
 
@@ -334,7 +381,10 @@ When you touch the public API, follow these rules:
    escape (`FIO&lt;'A,'E&gt;`, `&amp;`). Cross-reference with `<c>Name</c>`, not
    `<see cref>`. `dotnet build` must stay green.
 6. **Don't bulk-add `///` API docs to internals, tests, or examples**, and don't
-   "tidy" by adding comments the existing code deliberately omits. (The example
-   apps and benchmarks do carry one concise `//` teaching comment per app/benchmark
-   and key helper — just not `///` API docs, since these projects are non-shipping
-   and produce no documentation file.)
+   "tidy" by adding comments the existing code deliberately omits. Tests carry no
+   comments; examples one line per app and example function; benchmarks one line
+   per class and per workload actor (§2). Internals: `//` only for an invisible
+   why, one line, two at most (§7). Before finishing, run the two checks in §3.
+7. **Explain in the commit message, not the code.** A fix that needed a paragraph
+   to justify gets that paragraph in its commit; the code gets one line naming the
+   constraint.

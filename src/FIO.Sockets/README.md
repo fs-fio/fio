@@ -16,7 +16,7 @@ effects — connections are scoped and released for you, and failures surface as
 ## Install
 
 ```bash
-dotnet add package FSharp.FIO.Sockets
+dotnet add package FSharp.FIO.Sockets --prerelease
 ```
 
 ## Quick Start
@@ -55,8 +55,29 @@ Operations fail with a typed `SocketError` — `ConnectionFailed`, `ConnectionCl
 `ReceiveFailed`, `TimeoutError`, `BufferOverflow`, `InvalidState`, `BindFailed`, `AcceptFailed`,
 `CodecError`, `GeneralError` — with `SocketError.fromException` / `SocketError.toException` to
 bridge raw exceptions. `InvalidState` also covers argument validation (an empty host, a port out
-of range, a non-positive buffer size); `BufferOverflow` is raised when a line or frame exceeds the
-buffer you passed.
+of range, a non-positive buffer size); `BufferOverflow` is raised when a line (a JSON line included) or
+frame exceeds the buffer you passed.
+
+A receive that gives up part-way through a message — a line or frame over its limit, a negative frame
+length, or a timeout or interruption mid-message — has consumed bytes the next read would misread, so
+the socket's receive side stops there: every later receive fails with `ConnectionClosed`. Sends still
+work, so you can answer before closing. A receive that times out before reading anything leaves the
+socket usable.
+
+## Closing
+
+`withConnection` owns the socket from before it connects, so interrupting the fiber at any point —
+while connecting included — closes it. `serve` and `acceptLoop` hand every accepted connection to a
+handler whose finalizer closes it, even when the loop is interrupted mid-accept. Handlers are the
+loop's ordinary children: interrupting the loop interrupts them at once, alongside its own cleanup.
+
+Closing is graceful by default: data still queued is sent before the connection ends.
+`SocketConfig.withLinger true 0` opts into an immediate reset instead. Interrupting `serve` or
+`acceptLoop` is the clean way to stop a server; closing its server socket underneath ends the loop with
+`AcceptFailed`, and `accept` on a closed server socket fails the same way. The options of an
+`AcceptedSocketConfig` — Nagle, buffer sizes, timeouts — apply to every accepted socket.
+
+## Pooling
 
 Connection pooling is not implemented yet: `SocketPoolConfig` and the `PoolExhausted` / `PoolClosed`
 error cases are reserved for it and are not produced by any current operation.
