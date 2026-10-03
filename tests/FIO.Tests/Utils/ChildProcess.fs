@@ -42,6 +42,15 @@ type private SignalApp(hangInFinalizer: bool) =
     override _.onShutdown () =
         print "shutdown"
 
+type private SlowRuntimeApp() =
+    inherit SignalApp false
+
+    override _.runtime =
+        Console.Out.WriteLine "creating-runtime"
+        Console.Out.Flush()
+        Thread.Sleep 2000
+        new WorkStealingRuntime() :> FIORuntime
+
 // RunAsync registers its signal handlers before its first await, so `ready` marks the point from which a signal is
 // handled by the app.
 let private runApp (app: FIOApp<unit, exn>) =
@@ -88,6 +97,7 @@ let run (scenario: string) : int =
     match scenario with
     | "app" -> runApp (SignalApp false)
     | "app-hanging-finalizer" -> runApp (SignalApp true)
+    | "app-slow-runtime" -> runApp (SlowRuntimeApp())
     | "dispose-parked-on-task" -> disposeParkedOnTask ()
     | "dispose-parked-writer" -> disposeParkedWriter ()
     | other ->

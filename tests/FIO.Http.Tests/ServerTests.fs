@@ -297,6 +297,24 @@ let serverTests =
                                 "The stream's length must become the Content-Length"
                             Expect.sequenceEqual bytes payload "The stream must be copied unmodified"
 
+                        testCase "Response writing - aborts the connection when a stream without a length fails mid-body"
+                        <| fun () ->
+                            let routes =
+                                get "/broken" (fun _ ->
+                                    FIO.succeed (Response.okStream (new FailingStream(Array.create (256 * 1024) 1uy)) None "application/octet-stream"))
+
+                            let outcome =
+                                withTestHttpServer routes (fun port ->
+                                    use client = new HttpClient()
+                                    try
+                                        Ok (client.GetByteArrayAsync($"http://127.0.0.1:{port}/broken").Result.Length)
+                                    with ex ->
+                                        Error (ex.GetBaseException().Message))
+
+                            match outcome with
+                            | Error _ -> ()
+                            | Ok length -> failtest $"A body that failed mid-copy must not arrive as a complete response, got {length} bytes"
+
                         testCase "Response writing - a throwing handler still produces a well-formed response"
                         <| fun () ->
                             let routes = get "/boom" (fun _ -> FIO.attempt (fun () -> failwith "handler exploded") id)
@@ -401,6 +419,24 @@ let serverTests =
                                     "not started"
                                     "A server whose start failed must not count as started"
                             | other -> failtest $"run after a failed start must fail, got {other}"
+
+                        testCase "stop - releases the server's own runtime even when start failed"
+                        <| fun () ->
+                            use runtime = new DefaultRuntime()
+                            let config = ServerConfig.create "192.0.2.1" (findAvailablePort ())
+                            let routes = get "/ping" (HttpHandler.text "pong")
+                            let server = runWithTimeout (runtime :> FIORuntime) (Server.create config routes)
+                            let started =
+                                runWithTimeout
+                                    (runtime :> FIORuntime)
+                                    ((Server.start server).Map(fun _ -> true).CatchAll(fun _ -> FIO.succeed false))
+
+                            runWithTimeout (runtime :> FIORuntime) (Server.stop server) |> ignore
+
+                            Expect.isFalse started "start must fail on 192.0.2.1"
+                            Expect.throwsT<ObjectDisposedException>
+                                (fun () -> (Server.runtimeOf server).Run(FIO.unit () : FIO<unit, exn>) |> ignore)
+                                "stop must release the runtime the server created, even though start failed"
 
                         testCase "stop - leaves the server stopped: a second stop is a no-op and run fails as not started"
                         <| fun () ->

@@ -25,6 +25,40 @@ let testConfig = { WorkerConfig.Default with EvaluationWorkers = 2 }
 [<CLIMutable>]
 type TestMessage = { Id: int; Text: string }
 
+type FailingStream(prefix: byte array) =
+    inherit IO.Stream()
+
+    let mutable position = 0
+
+    override _.CanRead = true
+
+    override _.CanSeek = false
+
+    override _.CanWrite = false
+
+    override _.Length = raise (NotSupportedException())
+
+    override _.Position
+        with get () = raise (NotSupportedException())
+        and set _ = raise (NotSupportedException())
+
+    override _.Flush () = ()
+
+    override _.Read (buffer: byte array, offset: int, count: int) : int =
+        if position >= prefix.Length then
+            raise (IO.IOException "The response body's source failed.")
+
+        let copied = min count (prefix.Length - position)
+        Array.blit prefix position buffer offset copied
+        position <- position + copied
+        copied
+
+    override _.Seek (_: int64, _: IO.SeekOrigin) : int64 = raise (NotSupportedException())
+
+    override _.SetLength (_: int64) = raise (NotSupportedException())
+
+    override _.Write (_: byte array, _: int, _: int) = raise (NotSupportedException())
+
 let runtimes () =
     [
         new DirectRuntime() :> FIORuntime

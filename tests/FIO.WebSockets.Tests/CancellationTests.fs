@@ -173,6 +173,59 @@ let cancellationTests =
                 Expect.isGreaterThanOrEqual stopwatch.ElapsedMilliseconds 450L "The handler gets the shutdown timeout to finish"
                 Expect.isLessThan stopwatch.ElapsedMilliseconds 5_000L "A handler that outlasts the timeout must be interrupted")
 
+            testAllRuntimes "serve - shuts down within its shutdown timeout when SendTimeout is 0 and a peer never reads" (fun runtime ->
+                let port = findAvailablePort ()
+                let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withSendTimeout 0 |> WebSocketConfig.withShutdownTimeout 500
+                let chunk = Array.zeroCreate<byte> (1024 * 1024)
+                let handler (ws: WebSocket) =
+                    let rec flood () = (ws.SendBinary chunk).FlatMap(fun () -> flood ())
+                    fio {
+                        do! ws.SendText "ready"
+                        do! flood ()
+                    }
+                let effect =
+                    fio {
+                        let! server = (WebSocketServer.serve $"http://127.0.0.1:{port}/" config handler).Fork()
+                        let! client = connectWhenListening $"ws://127.0.0.1:{port}/"
+                        let! _ready = client.ReceiveMessage()
+                        do! sleepMs 500.0
+                        do! server.InterruptNow()
+                        return client
+                    }
+
+                let stopwatch = Stopwatch.StartNew()
+                let client = runWithTimeout runtime effect
+                stopwatch.Stop()
+
+                Expect.isLessThan stopwatch.ElapsedMilliseconds 5_000L "Shutdown must end within its timeout even while a send to the peer is stuck"
+
+                runWithTimeout runtime (client.Abort()))
+
+            testAllRuntimes "serve - shuts down within its shutdown timeout when SendTimeout is 0 and a peer never answers the close" (fun runtime ->
+                let port = findAvailablePort ()
+                let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withSendTimeout 0 |> WebSocketConfig.withShutdownTimeout 500
+                let handler (ws: WebSocket) =
+                    fio {
+                        do! ws.SendText "ready"
+                        do! FIO.never ()
+                    }
+                let effect =
+                    fio {
+                        let! server = (WebSocketServer.serve $"http://127.0.0.1:{port}/" config handler).Fork()
+                        let! client = connectWhenListening $"ws://127.0.0.1:{port}/"
+                        let! _ready = client.ReceiveMessage()
+                        do! server.InterruptNow()
+                        return client
+                    }
+
+                let stopwatch = Stopwatch.StartNew()
+                let client = runWithTimeout runtime effect
+                stopwatch.Stop()
+
+                Expect.isLessThan stopwatch.ElapsedMilliseconds 5_000L "Shutdown must end within its timeout even when the peer never answers the close"
+
+                runWithTimeout runtime (client.Abort()))
+
             testAllRuntimes "serve - survives a handler that throws, closes its connection and still shuts down" (fun runtime ->
                 let port = findAvailablePort ()
                 let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withShutdownTimeout 500

@@ -70,3 +70,15 @@ module internal Utilities =
                 let prev = Interlocked.CompareExchange(&field, created, null)
                 if isNull prev then created
                 else prev
+
+    [<AutoOpen>]
+    module internal Timeouts =
+
+        let validateTimeout (paramName: string) (timeout: TimeSpan) =
+            if timeout <> Timeout.InfiniteTimeSpan
+               && (timeout < TimeSpan.Zero || timeout.TotalMilliseconds > float Int32.MaxValue) then
+                raise (
+                    ArgumentOutOfRangeException(
+                        paramName,
+                        timeout,
+                        "The timeout must be between zero and Int32.MaxValue milliseconds, or Timeout.InfiniteTimeSpan."))

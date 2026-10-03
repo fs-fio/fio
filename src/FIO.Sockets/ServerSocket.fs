@@ -5,6 +5,7 @@ open FIO.DSL
 open System
 open System.Net
 open System.Threading
+open System.Threading.Tasks
 
 [<RequireQualifiedAccess>]
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
@@ -82,30 +83,54 @@ module ServerSocket =
     let withServerSocket (config: ServerSocketConfig) (action: ServerSocket -> FIO<'A, SocketError>) : FIO<'A, SocketError> =
         FIO.acquireReleaseWith (acquire config) release action
 
+    // AcceptAsync throws at once on a closed server socket; as a faulted task that still fails as AcceptFailed.
+    let private acceptAsync (listener: Sockets.Socket) (cancellationToken: CancellationToken) =
+        try
+            listener.AcceptAsync(cancellationToken).AsTask()
+        with ex ->
+            Task.FromException<Sockets.Socket> ex
+
+    let private isClosed (serverSocket: ServerSocket) =
+        try
+            serverSocket.NetSocket.SafeHandle.IsClosed
+        with _ ->
+            true
+
     let private acceptWith (serverSocket: ServerSocket) (cancellationToken: CancellationToken) =
         fio {
             let! netSocket =
-                FIO.awaitTask (serverSocket.NetSocket.AcceptAsync(cancellationToken).AsTask()) AcceptFailed
+                FIO.awaitTask (acceptAsync serverSocket.NetSocket cancellationToken) AcceptFailed
 
-            let config =
-                match serverSocket.Config.AcceptedSocketConfig with
-                | Some cfg -> cfg
-                | None ->
-                    let linger = netSocket.LingerState
-                    {
-                        Host = ""
-                        Port = 0
-                        AddressFamily = netSocket.AddressFamily
-                        SocketType = netSocket.SocketType
-                        ProtocolType = netSocket.ProtocolType
-                        SendBufferSize = netSocket.SendBufferSize
-                        ReceiveBufferSize = netSocket.ReceiveBufferSize
-                        SendTimeout = netSocket.SendTimeout
-                        ReceiveTimeout = netSocket.ReceiveTimeout
-                        NoDelay = netSocket.NoDelay
-                        LingerEnabled = not (isNull linger) && linger.Enabled
-                        LingerTimeout = if isNull linger then 0 else linger.LingerTime
-                    }
+            let! config =
+                (FIO.attempt
+                    (fun () ->
+                        match serverSocket.Config.AcceptedSocketConfig with
+                        | Some cfg ->
+                            netSocket.NoDelay <- cfg.NoDelay
+                            netSocket.SendBufferSize <- cfg.SendBufferSize
+                            netSocket.ReceiveBufferSize <- cfg.ReceiveBufferSize
+                            cfg
+                        | None ->
+                            let linger = netSocket.LingerState
+                            {
+                                Host = ""
+                                Port = 0
+                                AddressFamily = netSocket.AddressFamily
+                                SocketType = netSocket.SocketType
+                                ProtocolType = netSocket.ProtocolType
+                                SendBufferSize = netSocket.SendBufferSize
+                                ReceiveBufferSize = netSocket.ReceiveBufferSize
+                                SendTimeout = netSocket.SendTimeout
+                                ReceiveTimeout = netSocket.ReceiveTimeout
+                                NoDelay = netSocket.NoDelay
+                                LingerEnabled = not (isNull linger) && linger.Enabled
+                                LingerTimeout = if isNull linger then 0 else linger.LingerTime
+                            })
+                    AcceptFailed)
+                    .TapError(fun _ ->
+                        FIO.succeedWith (fun () ->
+                            try netSocket.Dispose()
+                            with _ -> ()))
 
             return new Socket(netSocket, config)
         }
@@ -156,11 +181,14 @@ module ServerSocket =
                     let! cancellationToken = FIO.cancellationToken ()
                     do! acceptAndHandOff cancellationToken
                 }).CatchAll(fun error ->
-                    fio {
-                        do! logAndSuppress "accept loop iteration" error
-                        do! slots.Write()
-                        do! FIO.sleep (TimeSpan.FromMilliseconds 25.0)
-                    })
+                    if isClosed serverSocket then
+                        FIO.fail error
+                    else
+                        fio {
+                            do! logAndSuppress "accept loop iteration" error
+                            do! slots.Write()
+                            do! FIO.sleep (TimeSpan.FromMilliseconds 25.0)
+                        })
 
             return! step.Forever<unit>()
         }

@@ -268,9 +268,14 @@ module KestrelBridge =
         task {
             let writeStatusBody (status: int) (text: string) =
                 task {
-                    if not ctx.Response.HasStarted then
+                    if ctx.Response.HasStarted then
+                        ctx.Abort()
+                    else
+                        ctx.Response.Clear()
                         ctx.Response.StatusCode <- status
+                        ctx.Response.ContentType <- "text/plain; charset=utf-8"
                         let bytes = Encoding.UTF8.GetBytes text
+                        ctx.Response.ContentLength <- Nullable(int64 bytes.Length)
                         do! ctx.Response.Body.WriteAsync(bytes, 0, bytes.Length)
                 }
 

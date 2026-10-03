@@ -82,6 +82,13 @@ module Server =
             })
             id
 
+    let internal runtimeOf (server: FIOServer) : DefaultRuntime =
+        server.Runtime
+
+    let private releaseOwnedRuntime (server: FIOServer) : FIO<unit, exn> =
+        (FIO.attempt (fun () -> if server.OwnsRuntime then (server.Runtime :> IDisposable).Dispose()) id)
+            .CatchAll(fun _ -> FIO.unit ())
+
     /// Starts the server listening, returning the running server.
     let start (server: FIOServer) : FIO<FIOServer, exn> =
         fio {
@@ -135,17 +142,18 @@ module Server =
         fio {
             match server.Host.Value with
             | Some host ->
-                do! FIO.awaitUnitTask (host.StopAsync()) id
-                do!
-                    FIO.attempt (fun () ->
+                let release =
+                    (FIO.attempt (fun () ->
                         host.Dispose()
-                        server.Host.Value <- None
-                        if server.OwnsRuntime then
-                            (server.Runtime :> IDisposable).Dispose()
-                        printfn "FIO HTTP Server stopped")
-                        id
+                        server.Host.Value <- None) id)
+                        .CatchAll(fun _ -> FIO.unit ())
+                        .FlatMap(fun () -> releaseOwnedRuntime server)
+
+                do! (FIO.awaitUnitTask (host.StopAsync()) id).Ensuring release
+                do! FIO.attempt (fun () -> printfn "FIO HTTP Server stopped") id
                 return server
             | None ->
+                do! releaseOwnedRuntime server
                 printfn "FIO HTTP Server not running"
                 return server
         }
@@ -175,8 +183,15 @@ module Server =
     let startServer (config: ServerConfig) (routes: Routes<exn>) : FIO<FIOServer, exn> =
         fio {
             let! server = create config routes
-            let! startedServer = start server
-            return startedServer
+            let started = ref false
+
+            // The caller never sees a server whose start failed, so its runtime is released here or not at all.
+            return!
+                (start server)
+                    .Map(fun startedServer ->
+                        started.Value <- true
+                        startedServer)
+                    .Ensuring(FIO.suspend (fun () -> if started.Value then FIO.unit () else releaseOwnedRuntime server))
         }
 
     /// Creates, starts, and runs a server using the given runtime until shutdown, then stops it.

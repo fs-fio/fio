@@ -31,6 +31,21 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
                 with _ ->
                     ()
 
+    // Set when a receive gives up part-way through a message: the bytes it consumed are gone, so any later receive would
+    // start mid-message and misread the stream.
+    [<VolatileField>]
+    let mutable desynced : string = null
+
+    let poison (reason: string) =
+        if isNull desynced then
+            desynced <- reason
+
+    let ensureInSync : FIO<unit, SocketError> =
+        FIO.suspend <| fun () ->
+            match desynced with
+            | null -> FIO.unit ()
+            | reason -> FIO.fail (ConnectionClosed $"Receive side out of sync after {reason}; close the connection")
+
     let logAndSuppress (context: string) (error: SocketError) =
         fio {
             let str = error.ToString()
@@ -138,10 +153,14 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
             if maxBytes <= 0 then
                 return! FIO.fail (InvalidState("positive buffer size", $"{maxBytes}"))
 
+            do! ensureInSync
+
             if not netSocket.Connected then
                 return! FIO.fail (ConnectionClosed "Socket is not connected")
 
             let! pooledBuffer = attempt (fun () -> ArrayPool<byte>.Shared.Rent maxBytes)
+            let received = ref 0
+            let delivered = ref false
 
             let readAndCopy =
                 fio {
@@ -151,15 +170,23 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
                             (fun ct -> stream.ReadAsync(pooledBuffer, 0, maxBytes, ct))
                             SocketError.fromException
 
+                    received.Value <- bytesRead
+
                     if bytesRead = 0 then
                         return! FIO.fail (ConnectionClosed "Connection closed by peer")
 
                     let result = Array.zeroCreate<byte> bytesRead
                     Buffer.BlockCopy(pooledBuffer, 0, result, 0, bytesRead)
+                    delivered.Value <- true
                     return result, bytesRead
                 }
 
-            return! readAndCopy.Ensuring(attempt (fun () -> ArrayPool<byte>.Shared.Return(pooledBuffer, true)))
+            return!
+                readAndCopy
+                    .Ensuring(attempt (fun () -> ArrayPool<byte>.Shared.Return(pooledBuffer, true)))
+                    .Ensuring(FIO.succeedWith (fun () ->
+                        if received.Value > 0 && not delivered.Value then
+                            poison "an interrupted read"))
         }
 
     /// Receives exactly the given number of bytes from this socket, blocking until they arrive.
@@ -168,34 +195,42 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
             if numBytes <= 0 then
                 return! FIO.fail (InvalidState("positive byte count", $"{numBytes}"))
 
+            do! ensureInSync
+
             if not netSocket.Connected then
                 return! FIO.fail (ConnectionClosed "Socket is not connected")
 
             let! pooledBuffer = attempt (fun () -> ArrayPool<byte>.Shared.Rent numBytes)
+            let totalRead = ref 0
+            let delivered = ref false
 
             let readLoop =
                 fio {
-                    let mutable totalRead = 0
-
-                    while totalRead < numBytes do
+                    while totalRead.Value < numBytes do
                         let! bytesRead =
                             runWithTimeout
                                 config.ReceiveTimeout
-                                (fun ct -> stream.ReadAsync(pooledBuffer, totalRead, numBytes - totalRead, ct))
+                                (fun ct -> stream.ReadAsync(pooledBuffer, totalRead.Value, numBytes - totalRead.Value, ct))
                                 SocketError.fromException
 
                         if bytesRead = 0 then
                             return!
-                                FIO.fail (ConnectionClosed $"Connection closed after {totalRead} of {numBytes} bytes")
+                                FIO.fail (ConnectionClosed $"Connection closed after {totalRead.Value} of {numBytes} bytes")
 
-                        totalRead <- totalRead + bytesRead
+                        totalRead.Value <- totalRead.Value + bytesRead
 
                     let result = Array.zeroCreate<byte> numBytes
                     Buffer.BlockCopy(pooledBuffer, 0, result, 0, numBytes)
+                    delivered.Value <- true
                     return result
                 }
 
-            return! readLoop.Ensuring(attempt (fun () -> ArrayPool<byte>.Shared.Return(pooledBuffer, true)))
+            return!
+                readLoop
+                    .Ensuring(attempt (fun () -> ArrayPool<byte>.Shared.Return(pooledBuffer, true)))
+                    .Ensuring(FIO.succeedWith (fun () ->
+                        if totalRead.Value > 0 && not delivered.Value then
+                            poison $"a read cut off after {totalRead.Value} of {numBytes} bytes"))
         }
 
     /// Sends a value over this socket, encoded with the given codec.
@@ -230,19 +265,31 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
             if maxBytes <= 0 then
                 return! FIO.fail (InvalidState("positive buffer size", $"{maxBytes}"))
 
+            do! ensureInSync
+
             let accumulator = Collections.Generic.List<byte>()
-            let mutable complete = false
+            let complete = ref false
 
-            while not complete do
-                if accumulator.Count >= maxBytes then
-                    return! FIO.fail (BufferOverflow(maxBytes + 1, maxBytes))
+            let readLine =
+                fio {
+                    while not complete.Value do
+                        if accumulator.Count >= maxBytes then
+                            return! FIO.fail (BufferOverflow(maxBytes + 1, maxBytes))
 
-                let! chunk = this.ReceiveExactly 1
-                let received = chunk[0]
-                accumulator.Add received
+                        let! chunk = this.ReceiveExactly 1
+                        let received = chunk[0]
+                        accumulator.Add received
 
-                if received = byte '\n' then
-                    complete <- true
+                        if received = byte '\n' then
+                            complete.Value <- true
+                }
+
+            do!
+                readLine.Ensuring(FIO.succeedWith (fun () ->
+                    if accumulator.Count > 0 && not complete.Value then
+                        poison (
+                            if accumulator.Count >= maxBytes then $"a line longer than {maxBytes} bytes"
+                            else "a line cut off part-way")))
 
             let! text = Codec.string.Decode(accumulator.ToArray())
             return text.TrimEnd('\n', '\r')
@@ -260,9 +307,12 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     member this.SendJsonLine<'A> (value: 'A) : FIO<unit, SocketError> =
         this.Send(Codec.jsonLine None, value)
 
-    /// Receives a newline-terminated JSON value from this socket.
+    /// Receives a newline-terminated JSON value from this socket; maxBytes bounds the line, newline included.
     member this.ReceiveJsonLine<'A> (maxBytes: int) : FIO<'A, SocketError> =
-        this.Receive<'A>(Codec.jsonLine None, maxBytes)
+        fio {
+            let! line = this.ReceiveLine maxBytes
+            return! (Codec.jsonLine<'A> None).Decode(Text.Encoding.UTF8.GetBytes line)
+        }
 
     /// Sends a value as a length-prefixed frame, encoded with the given codec.
     member this.SendFramed<'A> (codec: SocketCodec<'A>, value: 'A) : FIO<unit, SocketError> =
@@ -274,20 +324,43 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     /// Receives a length-prefixed frame, decoded with the given codec, rejecting frames larger than the maximum size.
     member this.ReceiveFramed<'A> (codec: SocketCodec<'A>, maxFrameSize: int) : FIO<'A, SocketError> =
         fio {
-            let! header = this.ReceiveExactly 4
-            let length = IPAddress.NetworkToHostOrder(BitConverter.ToInt32(header, 0))
+            do! ensureInSync
 
-            if length < 0 then
-                return! FIO.fail (CodecError($"Negative frame length: {length}", ArgumentOutOfRangeException "length"))
+            let length = ref None
+            let complete = ref false
 
-            if length > maxFrameSize then
-                return! FIO.fail (BufferOverflow(length, maxFrameSize))
+            let readFrame =
+                fio {
+                    let! header = this.ReceiveExactly 4
+                    let frameLength = IPAddress.NetworkToHostOrder(BitConverter.ToInt32(header, 0))
+                    length.Value <- Some frameLength
 
-            if length = 0 then
-                return! codec.Decode [||]
-            else
-                let! payload = this.ReceiveExactly length
-                return! codec.Decode payload
+                    if frameLength < 0 then
+                        return!
+                            FIO.fail (CodecError($"Negative frame length: {frameLength}", ArgumentOutOfRangeException "length"))
+
+                    if frameLength > maxFrameSize then
+                        return! FIO.fail (BufferOverflow(frameLength, maxFrameSize))
+
+                    let! payload =
+                        if frameLength = 0 then FIO.succeed [||]
+                        else this.ReceiveExactly frameLength
+
+                    complete.Value <- true
+                    return payload
+                }
+
+            let! payload =
+                readFrame.Ensuring(FIO.succeedWith (fun () ->
+                    match length.Value with
+                    | Some frameLength when not complete.Value ->
+                        poison (
+                            if frameLength < 0 then "a negative frame length"
+                            elif frameLength > maxFrameSize then $"a {frameLength}-byte frame over the {maxFrameSize}-byte limit"
+                            else "a frame cut off part-way")
+                    | _ -> ()))
+
+            return! codec.Decode payload
         }
 
     /// Receives a length-prefixed frame, decoded with the given codec, using a default 16 MB frame limit.
@@ -332,6 +405,9 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     /// The configuration this socket was created with.
     member _.GetConfig () : SocketConfig =
         config
+
+    member internal _.NetSocket : Sockets.Socket =
+        netSocket
 
     /// Releases the resources held by this socket.
     member _.Dispose () : FIO<unit, SocketError> =

@@ -260,13 +260,7 @@ type FIORuntime internal () =
     /// Interrupts every fiber still running, waits up to the given time for them to unwind, then stops the workers; a
     /// later call waits for the first, and running an effect afterwards throws. Do not call it from one of its fibers.
     member this.Shutdown (timeout: TimeSpan) : unit =
-        if timeout <> Timeout.InfiniteTimeSpan
-           && (timeout < TimeSpan.Zero || timeout.TotalMilliseconds > float Int32.MaxValue) then
-            raise (
-                ArgumentOutOfRangeException(
-                    nameof timeout,
-                    timeout,
-                    "The timeout must be between zero and Int32.MaxValue milliseconds, or Timeout.InfiniteTimeSpan."))
+        validateTimeout (nameof timeout) timeout
 
         if tryClaim &disposed then
             // A fiber whose handle was disposed, or whose cancellation callback throws, must not stop the rest.

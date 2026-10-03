@@ -125,8 +125,9 @@ Interrupting `serve` or `acceptLoop` shuts the server down gracefully, as the se
 1. Every open connection is sent a going-away close (1001) without interrupting its handler, so a
    handler blocked in a receive sees `ConnectionClosed` and ends normally.
 2. Handlers get `ShutdownTimeout` (10 s by default; set it with `WebSocketConfig.withShutdownTimeout`,
-   and 0 or less waits indefinitely) to finish. Any still running are then interrupted, and their finalizers
-   run.
+   and 0 or less waits indefinitely) to finish, counted from the start of the shutdown. Any still running
+   are then interrupted and their connections aborted, so a peer that never reads or never answers the
+   close cannot hold the shutdown open, even with a `SendTimeout` of 0. Their finalizers still run.
 3. The listener is stopped. `serve` also disposes it.
 
 Requests that arrive during the shutdown are refused with 503. Handlers are the loop's children, forked

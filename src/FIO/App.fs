@@ -6,6 +6,7 @@ open FIO.Runtime.Default
 
 open System
 open System.Threading
+open System.Threading.Tasks
 open System.Runtime.InteropServices
 
 /// The outcome of running a FIOApp.
@@ -84,7 +85,9 @@ type FIOApp<'A, 'E>() as this =
     abstract member onOutcome: AppResult<'A, 'E> -> FIO<unit, 'E>
     default _.onOutcome _ : FIO<unit, 'E> = FIO.unit ()
 
-    /// How long to wait for the outcome effect before continuing to shutdown. Defaults to 10 seconds.
+    /// How long to wait for the outcome effect before continuing to shutdown: 0 to Int32.MaxValue milliseconds, or
+    /// Timeout.InfiniteTimeSpan to wait indefinitely; any other value makes Run throw before the effect starts.
+    /// Defaults to 10 seconds.
     abstract member onOutcomeTimeout: TimeSpan
     default _.onOutcomeTimeout : TimeSpan = TimeSpan.FromSeconds 10.0
 
@@ -93,7 +96,9 @@ type FIOApp<'A, 'E>() as this =
     abstract member onShutdown: unit -> FIO<unit, 'E>
     default _.onShutdown () : FIO<unit, 'E> = FIO.unit ()
 
-    /// How long to wait for the shutdown effect before forcing exit. Defaults to 10 seconds.
+    /// How long to wait for the shutdown effect before forcing exit: 0 to Int32.MaxValue milliseconds, or
+    /// Timeout.InfiniteTimeSpan to wait indefinitely; any other value makes Run throw before the effect starts.
+    /// Defaults to 10 seconds.
     abstract member onShutdownTimeout: TimeSpan
     default _.onShutdownTimeout : TimeSpan = TimeSpan.FromSeconds 10.0
 
@@ -146,7 +151,10 @@ type FIOApp<'A, 'E>() as this =
         this.RunHookAsync runtime "shutdown" this.onShutdownTimeout (fun () -> this.onShutdown ())
 
     /// Runs the application asynchronously and returns its process exit code.
-    member this.RunAsync () : System.Threading.Tasks.Task<int> =
+    member this.RunAsync () : Task<int> =
+        validateTimeout (nameof this.onOutcomeTimeout) this.onOutcomeTimeout
+        validateTimeout (nameof this.onShutdownTimeout) this.onShutdownTimeout
+
         if not <| tryClaim &runStarted then
             invalidOp "FIOApp can only be run once per instance; create a new instance to run again."
 
@@ -158,45 +166,44 @@ type FIOApp<'A, 'E>() as this =
 
             try
                 try
+                    let requestShutdownFrom (source: string) =
+                        try
+                            requestShutdown source
+                        with ex ->
+                            eprintfn "FIOApp failed to interrupt from %s handler: %s" source ex.Message
+                            true
+
+                    signalRegistrations <-
+                        [ PosixSignal.SIGTERM ]
+                        |> List.choose (fun signal ->
+                            try
+                                Some(
+                                    PosixSignalRegistration.Create(
+                                        signal,
+                                        fun context ->
+                                            if requestShutdownFrom (string context.Signal) then
+                                                context.Cancel <- true))
+                            with ex ->
+                                eprintfn "FIOApp failed to register %O handler: %s" signal ex.Message
+                                None)
+
+                    let handler =
+                        ConsoleCancelEventHandler(fun _ args ->
+                            let source = string args.SpecialKey
+
+                            if requestShutdownFrom source then
+                                args.Cancel <- true)
+
+                    try
+                        Console.CancelKeyPress.AddHandler handler
+                        cancelKeyHandler <- Some handler
+                    with ex ->
+                        eprintfn "FIOApp failed to register CancelKeyPress handler: %s" ex.Message
+
                     let runtime = lazyRuntime.Value
                     let fiber = runtime.Run (scoped this.effect)
 
                     try
-                        let requestShutdownFrom (source: string) =
-                            try
-                                requestShutdown source
-                            with ex ->
-                                eprintfn "FIOApp failed to interrupt from %s handler: %s" source ex.Message
-                                true
-
-                        signalRegistrations <-
-                            [ PosixSignal.SIGTERM ]
-                            |> List.choose (fun signal ->
-                                try
-                                    Some(
-                                        PosixSignalRegistration.Create(
-                                            signal,
-                                            fun context ->
-                                                // Only set, never cleared: another handler may have cancelled the signal.
-                                                if requestShutdownFrom (string context.Signal) then
-                                                    context.Cancel <- true))
-                                with ex ->
-                                    eprintfn "FIOApp failed to register %O handler: %s" signal ex.Message
-                                    None)
-
-                        let handler =
-                            ConsoleCancelEventHandler(fun _ args ->
-                                let source = string args.SpecialKey
-
-                                if requestShutdownFrom source then
-                                    args.Cancel <- true)
-
-                        try
-                            Console.CancelKeyPress.AddHandler handler
-                            cancelKeyHandler <- Some handler
-                        with ex ->
-                            eprintfn "FIOApp failed to register CancelKeyPress handler: %s" ex.Message
-
                         let! outcome =
                             task {
                                 match! fiber.Task() with

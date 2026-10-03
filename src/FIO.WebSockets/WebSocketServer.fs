@@ -259,27 +259,37 @@ module WebSocketServer =
                 fio {
                     let! refusal = (refuse ()).Fork()
                     let open' = Seq.toArray connections.Values
-                    do! FIO.forEachParDiscard open' closeGoingAway
+                    let limit = if config.ShutdownTimeout > 0 then config.ShutdownTimeout else Timeout.Infinite
+                    let deadline = Task.Delay limit
 
-                    // The hand-off is uninterruptible, so a connection still without a handler fiber will never be
-                    // marked finished.
+                    let abort (connection: Connection) =
+                        connection.Socket.Abort().CatchAll(logAndSuppress "aborting a connection at the shutdown deadline")
+
+                    let! goingAway = (FIO.forEachParDiscard open' closeGoingAway).Fork()
+                    let! _ = FIO.awaitTask (Task.WhenAny(goingAway.Task() :> Task, deadline)) WsError.fromException
+
+                    if goingAway.Task().IsCompleted then
+                        do! goingAway.Await().Unit()
+                    else
+                        do! FIO.forEachDiscard open' abort
+                        do! goingAway.InterruptNow()
+
                     let finished =
                         open'
                         |> Array.choose (fun connection -> connection.Handler |> Option.map (fun _ -> connection.Finished.Task))
-                    let limit = if config.ShutdownTimeout > 0 then config.ShutdownTimeout else Timeout.Infinite
-                    let! _ = FIO.awaitTask (Task.WhenAny(Task.WhenAll finished, Task.Delay limit)) WsError.fromException
+                    let! _ = FIO.awaitTask (Task.WhenAny(Task.WhenAll finished, deadline)) WsError.fromException
 
-                    do! FIO.forEachDiscard open' (fun connection ->
-                            match connection.Handler with
-                            | Some fiber when not connection.Finished.Task.IsCompleted -> fiber.InterruptNow()
-                            | _ -> FIO.unit ())
+                    let unfinished =
+                        open'
+                        |> Array.filter (fun connection -> connection.Handler.IsSome && not connection.Finished.Task.IsCompleted)
 
+                    do! FIO.forEachDiscard unfinished (fun connection -> connection.Handler.Value.InterruptNow())
+                    do! FIO.forEachDiscard unfinished abort
                     do! FIO.awaitUnitTask (Task.WhenAll finished) WsError.fromException
                     do! close listener
                     do! refusal.Await().Unit()
                 }
 
-            // As a finalizer the shutdown is uninterruptible, and what it forks is protected like the handlers.
             step.Forever<unit>().Ensuring(shutdown.CatchAll(logAndSuppress "shutdown"))
 
     /// Starts a listener and accepts connections until interrupted, then shuts down as acceptLoop does and closes it.

@@ -56,6 +56,18 @@ type private StartedResponseFeature() =
 
     override _.HasStarted = true
 
+type private RecordingLifetimeFeature() =
+    let mutable requestAborted = CancellationToken.None
+
+    member val Aborted = false with get, set
+
+    interface IHttpRequestLifetimeFeature with
+        member _.RequestAborted
+            with get () = requestAborted
+            and set value = requestAborted <- value
+
+        member this.Abort () = this.Aborted <- true
+
 let private requestContext (method: string) (path: string) (contentLength: int64 option) (body: byte array) =
     let ctx = DefaultHttpContext()
     ctx.Request.Method <- method
@@ -209,17 +221,37 @@ let kestrelBridgeTests =
             testList
                 "handleRequest"
                 [
-                    testCase "handleRequest - does not rewrite a response that has already started"
+                    testCase "handleRequest - aborts a response that fails after it has started"
                     <| fun () ->
                         use runtime = new DefaultRuntime(testConfig)
                         let routes = get "/fail" (fun _ -> FIO.fail (exn "The handler failed."))
                         let ctx = requestContext "GET" "/fail" None [||]
+                        let lifetime = RecordingLifetimeFeature()
                         ctx.Features.Set<IHttpResponseFeature>(StartedResponseFeature())
+                        ctx.Features.Set<IHttpRequestLifetimeFeature> lifetime
 
                         handle runtime routes ctx
 
+                        Expect.isTrue lifetime.Aborted "A response that fails after it started must be aborted, not left to end cleanly"
                         Expect.equal ctx.Response.StatusCode 200 "A started response's status must be left alone"
                         Expect.equal (responseText ctx) "" "Nothing may be written into a started response"
+
+                    testCase "handleRequest - an error body replaces the failed response's headers"
+                    <| fun () ->
+                        use runtime = new DefaultRuntime(testConfig)
+                        let response =
+                            Response.okStream (new FailingStream [||]) (Some 1000L) "application/pdf"
+                            |> HttpResponse.withHeader "ETag" "\"v1\""
+                        let routes = get "/file" (fun _ -> FIO.succeed response)
+                        let ctx = requestContext "GET" "/file" None [||]
+
+                        handle runtime routes ctx
+
+                        Expect.equal ctx.Response.StatusCode 500 "A body that fails before its first byte must be answered with 500"
+                        Expect.isFalse (ctx.Response.Headers.ContainsKey "ETag") "The error body must not keep the failed response's headers"
+                        Expect.equal ctx.Response.ContentType "text/plain; charset=utf-8" "The error body must not keep the failed response's content type"
+                        Expect.equal ctx.Response.ContentLength (Nullable 21L) "The error body must not keep the failed response's length"
+                        Expect.equal (responseText ctx) "Internal Server Error" "Only the error body may be written"
 
                     testCase "handleRequest - answers 503 when the handler is interrupted"
                     <| fun () ->
@@ -237,7 +269,7 @@ let kestrelBridgeTests =
                         use runtime = new DefaultRuntime(testConfig)
                         let routes = post "/upload" (fun _ -> FIO.succeed Response.ok)
                         let ctx = requestContext "POST" "/upload" None [||]
-                        ctx.Request.Body <- new RejectingStream(413)
+                        ctx.Request.Body <- new RejectingStream 413
 
                         handle runtime routes ctx
 

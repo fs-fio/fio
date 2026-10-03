@@ -31,9 +31,11 @@ module SocketExtensions =
                 do! this.Send(codec, value)
             }
 
-        /// Receives a newline-terminated JSON value, optionally using the given serializer options.
+        /// Receives a newline-terminated JSON value, optionally using the given serializer options; maxBytes bounds the
+        /// line, newline included.
         member this.ReceiveJsonLine<'A> (maxBytes: int, ?options) : FIO<'A, SocketError> =
             fio {
                 let codec = Codec.jsonLine<'A> options
-                return! this.Receive(codec, maxBytes)
+                let! line = this.ReceiveLine maxBytes
+                return! codec.Decode(System.Text.Encoding.UTF8.GetBytes line)
             }

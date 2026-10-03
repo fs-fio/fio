@@ -447,6 +447,26 @@ let appTests =
 
                         Expect.equal exitCode 0 "A timed-out shutdown hook should keep the main outcome's exit code"
                         Expect.isTrue outerFinalizerRan.Value "Every finalizer of the interrupted hook should run before Run returns"
+
+                    testCase "onShutdownTimeout - TimeSpan.MaxValue is rejected before the effect runs"
+                    <| fun () ->
+                        let log = ResizeArray()
+                        let effect = FIO.attempt (fun () -> log.Add "effectRan"; 0) (fun (ex: exn) -> ex.Message)
+                        let app = TestApp(effect, log, shutdownTimeout = TimeSpan.MaxValue)
+
+                        Expect.throwsT<ArgumentOutOfRangeException> (fun () -> app.Run() |> ignore) "An out-of-range shutdown timeout must be rejected when the app starts"
+                        Expect.isEmpty log "Nothing should run when the configuration is rejected"
+
+                    testCase "onShutdownTimeout - Timeout.InfiniteTimeSpan waits for the hook"
+                    <| fun () ->
+                        let log = ResizeArray()
+                        let hook = FIO.sleep (TimeSpan.FromMilliseconds 200.0)
+                        let app = TestApp(FIO.succeed 42, log, onShutdown = hook, shutdownTimeout = Timeout.InfiniteTimeSpan)
+
+                        let exitCode = app.Run()
+
+                        Expect.equal exitCode 0 "An infinite shutdown timeout should keep the main outcome's exit code"
+                        Expect.contains (Seq.toList log) "onShutdownRan" "The hook should run to completion"
                 ]
 
             testList
@@ -579,6 +599,15 @@ let appTests =
                         let exitCode = silenceErr (fun () -> app.Run())
 
                         Expect.equal exitCode 0 "Timed-out outcome hook should still produce the main outcome's exit code"
+
+                    testCase "onOutcomeTimeout - a negative value is rejected before the effect runs"
+                    <| fun () ->
+                        let log = ResizeArray()
+                        let effect = FIO.attempt (fun () -> log.Add "effectRan"; 0) (fun (ex: exn) -> ex.Message)
+                        let app = TestApp(effect, log, outcomeTimeout = TimeSpan.FromSeconds(-1.0))
+
+                        Expect.throwsT<ArgumentOutOfRangeException> (fun () -> app.Run() |> ignore) "A negative outcome timeout must be rejected when the app starts"
+                        Expect.isEmpty log "Nothing should run when the configuration is rejected"
                 ]
 
             testList
@@ -724,6 +753,17 @@ let appTests =
 
                         Expect.isSome (child.WaitForExit(TimeSpan.FromSeconds 10.0)) "A second SIGTERM must terminate the process"
                         Expect.isFalse (child.Output |> List.contains "shutdown") "The hooks must not run once the process is terminated")
+
+                    testUnix "Run - a SIGTERM while the runtime is being created interrupts the effect and exits with 130" (fun () ->
+                        use child = new ChildProcess("app-slow-runtime")
+
+                        Expect.isTrue (child.WaitForLine "creating-runtime" (TimeSpan.FromSeconds 60.0)) $"The child app should start creating its runtime; output: {child.Output}"
+
+                        child.Signal "TERM"
+                        let exitCode = child.WaitForExit(TimeSpan.FromSeconds 20.0)
+
+                        Expect.equal exitCode (Some 130) $"A SIGTERM during startup must end the app as interrupted; output: {child.Output}"
+                        Expect.contains child.Output "outcome:Interrupted" "The hooks must see the interruption")
                 ]
 
             testList

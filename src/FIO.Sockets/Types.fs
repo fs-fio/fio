@@ -128,7 +128,7 @@ module SocketConfig =
                     SendTimeout = 0
                     ReceiveTimeout = 0
                     NoDelay = true
-                    LingerEnabled = true
+                    LingerEnabled = false
                     LingerTimeout = 0
                 }
         }
@@ -152,6 +152,11 @@ module SocketConfig =
     /// Sets whether Nagle's algorithm is disabled on a configuration.
     let withNoDelay (noDelay: bool) (config: SocketConfig) : SocketConfig =
         { config with NoDelay = noDelay }
+
+    /// Sets how closing treats unsent data: disabled closes gracefully, enabled waits up to timeoutSeconds for it, and
+    /// enabled with 0 resets the connection at once.
+    let withLinger (enabled: bool) (timeoutSeconds: int) (config: SocketConfig) : SocketConfig =
+        { config with LingerEnabled = enabled; LingerTimeout = timeoutSeconds }
 
     /// Sets the address family on a configuration.
     let withAddressFamily (family: Sockets.AddressFamily) (config: SocketConfig) : SocketConfig =

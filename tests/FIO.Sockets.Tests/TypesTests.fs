@@ -71,7 +71,7 @@ let typesTests =
                         Expect.equal config.SendBufferSize 8192 "Default send buffer"
                         Expect.equal config.ReceiveBufferSize 8192 "Default receive buffer"
                         Expect.isTrue config.NoDelay "Default NoDelay should be true"
-                        Expect.isTrue config.LingerEnabled "Default LingerEnabled should be true"
+                        Expect.isFalse config.LingerEnabled "Default LingerEnabled should be false, so closing is graceful"
                         Expect.equal config.LingerTimeout 0 "Default LingerTimeout should be 0"
 
                     testAllRuntimes "create - fails for an empty host" (fun runtime ->
@@ -125,6 +125,7 @@ let typesTests =
                             |> fun c -> SocketConfig.withSendTimeout 5000 c
                             |> fun c -> SocketConfig.withReceiveTimeout 5000 c
                             |> fun c -> SocketConfig.withNoDelay false c
+                            |> fun c -> SocketConfig.withLinger false 7 c
                             |> fun c -> SocketConfig.withAddressFamily Net.Sockets.AddressFamily.InterNetworkV6 c
 
                         Expect.equal updated.SendBufferSize 16384 "SendBufferSize"
@@ -132,6 +133,8 @@ let typesTests =
                         Expect.equal updated.SendTimeout 5000 "SendTimeout"
                         Expect.equal updated.ReceiveTimeout 5000 "ReceiveTimeout"
                         Expect.isFalse updated.NoDelay "NoDelay"
+                        Expect.isFalse updated.LingerEnabled "LingerEnabled"
+                        Expect.equal updated.LingerTimeout 7 "LingerTimeout"
                         Expect.equal updated.AddressFamily Net.Sockets.AddressFamily.InterNetworkV6 "AddressFamily"
                         Expect.equal updated.Host "localhost" "Host should be unchanged"
                 ]

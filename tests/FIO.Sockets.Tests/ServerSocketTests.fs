@@ -141,6 +141,21 @@ let serverSocketTests =
 
                         Expect.equal result "from server" "Should receive server message")
 
+                    testAllRuntimes "accept - fails with AcceptFailed on a closed server socket" (fun runtime ->
+                        let effect =
+                            fio {
+                                let! config = ServerSocketConfig.create "127.0.0.1" 0
+                                let! server = ServerSocket.bind config
+                                do! ServerSocket.close server
+                                return! (ServerSocket.accept server).Map(fun _ -> None).CatchAll(fun error -> FIO.succeed (Some error))
+                            }
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        match result with
+                        | Succeeded(Some(AcceptFailed _)) -> ()
+                        | other -> failtest $"Accepting on a closed server socket must fail with AcceptFailed, got %A{other}")
+
                     testAllRuntimes "accept - applies the AcceptedSocketConfig's receive timeout to the accepted socket" (fun runtime ->
                         let effect =
                             fio {
@@ -170,6 +185,36 @@ let serverSocketTests =
                         | Some(TimeoutError _), config ->
                             Expect.equal config.ReceiveTimeout 150 "The accepted socket should carry the configured timeout"
                         | other, _ -> failtest $"An idle accepted socket must time out, got {other}")
+
+                    testAllRuntimes "accept - applies the AcceptedSocketConfig's NoDelay and buffer sizes to the accepted socket" (fun runtime ->
+                        let effect =
+                            fio {
+                                let! acceptedBase = SocketConfig.create "127.0.0.1" 1
+                                let accepted =
+                                    acceptedBase
+                                    |> SocketConfig.withNoDelay true
+                                    |> SocketConfig.withSendBufferSize 24576
+                                    |> SocketConfig.withReceiveBufferSize 24576
+                                let! baseConfig = ServerSocketConfig.create "127.0.0.1" 0
+                                let! server = ServerSocket.bind (ServerSocketConfig.withAcceptedConfig accepted baseConfig)
+                                let! ep = ServerSocket.getLocalEndPoint server
+                                let port = (ep :?> IPEndPoint).Port
+                                let! acceptFiber = (ServerSocket.accept server).Fork()
+                                let! client = SocketClient.connectWith "127.0.0.1" port
+                                let! serverSide = acceptFiber.Join()
+                                let options =
+                                    serverSide.NetSocket.NoDelay, serverSide.NetSocket.SendBufferSize, serverSide.NetSocket.ReceiveBufferSize
+                                do! serverSide.Close()
+                                do! client.Close()
+                                do! ServerSocket.close server
+                                return options
+                            }
+
+                        let noDelay, sendBuffer, receiveBuffer = runWithTimeout runtime effect
+
+                        Expect.isTrue noDelay "The accepted socket should have Nagle's algorithm disabled"
+                        Expect.contains [ 24576; 49152 ] sendBuffer "The accepted socket should get the configured send buffer (Linux reports it doubled)"
+                        Expect.contains [ 24576; 49152 ] receiveBuffer "The accepted socket should get the configured receive buffer (Linux reports it doubled)")
                 ]
 
             testList
@@ -442,44 +487,38 @@ let serverSocketTests =
                         Expect.isError firstOutcome "The connection whose handler threw should be closed, not left open"
                         Expect.equal reply (Some "still alive") "A handler that throws must not stop the accept loop")
 
-                    testAllRuntimes "acceptLoop - logs an accept failure and ends promptly when its server socket is closed under it" (fun runtime ->
+                    testAllRuntimes "acceptLoop - stops with AcceptFailed when its server socket is closed under it" (fun runtime ->
                         let served = Channel<unit>()
                         let handler (socket: Socket) =
                             fio {
                                 do! socket.Close()
                                 do! (served.Write ()).Unit()
                             }
-                        let captured = new System.IO.StringWriter()
-                        let original = System.Console.Error
-                        System.Console.SetError captured
-                        try
-                            let effect =
-                                fio {
-                                    let! config = ServerSocketConfig.create "127.0.0.1" 0
-                                    let! server = ServerSocket.bind config
-                                    let! ep = ServerSocket.getLocalEndPoint server
-                                    let port = (ep :?> IPEndPoint).Port
-                                    let! loopFiber = (ServerSocket.acceptLoop handler server).Fork()
-
-                                    let! client = connectWhenListening "127.0.0.1" port
-                                    do! (served.Read ()).Unit()
-                                    do! client.Close()
-                                    do! FIO.sleep (System.TimeSpan.FromMilliseconds 150.0)
-
-                                    do! ServerSocket.close server
-                                    let! ended, _ = waitForTerminal loopFiber 2_000
+                        let effect =
+                            fio {
+                                let! config = ServerSocketConfig.create "127.0.0.1" 0
+                                let! server = ServerSocket.bind config
+                                let! ep = ServerSocket.getLocalEndPoint server
+                                let port = (ep :?> IPEndPoint).Port
+                                let! loopFiber = (ServerSocket.acceptLoop handler server).Fork()
+                                let! client = connectWhenListening "127.0.0.1" port
+                                do! (served.Read ()).Unit()
+                                do! client.Close()
+                                do! FIO.sleep (System.TimeSpan.FromMilliseconds 150.0)
+                                do! ServerSocket.close server
+                                let! ended, _ = waitForTerminal loopFiber 2_000
+                                if ended then
+                                    let! outcome = loopFiber.Await()
+                                    return Some outcome
+                                else
                                     do! loopFiber.InterruptNow()
-                                    return ended
-                                }
+                                    return None
+                            }
 
-                            let ended = runWithTimeout runtime effect
+                        let outcome = runWithTimeout runtime effect
 
-                            Expect.isTrue ended "The loop must end promptly once its server socket is closed"
-                            Expect.stringContains
-                                (captured.ToString())
-                                "accept loop iteration"
-                                "The failed accept must be logged"
-                        finally
-                            System.Console.SetError original)
+                        match outcome with
+                        | Some(Failed(AcceptFailed _)) -> ()
+                        | other -> failtest $"The loop must stop promptly with AcceptFailed once its server socket is closed, got %A{other}")
                 ]
         ]

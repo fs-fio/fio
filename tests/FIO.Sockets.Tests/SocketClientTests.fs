@@ -5,6 +5,7 @@ open FIO.Sockets.Tests.Utilities
 open FIO.DSL
 open FIO.Sockets
 
+open System
 open System.Text
 
 open Expecto
@@ -164,5 +165,36 @@ let socketClientTests =
                                     do! SocketClient.sendWith Codec.string "hello sendWith" config
                                 })
                             runtime)
+
+                    testAllRuntimes "sendWith - delivers every byte before closing the connection" (fun runtime ->
+                        let payload = Array.create (1024 * 1024) 7uy
+                        let received = Channel<int * bool>()
+                        let rec drain (socket: Socket) (total: int) =
+                            (socket.ReceiveBytes 4096)
+                                .Map(fun (_, count) -> Ok count)
+                                .CatchAll(fun error -> FIO.succeed (Error error))
+                                .FlatMap(function
+                                    | Ok count -> (FIO.sleep (TimeSpan.FromMilliseconds 1.0)).FlatMap(fun () -> drain socket (total + count))
+                                    | Error(ConnectionClosed _) -> FIO.succeed (total, true)
+                                    | Error _ -> FIO.succeed (total, false))
+
+                        let total, closedCleanly =
+                            withTestServer
+                                (fun socket ->
+                                    fio {
+                                        do! FIO.sleep (TimeSpan.FromMilliseconds 300.0)
+                                        let! outcome = drain socket 0
+                                        do! (received.Write outcome).Unit()
+                                    })
+                                (fun port ->
+                                    fio {
+                                        let! config = SocketConfig.create "127.0.0.1" port
+                                        do! SocketClient.sendWith Codec.bytes payload config
+                                        return! received.Read()
+                                    })
+                                runtime
+
+                        Expect.equal total payload.Length "Every byte sent before the close must arrive"
+                        Expect.isTrue closedCleanly "The connection should end with a clean close, not a reset")
                 ]
         ]
