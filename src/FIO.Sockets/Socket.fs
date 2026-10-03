@@ -168,6 +168,9 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
             if numBytes <= 0 then
                 return! FIO.fail (InvalidState("positive byte count", $"{numBytes}"))
 
+            if not netSocket.Connected then
+                return! FIO.fail (ConnectionClosed "Socket is not connected")
+
             let! pooledBuffer = attempt (fun () -> ArrayPool<byte>.Shared.Rent numBytes)
 
             let readLoop =

@@ -17,40 +17,42 @@ let extensionsTests =
         [
 
             testAllRuntimes "SendJson - roundtrips through ReceiveJson with custom options" (fun runtime ->
-                withTestServer
-                    echoHandler
-                    (fun port ->
-                        fio {
-                            let! config = SocketConfig.create "127.0.0.1" port
-                            let! socket = SocketClient.connect config
-                            let options = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
-                            let msg = { Id = 1; Text = "custom json" }
-                            do! socket.SendJson(msg, options)
-                            let! received = socket.ReceiveJson(8192, options)
+                let received =
+                    withTestServer
+                        echoHandler
+                        (fun port ->
+                            fio {
+                                let! config = SocketConfig.create "127.0.0.1" port
+                                let! socket = SocketClient.connect config
+                                let options = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
+                                let msg = { Id = 1; Text = "custom json" }
+                                do! socket.SendJson(msg, options)
+                                let! received = socket.ReceiveJson(8192, options)
+                                do! socket.Close()
+                                return received
+                            })
+                        runtime
 
-                            Expect.equal received.Id 1 "Id should match"
-                            Expect.equal received.Text "custom json" "Text should match"
-
-                            do! socket.Close()
-                        })
-                    runtime)
+                Expect.equal received.Id 1 "Id should match"
+                Expect.equal received.Text "custom json" "Text should match")
 
             testAllRuntimes "SendJsonLine - roundtrips through ReceiveJsonLine with custom options" (fun runtime ->
-                withTestServer
-                    echoHandler
-                    (fun port ->
-                        fio {
-                            let! config = SocketConfig.create "127.0.0.1" port
-                            let! socket = SocketClient.connect config
-                            let options = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
-                            let msg = { Id = 2; Text = "custom json line" }
-                            do! socket.SendJsonLine(msg, options)
-                            let! received = socket.ReceiveJsonLine(8192, options)
+                let received =
+                    withTestServer
+                        echoHandler
+                        (fun port ->
+                            fio {
+                                let! config = SocketConfig.create "127.0.0.1" port
+                                let! socket = SocketClient.connect config
+                                let options = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
+                                let msg = { Id = 2; Text = "custom json line" }
+                                do! socket.SendJsonLine(msg, options)
+                                let! received = socket.ReceiveJsonLine(8192, options)
+                                do! socket.Close()
+                                return received
+                            })
+                        runtime
 
-                            Expect.equal received.Id 2 "Id should match"
-                            Expect.equal received.Text "custom json line" "Text should match"
-
-                            do! socket.Close()
-                        })
-                    runtime)
+                Expect.equal received.Id 2 "Id should match"
+                Expect.equal received.Text "custom json line" "Text should match")
         ]

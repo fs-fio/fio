@@ -96,12 +96,37 @@ let getWhenListening (url: string) =
     | Some body -> body
     | None -> failtest $"Server at {url} never became ready"
 
+// Kestrel aborts a connection whose client half-closes, which would race the response, so the request must ask for
+// `Connection: close` and the socket stays open until the server ends it.
+let sendRawRequest (port: int) (request: string) =
+    use tcp = new TcpClient()
+    tcp.Connect("127.0.0.1", port)
+    use stream = tcp.GetStream()
+
+    let bytes = Encoding.ASCII.GetBytes request
+    stream.Write(bytes, 0, bytes.Length)
+    stream.Flush()
+
+    stream.ReadTimeout <- 5000
+    use reader = new IO.StreamReader(stream, Encoding.ASCII)
+    try reader.ReadToEnd() with _ -> ""
+
 let findAvailablePort () =
     let listener = new TcpListener(IPAddress.Loopback, 0)
     listener.Start()
     let port = (listener.LocalEndpoint :?> IPEndPoint).Port
     listener.Stop()
     port
+
+// Windows retries a refused loopback connect for about two seconds, so a connect that does not finish quickly counts as
+// nothing listening.
+let isListening (port: int) =
+    use tcp = new TcpClient()
+
+    try
+        tcp.ConnectAsync("127.0.0.1", port).Wait(TimeSpan.FromMilliseconds 500.0) && tcp.Connected
+    with _ ->
+        false
 
 let private startTestHttpApp (routes: Routes<exn>) (maxBodySize: int64) (runtime: DefaultRuntime) =
     let rec attempt remaining =
@@ -141,7 +166,7 @@ let private startTestHttpApp (routes: Routes<exn>) (maxBodySize: int64) (runtime
 
     attempt 10
 
-let withTestHttpServerMaxBody (maxBodySize: int64) (routes: Routes<exn>) (action: int -> unit) =
+let withTestHttpServerMaxBody (maxBodySize: int64) (routes: Routes<exn>) (action: int -> 'T) : 'T =
     let runtime = new DefaultRuntime()
     let port, app = startTestHttpApp routes maxBodySize runtime
 
@@ -153,5 +178,5 @@ let withTestHttpServerMaxBody (maxBodySize: int64) (routes: Routes<exn>) (action
         app.DisposeAsync().AsTask().Wait()
         (runtime :> IDisposable).Dispose()
 
-let withTestHttpServer (routes: Routes<exn>) (action: int -> unit) =
+let withTestHttpServer (routes: Routes<exn>) (action: int -> 'T) : 'T =
     withTestHttpServerMaxBody (ServerConfig.create "127.0.0.1" 0).MaxRequestBodySize routes action

@@ -89,7 +89,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "RetryOrElse - callback called on each retry"
                     <| fun (runtime: FIORuntime, fallbackValue: int) ->
                         let mutable callbackCount = 0
-
                         let effect = FIO.fail(0).RetryOrElse
                                         3
                                         (fun _ -> FIO.succeed fallbackValue)
@@ -102,17 +101,27 @@ let tests =
 
                         Expect.equal callbackCount 2 "RetryOrElse callback should be called on each retry"
 
+                    testAllRuntimes "RetryOrElse - maxAttempts below 1 interrupts with InvalidArgument" (fun runtime ->
+                        let effect: FIO<int, string> = FIO.fail("error").RetryOrElse 0 (fun _ -> FIO.succeed 1) (fun _ -> FIO.unit ())
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        match result with
+                        | Interrupted ex ->
+                            match ex.cause with
+                            | InvalidArgument("maxAttempts", _) -> ()
+                            | cause -> failtest $"RetryOrElse 0 should interrupt with InvalidArgument, got cause: %A{cause}"
+                        | other -> failtest $"RetryOrElse 0 should interrupt with InvalidArgument, got: %A{other}")
+
                     testPropertyWithConfig fsCheckConfig "Retry - succeeds immediately without retrying"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable attempts = 0
-
                         let effect =
                             FIO.attempt
                                 (fun () ->
                                     attempts <- attempts + 1
                                     value)
                                 id
-
                         let retried = effect.Retry 3 (fun _ -> FIO.unit ())
 
                         let actual =
@@ -124,13 +133,11 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "Retry - retries up to max attempts"
                     <| fun (runtime: FIORuntime) ->
                         let mutable attempts = 0
-
                         let effect =
                             fio {
                                 attempts <- attempts + 1
                                 return! FIO.fail "error"
                             }
-
                         let retried = effect.Retry 4 (fun _ -> FIO.unit ())
 
                         let _ =
@@ -141,7 +148,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "Retry - succeeds on intermediate attempt"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable attempts = 0
-
                         let effect =
                             fio {
                                 attempts <- attempts + 1
@@ -150,7 +156,6 @@ let tests =
                                 else
                                     return value
                             }
-
                         let retried = effect.Retry 5 (fun _ -> FIO.unit ())
 
                         let actual =
@@ -162,7 +167,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "Retry - callback receives correct attempt numbers"
                     <| fun (runtime: FIORuntime) ->
                         let mutable attempts = []
-
                         let effect =
                             FIO.fail("error").Retry
                                 3
@@ -178,7 +182,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "RetryUntil - stops when predicate matches"
                     <| fun (runtime: FIORuntime) ->
                         let mutable count = 0
-
                         let effect =
                             fio {
                                 count <- count + 1
@@ -194,7 +197,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "RetryUntil - fails immediately when predicate true on first error"
                     <| fun (runtime: FIORuntime, errValue: int) ->
                         let mutable count = 0
-
                         let effect =
                             fio {
                                 count <- count + 1
@@ -213,7 +215,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "RetryUntilEquals - stops when error matches"
                     <| fun (runtime: FIORuntime) ->
                         let mutable count = 0
-
                         let effect =
                             fio {
                                 count <- count + 1
@@ -234,7 +235,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "RetryWhile - stops when predicate becomes false"
                     <| fun (runtime: FIORuntime) ->
                         let mutable count = 0
-
                         let effect =
                             fio {
                                 count <- count + 1
@@ -257,7 +257,6 @@ let tests =
 
                     testAllRuntimes "Eventually - succeeds after N failures" (fun runtime ->
                         let mutable count = 0
-
                         let effect =
                             fio {
                                 count <- count + 1
@@ -279,7 +278,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "RepeatN - repeats N times, returns last result"
                     <| fun (runtime: FIORuntime) ->
                         let mutable count = 0
-
                         let effect =
                             FIO.attempt
                                 (fun () ->
@@ -295,6 +293,7 @@ let tests =
 
                     testAllRuntimes "RepeatN - n=0 interrupts with InvalidArgument" (fun runtime ->
                         let effect = FIO.succeed 1
+
                         let result = runtime.Run(effect.RepeatN 0).UnsafeResult()
 
                         match result with
@@ -307,7 +306,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "RepeatN - n=1 executes exactly once"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable count = 0
-
                         let effect =
                             FIO.attempt
                                 (fun () ->
@@ -324,7 +322,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "RepeatUntil - stops on first satisfying value"
                     <| fun (runtime: FIORuntime) ->
                         let mutable count = 0
-
                         let effect =
                             FIO.attempt
                                 (fun () ->
@@ -341,7 +338,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "RepeatUntil - executes once when predicate true on first try"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable count = 0
-
                         let effect =
                             FIO.attempt
                                 (fun () ->
@@ -361,7 +357,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "RepeatUntilEquals - stops when value matches"
                     <| fun (runtime: FIORuntime) ->
                         let mutable count = 0
-
                         let effect =
                             FIO.attempt
                                 (fun () ->
@@ -381,7 +376,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "RepeatWhile - stops when predicate becomes false"
                     <| fun (runtime: FIORuntime) ->
                         let mutable count = 0
-
                         let effect =
                             FIO.attempt
                                 (fun () ->
@@ -403,12 +397,10 @@ let tests =
 
                     testAllRuntimes "Forever - loops until interrupted by Timeout" (fun runtime ->
                         let mutable count = 0
-
                         let effect =
                             FIO.attempt
                                 (fun () -> count <- count + 1)
                                 id
-
                         let bounded = effect.Forever().Timeout (TimeSpan.FromMilliseconds 100.0)
 
                         let result =
@@ -419,7 +411,6 @@ let tests =
 
                     testAllRuntimes "Forever - fails with the first failure and stops repeating" (fun runtime ->
                         let mutable count = 0
-
                         let effect =
                             FIO.attempt
                                 (fun () ->
@@ -436,6 +427,8 @@ let tests =
                         let ticking: FIO<string, exn> = (FIO.sleep (TimeSpan.FromMilliseconds 1.0)).Forever()
                         let raced = ticking.RaceFirst((FIO.sleep (TimeSpan.FromMilliseconds 20.0)).Map(fun () -> "done"))
 
-                        Expect.equal (runtime.Run(raced).UnsafeSuccess()) "done" "A loop typed as string should race a string effect")
+                        let result = runtime.Run(raced).UnsafeSuccess()
+
+                        Expect.equal result "done" "A loop typed as string should race a string effect")
                 ]
         ]

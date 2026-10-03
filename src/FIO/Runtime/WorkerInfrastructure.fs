@@ -7,14 +7,17 @@ open System.Threading.Tasks
 
 /// Base class for worker-based FIO runtimes, configured with a worker configuration.
 [<AbstractClass>]
-type FIOWorkerRuntime internal (config: WorkerConfig) as this =
+type FIOWorkerRuntime internal (config: WorkerConfig) =
     inherit FIORuntime()
 
     static let cultureEnUs = CultureInfo "en-US"
 
+    static let describe (config: WorkerConfig) =
+        $"""EWC: %s{config.EvaluationWorkers.ToString("N0", cultureEnUs)} EWS: %s{config.EvaluationSteps.ToString("N0", cultureEnUs)} BWC: %s{config.BlockingWorkers.ToString("N0", cultureEnUs)}"""
+
     let validateWorkerConfiguration () =
         if config.EvaluationWorkers <= 0 || config.EvaluationSteps <= 0 || config.BlockingWorkers <= 0 then
-            invalidArg "config" $"Invalid worker configuration! %s{this.ToString()}"
+            invalidArg "config" $"Invalid worker configuration! %s{describe config}"
 
     do validateWorkerConfiguration ()
 
@@ -23,7 +26,7 @@ type FIOWorkerRuntime internal (config: WorkerConfig) as this =
         config
 
     override _.ConfigString : string =
-        $"""EWC: %s{config.EvaluationWorkers.ToString("N0", cultureEnUs)} EWS: %s{config.EvaluationSteps.ToString("N0", cultureEnUs)} BWC: %s{config.BlockingWorkers.ToString("N0", cultureEnUs)}"""
+        describe config
 
     override this.ToString () : string =
         $"{this.Name} ({this.ConfigString})"

@@ -113,6 +113,7 @@ let interpreterSizeTests =
                         skiptest "the interpreter loop is only a state machine in optimized builds; run with -c Release"
 
                     let loops = interpreterLoops () |> Array.filter (fun (name, _) -> name = $"FIO.Runtime.{runtime}")
+
                     Expect.isNonEmpty loops $"No interpreter state machine found for {runtime}"
 
                     for _, body in loops do

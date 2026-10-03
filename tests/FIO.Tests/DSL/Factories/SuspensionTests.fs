@@ -22,7 +22,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "suspend - defers effect construction"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable constructed = false
-
                         let effect =
                             FIO.suspend (fun () ->
                                 constructed <- true
@@ -50,6 +49,7 @@ let tests =
 
                     testAllRuntimes "cancellationToken - yields a non-cancelled token in a healthy fiber" (fun runtime ->
                         let effect = FIO.cancellationToken<string> ()
+
                         let token = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.isFalse
@@ -58,7 +58,6 @@ let tests =
 
                     testAllRuntimes "cancellationToken - yields a token that is cancelled when the fiber is interrupted" (fun runtime ->
                         let observed = ref CancellationToken.None
-
                         let effect =
                             fio {
                                 let! fiber =

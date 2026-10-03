@@ -32,6 +32,16 @@ type private BlockingReader(gate: ManualResetEventSlim, line: string) =
         gate.Wait()
         line
 
+type private SequencedReader(gate: ManualResetEventSlim, lines: string array) =
+    inherit StringReader("")
+    let mutable next = 0
+
+    override _.ReadLine() =
+        gate.Wait()
+        let line = lines[min next (lines.Length - 1)]
+        next <- next + 1
+        line
+
 // Releases and drains the abandoned read afterwards, or its line would reach the next test's readLine.
 let private withBlockingStdIn (line: string) (test: ManualResetEventSlim -> unit) =
     let originalIn = Console.In
@@ -128,12 +138,16 @@ let consoleTests =
                             return first, second
                         }
 
-                    Expect.equal (runtime.Run(effect).UnsafeSuccess()) ("first", "second") "Lines should arrive in input order")
+                    let result = runtime.Run(effect).UnsafeSuccess()
+
+                    Expect.equal result ("first", "second") "Lines should arrive in input order")
 
                 testCapturedIn "readLine - fails through onError at end of input" "" (fun runtime ->
                     let effect = Console.readLine (fun ex -> ex.GetType().Name)
 
-                    match runtime.Run(effect).UnsafeResult() with
+                    let result = runtime.Run(effect).UnsafeResult()
+
+                    match result with
                     | Failed name -> Expect.equal name "EndOfStreamException" "End of input should be a typed failure, not a null line"
                     | other -> failtest $"Expected Failed but got {other}")
 
@@ -147,8 +161,10 @@ let consoleTests =
                             return first, second, atEnd, stillAtEnd
                         }
 
+                    let result = runtime.Run(effect).UnsafeSuccess()
+
                     Expect.equal
-                        (runtime.Run(effect).UnsafeSuccess())
+                        result
                         (Some "first", Some "second", None, None)
                         "Lines should arrive in order, then None for every read past the end")
 
@@ -158,7 +174,9 @@ let consoleTests =
                     Console.SetIn reader
 
                     try
-                        match runtime.Run(Console.tryReadLine (fun ex -> ex.Message)).UnsafeResult() with
+                        let result = runtime.Run(Console.tryReadLine (fun ex -> ex.Message)).UnsafeResult()
+
+                        match result with
                         | Failed message -> Expect.equal message "stdin broke" "A read error is not end of input"
                         | other -> failtest $"Expected Failed but got {other}"
                     finally
@@ -177,15 +195,18 @@ let consoleTests =
                                 do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                                 return! fiber.InterruptAwaitNow ()
                             }
+                        let next = Console.readLine (fun ex -> ex.GetType().Name)
 
-                        match runtime.Run(effect).UnsafeSuccess() with
+                        let result = runtime.Run(effect).UnsafeSuccess()
+
+                        match result with
                         | Interrupted _ -> ()
                         | other -> failtest $"Expected Interrupted but got {other}"
 
                         gate.Set()
-                        let next = Console.readLine (fun ex -> ex.GetType().Name)
+                        let nextResult = runtime.Run(next).UnsafeResult()
 
-                        match runtime.Run(next).UnsafeResult() with
+                        match nextResult with
                         | Failed name -> Expect.equal name "EndOfStreamException" "Nothing is stashed for an abandoned read that hit end of input"
                         | other -> failtest $"Expected Failed but got {other}"
                     finally
@@ -207,7 +228,6 @@ let consoleTests =
                         match result with
                         | Interrupted _ -> ()
                         | other -> failtest $"Expected Interrupted but got {other}"
-
                         Expect.isLessThan sw.Elapsed.TotalSeconds 5.0 "Interrupting a pending readLine must not wait for input"
 
                         gate.Set()
@@ -215,12 +235,39 @@ let consoleTests =
 
                         Expect.equal next "typed after the interrupt" "The line typed for the interrupted read must reach the next read"))
 
+                testAllRuntimes "readLine - a line kept for an abandoned read survives a second abandoned read" (fun runtime ->
+                    let originalIn = Console.In
+                    use gate = new ManualResetEventSlim(false)
+                    use reader = new SequencedReader(gate, [| "first"; "second" |])
+                    Console.SetIn reader
+
+                    try
+                        let effect =
+                            fio {
+                                let! one = (Console.readLine id).Fork()
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
+                                let! two = (Console.readLine id).Fork()
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
+                                let! _ = one.InterruptAwaitNow ()
+                                let! _ = two.InterruptAwaitNow ()
+                                return ()
+                            }
+
+                        runtime.Run(effect).UnsafeSuccess()
+                        gate.Set()
+                        let next = runtime.Run(Console.readLine<exn> id).UnsafeSuccess()
+
+                        Expect.equal next "first" "The line kept for the abandoned reads must reach the next read"
+                    finally
+                        gate.Set()
+                        Console.SetIn originalIn)
+
                 testCase "readLine - a pending read does not occupy an evaluation worker" (fun () ->
                     withBlockingStdIn "released" (fun gate ->
                         use runtime = new WorkStealingRuntime { WorkerConfig.Default with EvaluationWorkers = 1 }
+
                         let pending = runtime.Run(Console.readLine<exn> id)
                         Thread.Sleep 50
-
                         let other = runtime.Run(FIO.succeed 42)
 
                         Expect.isTrue
@@ -229,13 +276,17 @@ let consoleTests =
 
                         pending.Context.Interrupt(ExplicitInterrupt, "test finished")
                         gate.Set()
-                        Expect.equal (runtime.Run(Console.readLine<exn> id).UnsafeSuccess()) "released" "The released line reaches the next read"))
+                        let next = runtime.Run(Console.readLine<exn> id).UnsafeSuccess()
+
+                        Expect.equal next "released" "The released line reaches the next read"))
 
                 testAllRuntimes "readKey - fails through onError when input is redirected" (fun runtime ->
                     if Console.IsInputRedirected then
                         let effect = Console.readKey true (fun ex -> ex.GetType().Name)
 
-                        match runtime.Run(effect).UnsafeResult() with
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        match result with
                         | Failed name -> Expect.equal name "InvalidOperationException" "Console.ReadKey rejects redirected input"
                         | other -> failtest $"Expected Failed but got {other}"
                     else
@@ -248,6 +299,7 @@ let consoleTests =
 
                     try
                         let effect = Console.readLine<string> (fun ex -> ex.Message)
+
                         let result = runtime.Run(effect).UnsafeResult()
 
                         match result with
@@ -275,6 +327,7 @@ let consoleTests =
 
                     try
                         let effect = Console.write "x" (fun ex -> $"mapped: {ex.Message}")
+
                         let result = runtime.Run(effect).UnsafeResult()
 
                         match result with
@@ -286,6 +339,7 @@ let consoleTests =
 
                 testAllRuntimes "clear - effect either succeeds or maps to a typed error" (fun runtime ->
                     let effect = Console.clear (fun ex -> ex.Message)
+
                     let result = runtime.Run(effect).UnsafeResult()
 
                     match result with

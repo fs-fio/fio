@@ -233,15 +233,12 @@ let tests =
 
                         let outcome =
                             runtime.Run(effect.FilterOrInterrupt (fun _ -> false) "rejected")
+                        let result = outcome.Task() |> Async.AwaitTask |> Async.RunSynchronously
 
-                        let interrupted =
-                            match outcome.Task() |> Async.AwaitTask |> Async.RunSynchronously with
-                            | Interrupted ex ->
-                                Expect.equal ex.cause ExplicitInterrupt "FilterOrInterrupt should interrupt with ExplicitInterrupt"
-                                true
-                            | _ -> false
-
-                        Expect.isTrue interrupted "FilterOrInterrupt should interrupt the fiber when predicate rejects"
+                        match result with
+                        | Interrupted ex -> Expect.equal ex.cause ExplicitInterrupt "FilterOrInterrupt should interrupt with ExplicitInterrupt"
+                        | _ -> ()
+                        Expect.isTrue result.IsInterrupted "FilterOrInterrupt should interrupt the fiber when predicate rejects"
 
                     testPropertyWithConfig fsCheckConfig "Reject - partial function matches fails with error"
                     <| fun (runtime: FIORuntime, value: int, error: string) ->

@@ -19,6 +19,7 @@ let refTests =
                     testPropertyWithConfig fsCheckConfig "Get - yields the initial value"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let cell = Ref<int> value
+
                         let result = runtime.Run(cell.Get<string>()).UnsafeSuccess()
 
                         Expect.equal result value "Get should yield the value the Ref was created with"
@@ -26,7 +27,6 @@ let refTests =
                     testPropertyWithConfig fsCheckConfig "Set - replaces the value"
                     <| fun (runtime: FIORuntime, initial: int, next: int) ->
                         let cell = Ref<int> initial
-
                         let effect: FIO<int, string> =
                             fio {
                                 do! cell.Set next
@@ -40,7 +40,6 @@ let refTests =
                     testPropertyWithConfig fsCheckConfig "GetAndSet - yields the previous value and stores the new one"
                     <| fun (runtime: FIORuntime, initial: int, next: int) ->
                         let cell = Ref<int> initial
-
                         let effect: FIO<int * int, string> =
                             fio {
                                 let! previous = cell.GetAndSet next
@@ -54,6 +53,7 @@ let refTests =
 
                     testAllRuntimes "Get - a null reference round-trips" (fun runtime ->
                         let cell = Ref<string> null
+
                         let result = runtime.Run(cell.Get<string>()).UnsafeSuccess()
 
                         Expect.isNull result "A Ref holding null should yield null")
@@ -65,7 +65,6 @@ let refTests =
                     testPropertyWithConfig fsCheckConfig "Update - applies the function"
                     <| fun (runtime: FIORuntime, initial: int, delta: int) ->
                         let cell = Ref<int> initial
-
                         let effect: FIO<int, string> =
                             fio {
                                 do! cell.Update(fun value -> value + delta)
@@ -80,6 +79,7 @@ let refTests =
                     <| fun (runtime: FIORuntime, initial: int, delta: int) ->
                         let cell = Ref<int> initial
                         let effect: FIO<int, string> = cell.UpdateAndGet(fun value -> value + delta)
+
                         let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result (initial + delta) "UpdateAndGet should yield the updated value"
@@ -89,6 +89,7 @@ let refTests =
                     <| fun (runtime: FIORuntime, initial: int, delta: int) ->
                         let cell = Ref<int> initial
                         let effect: FIO<int, string> = cell.GetAndUpdate(fun value -> value + delta)
+
                         let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result initial "GetAndUpdate should yield the value before the update"
@@ -97,7 +98,6 @@ let refTests =
                     testPropertyWithConfig fsCheckConfig "Modify - yields the result and stores the state"
                     <| fun (runtime: FIORuntime, initial: int, delta: int) ->
                         let cell = Ref<int> initial
-
                         let effect: FIO<string, string> =
                             cell.Modify(fun value -> $"was {value}", value + delta)
 
@@ -109,15 +109,16 @@ let refTests =
                     testAllRuntimes "Update - constructing the effect does not run the function" (fun runtime ->
                         let cell = Ref<int> 0
                         let calls = Ref<int> 0
-
                         let effect: FIO<unit, string> =
                             cell.Update(fun value ->
                                 calls.UnsafeUpdate(fun n -> n + 1)
                                 value + 1)
 
                         Expect.equal (calls.UnsafeGet()) 0 "Constructing the effect must not apply the function"
+
                         runtime.Run(effect).UnsafeSuccess()
                         runtime.Run(effect).UnsafeSuccess()
+
                         Expect.equal (calls.UnsafeGet()) 2 "Each run should apply the function once"
                         Expect.equal (cell.UnsafeGet()) 2 "Each run should store its update")
 
@@ -125,13 +126,14 @@ let refTests =
                         let cell = Ref<int> 1
                         let effect: FIO<unit, string> = cell.Update(fun _ -> failwith "transition threw")
 
-                        match runtime.Run(effect).UnsafeResult() with
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        match result with
                         | Interrupted ex ->
                             match ex.cause with
                             | Defect inner -> Expect.equal inner.Message "transition threw" "The defect should carry the thrown exception"
                             | other -> failtest $"Expected a Defect cause but got {other}"
                         | other -> failtest $"Expected Interrupted but got {other}"
-
                         Expect.equal (cell.UnsafeGet()) 1 "A failed transition must leave the value untouched")
                 ]
 
@@ -142,7 +144,6 @@ let refTests =
                         let fibers = 8
                         let increments = 1000
                         let cell = Ref<int> 0
-
                         let effect: FIO<unit, string> =
                             FIO.forEachParDiscard (seq { 1 .. fibers }) (fun _ ->
                                 FIO.replicateFIODiscard increments (cell.Update(fun value -> value + 1)))
@@ -154,7 +155,6 @@ let refTests =
                     testAllRuntimes "Modify - concurrent transitions hand out unique results" (fun runtime ->
                         let fibers = 8
                         let cell = Ref<int> 0
-
                         let effect: FIO<int list, string> =
                             FIO.forEachPar (seq { 1 .. fibers }) (fun _ -> cell.Modify(fun value -> value, value + 1))
 
@@ -170,10 +170,13 @@ let refTests =
                         let cell = Ref<int> 10
 
                         Expect.equal (cell.UnsafeGet()) 10 "UnsafeGet should read the initial value"
+
                         cell.UnsafeUpdate(fun value -> value * 2)
+
                         Expect.equal (cell.UnsafeGet()) 20 "UnsafeUpdate should store the function's result"
 
                         let previous = cell.UnsafeModify(fun value -> value, value + 1)
+
                         Expect.equal previous 20 "UnsafeModify should yield the transition's result"
                         Expect.equal (cell.UnsafeGet()) 21 "UnsafeModify should store the transition's new value")
                 ]

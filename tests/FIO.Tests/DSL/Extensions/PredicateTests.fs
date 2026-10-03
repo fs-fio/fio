@@ -76,7 +76,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "When - true executes effect"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable executed = false
-
                         let effect =
                             FIO.attempt
                                 (fun () ->
@@ -92,7 +91,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "When - false returns unit without executing"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable executed = false
-
                         let effect =
                             FIO.attempt
                                 (fun () ->
@@ -109,7 +107,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "Unless - false executes effect"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable executed = false
-
                         let effect =
                             FIO.attempt
                                 (fun () ->
@@ -125,7 +122,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "Unless - true returns unit without executing"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable executed = false
-
                         let effect =
                             FIO.attempt
                                 (fun () ->

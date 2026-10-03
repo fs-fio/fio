@@ -70,6 +70,16 @@ let tests =
 
                         Expect.equal result "generic task failed" "FIO.awaitTask should map exception to error")
 
+                    testAllRuntimes "awaitTask - maps a task cancelled by another token through onError" (fun runtime ->
+                        let cancelled = Task.FromCanceled<int>(CancellationToken(true))
+                        let effect = FIO.awaitTask cancelled (fun ex -> ex :? OperationCanceledException)
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        match result with
+                        | Failed cancellation -> Expect.isTrue cancellation "A foreign cancellation is a typed failure"
+                        | other -> failtest $"Expected a typed failure, got {other}")
+
                     testPropertyWithConfig fsCheckConfig "awaitTask - propagates exception"
                     <| fun (runtime: FIORuntime) ->
                         let ex = Exception "generic task error"
@@ -96,11 +106,12 @@ let tests =
                                     do! Task.Delay 5
                                     return raise (Exception "task boom")
                                 }
-
                             let throwingOnError: exn -> exn = fun _ -> raise (Exception "onError threw")
                             let effect = FIO.awaitTask faulting throwingOnError
 
-                            match runtime.Run(effect).UnsafeResult() with
+                            let result = runtime.Run(effect).UnsafeResult()
+
+                            match result with
                             | Interrupted ex ->
                                 match ex.cause with
                                 | Defect defect ->
@@ -141,13 +152,11 @@ let tests =
 
                     testCase "awaitAsync - does not start async at construction time" (fun () ->
                         let mutable started = false
-
                         let asyncComp =
                             async {
                                 started <- true
                                 return 42
                             }
-
                         let _eff = FIO.awaitAsync asyncComp id
 
                         Expect.isFalse started "Async should not be started at effect construction time")
@@ -158,22 +167,20 @@ let tests =
                                 do! Async.Sleep 60_000
                                 return 42
                             }
-
                         let effect =
                             fio {
                                 let! fiber = (FIO.awaitAsync asyncComp (fun ex -> ex.Message)).Fork()
                                 do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                                 return! fiber.InterruptAwaitNow ()
                             }
-
                         let sw = Stopwatch.StartNew()
+
                         let result = runtime.Run(effect).UnsafeSuccess()
                         sw.Stop()
 
                         match result with
                         | Interrupted _ -> ()
                         | other -> failtestf "Expected Interrupted, got %A" other
-
                         Expect.isLessThan
                             sw.Elapsed.TotalSeconds
                             5.0
@@ -181,7 +188,6 @@ let tests =
 
                     testAllRuntimes "forkUnitTask - forks task into fiber" (fun runtime ->
                         let mutable executed = false
-
                         let effect =
                             fio {
                                 let! fiber =
@@ -202,7 +208,6 @@ let tests =
 
                     testCase "forkUnitTask - does not allocate fiber at construction time" (fun () ->
                         let mutable taskStarted = false
-
                         let _eff =
                             FIO.forkUnitTask
                                 (fun () ->
@@ -248,7 +253,6 @@ let tests =
 
                     testCase "forkTask - does not allocate fiber at construction time" (fun () ->
                         let mutable taskStarted = false
-
                         let _eff =
                             FIO.forkTask
                                 (fun () ->
@@ -260,7 +264,6 @@ let tests =
 
                     testAllRuntimes "forkTask - forks generic task into fiber" (fun runtime ->
                         let value = 42
-
                         let effect =
                             fio {
                                 let! fiber =
@@ -430,15 +433,14 @@ let tests =
                                 do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                                 return! fiber.InterruptAwaitNow ()
                             }
-
                         let sw = Stopwatch.StartNew()
+
                         let result = runtime.Run(effect).UnsafeSuccess()
                         sw.Stop()
 
                         match result with
                         | Interrupted _ -> ()
                         | other -> failtestf "Expected Interrupted, got %A" other
-
                         Expect.isLessThan
                             sw.Elapsed.TotalSeconds
                             5.0

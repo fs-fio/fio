@@ -84,7 +84,6 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable successTap = false
                         let mutable errorTap = false
-
                         let effect =
                             FIO.succeed(value)
                                 .TapBoth (fun _ -> FIO.succeed (successTap <- true)) (fun _ -> FIO.succeed (errorTap <- true))
@@ -100,7 +99,6 @@ let tests =
                     <| fun (runtime: FIORuntime, error: int) ->
                         let mutable successTap = false
                         let mutable errorTap = false
-
                         let effect =
                             FIO.fail(error)
                                 .TapBoth (fun _ -> FIO.succeed (successTap <- true)) (fun _ -> FIO.succeed (errorTap <- true))
@@ -114,7 +112,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "TapBoth - a failing success tap does not run the error tap"
                     <| fun (runtime: FIORuntime, value: int, error: int) ->
                         let mutable errorTap = false
-
                         let effect =
                             FIO.succeed(value)
                                 .TapBoth (fun _ -> FIO.fail error) (fun _ -> FIO.succeed (errorTap <- true))
@@ -139,6 +136,7 @@ let tests =
                                     try
                                         let result =
                                             runtime.Run(effect).UnsafeSuccess()
+
                                         Expect.equal result value "Debug should preserve success value"
                                     finally
                                         Console.SetOut oldOut
@@ -155,6 +153,7 @@ let tests =
                                     try
                                         let result =
                                             runtime.Run(effect).UnsafeSuccess()
+
                                         Expect.equal result value "Debug with message should preserve success value"
                                     finally
                                         Console.SetOut oldOut
@@ -171,6 +170,7 @@ let tests =
                                     try
                                         let result =
                                             runtime.Run(effect).UnsafeError()
+
                                         Expect.equal result error "DebugError should preserve error value"
                                     finally
                                         Console.SetOut oldOut
@@ -187,6 +187,7 @@ let tests =
                                     try
                                         let result =
                                             runtime.Run(effect).UnsafeError()
+
                                         Expect.equal result error "DebugError with message should preserve error value"
                                     finally
                                         Console.SetOut oldOut

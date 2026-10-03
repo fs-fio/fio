@@ -20,17 +20,16 @@ let routesTests =
 
             testAllRuntimes "route - creates a dispatchable single route" (fun runtime ->
                 let routes = Routes.route (Route.get "/hello") (HttpHandler.text "world")
+
                 let resp = dispatchAndRun runtime routes (makeGetRequest "/hello")
 
                 Expect.equal resp.Status HttpStatusCode.OK "200"
-
                 match resp.Body with
                 | ResponseBody.Text t -> Expect.equal t "world" "Body"
                 | _ -> failtest "Expected Text body")
 
             testAllRuntimes "single - creates a parameterized route" (fun runtime ->
                 let pattern = RoutePattern.get (RoutePath.withInt [ "users" ] [])
-
                 let routes =
                     Routes.single pattern (fun params' ->
                         match params' with
@@ -66,7 +65,6 @@ let routesTests =
 
             testAllRuntimes "dispatch - normalizes trailing slashes" (fun runtime ->
                 let routes = Routes.route (Route.get "/path") (HttpHandler.text "ok")
-
                 let req =
                     { HttpRequest.create HttpMethod.GET "/path/" with
                         PathSegments = [ "path" ]
@@ -122,6 +120,18 @@ let routesTests =
 
                 match resp.Body with
                 | ResponseBody.Text t -> Expect.equal t "added" "Added route"
+                | _ -> failtest "Expected Text body")
+
+            testAllRuntimes "add - keeps the first handler when a path is added twice" (fun runtime ->
+                let routes =
+                    Routes.empty
+                    |> Routes.addRoute (Route.get "/twice") (HttpHandler.text "first")
+                    |> Routes.addRoute (Route.get "/twice") (HttpHandler.text "second")
+
+                let resp = dispatchAndRun runtime routes (makeGetRequest "/twice")
+
+                match resp.Body with
+                | ResponseBody.Text t -> Expect.equal t "first" "The first handler added for a path must win"
                 | _ -> failtest "Expected Text body")
 
             testAllRuntimes "fromList - creates routes from pattern-handler pairs" (fun runtime ->
@@ -227,7 +237,6 @@ let routesTests =
 
                     testAllRuntimes "TypedRoutes - an int route does not match a non-integer segment" (fun runtime ->
                         let reached = ref false
-
                         let routes =
                             TypedRoutes.getInt [ "users" ] [] (fun id ->
                                 fun request ->
@@ -290,6 +299,7 @@ let routesTests =
                     testAllRuntimes "routes - yields an empty collection" (fun runtime ->
                         let collected = RouteBuilder.routes { () }
                         let request = makeGetRequest "/anything"
+
                         let response = dispatchAndRun runtime collected request
 
                         Expect.equal response.Status HttpStatusCode.NotFound "An empty CE must route nothing")

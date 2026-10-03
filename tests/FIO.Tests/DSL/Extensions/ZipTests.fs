@@ -86,7 +86,6 @@ let tests =
                     <| fun (runtime: FIORuntime, error: string) ->
                         let mutable secondExecuted = false
                         let eff1 = FIO.fail error
-
                         let eff2 =
                             FIO.attempt
                                 (fun () ->
@@ -147,14 +146,12 @@ let tests =
                     testAllRuntimes "ZipPar - runs its operands concurrently (the left operand parks until the right has started)" (fun runtime ->
                         let rendezvous = Channel<unit>()
                         let overlapped = ref false
-
                         let left: FIO<int, string> =
                             FIO.suspend (fun () ->
                                 (rendezvous.Read().Timeout (TimeSpan.FromSeconds 3.0))
                                     .Map(fun signalled ->
                                         overlapped.Value <- Option.isSome signalled
                                         1))
-
                         let right: FIO<int, string> =
                             FIO.suspend (fun () -> (rendezvous.Write ()).Map(fun _ -> 2))
 
@@ -168,7 +165,6 @@ let tests =
                     testAllRuntimes "ZipPar - fails fast when the forked sibling fails (never on left)" (fun runtime ->
                         let error = 42
                         let sentinel = -1
-
                         let effect =
                             (FIO.never<int, int>().ZipPar(FIO.fail<int, int> error))
                                 .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0)
@@ -180,7 +176,6 @@ let tests =
                     testAllRuntimes "ZipPar - fails fast when the forked sibling fails (never on right)" (fun runtime ->
                         let error = 42
                         let sentinel = -1
-
                         let effect =
                             ((FIO.fail<int, int> error).ZipPar(FIO.never<int, int>()))
                                 .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0)
@@ -193,11 +188,9 @@ let tests =
                         let error = 7
                         let sentinel = -1
                         let mutable completedNormally = false
-
                         let sibling =
                             (FIO.sleep (TimeSpan.FromSeconds 10.0))
                                 .FlatMap(fun () -> FIO.attempt (fun () -> completedNormally <- true) (fun _ -> sentinel))
-
                         let effect =
                             ((FIO.fail<int, int> error).ZipPar sibling)
                                 .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0)
@@ -246,7 +239,6 @@ let tests =
                     testAllRuntimes "ZipParError - succeeds fast when this succeeds and the sibling never terminates" (fun runtime ->
                         let value = 99
                         let sentinel = (-1, -1)
-
                         let effect =
                             ((FIO.succeed value).ZipParError(FIO.never<int, int>()))
                                 .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0)
@@ -258,7 +250,6 @@ let tests =
                     testAllRuntimes "ZipParError - succeeds fast when the sibling succeeds and this never terminates" (fun runtime ->
                         let value = 99
                         let sentinel = (-1, -1)
-
                         let effect =
                             ((FIO.never<int, int>()).ZipParError(FIO.succeed value))
                                 .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0)
@@ -271,11 +262,9 @@ let tests =
                         let value = 5
                         let sentinel = (-1, -1)
                         let mutable completedNormally = false
-
                         let sibling =
                             (FIO.sleep (TimeSpan.FromSeconds 10.0))
                                 .FlatMap(fun () -> FIO.attempt (fun () -> completedNormally <- true; 0) (fun _ -> 0))
-
                         let effect =
                             ((FIO.succeed value).ZipParError sibling)
                                 .TimeoutFail sentinel (TimeSpan.FromSeconds 2.0)
@@ -360,7 +349,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "FoldFIO - a failure inside nested success handlers runs no error handler"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let mutable handled = 0
-
                         let rec levels depth : FIO<unit, int> =
                             if depth = 0 then
                                 FIO.fail error

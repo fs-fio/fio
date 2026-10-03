@@ -64,7 +64,8 @@ module private StdinReader =
 module Console =
 
     // The runtime's await is what interrupts the fiber; the registration only marks the request abandoned so the
-    // reader stashes its input.
+    // reader stashes its input. The finalizer marks it too: a runtime that resumes inline from the await's own
+    // cancellation callback reaches the finalizer before the registration has run, and disposing it skips it.
     let private awaitStdin (request: TaskCompletionSource<'T> -> StdinReader.Request) (onError: exn -> 'E) =
         FIO.cancellationToken().FlatMap <| fun cancellationToken ->
             let tcs = TaskCompletionSource<'T> TaskCreationOptions.RunContinuationsAsynchronously
@@ -72,7 +73,9 @@ module Console =
             StdinReader.enqueue (request tcs)
 
             (FIO.awaitTask tcs.Task onError)
-                .Ensuring(FIO.succeedWith (fun () -> registration.Dispose()))
+                .Ensuring(FIO.succeedWith (fun () ->
+                    registration.Dispose()
+                    tcs.TrySetCanceled() |> ignore))
 
     /// Returns an effect that writes formatted text to standard output.
     let print<'E> (format: Printf.TextWriterFormat<unit>) (onError: exn -> 'E) : FIO<unit, 'E> =

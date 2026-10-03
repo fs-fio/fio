@@ -19,7 +19,6 @@ let tests =
                 [
                     testCase "uninterruptibleMask - building the effect does not run the body" <| fun () ->
                         let mutable ran = false
-
                         let _ =
                             FIO.uninterruptibleMask (fun _ ->
                                 ran <- true
@@ -32,7 +31,6 @@ let tests =
                         let gate = new ManualResetEventSlim(false)
                         let finished = ref false
                         let after = ref false
-
                         let region =
                             (FIO.attempt (fun () ->
                                 entered.Set()
@@ -44,14 +42,19 @@ let tests =
                             runtime.Run((FIO.uninterruptible region).FlatMap(fun () -> FIO.succeedWith (fun () -> after.Value <- true)))
 
                         Expect.isTrue (entered.Wait(TimeSpan.FromSeconds 5.0)) "The region should start"
+
                         runtime.Run(fiber.InterruptNow()).Task().Wait()
                         gate.Set()
 
                         Expect.isTrue (waitForFlag finished) "The region should run to its end despite the interruption"
+
                         Thread.Sleep 100
+
                         Expect.isFalse after.Value "Nothing after the region should run"
 
-                        match fiber.Task().Result with
+                        let result = fiber.Task().Result
+
+                        match result with
                         | Interrupted _ -> ()
                         | other -> failtest $"Expected Interrupted, got {other}")
 
@@ -60,12 +63,10 @@ let tests =
                         let gate = new ManualResetEventSlim false
                         let after = ref false
                         let unwound = ref false
-
                         let region =
                             FIO.attempt (fun () ->
                                 entered.Set()
                                 gate.Wait()) id
-
                         let effect =
                             fio {
                                 do! FIO.uninterruptible region
@@ -73,7 +74,9 @@ let tests =
                             }
 
                         let fiber = runtime.Run(effect.Ensuring(FIO.succeedWith (fun () -> unwound.Value <- true)))
+
                         Expect.isTrue (entered.Wait(TimeSpan.FromSeconds 5.0)) "The region should start"
+
                         runtime.Run(fiber.InterruptNow()).Task().Wait()
                         gate.Set()
 
@@ -85,12 +88,10 @@ let tests =
                         let gate = new ManualResetEventSlim false
                         let after = ref false
                         let unwound = ref false
-
                         let finalizer =
                             FIO.attempt (fun () ->
                                 entered.Set()
                                 gate.Wait()) id
-
                         let effect =
                             fio {
                                 do! FIO.unit<exn>().Ensuring finalizer
@@ -98,7 +99,9 @@ let tests =
                             }
 
                         let fiber = runtime.Run(effect.Ensuring(FIO.succeedWith (fun () -> unwound.Value <- true)))
+
                         Expect.isTrue (entered.Wait(TimeSpan.FromSeconds 5.0)) "The finalizer should start"
+
                         runtime.Run(fiber.InterruptNow()).Task().Wait()
                         gate.Set()
 
@@ -109,7 +112,6 @@ let tests =
                         let entered = new ManualResetEventSlim false
                         let gate = new ManualResetEventSlim false
                         let finished = ref false
-
                         let region =
                             (FIO.attempt (fun () ->
                                 entered.Set()
@@ -118,7 +120,9 @@ let tests =
                                 .FlatMap(fun () -> FIO.succeedWith (fun () -> finished.Value <- true))
 
                         let fiber = runtime.Run(region.Uninterruptible())
+
                         Expect.isTrue (entered.Wait(TimeSpan.FromSeconds 5.0)) "The region should start"
+
                         runtime.Run(fiber.InterruptNow()).Task().Wait()
                         gate.Set()
 
@@ -127,36 +131,35 @@ let tests =
                     testAllRuntimes "uninterruptibleMask - restore runs the body interruptibly" (fun runtime ->
                         let started = new ManualResetEventSlim false
                         let released = ref false
-
                         let body =
                             FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never<unit, exn> ())
-
                         let effect =
                             FIO.uninterruptibleMask (fun restore ->
                                 restore.Restore(body).Ensuring(FIO.succeedWith (fun () -> released.Value <- true)))
 
                         let fiber = runtime.Run effect
+
                         Expect.isTrue (started.Wait(TimeSpan.FromSeconds 5.0)) "The restored body should start"
+
                         runtime.Run(fiber.InterruptNow()).Task().Wait()
 
                         Expect.isTrue (waitForFlag released) "Interrupting the restored body should run its finalizer")
 
                     testAllRuntimes "uninterruptibleMask - restore inside a finalizer stays uninterruptible" (fun runtime ->
                         let finished = ref false
-
                         let finalizer =
                             FIO.uninterruptibleMask (fun restore ->
                                 restore.Restore(
                                     FIO.sleep(TimeSpan.FromMilliseconds 50.0).FlatMap(fun () ->
                                         FIO.succeedWith (fun () -> finished.Value <- true))))
-
                         let started = new ManualResetEventSlim false
-
                         let body =
                             FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never<unit, exn> ())
 
                         let fiber = runtime.Run(body.Ensuring finalizer)
+
                         Expect.isTrue (started.Wait(TimeSpan.FromSeconds 5.0)) "The body should start"
+
                         runtime.Run(fiber.InterruptNow()).Task().Wait()
 
                         Expect.isTrue (waitForFlag finished) "The finalizer should run to its end")
@@ -211,45 +214,49 @@ let tests =
                         let gate = new ManualResetEventSlim(false)
                         let finished = ref false
                         let after = ref false
-
                         let body =
                             (FIO.attempt (fun () ->
                                 entered.Set()
                                 gate.Wait()) id)
                                 .FlatMap(fun () -> FIO.succeedWith (fun () -> finished.Value <- true))
-
                         let effect =
                             FIO.uninterruptibleMask(fun mask ->
                                 (FIO.uninterruptible (mask.Restore(FIO.uninterruptible body)))
                                     .FlatMap(fun () -> FIO.succeedWith (fun () -> after.Value <- true)))
 
                         let fiber = runtime.Run effect
+
                         Expect.isTrue (entered.Wait(TimeSpan.FromSeconds 5.0)) "The body should start"
+
                         runtime.Run(fiber.InterruptNow()).Task().Wait()
                         gate.Set()
 
                         Expect.isTrue (waitForFlag finished) "The body should run to its end despite the interruption"
+
                         Thread.Sleep 100
+
                         Expect.isFalse after.Value "Nothing after the restored region should run once the fiber is interrupted"
 
-                        match fiber.Task().Result with
+                        let result = fiber.Task().Result
+
+                        match result with
                         | Interrupted _ -> ()
                         | other -> failtest $"Expected Interrupted, got {other}")
 
                     testAllRuntimes "Ensuring - a finalizer can time out its cleanup after an interruption" (fun runtime ->
                         let started = new ManualResetEventSlim(false)
                         let cleaned = ref false
-
                         let cleanup =
                             FIO.succeedWith (fun () -> cleaned.Value <- true)
-
                         let body =
                             FIO.unit<exn>().Fork()
                                 .FlatMap(fun _ -> FIO.succeedWith (fun () -> started.Set()))
                                 .FlatMap(fun () -> FIO.never<unit, exn> ())
 
                         let fiber = runtime.Run(body.Ensuring(cleanup.Timeout(TimeSpan.FromSeconds 1.0).Unit()))
+
                         Expect.isTrue (started.Wait(TimeSpan.FromSeconds 5.0)) "The body should start"
+
                         runtime.Run(fiber.InterruptNow()).Task().Wait()
 
                         Expect.isTrue (waitForFlag cleaned) "A cleanup raced against its timeout must still run")
@@ -258,15 +265,12 @@ let tests =
                         let entered = new ManualResetEventSlim(false)
                         let recorded = ref false
                         let pair = ref (0, 0)
-
                         let left : FIO<int, exn> =
                             FIO.succeedWith(fun () -> entered.Set())
                                 .FlatMap(fun () -> FIO.sleep (TimeSpan.FromMilliseconds 100.0))
                                 .Map(fun () -> 1)
-
                         let right =
                             (FIO.sleep (TimeSpan.FromMilliseconds 100.0)).Map(fun () -> 2)
-
                         let region : FIO<unit, exn> =
                             (left <&> right).FlatMap(fun zipped ->
                                 FIO.succeedWith (fun () ->
@@ -274,7 +278,9 @@ let tests =
                                     recorded.Value <- true))
 
                         let fiber = runtime.Run(FIO.uninterruptible region)
+
                         Expect.isTrue (entered.Wait(TimeSpan.FromSeconds 5.0)) "The region's forked work should start"
+
                         runtime.Run(fiber.InterruptNow()).Task().Wait()
 
                         Expect.isTrue (waitForFlag recorded) "The region's forked work must finish despite the interruption"
@@ -283,13 +289,11 @@ let tests =
                     testAllRuntimes "acquireReleaseWith - an acquire that times out still hands its resource to release" (fun runtime ->
                         let entered = new ManualResetEventSlim(false)
                         let released = ref false
-
                         let acquire =
                             (FIO.succeedWith(fun () -> entered.Set())
                                 .FlatMap(fun () -> FIO.sleep (TimeSpan.FromMilliseconds 100.0))
                                 .Map(fun () -> 42))
                                 .TimeoutFail (exn "acquire timed out") (TimeSpan.FromSeconds 5.0)
-
                         let effect =
                             FIO.acquireReleaseWith
                                 acquire
@@ -297,17 +301,17 @@ let tests =
                                 (fun _ -> FIO.never<unit, exn> ())
 
                         let fiber = runtime.Run effect
+
                         Expect.isTrue (entered.Wait(TimeSpan.FromSeconds 5.0)) "The acquire should start"
+
                         runtime.Run(fiber.InterruptNow()).Task().Wait()
 
                         Expect.isTrue (waitForFlag released) "A resource acquired under a timeout must still be released")
 
                     testAllRuntimes "Ensuring - a fiber a finalizer forks is interrupted when the fiber exits" (fun runtime ->
                         let forkedFinalized = ref false
-
                         let forked =
                             FIO.never<unit, exn>().Ensuring(FIO.succeedWith (fun () -> forkedFinalized.Value <- true))
-
                         let effect =
                             fio {
                                 let! fiber = (FIO.never<unit, exn>().Ensuring(forked.Fork().Unit())).Fork()
@@ -323,7 +327,6 @@ let tests =
                         let started = new ManualResetEventSlim(false)
                         let finalizerDone = ref false
                         let childInterrupted = ref false
-
                         let effect =
                             FIO.never<unit, exn>().Fork().FlatMap(fun child ->
                                 FIO.succeedWith(fun () -> started.Set())
@@ -335,7 +338,9 @@ let tests =
                                                 finalizerDone.Value <- true))))
 
                         let fiber = runtime.Run effect
+
                         Expect.isTrue (started.Wait(TimeSpan.FromSeconds 5.0)) "The body should start"
+
                         runtime.Run(fiber.InterruptNow()).Task().Wait()
 
                         Expect.isTrue (waitForFlag finalizerDone) "The parent's finalizer should run"

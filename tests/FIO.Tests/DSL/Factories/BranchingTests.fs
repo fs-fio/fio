@@ -344,7 +344,6 @@ let tests =
                         let succeeding =
                             (FIO.sleep (TimeSpan.FromMilliseconds 60.0)).FlatMap(fun () -> FIO.succeed 7)
                         let effect = FIO.raceAll (seq { interrupted; failing; succeeding })
-
                         let bounded =
                             effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
 
@@ -359,7 +358,6 @@ let tests =
                         let fail2 =
                             (FIO.sleep (TimeSpan.FromMilliseconds 60.0)).FlatMap(fun () -> FIO.fail (exn "last"))
                         let effect = FIO.raceAll (seq { interrupted; fail1; fail2 })
-
                         let bounded =
                             effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
 
@@ -376,7 +374,6 @@ let tests =
                                 FIO.interruptNow<int, exn> ()
                                 (FIO.sleep (TimeSpan.FromMilliseconds 30.0)).FlatMap(fun () -> FIO.interruptNow<int, exn> ())
                             })
-
                         let bounded =
                             effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
 
@@ -391,7 +388,6 @@ let tests =
                         let succeeding =
                             (FIO.sleep (TimeSpan.FromMilliseconds 50.0)).FlatMap(fun () -> FIO.succeed 3)
                         let effect = FIO.raceAll (seq { stuck; succeeding })
-
                         let bounded =
                             effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
 
@@ -401,7 +397,6 @@ let tests =
 
                     stressTestAllRuntimes "raceAll - stress: repeated re-parks over surviving racers" (fun runtime ->
                         let iterations = 500
-
                         let rec loop i =
                             if i = 0 then
                                 FIO.unit ()
@@ -414,10 +409,11 @@ let tests =
                                     })
                                 round.FlatMap <| fun value ->
                                     if value = i then loop (i - 1) else FIO.fail (exn $"wrong winner in round {i}")
-
                         let bounded =
                             (loop iterations).TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 120.0)
 
-                        Expect.equal (runtime.Run(bounded).UnsafeSuccess()) () "every raceAll round should settle on the surviving success")
+                        let result = runtime.Run(bounded).UnsafeSuccess()
+
+                        Expect.equal result () "every raceAll round should settle on the surviving success")
                 ]
         ]

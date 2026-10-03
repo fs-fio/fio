@@ -16,7 +16,7 @@ effects — connections are scoped and released for you, and failures surface as
 ## Install
 
 ```bash
-dotnet add package FSharp.FIO.Sockets
+dotnet add package FSharp.FIO.Sockets --prerelease
 ```
 
 ## Quick Start

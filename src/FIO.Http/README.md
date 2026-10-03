@@ -16,7 +16,7 @@ up and hand to the server.
 ## Install
 
 ```bash
-dotnet add package FSharp.FIO.Http
+dotnet add package FSharp.FIO.Http --prerelease
 ```
 
 ## Quick Start
@@ -88,6 +88,10 @@ let handler request =
 ```
 
 `HttpError.fromException` bridges the other way.
+
+A request the server refuses before any handler runs gets a client error, not a `500`: a body over
+`MaxRequestBodySize` is answered `413`, a body shorter than its `Content-Length` or a path segment such
+as `..` or one containing a backslash `400`, and a request still in flight when the server stops `503`.
 
 ## Links
 

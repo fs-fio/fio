@@ -86,12 +86,27 @@ module WebSocketServer =
                     | Some protocol -> protocol
                     | None -> null
 
-                let! ctxTask =
+                let handshake =
+                    fio {
+                        let! ctxTask =
+                            FIO.attempt
+                                (fun () -> listenerCtx.AcceptWebSocketAsync subProto)
+                                WsError.connectionFailed
+
+                        return! FIO.awaitTask ctxTask WsError.connectionFailed
+                    }
+
+                // A failed handshake leaves the request unanswered, so the client would wait and the connection stay open.
+                let reject =
                     FIO.attempt
-                        (fun () -> listenerCtx.AcceptWebSocketAsync subProto)
+                        (fun () ->
+                            listenerCtx.Response.StatusCode <- 400
+                            listenerCtx.Response.Close())
                         WsError.connectionFailed
 
-                let! ctx = FIO.awaitTask ctxTask WsError.connectionFailed
+                let! ctx =
+                    handshake.CatchAll(fun error ->
+                        reject.CatchAll(fun _ -> FIO.unit ()).FlatMap(fun () -> FIO.fail error))
 
                 let endPoint (get: HttpListenerRequest -> IPEndPoint) =
                     match get listenerCtx.Request with

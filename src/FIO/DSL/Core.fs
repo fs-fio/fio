@@ -332,7 +332,13 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
            && tryTransition &state (int FiberContextState.Running) (int FiberContextState.Interrupted) then
             let interruptError = Error(FiberInterruptedException(id, cause, message) :> obj)
             resultSource.TrySetResult interruptError |> ignore
-            cancelSource.Cancel(throwOnFirstException = false)
+
+            // A callback registered on the token belongs to user code; its failure must not stop the interruption.
+            try
+                cancelSource.Cancel(throwOnFirstException = false)
+            with _ ->
+                ()
+
             this.CancelChildScope()
             this.DisposeRegistrations()
             this.InvokeOnTerminal()

@@ -22,19 +22,16 @@ let tests =
                 [
                     testAllRuntimes "Delay - returns the underlying result after sleeping" (fun runtime ->
                         let mutable ran = false
-
                         let effect =
                             FIO.attempt(
                                 fun () ->
                                     ran <- true
                                     7)
                                 id
-
                         let sw = Stopwatch.StartNew()
 
                         let result =
                             runtime.Run(effect.Delay (TimeSpan.FromMilliseconds 50.0)).UnsafeSuccess()
-
                         sw.Stop()
 
                         Expect.equal result 7 "Delay should return the underlying effect's result"
@@ -61,7 +58,6 @@ let tests =
                         let slowEff =
                             (FIO.sleep (TimeSpan.FromSeconds 10.0))
                                 .FlatMap(fun () -> FIO.succeed 42)
-
                         let effect = slowEff.Timeout (TimeSpan.FromMilliseconds 50.0)
 
                         let result =

@@ -10,6 +10,7 @@
     <ItemGroup>
         <!-- Utils -->
         <Compile Include="Utils/Utilities.fs" />
+        <Compile Include="Utils/ChildProcess.fs" />
 
         <!-- DSL -->
         <Compile Include="DSL/CETests.fs" />
@@ -43,6 +44,7 @@
         <Compile Include="Lib/ConsoleTests.fs" />
 
         <!-- Framework -->
+        <Compile Include="Runtime/WorkerInfrastructureTests.fs" />
         <Compile Include="Runtime/ConformanceTests.fs" />
         <Compile Include="Runtime/InterpreterSizeTests.fs" />
         <Compile Include="Framework/AppTests.fs" />

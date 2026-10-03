@@ -78,7 +78,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "interrupt - with ParentInterrupted cause"
                     <| fun (runtime: FIORuntime) ->
                         let parentGuid = Guid.NewGuid()
-
                         let effect =
                             FIO.interrupt (ParentInterrupted parentGuid) "parent interrupt test"
 
@@ -197,15 +196,19 @@ let tests =
                         let effect: FIO<unit, string> = FIO.succeedWith (fun () -> calls.Value <- calls.Value + 1)
 
                         Expect.equal calls.Value 0 "Constructing the effect must not run the function"
+
                         runtime.Run(effect).UnsafeSuccess()
                         runtime.Run(effect).UnsafeSuccess()
+
                         Expect.equal calls.Value 2 "Each run should call the function exactly once"
 
                     testAllRuntimes "succeedWith - a throwing function is a defect, not a typed error"
                     <| fun runtime ->
                         let effect: FIO<int, string> = FIO.succeedWith (fun () -> failwith "thunk threw")
 
-                        match runtime.Run(effect).UnsafeResult() with
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        match result with
                         | Interrupted ex ->
                             match ex.cause with
                             | Defect inner -> Expect.equal inner.Message "thunk threw" "The defect should carry the thrown exception"
@@ -216,7 +219,9 @@ let tests =
                     <| fun runtime ->
                         let effect: FIO<int, string> = FIO.succeedWith throwsFromUserCode
 
-                        match runtime.Run(effect).UnsafeResult() with
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        match result with
                         | Interrupted ex ->
                             match ex.cause with
                             | Defect inner ->

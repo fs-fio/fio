@@ -24,6 +24,7 @@ let typesTests =
                     testPropertyWithConfig fsCheckConfig "fromException - wraps an exception in GeneralError"
                     <| fun (_: FIORuntime) ->
                         let ex = Exception "test"
+
                         let error = SocketError.fromException ex
 
                         match error with
@@ -35,6 +36,7 @@ let typesTests =
                     <| fun (_: FIORuntime) ->
                         let original = Exception "test"
                         let error = GeneralError original
+
                         let result = SocketError.toException error
 
                         Expect.isTrue
@@ -44,6 +46,7 @@ let typesTests =
                     testCase "toException - creates an Exception for the other cases"
                     <| fun () ->
                         let error = ConnectionClosed "peer disconnected"
+
                         let result = SocketError.toException error
 
                         Expect.stringContains
@@ -73,13 +76,14 @@ let typesTests =
 
                     testAllRuntimes "create - fails for an empty host" (fun runtime ->
                         let effect = SocketConfig.create "" 8080
+                        let effect2 = SocketConfig.create "   " 8080
+
                         let error = runtime.Run(effect).UnsafeError()
 
                         match error with
                         | InvalidState _ -> ()
                         | other -> failtest $"Expected InvalidState but got {other}"
 
-                        let effect2 = SocketConfig.create "   " 8080
                         let err2 = runtime.Run(effect2).UnsafeError()
 
                         match err2 with
@@ -89,6 +93,7 @@ let typesTests =
                     testAllRuntimes "create - fails for an invalid port" (fun runtime ->
                         for port in [ 0; -1; 65536; 100000 ] do
                             let effect = SocketConfig.create "localhost" port
+
                             let error = runtime.Run(effect).UnsafeError()
 
                             match error with
@@ -137,6 +142,7 @@ let typesTests =
 
                     testAllRuntimes "create - succeeds with valid inputs" (fun runtime ->
                         let effect = ServerSocketConfig.create "127.0.0.1" 9090
+
                         let config = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal config.BindAddress "127.0.0.1" "BindAddress"
@@ -146,26 +152,31 @@ let typesTests =
 
                     testAllRuntimes "create - allows port 0" (fun runtime ->
                         let effect = ServerSocketConfig.create "127.0.0.1" 0
+
                         let config = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal config.BindPort 0 "Port 0 should be allowed")
 
                     testAllRuntimes "create - fails for invalid inputs" (fun runtime ->
                         let effect1 = ServerSocketConfig.create "" 8080
-
-                        match runtime.Run(effect1).UnsafeError() with
-                        | InvalidState _ -> ()
-                        | other -> failtest $"Expected InvalidState but got {other}"
-
                         let effect2 = ServerSocketConfig.create "127.0.0.1" (-1)
-
-                        match runtime.Run(effect2).UnsafeError() with
-                        | InvalidState _ -> ()
-                        | other -> failtest $"Expected InvalidState but got {other}"
-
                         let effect3 = ServerSocketConfig.create "127.0.0.1" 65536
 
-                        match runtime.Run(effect3).UnsafeError() with
+                        let error1 = runtime.Run(effect1).UnsafeError()
+
+                        match error1 with
+                        | InvalidState _ -> ()
+                        | other -> failtest $"Expected InvalidState but got {other}"
+
+                        let error2 = runtime.Run(effect2).UnsafeError()
+
+                        match error2 with
+                        | InvalidState _ -> ()
+                        | other -> failtest $"Expected InvalidState but got {other}"
+
+                        let error3 = runtime.Run(effect3).UnsafeError()
+
+                        match error3 with
                         | InvalidState _ -> ()
                         | other -> failtest $"Expected InvalidState but got {other}")
 
@@ -178,6 +189,7 @@ let typesTests =
                         Expect.equal config.Backlog 100 "Default Backlog"
 
                         let updated = ServerSocketConfig.withBacklog 50 config
+
                         Expect.equal updated.Backlog 50 "Updated Backlog"
 
                         let updated2 =
@@ -191,7 +203,6 @@ let typesTests =
                     testCase "withAcceptedConfig - updates the accepted configuration"
                     <| fun () ->
                         let config = ServerSocketConfig.defaultConfig
-
                         let socketConfig =
                             {
                                 Host = "localhost"
@@ -211,7 +222,6 @@ let typesTests =
                         let updated = ServerSocketConfig.withAcceptedConfig socketConfig config
 
                         Expect.isSome updated.AcceptedSocketConfig "Should have AcceptedSocketConfig"
-
                         match updated.AcceptedSocketConfig with
                         | Some sc ->
                             Expect.equal sc.Host "localhost" "AcceptedSocketConfig host"
@@ -239,8 +249,8 @@ let typesTests =
                                 LingerEnabled = true
                                 LingerTimeout = 0
                             }
-
                         let effect = SocketPoolConfig.create socketConfig
+
                         let config = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal config.MinPoolSize 0 "Default MinPoolSize"
@@ -264,26 +274,71 @@ let typesTests =
                                 LingerEnabled = true
                                 LingerTimeout = 0
                             }
-
                         let effect =
                             fio {
                                 let! config = SocketPoolConfig.create socketConfig
                                 return! SocketPoolConfig.withMinPoolSize -1 config
                             }
-
-                        match runtime.Run(effect).UnsafeError() with
-                        | InvalidState _ -> ()
-                        | other -> failtest $"Expected InvalidState for negative min but got {other}"
-
                         let effect2 =
                             fio {
                                 let! config = SocketPoolConfig.create socketConfig
                                 return! SocketPoolConfig.withMaxPoolSize 0 config
                             }
 
-                        match runtime.Run(effect2).UnsafeError() with
+                        let error = runtime.Run(effect).UnsafeError()
+
+                        match error with
+                        | InvalidState _ -> ()
+                        | other -> failtest $"Expected InvalidState for negative min but got {other}"
+
+                        let error2 = runtime.Run(effect2).UnsafeError()
+
+                        match error2 with
                         | InvalidState _ -> ()
                         | other -> failtest $"Expected InvalidState for zero max but got {other}")
+
+                    testAllRuntimes "withMinPoolSize - fails when the minimum exceeds the maximum" (fun runtime ->
+                        let effect =
+                            fio {
+                                let! socketConfig = SocketConfig.create "localhost" 8080
+                                let! config = SocketPoolConfig.create socketConfig
+                                return! SocketPoolConfig.withMinPoolSize (config.MaxPoolSize + 1) config
+                            }
+
+                        let error = runtime.Run(effect).UnsafeError()
+
+                        match error with
+                        | InvalidState(_, actual) -> Expect.equal actual "MinPoolSize > MaxPoolSize" "The failure should name the conflict"
+                        | other -> failtest $"Expected InvalidState but got {other}")
+
+                    testAllRuntimes "withMaxPoolSize - fails when the maximum is below the minimum" (fun runtime ->
+                        let effect =
+                            fio {
+                                let! socketConfig = SocketConfig.create "localhost" 8080
+                                let! config = SocketPoolConfig.create socketConfig
+                                let! withMinimum = SocketPoolConfig.withMinPoolSize 5 config
+                                return! SocketPoolConfig.withMaxPoolSize 3 withMinimum
+                            }
+
+                        let error = runtime.Run(effect).UnsafeError()
+
+                        match error with
+                        | InvalidState(_, actual) -> Expect.equal actual "MaxPoolSize < MinPoolSize" "The failure should name the conflict"
+                        | other -> failtest $"Expected InvalidState but got {other}")
+
+                    testAllRuntimes "withMinPoolSize/withMaxPoolSize - accept values within range, including equal bounds" (fun runtime ->
+                        let effect =
+                            fio {
+                                let! socketConfig = SocketConfig.create "localhost" 8080
+                                let! config = SocketPoolConfig.create socketConfig
+                                let! withMaximum = SocketPoolConfig.withMaxPoolSize 4 config
+                                let! withMinimum = SocketPoolConfig.withMinPoolSize 4 withMaximum
+                                return! SocketPoolConfig.withMaxPoolSize 4 withMinimum
+                            }
+
+                        let config = runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.equal (config.MinPoolSize, config.MaxPoolSize) (4, 4) "Equal bounds should be accepted")
 
                     testCase "builders - update the fields of a SocketPoolConfig"
                     <| fun () ->
@@ -311,9 +366,11 @@ let typesTests =
                             }
 
                         let updated = SocketPoolConfig.withConnectionLifetime 600 poolConfig
+
                         Expect.equal updated.ConnectionLifetime 600 "ConnectionLifetime"
 
                         let updated2 = SocketPoolConfig.withValidateOnAcquire false poolConfig
+
                         Expect.isFalse updated2.ValidateOnAcquire "ValidateOnAcquire"
                 ]
         ]

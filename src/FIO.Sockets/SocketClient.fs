@@ -3,6 +3,8 @@ namespace FIO.Sockets
 open FIO.DSL
 
 open System.Net
+open System.Threading
+open System.Threading.Tasks
 
 [<RequireQualifiedAccess>]
 module SocketClient =
@@ -20,6 +22,14 @@ module SocketClient =
                 socket)
             SocketError.fromException
 
+    // ConnectAsync throws at once for an argument it rejects, such as a port out of range; as a faulted task that
+    // still fails as ConnectionFailed.
+    let private connectAsync (netSocket: Sockets.Socket) (config: SocketConfig) (cancellationToken: CancellationToken) =
+        try
+            netSocket.ConnectAsync(config.Host, config.Port, cancellationToken).AsTask()
+        with ex ->
+            Task.FromException ex
+
     /// Connects to a remote host using the given configuration, returning an open socket.
     let connect (config: SocketConfig) : FIO<Socket, SocketError> =
         fio {
@@ -29,7 +39,7 @@ module SocketClient =
 
             do!
                 (FIO.awaitUnitTask
-                    (netSocket.ConnectAsync(config.Host, config.Port, cancellationToken).AsTask())
+                    (connectAsync netSocket config cancellationToken)
                     (fun ex -> ConnectionFailed(config.Host, config.Port, ex)))
                     .TapError(fun _ ->
                         FIO.succeedWith (fun () ->
@@ -59,7 +69,7 @@ module SocketClient =
 
                 do!
                     FIO.awaitUnitTask
-                        (netSocket.ConnectAsync(config.Host, config.Port, cancellationToken).AsTask())
+                        (connectAsync netSocket config cancellationToken)
                         (fun ex -> ConnectionFailed(config.Host, config.Port, ex))
 
                 let socket = new Socket(netSocket, config)

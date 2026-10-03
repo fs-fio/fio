@@ -64,7 +64,6 @@ let handlerTests =
                         let resp = runtime.Run(handler (makeGetRequest "/")).UnsafeSuccess()
 
                         Expect.equal resp.Status HttpStatusCode.OK "200"
-
                         match resp.Body with
                         | ResponseBody.Json _ -> ()
                         | _ -> failtest "Expected Json body")
@@ -85,6 +84,7 @@ let handlerTests =
 
                     testAllRuntimes "notFound - returns 404" (fun runtime ->
                         let resp = runtime.Run(HttpHandler.notFound (makeGetRequest "/")).UnsafeSuccess()
+
                         Expect.equal resp.Status HttpStatusCode.NotFound "404")
 
                     testAllRuntimes "badRequest - returns 400" (fun runtime ->
@@ -168,7 +168,6 @@ let handlerTests =
 
                     testAllRuntimes "tap - runs a side effect without changing the response" (fun runtime ->
                         let mutable tapped = false
-
                         let handler =
                             HttpHandler.text "hello"
                             |> HttpHandler.tap (fun _ -> FIO.attempt (fun () -> tapped <- true) id)
@@ -227,8 +226,8 @@ let handlerTests =
                         let req =
                             HttpRequest.create HttpMethod.POST "/data"
                             |> HttpRequest.withBody (RequestBody.Text """{"Id":1,"Text":"hello"}""")
-
                         let parser = HttpHandler.parseJsonBody None
+
                         let msg = runtime.Run(parser req).UnsafeSuccess()
 
                         Expect.equal msg.Id 1 "Id"
@@ -238,13 +237,60 @@ let handlerTests =
                         let req =
                             HttpRequest.create HttpMethod.POST "/data"
                             |> HttpRequest.withBody (RequestBody.Text "not json")
-
                         let parser = HttpHandler.parseJsonBody None
-                        let fiber = runtime.Run(parser req)
 
-                        match fiber.UnsafeResult() with
+                        let result = runtime.Run(parser req).UnsafeResult()
+
+                        match result with
                         | Failed _ -> ()
                         | other -> failtest $"Expected failure but got {other}")
+
+                    testAllRuntimes "parseJsonBody - fails on an empty body" (fun runtime ->
+                        let req =
+                            HttpRequest.create HttpMethod.POST "/data"
+                            |> HttpRequest.withBody (RequestBody.Text "   ")
+
+                        let result = runtime.Run(HttpHandler.parseJsonBody<TestMessage> None req).UnsafeResult()
+
+                        match result with
+                        | Failed error -> Expect.stringContains error.Message "Request body is empty" "An empty body must be named as such"
+                        | other -> failtest $"Expected failure but got {other}")
+
+                    testAllRuntimes "parseJsonBody - fails on a JSON null" (fun runtime ->
+                        let req =
+                            HttpRequest.create HttpMethod.POST "/data"
+                            |> HttpRequest.withBody (RequestBody.Text "null")
+
+                        let result = runtime.Run(HttpHandler.parseJsonBody<TestMessage> None req).UnsafeResult()
+
+                        match result with
+                        | Failed error -> Expect.stringContains error.Message "deserialized to null" "A JSON null must be rejected"
+                        | other -> failtest $"Expected failure but got {other}")
+
+                    testAllRuntimes "jsonBody - maps a parse failure through onError" (fun runtime ->
+                        let handlerRan = ref false
+                        let received = ref None
+                        let handler =
+                            HttpHandler.jsonBody<TestMessage, string>
+                                (fun _ ->
+                                    handlerRan.Value <- true
+                                    FIO.succeed Response.ok)
+                                (fun ex ->
+                                    received.Value <- Some ex
+                                    "mapped")
+                        let req =
+                            HttpRequest.create HttpMethod.POST "/data"
+                            |> HttpRequest.withBody (RequestBody.Text "not json")
+
+                        let result = runtime.Run(handler req).UnsafeResult()
+
+                        match result with
+                        | Failed error -> Expect.equal error "mapped" "The failure must be the one onError produced"
+                        | other -> failtest $"Expected failure but got {other}"
+                        match received.Value with
+                        | Some(:? System.Text.Json.JsonException) -> ()
+                        | other -> failtest $"onError must receive the parse failure, got {other}"
+                        Expect.isFalse handlerRan.Value "The handler must not run when the body does not parse")
                 ]
 
             testList
@@ -298,11 +344,13 @@ let handlerTests =
                 [
                     testAllRuntimes "ok - returns 200 with an empty body" (fun runtime ->
                         let response = runHandler runtime HttpHandler.ok
+
                         Expect.equal response.Status HttpStatusCode.OK "ok must be 200"
                         Expect.equal response.Body ResponseBody.Empty "ok must carry no body")
 
                     testAllRuntimes "noContent - returns 204 with an empty body" (fun runtime ->
                         let response = runHandler runtime HttpHandler.noContent
+
                         Expect.equal response.Status HttpStatusCode.NoContent "noContent must be 204"
                         Expect.equal response.Body ResponseBody.Empty "204 must carry no body")
                 ]
@@ -312,6 +360,7 @@ let handlerTests =
                 [
                     testAllRuntimes "notFoundText - carries the message" (fun runtime ->
                         let response = runHandler runtime (HttpHandler.notFoundText "no such thing")
+
                         Expect.equal response.Status HttpStatusCode.NotFound "404"
                         match response.Body with
                         | ResponseBody.Text t -> Expect.equal t "no such thing" "Message must reach the body"
@@ -319,6 +368,7 @@ let handlerTests =
 
                     testAllRuntimes "badRequestText - carries the message" (fun runtime ->
                         let response = runHandler runtime (HttpHandler.badRequestText "bad input")
+
                         Expect.equal response.Status HttpStatusCode.BadRequest "400"
                         match response.Body with
                         | ResponseBody.Text t -> Expect.equal t "bad input" "Message must reach the body"
@@ -326,6 +376,7 @@ let handlerTests =
 
                     testAllRuntimes "serverErrorText - carries the message" (fun runtime ->
                         let response = runHandler runtime (HttpHandler.serverErrorText "it broke")
+
                         Expect.equal response.Status HttpStatusCode.InternalServerError "500"
                         match response.Body with
                         | ResponseBody.Text t -> Expect.equal t "it broke" "Message must reach the body"
@@ -333,6 +384,7 @@ let handlerTests =
 
                     testAllRuntimes "html - sets an HTML content type" (fun runtime ->
                         let response = runHandler runtime (HttpHandler.html "<h1>hi</h1>")
+
                         Expect.equal response.Status HttpStatusCode.OK "200"
                         match response.Body with
                         | ResponseBody.Text t -> Expect.equal t "<h1>hi</h1>" "HTML must reach the body"
@@ -340,7 +392,9 @@ let handlerTests =
 
                     testAllRuntimes "bytes - carries the payload and content type" (fun runtime ->
                         let payload = [| 7uy; 8uy; 9uy |]
+
                         let response = runHandler runtime (HttpHandler.bytes payload "application/octet-stream")
+
                         Expect.equal response.Status HttpStatusCode.OK "200"
                         match response.Body with
                         | ResponseBody.Bytes b -> Expect.sequenceEqual b payload "Payload must round-trip"

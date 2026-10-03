@@ -25,7 +25,6 @@ let codecTests =
                     testPropertyWithConfig fsCheckConfig "frame - roundtrips a Text frame"
                     <| fun (runtime: FIORuntime) ->
                         let frame = Text "hello"
-
                         let effect =
                             fio {
                                 let! encoded = Codec.frame.Encode frame
@@ -39,7 +38,6 @@ let codecTests =
 
                     testAllRuntimes "frame - roundtrips a Binary frame" (fun runtime ->
                         let frame = Binary [| 1uy; 2uy; 3uy |]
-
                         let effect =
                             fio {
                                 let! encoded = Codec.frame.Encode frame
@@ -59,6 +57,7 @@ let codecTests =
                     testAllRuntimes "binary - encode produces a Binary frame" (fun runtime ->
                         let data = [| 10uy; 20uy; 30uy |]
                         let effect = Codec.binary.Encode data
+
                         let result = runtime.Run(effect).UnsafeSuccess()
 
                         match result with
@@ -68,7 +67,6 @@ let codecTests =
                     testPropertyWithConfig fsCheckConfig "binary - roundtrip preserves the data"
                     <| fun (runtime: FIORuntime) ->
                         let data = [| 1uy; 2uy; 3uy; 4uy; 5uy |]
-
                         let effect =
                             fio {
                                 let! encoded = Codec.binary.Encode data
@@ -82,10 +80,20 @@ let codecTests =
 
                     testAllRuntimes "binary - decode fails on a Text frame" (fun runtime ->
                         let effect = Codec.binary.Decode(Text "hello")
+
                         let error = runtime.Run(effect).UnsafeError()
 
                         match error with
                         | CodecError _ -> ()
+                        | other -> failtest $"Expected CodecError but got {other}")
+
+                    testAllRuntimes "binary - decode fails on a Close frame" (fun runtime ->
+                        let effect = Codec.binary.Decode(Close(WebSocketCloseStatus.NormalClosure, "bye"))
+
+                        let error = runtime.Run(effect).UnsafeError()
+
+                        match error with
+                        | CodecError message -> Expect.stringContains message "close frame" "The failure should name the frame"
                         | other -> failtest $"Expected CodecError but got {other}")
                 ]
 
@@ -95,6 +103,7 @@ let codecTests =
 
                     testAllRuntimes "text - encode produces a Text frame" (fun runtime ->
                         let effect = Codec.text.Encode "hello"
+
                         let result = runtime.Run(effect).UnsafeSuccess()
 
                         match result with
@@ -104,7 +113,6 @@ let codecTests =
                     testPropertyWithConfig fsCheckConfig "text - roundtrip preserves the string"
                     <| fun (runtime: FIORuntime) ->
                         let text = "hello world"
-
                         let effect =
                             fio {
                                 let! encoded = Codec.text.Encode text
@@ -124,7 +132,9 @@ let codecTests =
                                 return decoded
                             }
 
-                        Expect.equal (runtime.Run(effect).UnsafeSuccess()) "" "empty string roundtrip")
+                        let result = runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.equal result "" "empty string roundtrip")
 
                     testAllRuntimes "text - roundtrips a unicode string" (fun runtime ->
                         let effect =
@@ -134,14 +144,26 @@ let codecTests =
                                 return decoded
                             }
 
-                        Expect.equal (runtime.Run(effect).UnsafeSuccess()) "héllo wörld 🌍" "unicode roundtrip")
+                        let result = runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.equal result "héllo wörld 🌍" "unicode roundtrip")
 
                     testAllRuntimes "text - decode fails on a Binary frame" (fun runtime ->
                         let effect = Codec.text.Decode(Binary [| 1uy |])
+
                         let error = runtime.Run(effect).UnsafeError()
 
                         match error with
                         | CodecError _ -> ()
+                        | other -> failtest $"Expected CodecError but got {other}")
+
+                    testAllRuntimes "text - decode fails on a Close frame" (fun runtime ->
+                        let effect = Codec.text.Decode(Close(WebSocketCloseStatus.NormalClosure, "bye"))
+
+                        let error = runtime.Run(effect).UnsafeError()
+
+                        match error with
+                        | CodecError message -> Expect.stringContains message "close frame" "The failure should name the frame"
                         | other -> failtest $"Expected CodecError but got {other}")
                 ]
 
@@ -152,7 +174,6 @@ let codecTests =
                     testAllRuntimes "json - roundtrips a TestMessage" (fun runtime ->
                         let msg = { Id = 42; Text = "hello" }
                         let codec = Codec.json
-
                         let effect =
                             fio {
                                 let! encoded = codec.Encode msg
@@ -168,6 +189,7 @@ let codecTests =
                     testAllRuntimes "json - invalid JSON produces an error" (fun runtime ->
                         let codec = Codec.json
                         let effect = codec.Decode(Text "not valid json!!!")
+
                         let error = runtime.Run(effect).UnsafeError()
 
                         match error with
@@ -177,6 +199,7 @@ let codecTests =
                     testAllRuntimes "json - a Close frame produces CodecError" (fun runtime ->
                         let codec = Codec.json
                         let effect = codec.Decode(Close(WebSocketCloseStatus.NormalClosure, "bye"))
+
                         let error = runtime.Run(effect).UnsafeError()
 
                         match error with
@@ -192,7 +215,6 @@ let codecTests =
                         let options = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
                         let codec = Codec.jsonWithOptions options
                         let msg = { Id = 7; Text = "custom" }
-
                         let effect =
                             fio {
                                 let! encoded = codec.Encode msg
@@ -224,7 +246,6 @@ let codecTests =
                     testAllRuntimes "jsonLine - roundtrip preserves the content" (fun runtime ->
                         let codec = Codec.jsonLine None
                         let msg = { Id = 3; Text = "jsonline" }
-
                         let effect =
                             fio {
                                 let! encoded = codec.Encode msg
@@ -236,6 +257,15 @@ let codecTests =
 
                         Expect.equal result.Id msg.Id "Id should match"
                         Expect.equal result.Text msg.Text "Text should match")
+
+                    testAllRuntimes "jsonLine - a Close frame produces CodecError" (fun runtime ->
+                        let codec: WebSocketCodec<TestMessage> = Codec.jsonLine None
+
+                        let error = runtime.Run(codec.Decode(Close(WebSocketCloseStatus.NormalClosure, "bye"))).UnsafeError()
+
+                        match error with
+                        | CodecError message -> Expect.stringContains message "close frame" "The failure should name the frame"
+                        | other -> failtest $"Expected CodecError but got {other}")
                 ]
 
             testList
@@ -245,7 +275,6 @@ let codecTests =
                     testPropertyWithConfig fsCheckConfig "map - roundtrips through a bidirectional mapping"
                     <| fun (runtime: FIORuntime) ->
                         let intCodec = Codec.text |> Codec.map int string
-
                         let effect =
                             fio {
                                 let! encoded = intCodec.Encode 42
@@ -264,7 +293,6 @@ let codecTests =
 
                     testAllRuntimes "compose - roundtrips a pair" (fun runtime ->
                         let pairCodec = Codec.compose Codec.text Codec.text
-
                         let effect =
                             fio {
                                 let! encoded = pairCodec.Encode("hello", "world")
@@ -275,6 +303,36 @@ let codecTests =
                         let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result ("hello", "world") "compose codec roundtrip")
+
+                    testAllRuntimes "compose - refuses to encode a Close frame" (fun runtime ->
+                        let pairCodec = Codec.compose Codec.frame Codec.text
+                        let effect = pairCodec.Encode(Close(WebSocketCloseStatus.NormalClosure, "bye"), "text")
+
+                        let error = runtime.Run(effect).UnsafeError()
+
+                        match error with
+                        | CodecError message -> Expect.stringContains message "close frame" "The failure should name the frame"
+                        | other -> failtest $"Expected CodecError but got {other}")
+
+                    testAllRuntimes "compose - an unknown part kind produces CodecError" (fun runtime ->
+                        let pairCodec = Codec.compose Codec.text Codec.text
+                        let json = """[{"kind":"weird","value":"a"},{"kind":"text","value":"b"}]"""
+
+                        let error = runtime.Run(pairCodec.Decode(Text json)).UnsafeError()
+
+                        match error with
+                        | CodecError message -> Expect.stringContains message "Unknown composed frame kind: weird" "The failure should name the kind"
+                        | other -> failtest $"Expected CodecError but got {other}")
+
+                    testAllRuntimes "compose - a wrong number of parts produces CodecError" (fun runtime ->
+                        let pairCodec = Codec.compose Codec.text Codec.text
+                        let json = """[{"kind":"text","value":"a"},{"kind":"text","value":"b"},{"kind":"text","value":"c"}]"""
+
+                        let error = runtime.Run(pairCodec.Decode(Text json)).UnsafeError()
+
+                        match error with
+                        | CodecError message -> Expect.stringContains message "Expected 2 composed elements, got 3" "The failure should count the parts"
+                        | other -> failtest $"Expected CodecError but got {other}")
                 ]
 
             testList
@@ -287,7 +345,6 @@ let codecTests =
                                 match frame with
                                 | Text s -> FIO.succeed s
                                 | _ -> FIO.fail (CodecError "Expected text"))
-
                         let effect =
                             fio {
                                 let! encoded = codec.Encode "hello"
@@ -310,8 +367,8 @@ let codecTests =
                                 match frame with
                                 | Text s -> s
                                 | _ -> failwith "unexpected")
-
                         let effect = codec.Encode "test"
+
                         let error = runtime.Run(effect).UnsafeError()
 
                         match error with
@@ -321,8 +378,8 @@ let codecTests =
                     testAllRuntimes "createPure - a throwing decoder produces an error" (fun runtime ->
                         let codec =
                             Codec.createPure (fun str -> Text str) (fun (_: WebSocketFrame) -> failwith "boom")
-
                         let effect = codec.Decode(Text "test")
+
                         let error = runtime.Run(effect).UnsafeError()
 
                         match error with
@@ -335,7 +392,6 @@ let codecTests =
                                 match frame with
                                 | Text s -> s
                                 | _ -> failwith "unexpected")
-
                         let effect =
                             fio {
                                 let! encoded = codec.Encode "pure test"

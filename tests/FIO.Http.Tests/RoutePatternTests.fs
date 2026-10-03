@@ -20,7 +20,6 @@ let routePatternTests =
                             RoutePath.tryMatch (RoutePath.exact [ "users"; "list" ]) [ "users"; "list" ]
 
                         Expect.isSome result "Should match"
-
                         match result with
                         | Some(params', remaining) ->
                             Expect.isEmpty params' "No params"
@@ -75,6 +74,7 @@ let routePatternTests =
                     testCase "fromString - parses a simple path"
                     <| fun () ->
                         let path = RoutePath.fromString "/users/list"
+
                         let result = RoutePath.tryMatch path [ "users"; "list" ]
 
                         Expect.isSome result "Should match"
@@ -82,9 +82,20 @@ let routePatternTests =
                     testCase "fromString - handles the root path"
                     <| fun () ->
                         let path = RoutePath.fromString "/"
+
                         let result = RoutePath.tryMatch path []
 
                         Expect.isSome result "Root should match"
+
+                    testCase "fromString - a parameter path rejects a different literal or a shorter path"
+                    <| fun () ->
+                        let path = RoutePath.fromString "/users/:id"
+
+                        let differentLiteral = RoutePath.tryMatch path [ "posts"; "42" ]
+                        let missingParameter = RoutePath.tryMatch path [ "users" ]
+
+                        Expect.isNone differentLiteral "A different literal segment should not match"
+                        Expect.isNone missingParameter "A path missing the parameter should not match"
 
                     testCase "withInt - matches an integer parameter"
                     <| fun () ->
@@ -105,6 +116,22 @@ let routePatternTests =
                         let result = RoutePath.tryMatch path [ "users"; "abc" ]
 
                         Expect.isNone result "Non-integer should not match"
+
+                    testCase "withInt - rejects a path whose leading segments differ"
+                    <| fun () ->
+                        let path = RoutePath.withInt [ "users" ] []
+
+                        let result = RoutePath.tryMatch path [ "7"; "42" ]
+
+                        Expect.isNone result "A different leading segment should not match"
+
+                    testCase "withInt - rejects a path whose trailing segments differ"
+                    <| fun () ->
+                        let path = RoutePath.withInt [ "users" ] [ "posts" ]
+
+                        let result = RoutePath.tryMatch path [ "users"; "5"; "comments" ]
+
+                        Expect.isNone result "A different trailing segment should not match"
 
                     testCase "withInt - matches with segments before and after"
                     <| fun () ->
@@ -168,17 +195,34 @@ let routePatternTests =
 
                         Expect.isNone result "Wrong path should not match"
 
+                    testCase "tryMatch - rejects extra segments after a parameter"
+                    <| fun () ->
+                        let pattern = RoutePattern.get (RoutePath.withInt [ "users" ] [])
+                        let req = HttpRequest.create HttpMethod.GET "/users/42/extra"
+
+                        let result = RoutePattern.tryMatch pattern req
+
+                        Expect.isNone result "Segments left over after the parameter should not match"
+
                     testCase "get/post/put/delete - create patterns with their methods"
                     <| fun () ->
                         let path = RoutePath.exact [ "test" ]
 
-                        Expect.equal (RoutePattern.get path).Method HttpMethod.GET "GET"
-                        Expect.equal (RoutePattern.post path).Method HttpMethod.POST "POST"
-                        Expect.equal (RoutePattern.put path).Method HttpMethod.PUT "PUT"
-                        Expect.equal (RoutePattern.delete path).Method HttpMethod.DELETE "DELETE"
-                        Expect.equal (RoutePattern.patch path).Method HttpMethod.PATCH "PATCH"
-                        Expect.equal (RoutePattern.head path).Method HttpMethod.HEAD "HEAD"
-                        Expect.equal (RoutePattern.options path).Method HttpMethod.OPTIONS "OPTIONS"
+                        let get = RoutePattern.get path
+                        let post = RoutePattern.post path
+                        let put = RoutePattern.put path
+                        let delete = RoutePattern.delete path
+                        let patch = RoutePattern.patch path
+                        let head = RoutePattern.head path
+                        let options = RoutePattern.options path
+
+                        Expect.equal get.Method HttpMethod.GET "GET"
+                        Expect.equal post.Method HttpMethod.POST "POST"
+                        Expect.equal put.Method HttpMethod.PUT "PUT"
+                        Expect.equal delete.Method HttpMethod.DELETE "DELETE"
+                        Expect.equal patch.Method HttpMethod.PATCH "PATCH"
+                        Expect.equal head.Method HttpMethod.HEAD "HEAD"
+                        Expect.equal options.Method HttpMethod.OPTIONS "OPTIONS"
                 ]
 
             testList
@@ -187,12 +231,11 @@ let routePatternTests =
 
                     testCase "fromString - parses GET /path"
                     <| fun () ->
+                        let req = HttpRequest.create HttpMethod.GET "/users"
+
                         let pattern = Route.fromString "GET /users"
 
                         Expect.equal pattern.Method HttpMethod.GET "GET"
-
-                        let req = HttpRequest.create HttpMethod.GET "/users"
-
                         Expect.isSome (RoutePattern.tryMatch pattern req) "Match"
 
                     testCase "fromString - parses a route with a parameter"
@@ -214,15 +257,13 @@ let routePatternTests =
                     testCase "Route.get/post/put/delete - create from a string"
                     <| fun () ->
                         let gp = Route.get "/test"
-                        Expect.equal gp.Method HttpMethod.GET "GET"
-
                         let pp = Route.post "/test"
-                        Expect.equal pp.Method HttpMethod.POST "POST"
-
                         let up = Route.put "/test"
-                        Expect.equal up.Method HttpMethod.PUT "PUT"
-
                         let dp = Route.delete "/test"
+
+                        Expect.equal gp.Method HttpMethod.GET "GET"
+                        Expect.equal pp.Method HttpMethod.POST "POST"
+                        Expect.equal up.Method HttpMethod.PUT "PUT"
                         Expect.equal dp.Method HttpMethod.DELETE "DELETE"
                 ]
 
@@ -232,10 +273,11 @@ let routePatternTests =
 
                     testCase "( => ) - creates a route pattern from a method and a path"
                     <| fun () ->
-                        let pattern = RouteOperators.(=>) HttpMethod.GET "/api"
-                        Expect.equal pattern.Method HttpMethod.GET "GET"
-
                         let req = HttpRequest.create HttpMethod.GET "/api"
+
+                        let pattern = RouteOperators.(=>) HttpMethod.GET "/api"
+
+                        Expect.equal pattern.Method HttpMethod.GET "GET"
                         Expect.isSome (RoutePattern.tryMatch pattern req) "Match"
                 ]
         ]

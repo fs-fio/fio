@@ -115,13 +115,13 @@ type FIOApp<'A, 'E>() as this =
     member _.Stop () : unit =
         requestShutdown "programmatically" |> ignore
 
-    member private _.RunHookAsync (runtime: FIORuntime) (label: string) (timeout: TimeSpan) (effect: FIO<unit, 'E>) =
+    member private _.RunHookAsync (runtime: FIORuntime) (label: string) (timeout: TimeSpan) (hook: unit -> FIO<unit, 'E>) =
         task {
             let mutable fiberOpt = None
             let mutable timedOut = false
 
             try
-                let fiber = runtime.Run effect
+                let fiber = runtime.Run(hook ())
                 fiberOpt <- Some fiber
                 let! _ = (fiber.Task()).WaitAsync timeout
                 ()
@@ -140,10 +140,10 @@ type FIOApp<'A, 'E>() as this =
         }
 
     member private this.RunOutcomeAsync (runtime: FIORuntime) (outcome: AppResult<'A, 'E>) =
-        this.RunHookAsync runtime "outcome" this.onOutcomeTimeout (this.onOutcome outcome)
+        this.RunHookAsync runtime "outcome" this.onOutcomeTimeout (fun () -> this.onOutcome outcome)
 
     member private this.RunShutdownAsync (runtime: FIORuntime) =
-        this.RunHookAsync runtime "shutdown" this.onShutdownTimeout (this.onShutdown ())
+        this.RunHookAsync runtime "shutdown" this.onShutdownTimeout (fun () -> this.onShutdown ())
 
     /// Runs the application asynchronously and returns its process exit code.
     member this.RunAsync () : System.Threading.Tasks.Task<int> =

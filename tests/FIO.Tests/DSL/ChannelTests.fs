@@ -364,8 +364,9 @@ let channelTests =
 
                         let fiber =
                             runtime.Run(effect).UnsafeSuccess()
+                        let result = fiber.UnsafeResult()
 
-                        match fiber.UnsafeResult() with
+                        match result with
                         | Interrupted _ -> ()
                         | other -> failtest $"Expected Interrupted but got: {other}")
                 ]
@@ -377,7 +378,6 @@ let channelTests =
                         testPropertyWithConfig fsCheckConfig "Stress - 1000 sequential messages preserve FIFO order"
                         <| fun (runtime: FIORuntime) ->
                             let messages = [ 1..1000 ]
-
                             let effect =
                                 fio {
                                     let chan = Channel<int>()
@@ -405,7 +405,6 @@ let channelTests =
 
                             for _ in 1..iterations do
                                 use runtime = new WorkStealingRuntime()
-
                                 let effect =
                                     fio {
                                         let chan = Channel<int>()
@@ -441,9 +440,7 @@ let channelTests =
                             let capacity = 10
                             let itemsPerProducer = 100_000
                             let totalItems = producerCount * itemsPerProducer
-
                             use runtime = new WorkStealingRuntime()
-
                             let effect =
                                 fio {
                                     let hub = Channel<Choice<int * Channel<unit>, Channel<int>>>()
@@ -522,13 +519,11 @@ let channelTests =
                             let capacity = 10
                             let itemsPerProducer = 100_000
                             let totalItems = producerCount * itemsPerProducer
-
                             use runtime =
                                 new PollingRuntime
                                     { EvaluationWorkers = 12
                                       EvaluationSteps = 200
                                       BlockingWorkers = 1 }
-
                             let effect =
                                 fio {
                                     let hub = Channel<Choice<int * Channel<unit>, Channel<int>>>()
@@ -607,7 +602,6 @@ let channelTests =
                             let capacity = 10
                             let itemsPerProducer = 100_000
                             let totalItems = producerCount * itemsPerProducer
-
                             let buildEffect () =
                                 fio {
                                     let hub = Channel<Choice<int * Channel<unit>, Channel<int>>>()
@@ -673,7 +667,6 @@ let channelTests =
                                     let consumers = [ for c in consumerCounts -> consumer c ]
                                     do! FIO.collectAllParDiscard (bufferActor :: (producers @ consumers))
                                 }
-
                             use runtime =
                                 new SignalingRuntime
                                     { EvaluationWorkers = 12
@@ -692,6 +685,7 @@ let channelTests =
                 [
                     testAllRuntimes "TryWrite - an unbounded channel always accepts" (fun runtime ->
                         let chan = Channel<int>()
+
                         let accepted = runtime.Run(chan.TryWrite 1 : FIO<bool, exn>).UnsafeSuccess()
 
                         Expect.isTrue accepted "An unbounded channel should accept the message"
@@ -717,7 +711,6 @@ let channelTests =
                             Expect.isFalse
                                 constructor.IsGenericMethod
                                 $"{name} should take its element type from the channel type, not from a type parameter of its own"
-
                             Expect.equal constructor.ReturnType typeof<Channel<int>> $"Channel<int>.{name} should build a Channel<int>"
 
                     testCase "Bounded, Dropping and Sliding - reject a capacity below 1" <| fun () ->
@@ -728,7 +721,6 @@ let channelTests =
                     testAllRuntimes "Bounded - a write to a full channel waits until a message is read" (fun runtime ->
                         let chan = Channel<int>.Bounded 1
                         let writing = ref false
-
                         let effect : FIO<int list * bool * int, exn> =
                             fio {
                                 do! chan.Write(1).Unit()
@@ -755,7 +747,6 @@ let channelTests =
                     testAllRuntimes "Bounded - an uninterruptible waiting writer still writes after an interruption" (fun runtime ->
                         let chan = Channel<int>.Bounded 1
                         let writing = ref false
-
                         let effect : FIO<int * int * bool, exn> =
                             fio {
                                 do! chan.Write(1).Unit()
@@ -786,7 +777,6 @@ let channelTests =
 
                     testAllRuntimes "Bounded - an interrupted waiting writer never writes" (fun runtime ->
                         let chan = Channel<int>.Bounded 1
-
                         let effect : FIO<int * int, exn> =
                             fio {
                                 do! chan.Write(1).Unit()
@@ -806,7 +796,6 @@ let channelTests =
 
                     testAllRuntimes "Bounded - TryWrite on a full channel yields false without waiting or writing" (fun runtime ->
                         let chan = Channel<int>.Bounded 1
-
                         let effect : FIO<bool * bool * int * int, exn> =
                             fio {
                                 let! first = chan.TryWrite 1
@@ -824,7 +813,6 @@ let channelTests =
 
                     testAllRuntimes "Dropping - a full channel refuses new messages and keeps its own" (fun runtime ->
                         let chan = Channel<int>.Dropping 1
-
                         let effect : FIO<bool * bool * int * int, exn> =
                             fio {
                                 let! first = chan.TryWrite 1
@@ -843,7 +831,6 @@ let channelTests =
 
                     testAllRuntimes "Sliding - a full channel drops its oldest message" (fun runtime ->
                         let chan = Channel<int>.Sliding 2
-
                         let effect : FIO<bool * int list * int, exn> =
                             fio {
                                 do! chan.Write(1).Unit()
@@ -864,13 +851,10 @@ let channelTests =
                         let chan = Channel<int>.Bounded 4
                         let producers, perProducer, consumers = 4, 250, 4
                         let total = producers * perProducer
-
                         let produce p : FIO<unit, exn> =
                             FIO.forEachDiscard [ 1..perProducer ] (fun i -> chan.Write(p * perProducer + i).Unit())
-
                         let consume () : FIO<int list, exn> =
                             FIO.forEach [ 1 .. total / consumers ] (fun _ -> chan.Read())
-
                         let effect : FIO<int list, exn> =
                             fio {
                                 let! producerFibers = FIO.forEach [ 0 .. producers - 1 ] (fun p -> (produce p).Fork())
@@ -881,8 +865,8 @@ let channelTests =
                             }
 
                         let task = runtime.Run(effect).Task()
-                        Expect.isTrue (task.Wait(TimeSpan.FromSeconds 60.0)) "Producers and consumers should finish without a lost wakeup"
 
+                        Expect.isTrue (task.Wait(TimeSpan.FromSeconds 60.0)) "Producers and consumers should finish without a lost wakeup"
                         match task.Result with
                         | Succeeded received ->
                             Expect.equal (List.sort received) [ 1..total ] "Every message should arrive exactly once"

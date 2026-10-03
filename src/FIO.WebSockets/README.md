@@ -20,7 +20,7 @@ and failures surface as a typed `WsError` rather than raw exceptions.
 ## Install
 
 ```bash
-dotnet add package FSharp.FIO.WebSockets
+dotnet add package FSharp.FIO.WebSockets --prerelease
 ```
 
 ## Quick Start
@@ -59,6 +59,10 @@ bound — only the first one a name resolves to — and a filter on each request
 `localhost` with 404. To listen on every interface, use `+`; `0.0.0.0` and `[::]` mean the same. On
 Linux and macOS `+` binds IPv4 only; on Windows it needs a URL reservation (`netsh http add urlacl`) or
 an elevated process.
+
+A request that is not a WebSocket upgrade, or whose handshake is invalid (a missing key or version, or
+a subprotocol the client did not offer), is answered `400` and closed, and `accept` fails with
+`ConnectionFailed`; `acceptLoop` and `serve` log it and keep serving.
 
 ## Errors
 

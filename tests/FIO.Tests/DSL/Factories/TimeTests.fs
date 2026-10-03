@@ -23,7 +23,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "sleep - delays execution"
                     <| fun (runtime: FIORuntime) ->
                         let duration = TimeSpan.FromMilliseconds 20.0
-
                         let effect =
                             fio {
                                 let sw = Stopwatch.StartNew()
@@ -44,15 +43,14 @@ let tests =
                                 do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                                 return! fiber.InterruptAwaitNow ()
                             }
-
                         let sw = Stopwatch.StartNew()
+
                         let result = runtime.Run(effect).UnsafeSuccess()
                         sw.Stop()
 
                         match result with
                         | Interrupted _ -> ()
                         | other -> failtestf "Expected Interrupted, got %A" other
-
                         Expect.isLessThan
                             sw.Elapsed.TotalSeconds
                             5.0
@@ -62,12 +60,16 @@ let tests =
                         let effect: FIO<string, string> =
                             (FIO.sleep (TimeSpan.FromMilliseconds 1.0)).FlatMap(fun () -> FIO.succeed "slept")
 
-                        Expect.equal (runtime.Run(effect).UnsafeSuccess()) "slept" "sleep should succeed at any 'E")
+                        let result = runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.equal result "slept" "sleep should succeed at any 'E")
 
                     testAllRuntimes "sleep - a negative duration is an invalid argument" (fun runtime ->
                         let effect: FIO<unit, string> = FIO.sleep (TimeSpan.FromSeconds -1.0)
 
-                        match runtime.Run(effect).UnsafeResult() with
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        match result with
                         | Interrupted ex ->
                             match ex.cause with
                             | InvalidArgument("duration", _) -> ()
@@ -77,7 +79,9 @@ let tests =
                     testAllRuntimes "sleep - a duration beyond the timer maximum is an invalid argument" (fun runtime ->
                         let effect: FIO<unit, string> = FIO.sleep (TimeSpan.FromDays 50.0)
 
-                        match runtime.Run(effect).UnsafeResult() with
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        match result with
                         | Interrupted ex ->
                             match ex.cause with
                             | InvalidArgument("duration", _) -> ()
@@ -92,7 +96,9 @@ let tests =
                                 return! fiber.InterruptAwaitNow ()
                             }
 
-                        match runtime.Run(effect).UnsafeSuccess() with
+                        let result = runtime.Run(effect).UnsafeSuccess()
+
+                        match result with
                         | Interrupted _ -> ()
                         | other -> failtest $"Expected Interrupted but got {other}")
 

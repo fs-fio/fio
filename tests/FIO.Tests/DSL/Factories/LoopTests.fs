@@ -30,7 +30,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "replicateFIO - negative iterations clamp to empty list"
                     <| fun (runtime: FIORuntime) ->
                         let mutable callCount = 0
-
                         let effect =
                             FIO.attempt
                                 (fun () ->
@@ -109,7 +108,6 @@ let tests =
                     <| fun (runtime: FIORuntime) ->
                         let n = 25
                         let mutable callCount = 0
-
                         let effect =
                             FIO.attempt
                                 (fun () ->

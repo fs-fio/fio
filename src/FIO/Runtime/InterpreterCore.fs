@@ -400,14 +400,18 @@ let parkUntilWritable
 
     let waited = channel.Queue.WaitToWriteAsync(cancellationToken).AsTask()
 
+    // A fiber whose handle was disposed while it waited has no token left to read; it ends as a defect.
     let resume () =
         let effect =
-            if suppressed = 0 && fiberContext.CancellationToken.IsCancellationRequested then
-                match interruptionFor fiberContext "Fiber was interrupted while blocked on a channel write." with
-                | :? FiberInterruptedException as interruption -> Interrupt(interruption.cause, interruption.message)
-                | _ -> Interrupt(ExplicitInterrupt, "Fiber was interrupted while blocked on a channel write.")
-            else
-                writeEffect
+            try
+                if suppressed = 0 && fiberContext.CancellationToken.IsCancellationRequested then
+                    match interruptionFor fiberContext "Fiber was interrupted while blocked on a channel write." with
+                    | :? FiberInterruptedException as interruption -> Interrupt(interruption.cause, interruption.message)
+                    | _ -> Interrupt(ExplicitInterrupt, "Fiber was interrupted while blocked on a channel write.")
+                else
+                    writeEffect
+            with ex ->
+                Interrupt(Defect ex, ex.Message)
 
         try
             reschedule
@@ -430,9 +434,15 @@ let inline parkOnTask
     (onError: exn -> obj)
     ([<InlineIfLambda>] reschedule: WorkItem -> unit) =
     let resume () =
+        let effect =
+            try
+                settledTaskEffect waited fiberContext onError
+            with ex ->
+                Interrupt(Defect ex, ex.Message)
+
         let resumeWorkItem =
             {
-                Effect = settledTaskEffect waited fiberContext onError
+                Effect = effect
                 FiberContext = fiberContext
                 ContStack = contStack
                 InterruptionSuppressed = suppressed

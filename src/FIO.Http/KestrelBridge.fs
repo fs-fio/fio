@@ -291,7 +291,12 @@ module KestrelBridge =
                         logError ctx "HandlerError" ex.Message (Some ex)
                         do! writeStatusBody 500 "Internal Server Error"
                     | Interrupted _ -> do! writeStatusBody 503 "Service Unavailable"
-            with ex ->
+            with
+            // Kestrel rejects a request it won't read, such as a body over the limit, by throwing this from the read.
+            | :? BadHttpRequestException as rejection ->
+                logError ctx "RequestValidation" rejection.Message None
+                do! writeStatusBody rejection.StatusCode rejection.Message
+            | ex ->
                 logError ctx "UnhandledException" ex.Message (Some ex)
                 do! writeStatusBody 500 "Internal Server Error"
         }

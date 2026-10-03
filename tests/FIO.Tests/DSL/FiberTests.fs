@@ -39,7 +39,6 @@ let fiberTests =
 
                     testAllRuntimes "Id - is a non-empty GUID" (fun runtime ->
                         let fiber = runtime.Run(FIO.succeed 42)
-
                         let _ =
                             fiber.UnsafeSuccess()
 
@@ -84,7 +83,6 @@ let fiberTests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let fiber =
                             runtime.Run(FIO.succeed value)
-
                         let result = fiber.Task().Result
 
                         match result with
@@ -96,7 +94,6 @@ let fiberTests =
                     <| fun (runtime: FIORuntime, error: string) ->
                         let fiber =
                              runtime.Run(FIO.fail error)
-
                         let result = fiber.Task().Result
 
                         match result with
@@ -136,14 +133,13 @@ let fiberTests =
 
                     testPropertyWithConfig fsCheckConfig "Join - fork then join equals identity"
                     <| fun (runtime: FIORuntime, value: int) ->
-                        let direct = runtime.Run(FIO.succeed value).UnsafeSuccess()
-
                         let effect =
                             fio {
                                 let! fiber = FIO.succeed(value).Fork()
                                 return! fiber.Join()
                             }
 
+                        let direct = runtime.Run(FIO.succeed value).UnsafeSuccess()
                         let viaFork =
                             runtime.Run(effect).UnsafeSuccess()
 
@@ -187,6 +183,33 @@ let fiberTests =
                                 Expect.equal reason "out of memory" "Custom cause should propagate"
                             | other -> failtest $"Expected ResourceExhaustion, got {other}"
                         | _ -> failtest $"Expected Interrupted, got {result}")
+
+                    testAllRuntimes "Interrupt - succeeds and still interrupts the fiber's children when a cancellation callback throws" (fun runtime ->
+                        let childFinalized = new Threading.ManualResetEventSlim(false)
+                        let registered = new Threading.ManualResetEventSlim(false)
+                        let parent =
+                            fio {
+                                let! _ = (FIO.never<unit, string>().Ensuring(FIO.succeedWith (fun () -> childFinalized.Set()))).Fork()
+                                let! token = FIO.cancellationToken ()
+
+                                do! FIO.succeedWith (fun () ->
+                                        token.Register(fun () -> failwith "A cancellation callback threw.") |> ignore
+                                        registered.Set())
+
+                                return! FIO.never<unit, string> ()
+                            }
+
+                        let fiber = runtime.Run parent
+
+                        Expect.isTrue (registered.Wait(TimeSpan.FromSeconds 5.0)) "The parent should register its callback"
+
+                        let interruption = runtime.Run(fiber.InterruptNow()).UnsafeResult()
+
+                        match interruption with
+                        | Succeeded () -> ()
+                        | other -> failtest $"Interrupting must succeed even when a callback throws, got {other}"
+                        Expect.isTrue (childFinalized.Wait(TimeSpan.FromSeconds 5.0)) "The forked child must be interrupted and finalized"
+                        Expect.isTrue (fiber.IsInterrupted()) "The parent must be interrupted")
                 ]
 
             testList
@@ -475,7 +498,6 @@ let fiberTests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let fiber =
                             runtime.Run(FIO.succeed value)
-
                         let result = fiber.UnsafeResult()
 
                         match result with
@@ -494,7 +516,6 @@ let fiberTests =
                     testAllRuntimes "UnsafeResult - returns Interrupted for an interrupted fiber" (fun runtime ->
                         let fiber =
                             runtime.Run(FIO.interruptNow ())
-
                         let result = fiber.UnsafeResult()
 
                         match result with
@@ -510,7 +531,6 @@ let fiberTests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let fiber =
                             runtime.Run(FIO.succeed value)
-
                         let result = fiber.UnsafeSuccess()
 
                         Expect.equal result value "UnsafeSuccess should return the success value"
@@ -522,6 +542,14 @@ let fiberTests =
                         Expect.throwsT<InvalidOperationException>
                             (fun () -> fiber.UnsafeSuccess() |> ignore)
                             "UnsafeSuccess should throw on failure")
+
+                    testAllRuntimes "UnsafeSuccess - throws InvalidOperationException for an interrupted fiber" (fun runtime ->
+                        let fiber = runtime.Run(FIO.interrupt<int, string> ExplicitInterrupt "stopped")
+                        let thrown = (try fiber.UnsafeSuccess() |> ignore; None with ex -> Some ex)
+
+                        match thrown with
+                        | Some(:? InvalidOperationException as ex) -> Expect.stringContains ex.Message "Fiber was interrupted" "The message should say why"
+                        | other -> failtest $"Expected InvalidOperationException, got {other}")
                 ]
 
             testList
@@ -531,7 +559,6 @@ let fiberTests =
                     <| fun (runtime: FIORuntime, error: string) ->
                         let fiber =
                             runtime.Run(FIO.fail error)
-
                         let result = fiber.UnsafeError()
 
                         Expect.equal result error "UnsafeError should return the error value"
@@ -543,6 +570,14 @@ let fiberTests =
                         Expect.throwsT<InvalidOperationException>
                             (fun () -> fiber.UnsafeError() |> ignore)
                             "UnsafeError should throw on success")
+
+                    testAllRuntimes "UnsafeError - throws InvalidOperationException for an interrupted fiber" (fun runtime ->
+                        let fiber = runtime.Run(FIO.interrupt<int, string> ExplicitInterrupt "stopped")
+                        let thrown = try fiber.UnsafeError() |> ignore; None with ex -> Some ex
+
+                        match thrown with
+                        | Some(:? InvalidOperationException as ex) -> Expect.stringContains ex.Message "Fiber was interrupted" "The message should say why"
+                        | other -> failtest $"Expected InvalidOperationException, got {other}")
                 ]
 
             testList
@@ -552,7 +587,6 @@ let fiberTests =
                         let fiber = runtime.Run(FIO.succeed 42)
                         let oldOut = Console.Out
                         Console.SetOut TextWriter.Null
-
                         try
                             fiber.UnsafePrintResult()
                         finally
@@ -595,6 +629,35 @@ let fiberTests =
                         (fiber :> IDisposable).Dispose()
 
                         Expect.isTrue true "Double dispose should not throw")
+
+                    testAllRuntimes "Dispose - disposing a running fiber's handle ends it as a defect and leaves the runtime usable" (fun runtime ->
+                        let fiber = runtime.Run((FIO.sleep (TimeSpan.FromMilliseconds 200.0)).FlatMap(fun () -> FIO.succeed 1))
+                        (fiber :> IDisposable).Dispose()
+                        let result = fiber.Task()
+
+                        Expect.isTrue (result.Wait(TimeSpan.FromSeconds 10.0)) "A disposed fiber must still end"
+                        match result.Result with
+                        | Interrupted ex ->
+                            match ex.cause with
+                            | Defect _ -> ()
+                            | other -> failtest $"Expected a Defect, got {other}"
+                        | other -> failtest $"Expected the disposed fiber to end as a defect, got {other}"
+
+                        let rerun = runtime.Run(FIO.succeed 7).UnsafeSuccess()
+
+                        Expect.equal rerun 7 "The runtime must keep running effects")
+
+                    testList
+                        "Dispose - disposing a fiber parked on a task or a full channel does not crash the process"
+                        [
+                            for name, scenario in [ "parked on a task", "dispose-parked-on-task"; "parked on a full channel", "dispose-parked-writer" ] ->
+                                testCase name (fun () ->
+                                    use child = new FIO.Tests.ChildProcess.ChildProcess(scenario)
+
+                                    let exitCode = child.WaitForExit(TimeSpan.FromSeconds 60.0)
+
+                                    Expect.equal exitCode (Some 0) $"The process must survive; output: {child.Output}")
+                        ]
                 ]
 
             testList
@@ -656,12 +719,12 @@ let fiberTests =
                     testCase "SetOnTerminal - fires exactly once even on post-terminal install"
                     <| fun () ->
                         let runtime = new DirectRuntime()
+                        let firstCount = ref 0
+                        let secondCount = ref 0
+
                         let fiber =
                             runtime.Run(FIO.succeed 1)
                         fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously |> ignore
-
-                        let firstCount = ref 0
-                        let secondCount = ref 0
                         fiber.Context.SetOnTerminal(fun () -> firstCount.Value <- firstCount.Value + 1)
                         fiber.Context.SetOnTerminal(fun () -> secondCount.Value <- secondCount.Value + 1)
 
@@ -669,7 +732,6 @@ let fiberTests =
                             firstCount.Value
                             1
                             "First post-terminal SetOnTerminal callback should fire exactly once"
-
                         Expect.equal
                             secondCount.Value
                             0
@@ -678,15 +740,13 @@ let fiberTests =
                     testCase "SetOnTerminal - second install after pre-terminal install does not refire"
                     <| fun () ->
                         let runtime = new DirectRuntime()
-                        let fiber =
-                            runtime.Run(FIO.sleep (TimeSpan.FromMilliseconds 20.0))
-
                         let firstCount = ref 0
                         let secondCount = ref 0
+
+                        let fiber =
+                            runtime.Run(FIO.sleep (TimeSpan.FromMilliseconds 20.0))
                         fiber.Context.SetOnTerminal(fun () -> firstCount.Value <- firstCount.Value + 1)
-
                         fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously |> ignore
-
                         let deadline = DateTime.UtcNow.AddSeconds 5.0
                         while firstCount.Value = 0 && DateTime.UtcNow < deadline do
                             Threading.Thread.Sleep 1

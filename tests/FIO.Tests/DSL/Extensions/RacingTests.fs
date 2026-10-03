@@ -54,11 +54,9 @@ let tests =
                         let finalized = Channel<int>()
                         let loser = (FIO.never<int, exn>()).Ensuring((finalized.Write 1).Unit())
                         let winner = (FIO.sleep (TimeSpan.FromMilliseconds 50.0)).FlatMap(fun () -> FIO.succeed 42)
-
                         let effect =
                             (winner.RaceFirst loser).FlatMap <| fun value ->
                                 finalized.Read().Map <| fun _ -> value
-
                         let bounded =
                             effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
 
@@ -71,7 +69,6 @@ let tests =
                         let succeeding =
                             (FIO.sleep (TimeSpan.FromMilliseconds 100.0)).FlatMap(fun () -> FIO.succeed 5)
                         let effect = failing.Race succeeding
-
                         let bounded =
                             effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
 
@@ -86,7 +83,6 @@ let tests =
                         let succeeding =
                             (FIO.sleep (TimeSpan.FromMilliseconds 100.0)).FlatMap(fun () -> FIO.succeed 5)
                         let effect = interruptedSide.Race succeeding
-
                         let bounded =
                             effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
 
@@ -98,7 +94,6 @@ let tests =
                         let failing = FIO.fail (exn "fast failure")
                         let never = FIO.never<int, exn> ()
                         let effect = failing.Race never
-
                         let bounded =
                             effect.TimeoutFail (exn "timeout") (TimeSpan.FromMilliseconds 500.0)
 

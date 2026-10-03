@@ -21,6 +21,7 @@ let typesTests =
                     testCase "fromException - wraps an exception in GeneralError"
                     <| fun () ->
                         let ex = Exception "test"
+
                         let error = HttpError.fromException ex
 
                         match error with
@@ -32,6 +33,7 @@ let typesTests =
                     <| fun () ->
                         let original = Exception "test"
                         let error = GeneralError original
+
                         let result = HttpError.toException error
 
                         Expect.isTrue
@@ -41,15 +43,20 @@ let typesTests =
                     testCase "toException - creates an Exception for the other cases"
                     <| fun () ->
                         let error = InvalidRoute "/bad"
+
                         let result = HttpError.toException error
 
                         Expect.stringContains result.Message "/bad" "Exception message should contain error details"
 
                     testCase "ToString - produces readable messages"
                     <| fun () ->
-                        Expect.stringContains (string (InvalidRoute "/x")) "/x" "InvalidRoute"
-                        Expect.stringContains (string (TimeoutError "slow")) "slow" "TimeoutError"
-                        Expect.stringContains (string (ServerFailed(Exception "boom"))) "boom" "ServerFailed"
+                        let invalidRoute = string (InvalidRoute "/x")
+                        let timeoutError = string (TimeoutError "slow")
+                        let serverFailed = string (ServerFailed(Exception "boom"))
+
+                        Expect.stringContains invalidRoute "/x" "InvalidRoute"
+                        Expect.stringContains timeoutError "slow" "TimeoutError"
+                        Expect.stringContains serverFailed "boom" "ServerFailed"
                 ]
 
             testList
@@ -58,34 +65,57 @@ let typesTests =
 
                     testCase "ToString - returns the method name for the standard methods"
                     <| fun () ->
-                        Expect.equal (string HttpMethod.GET) "GET" "GET"
-                        Expect.equal (string HttpMethod.POST) "POST" "POST"
-                        Expect.equal (string HttpMethod.PUT) "PUT" "PUT"
-                        Expect.equal (string HttpMethod.DELETE) "DELETE" "DELETE"
-                        Expect.equal (string HttpMethod.PATCH) "PATCH" "PATCH"
-                        Expect.equal (string HttpMethod.HEAD) "HEAD" "HEAD"
-                        Expect.equal (string HttpMethod.OPTIONS) "OPTIONS" "OPTIONS"
-                        Expect.equal (string HttpMethod.TRACE) "TRACE" "TRACE"
-                        Expect.equal (string HttpMethod.CONNECT) "CONNECT" "CONNECT"
+                        let get = string HttpMethod.GET
+                        let post = string HttpMethod.POST
+                        let put = string HttpMethod.PUT
+                        let delete = string HttpMethod.DELETE
+                        let patch = string HttpMethod.PATCH
+                        let head = string HttpMethod.HEAD
+                        let options = string HttpMethod.OPTIONS
+                        let trace = string HttpMethod.TRACE
+                        let connect = string HttpMethod.CONNECT
+
+                        Expect.equal get "GET" "GET"
+                        Expect.equal post "POST" "POST"
+                        Expect.equal put "PUT" "PUT"
+                        Expect.equal delete "DELETE" "DELETE"
+                        Expect.equal patch "PATCH" "PATCH"
+                        Expect.equal head "HEAD" "HEAD"
+                        Expect.equal options "OPTIONS" "OPTIONS"
+                        Expect.equal trace "TRACE" "TRACE"
+                        Expect.equal connect "CONNECT" "CONNECT"
 
                     testCase "fromString - parses all standard methods"
                     <| fun () ->
-                        Expect.equal (HttpMethod.fromString "GET") HttpMethod.GET "GET"
-                        Expect.equal (HttpMethod.fromString "POST") HttpMethod.POST "POST"
-                        Expect.equal (HttpMethod.fromString "PUT") HttpMethod.PUT "PUT"
-                        Expect.equal (HttpMethod.fromString "DELETE") HttpMethod.DELETE "DELETE"
-                        Expect.equal (HttpMethod.fromString "PATCH") HttpMethod.PATCH "PATCH"
-                        Expect.equal (HttpMethod.fromString "HEAD") HttpMethod.HEAD "HEAD"
-                        Expect.equal (HttpMethod.fromString "OPTIONS") HttpMethod.OPTIONS "OPTIONS"
+                        let get = HttpMethod.fromString "GET"
+                        let post = HttpMethod.fromString "POST"
+                        let put = HttpMethod.fromString "PUT"
+                        let delete = HttpMethod.fromString "DELETE"
+                        let patch = HttpMethod.fromString "PATCH"
+                        let head = HttpMethod.fromString "HEAD"
+                        let options = HttpMethod.fromString "OPTIONS"
+
+                        Expect.equal get HttpMethod.GET "GET"
+                        Expect.equal post HttpMethod.POST "POST"
+                        Expect.equal put HttpMethod.PUT "PUT"
+                        Expect.equal delete HttpMethod.DELETE "DELETE"
+                        Expect.equal patch HttpMethod.PATCH "PATCH"
+                        Expect.equal head HttpMethod.HEAD "HEAD"
+                        Expect.equal options HttpMethod.OPTIONS "OPTIONS"
 
                     testCase "fromString - is case-insensitive"
                     <| fun () ->
-                        Expect.equal (HttpMethod.fromString "get") HttpMethod.GET "lowercase"
-                        Expect.equal (HttpMethod.fromString "Post") HttpMethod.POST "mixed case"
+                        let lowercase = HttpMethod.fromString "get"
+                        let mixedCase = HttpMethod.fromString "Post"
+
+                        Expect.equal lowercase HttpMethod.GET "lowercase"
+                        Expect.equal mixedCase HttpMethod.POST "mixed case"
 
                     testCase "fromString - returns Custom for an unknown method"
                     <| fun () ->
-                        match HttpMethod.fromString "PURGE" with
+                        let parsed = HttpMethod.fromString "PURGE"
+
+                        match parsed with
                         | HttpMethod.Custom s -> Expect.equal s "PURGE" "Custom method"
                         | _ -> failtest "Expected Custom"
                 ]
@@ -95,32 +125,50 @@ let typesTests =
                 [
 
                     testCase "AsBytes - returns an empty array for Empty"
-                    <| fun () -> Expect.equal (RequestBody.Empty.AsBytes()) Array.empty "Empty bytes"
+                    <| fun () ->
+                        let actual = RequestBody.Empty.AsBytes()
+
+                        Expect.equal actual Array.empty "Empty bytes"
 
                     testCase "AsString - returns an empty string for Empty"
-                    <| fun () -> Expect.equal (RequestBody.Empty.AsString()) "" "Empty string"
+                    <| fun () ->
+                        let actual = RequestBody.Empty.AsString()
+
+                        Expect.equal actual "" "Empty string"
 
                     testCase "AsBytes - returns the UTF-8 bytes of Text"
                     <| fun () ->
                         let body = RequestBody.Text "hello"
-                        Expect.equal (body.AsBytes()) (Encoding.UTF8.GetBytes "hello") "UTF8 bytes"
+
+                        let actual = body.AsBytes()
+
+                        Expect.equal actual (Encoding.UTF8.GetBytes "hello") "UTF8 bytes"
 
                     testCase "AsString - returns the original text of Text"
                     <| fun () ->
                         let body = RequestBody.Text "hello"
-                        Expect.equal (body.AsString()) "hello" "Original text"
+
+                        let actual = body.AsString()
+
+                        Expect.equal actual "hello" "Original text"
 
                     testCase "AsBytes - returns the same array for Bytes"
                     <| fun () ->
                         let bytes = [| 1uy; 2uy; 3uy |]
                         let body = RequestBody.Bytes bytes
-                        Expect.equal (body.AsBytes()) bytes "Same bytes"
+
+                        let actual = body.AsBytes()
+
+                        Expect.equal actual bytes "Same bytes"
 
                     testCase "AsString - decodes Bytes as UTF-8"
                     <| fun () ->
                         let bytes = Encoding.UTF8.GetBytes "test"
                         let body = RequestBody.Bytes bytes
-                        Expect.equal (body.AsString()) "test" "Decoded string"
+
+                        let actual = body.AsString()
+
+                        Expect.equal actual "test" "Decoded string"
                 ]
 
             testList
@@ -128,32 +176,50 @@ let typesTests =
                 [
 
                     testCase "ContentLength - is Some 0 for Empty"
-                    <| fun () -> Expect.equal ResponseBody.Empty.ContentLength (Some 0L) "Empty = 0"
+                    <| fun () ->
+                        let actual = ResponseBody.Empty.ContentLength
+
+                        Expect.equal actual (Some 0L) "Empty = 0"
 
                     testCase "ContentLength - matches the length for Bytes"
                     <| fun () ->
                         let body = ResponseBody.Bytes [| 1uy; 2uy; 3uy |]
-                        Expect.equal body.ContentLength (Some 3L) "3 bytes"
+
+                        let actual = body.ContentLength
+
+                        Expect.equal actual (Some 3L) "3 bytes"
 
                     testCase "ContentLength - is the UTF-8 byte count for Text"
                     <| fun () ->
                         let body = ResponseBody.Text "hello"
-                        Expect.equal body.ContentLength (Some 5L) "5 bytes for hello"
+
+                        let actual = body.ContentLength
+
+                        Expect.equal actual (Some 5L) "5 bytes for hello"
 
                     testCase "ContentLength - returns the length parameter for Stream"
                     <| fun () ->
                         let body = ResponseBody.Stream(new MemoryStream(), Some 42L)
-                        Expect.equal body.ContentLength (Some 42L) "Explicit length"
+
+                        let actual = body.ContentLength
+
+                        Expect.equal actual (Some 42L) "Explicit length"
 
                     testCase "ContentLength - is None for a Stream without a length"
                     <| fun () ->
                         let body = ResponseBody.Stream(new MemoryStream(), None)
-                        Expect.equal body.ContentLength None "No length"
+
+                        let actual = body.ContentLength
+
+                        Expect.equal actual None "No length"
 
                     testCase "ContentLength - is None for Json"
                     <| fun () ->
                         let body = ResponseBody.Json {| x = 1 |}
-                        Expect.equal body.ContentLength None "Json unknown until serialized"
+
+                        let actual = body.ContentLength
+
+                        Expect.equal actual None "Json unknown until serialized"
                 ]
 
             testList
@@ -163,17 +229,20 @@ let typesTests =
                     testCase "create - sets the method and path"
                     <| fun () ->
                         let req = HttpRequest.create HttpMethod.GET "/users"
+
                         Expect.equal req.Method HttpMethod.GET "Method"
                         Expect.equal req.Path "/users" "Path"
 
                     testCase "create - splits the path into segments"
                     <| fun () ->
                         let req = HttpRequest.create HttpMethod.GET "/api/v1/users"
+
                         Expect.equal req.PathSegments [ "api"; "v1"; "users" ] "Segments"
 
                     testCase "create - handles the root path"
                     <| fun () ->
                         let req = HttpRequest.create HttpMethod.GET "/"
+
                         Expect.equal req.PathSegments [] "Root has no segments"
 
                     testCase "withQueryParam - adds a parameter"
@@ -201,6 +270,15 @@ let typesTests =
 
                         Expect.equal (HttpRequest.header "Accept" req) (Some "application/json") "Header"
 
+                    testCase "withHeader - throws for an invalid header name"
+                    <| fun () ->
+                        Expect.throwsT<ArgumentException>
+                            (fun () ->
+                                HttpRequest.create HttpMethod.GET "/"
+                                |> HttpRequest.withHeader "Bad Header" "value"
+                                |> ignore)
+                            "A header name with a space must be rejected"
+
                     testCase "withBody - sets the body"
                     <| fun () ->
                         let req =
@@ -223,22 +301,33 @@ let typesTests =
                             HttpRequest.create HttpMethod.GET "/"
                             |> HttpRequest.withMetadata "count" (box 42)
 
-                        Expect.isNone (HttpRequest.metadata<string> "count" req) "Wrong type"
+                        let actual = HttpRequest.metadata<string> "count" req
+
+                        Expect.isNone actual "Wrong type"
 
                     testCase "metadata - returns None for a missing key"
                     <| fun () ->
                         let req = HttpRequest.create HttpMethod.GET "/"
-                        Expect.isNone (HttpRequest.metadata<string> "missing" req) "Missing key"
+
+                        let actual = HttpRequest.metadata<string> "missing" req
+
+                        Expect.isNone actual "Missing key"
 
                     testCase "queryParam - returns None for a missing key"
                     <| fun () ->
                         let req = HttpRequest.create HttpMethod.GET "/"
-                        Expect.isNone (HttpRequest.queryParam "missing" req) "Missing"
+
+                        let actual = HttpRequest.queryParam "missing" req
+
+                        Expect.isNone actual "Missing"
 
                     testCase "header - returns None for a missing key"
                     <| fun () ->
                         let req = HttpRequest.create HttpMethod.GET "/"
-                        Expect.isNone (HttpRequest.header "missing" req) "Missing"
+
+                        let actual = HttpRequest.header "missing" req
+
+                        Expect.isNone actual "Missing"
 
                     testCase "header - lookup is case-insensitive"
                     <| fun () ->
@@ -246,15 +335,11 @@ let typesTests =
                             HttpRequest.create HttpMethod.GET "/"
                             |> HttpRequest.withHeader "Content-Type" "application/json"
 
-                        Expect.equal
-                            (HttpRequest.header "content-type" req)
-                            (Some "application/json")
-                            "Lowercase lookup"
+                        let lowercase = HttpRequest.header "content-type" req
+                        let uppercase = HttpRequest.header "CONTENT-TYPE" req
 
-                        Expect.equal
-                            (HttpRequest.header "CONTENT-TYPE" req)
-                            (Some "application/json")
-                            "Uppercase lookup"
+                        Expect.equal lowercase (Some "application/json") "Lowercase lookup"
+                        Expect.equal uppercase (Some "application/json") "Uppercase lookup"
 
                     testCase "bodyText - decodes bytes as UTF-8 by default"
                     <| fun () ->
@@ -262,7 +347,31 @@ let typesTests =
                             HttpRequest.create HttpMethod.POST "/"
                             |> HttpRequest.withBody (RequestBody.Bytes(Encoding.UTF8.GetBytes "héllo"))
 
-                        Expect.equal (HttpRequest.bodyText req) "héllo" "UTF-8 decode"
+                        let actual = HttpRequest.bodyText req
+
+                        Expect.equal actual "héllo" "UTF-8 decode"
+
+                    testCase "bodyText - decodes bytes with the charset from Content-Type"
+                    <| fun () ->
+                        let req =
+                            HttpRequest.create HttpMethod.POST "/"
+                            |> HttpRequest.withHeader "Content-Type" "text/plain; charset=iso-8859-1"
+                            |> HttpRequest.withBody (RequestBody.Bytes(Encoding.Latin1.GetBytes "héllo"))
+
+                        let actual = HttpRequest.bodyText req
+
+                        Expect.equal actual "héllo" "The declared charset must be used"
+
+                    testCase "bodyText - falls back to UTF-8 for an unknown charset"
+                    <| fun () ->
+                        let req =
+                            HttpRequest.create HttpMethod.POST "/"
+                            |> HttpRequest.withHeader "Content-Type" "text/plain; charset=no-such-charset"
+                            |> HttpRequest.withBody (RequestBody.Bytes(Encoding.UTF8.GetBytes "héllo"))
+
+                        let actual = HttpRequest.bodyText req
+
+                        Expect.equal actual "héllo" "An unknown charset must fall back to UTF-8"
                 ]
 
             testList
@@ -272,6 +381,7 @@ let typesTests =
                     testCase "create - sets the status with an empty body"
                     <| fun () ->
                         let resp = HttpResponse.create HttpStatusCode.OK
+
                         Expect.equal resp.Status HttpStatusCode.OK "Status"
                         Expect.equal resp.Body ResponseBody.Empty "Empty body"
 
@@ -336,7 +446,9 @@ let typesTests =
                             |> HttpResponse.withHeader "X-Multi" "a"
                             |> HttpResponse.withHeader "X-Multi" "b"
 
-                        Expect.equal (HttpResponse.headers "X-Multi" resp) [ "a"; "b" ] "Multi-value"
+                        let actual = HttpResponse.headers "X-Multi" resp
+
+                        Expect.equal actual [ "a"; "b" ] "Multi-value"
 
                     testCase "header - lookup on a response is case-insensitive"
                     <| fun () ->
@@ -344,7 +456,9 @@ let typesTests =
                             HttpResponse.create HttpStatusCode.OK
                             |> HttpResponse.withHeader "X-Custom" "v"
 
-                        Expect.equal (HttpResponse.header "x-custom" resp) (Some "v") "CI response lookup"
+                        let actual = HttpResponse.header "x-custom" resp
+
+                        Expect.equal actual (Some "v") "CI response lookup"
                 ]
 
             testList
@@ -354,6 +468,7 @@ let typesTests =
                     testCase "defaultConfig - has the expected values"
                     <| fun () ->
                         let cfg = ServerConfig.defaultConfig
+
                         Expect.equal cfg.Host "127.0.0.1" "Host"
                         Expect.equal cfg.Port 8080 "Port"
                         Expect.equal cfg.MaxRequestBodySize (30L * 1024L * 1024L) "MaxBodySize"
@@ -361,12 +476,14 @@ let typesTests =
                     testCase "create - sets the host and port"
                     <| fun () ->
                         let cfg = ServerConfig.create "0.0.0.0" 3000
+
                         Expect.equal cfg.Host "0.0.0.0" "Host"
                         Expect.equal cfg.Port 3000 "Port"
 
                     testCase "withMaxBodySize - updates the field"
                     <| fun () ->
                         let cfg = ServerConfig.defaultConfig |> ServerConfig.withMaxBodySize (1024L * 1024L)
+
                         Expect.equal cfg.MaxRequestBodySize (1024L * 1024L) "1MB"
                 ]
         ]

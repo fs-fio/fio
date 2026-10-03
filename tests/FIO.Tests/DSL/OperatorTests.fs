@@ -124,7 +124,6 @@ let operatorTests =
                     <| fun (runtime: FIORuntime, a: int, b: int) ->
                         let log = ResizeArray<string>()
                         let source = FIO.attempt (fun () -> log.Add "source"; a) (fun ex -> ex.Message)
-
                         let effect =
                             source >>= fun _ ->
                                 FIO.attempt (fun () -> log.Add "continuation"; b) (fun ex -> ex.Message)
@@ -237,7 +236,6 @@ let operatorTests =
                         match operatorResult with
                         | Failed e -> Expect.equal e error "( <& ) should propagate error"
                         | _ -> failtest "Expected error"
-
                         match methodResult with
                         | Failed e -> Expect.equal e error "ZipParLeft should propagate error"
                         | _ -> failtest "Expected error"

@@ -59,7 +59,6 @@ let tests =
                     <| fun () ->
                         for runtime in allRuntimes () do
                             let effects = [ 1 .. 10000 ] |> List.map FIO.succeed
-
                             let effect = FIO.mergeAll effects 0 (+)
 
                             let result =
@@ -295,7 +294,6 @@ let tests =
                                 ).FlatMap(fun () ->
                                     if i = 0 then FIO.fail "boom"
                                     else FIO.succeed i)
-
                             let effect = FIO.partitionPar [ 0 .. n - 1 ] f
 
                             let errs, oks =
@@ -353,7 +351,6 @@ let tests =
                     <| fun () ->
                         for runtime in allRuntimes () do
                             let xs = [ 1 .. 10000 ]
-
                             let effect = FIO.validate xs (fun x -> FIO.succeed x)
 
                             let result =

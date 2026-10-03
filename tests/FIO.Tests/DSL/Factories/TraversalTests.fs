@@ -49,7 +49,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "forEach - short-circuits on first failure"
                     <| fun (runtime: FIORuntime) ->
                         let mutable callCount = 0
-
                         let f i =
                             (FIO.attempt
                                 (fun () -> Interlocked.Increment(&callCount) |> ignore)
@@ -57,7 +56,6 @@ let tests =
                             ).FlatMap(fun () ->
                                 if i = 2 then FIO.fail "boom"
                                 else FIO.succeed i)
-
                         let effect = FIO.forEach [ 1; 2; 3; 4 ] f
 
                         let result =
@@ -89,13 +87,11 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "forEachDiscard - applies f to each input without collecting"
                     <| fun (runtime: FIORuntime, xs: int list) ->
                         let mutable sum = 0
-
                         let f i =
                             FIO.attempt
                                 (fun () ->
                                     Interlocked.Add(&sum, i) |> ignore)
                                 id
-
                         let effect = FIO.forEachDiscard xs f
 
                         let _ =
@@ -106,7 +102,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "forEachDiscard - short-circuits on first failure"
                     <| fun (runtime: FIORuntime) ->
                         let mutable callCount = 0
-
                         let f i =
                             (FIO.attempt
                                 (fun () ->
@@ -115,7 +110,6 @@ let tests =
                             ).FlatMap(fun () ->
                                 if i = 2 then FIO.fail "boom"
                                 else FIO.succeed ())
-
                         let effect = FIO.forEachDiscard [ 1; 2; 3; 4 ] f
 
                         let result =
@@ -152,14 +146,12 @@ let tests =
                     <| fun (runtime: FIORuntime) ->
                         let rnd = Random()
                         let xs = [ 1 .. 50 ]
-
                         let f i =
                             FIO.attempt
                                 (fun () ->
                                     Thread.Sleep(rnd.Next(0, 3))
                                     i)
                                 id
-
                         let effect = FIO.forEachPar xs f
 
                         let result =
@@ -173,7 +165,6 @@ let tests =
                             let mutable peerCompleted = 0
                             let started = new ManualResetEventSlim(false)
                             let failureItems = 5
-
                             let f i =
                                 if i = 0 then
                                     (FIO.attempt
@@ -190,7 +181,6 @@ let tests =
                                             FIO.attempt
                                                 (fun () -> Interlocked.Increment(&peerCompleted) |> ignore)
                                                 (fun ex -> ex.Message))
-
                             let effect = FIO.forEachPar [ 0 .. failureItems ] f
 
                             let error =
@@ -203,7 +193,6 @@ let tests =
                     <| fun () ->
                         for runtime in allRuntimes () do
                             let sentinel = -1
-
                             let effect =
                                 (FIO.forEachPar [ 0; 1 ] (fun i ->
                                     if i = 0 then FIO.never<int, int>() else FIO.fail 99))
@@ -214,16 +203,40 @@ let tests =
 
                             Expect.equal error 99 $"forEachPar on {runtime.GetType().Name} should observe the late failure without hanging on the never-terminating earlier peer"
 
+                    testAllRuntimes "forEachPar - an interrupted element interrupts its peers and propagates its cause" (fun runtime ->
+                        let peerFinalized = ref false
+                        let peerStarted = new ManualResetEventSlim(false)
+                        let element (i: int) : FIO<int, string> =
+                            if i = 0 then
+                                (FIO.attempt (fun () -> peerStarted.Wait(TimeSpan.FromSeconds 5.0) |> ignore) (fun ex -> ex.Message))
+                                    .FlatMap(fun () -> FIO.interrupt (ResourceExhaustion "element ran out") "element stopped")
+                            else
+                                (FIO.succeedWith(fun () -> peerStarted.Set()).FlatMap(fun () -> FIO.never ()))
+                                    .Ensuring(FIO.succeedWith (fun () -> peerFinalized.Value <- true))
+                        let parent: FIO<FiberResult<int list, string>, string> =
+                            fio {
+                                let! fiber = (FIO.forEachPar [ 0; 1 ] element).Fork()
+                                return! fiber.Await()
+                            }
+
+                        let result = runtime.Run(parent).UnsafeSuccess()
+
+                        match result with
+                        | Interrupted ex ->
+                            match ex.cause with
+                            | ResourceExhaustion "element ran out" -> Expect.equal ex.message "element stopped" "The element's message should propagate"
+                            | cause -> failtest $"Expected the element's cause, got %A{cause}"
+                        | other -> failtest $"Expected the interruption to propagate, got %A{other}"
+                        Expect.isTrue (waitForFlag peerFinalized) "The peer should be interrupted and finalized")
+
                     testPropertyWithConfig fsCheckConfig "forEachParDiscard - applies f to each input without collecting"
                     <| fun (runtime: FIORuntime, xs: int list) ->
                         let mutable sum = 0
-
                         let f i =
                             FIO.attempt
                                 (fun () ->
                                     Interlocked.Add(&sum, i) |> ignore)
                                 id
-
                         let effect = FIO.forEachParDiscard xs f
 
                         let _ =
@@ -238,7 +251,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "collectAll - mirrors forEach with id"
                     <| fun (runtime: FIORuntime, xs: int list) ->
                         let effects = xs |> List.map FIO.succeed
-
                         let effect = FIO.collectAll effects
 
                         let result
@@ -249,7 +261,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "collectAllDiscard - completes with unit"
                     <| fun (runtime: FIORuntime, xs: int list) ->
                         let effects = xs |> List.map FIO.succeed
-
                         let effect = FIO.collectAllDiscard effects
 
                         let result =
@@ -260,7 +271,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "collectAllPar - mirrors forEachPar with id"
                     <| fun (runtime: FIORuntime, xs: int list) ->
                         let effects = xs |> List.map FIO.succeed
-
                         let effect = FIO.collectAllPar effects
 
                         let result =
@@ -271,7 +281,6 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "collectAllParDiscard - completes with unit"
                     <| fun (runtime: FIORuntime, xs: int list) ->
                         let effects = xs |> List.map FIO.succeed
-
                         let effect = FIO.collectAllParDiscard effects
 
                         let result =

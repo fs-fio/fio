@@ -27,10 +27,12 @@ The API takes its cues from [ZIO](https://zio.dev).
 - **Finalizer guarantees** — `Ensuring` finalizers run on success, error, *and* interruption
 - **Composable** — the `fio { }` computation expression plus a rich set of operators
 
+> **Status: beta.** The API may still change between releases, and FIO has not yet been proven in production.
+
 ## Install
 
 ```bash
-dotnet add package FSharp.FIO
+dotnet add package FSharp.FIO --prerelease
 ```
 
 ## Quick Start

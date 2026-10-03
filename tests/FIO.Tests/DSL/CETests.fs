@@ -41,7 +41,6 @@ let ceTests =
                     testPropertyWithConfig fsCheckConfig "Bind - do! followed by return"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable executed = false
-
                         let effect =
                             fio {
                                 do!
@@ -59,7 +58,6 @@ let ceTests =
 
                     testAllRuntimes "Bind - multiple do! in sequence" (fun runtime ->
                         let mutable order = []
-
                         let effect =
                             fio {
                                 do!
@@ -86,7 +84,6 @@ let ceTests =
 
                     testAllRuntimes "Bind - let! chain short-circuits on error" (fun runtime ->
                         let mutable thirdRan = false
-
                         let effect =
                             fio {
                                 let! a = FIO.succeed 1
@@ -105,7 +102,6 @@ let ceTests =
                         match result with
                         | Failed error -> Expect.equal error "boom" "Should propagate error"
                         | _ -> failtest $"Expected Failed, got {result}"
-
                         Expect.isFalse thirdRan "effectects after failure should not run")
                 ]
 
@@ -123,7 +119,6 @@ let ceTests =
                     testPropertyWithConfig fsCheckConfig "BindReturn - mapper not invoked on failure"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let mutable mapped = false
-
                         let effect =
                             fio.BindReturn(
                                 FIO.fail error,
@@ -178,7 +173,6 @@ let ceTests =
                     testPropertyWithConfig fsCheckConfig "ReturnFrom - return! after do! exercises ReturnFrom via Combine"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable executed = false
-
                         let effect =
                             fio {
                                 do!
@@ -197,7 +191,6 @@ let ceTests =
                     testPropertyWithConfig fsCheckConfig "YieldFrom - yield! after do! exercises YieldFrom via Combine"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable executed = false
-
                         let effect =
                             fio {
                                 do!
@@ -226,7 +219,6 @@ let ceTests =
 
                     testAllRuntimes "Zero - if without else uses Zero" (fun runtime ->
                         let mutable executed = false
-
                         let effect =
                             fio {
                                 if true then
@@ -243,7 +235,6 @@ let ceTests =
 
                     testAllRuntimes "Zero - if false without else returns unit" (fun runtime ->
                         let mutable executed = false
-
                         let effect =
                             fio {
                                 if false then
@@ -264,7 +255,6 @@ let ceTests =
                 [
                     testAllRuntimes "Combine - sequences multiple statements correctly" (fun runtime ->
                         let mutable order = []
-
                         let effect =
                             fio {
                                 do!
@@ -298,12 +288,10 @@ let ceTests =
                     <| fun (runtime: FIORuntime, error: int) ->
                         let mutable secondRan = false
                         let first = FIO.fail error
-
                         let second =
                             FIO.suspend (fun () ->
                                 secondRan <- true
                                 FIO.unit ())
-
                         let effect = fio.Combine(first, second)
 
                         let result = runtime.Run(effect).UnsafeError()
@@ -315,17 +303,14 @@ let ceTests =
                     <| fun (runtime: FIORuntime, error: int) ->
                         let mutable firstRan = false
                         let mutable secondRan = false
-
                         let first =
                             FIO.suspend (fun () ->
                                 firstRan <- true
                                 FIO.unit ())
-
                         let second =
                             FIO.suspend (fun () ->
                                 secondRan <- true
                                 FIO.fail error)
-
                         let effect = fio.Combine(first, second)
 
                         let result = runtime.Run(effect).UnsafeError()
@@ -341,7 +326,6 @@ let ceTests =
                     testPropertyWithConfig fsCheckConfig "Delay - body is deferred until Run"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable ran = false
-
                         let effect =
                             fio {
                                 ran <- true
@@ -349,6 +333,7 @@ let ceTests =
                             }
 
                         Expect.isFalse ran "Delayed body should not run before Run"
+
                         let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result value "Delayed body should return expected value"
@@ -356,7 +341,6 @@ let ceTests =
 
                     testAllRuntimes "Delay - running same effect twice produces independent results" (fun runtime ->
                         let mutable counter = 0
-
                         let effect =
                             fio {
                                 counter <- counter + 1
@@ -453,7 +437,6 @@ let ceTests =
                     testPropertyWithConfig fsCheckConfig "TryFinally - finalizer runs on success"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable finalizerRan = false
-
                         let effect =
                             fio {
                                 try
@@ -471,7 +454,6 @@ let ceTests =
                     testPropertyWithConfig fsCheckConfig "TryFinally - finalizer runs on failure"
                     <| fun (runtime: FIORuntime, errorValue: int) ->
                         let mutable finalizerRan = false
-
                         let effect =
                             fio {
                                 try
@@ -489,7 +471,6 @@ let ceTests =
                     testPropertyWithConfig fsCheckConfig "TryFinally - finalizer is deferred until run"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable finalizerRan = false
-
                         let effect =
                             fio {
                                 try
@@ -500,6 +481,7 @@ let ceTests =
                             }
 
                         Expect.isFalse finalizerRan "finalizer should not run before Run"
+
                         let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result value "try...finally should return value"
@@ -508,7 +490,6 @@ let ceTests =
                     testPropertyWithConfig fsCheckConfig "TryFinally - finalizer runs after multiple statements"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable order = []
-
                         let effect =
                             fio {
                                 try
@@ -536,7 +517,6 @@ let ceTests =
                     testPropertyWithConfig fsCheckConfig "TryFinally - nested try...finally runs finalizers in correct order"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable order = []
-
                         let effect =
                             fio {
                                 try
@@ -587,7 +567,6 @@ let ceTests =
 
                     testAllRuntimes "TryFinally - inside TryWith, the finalizer runs and then the error is caught" (fun runtime ->
                         let mutable finalizerRan = false
-
                         let effect =
                             fio {
                                 try
@@ -607,7 +586,6 @@ let ceTests =
 
                     testAllRuntimes "TryWith - inside TryFinally, the error is caught and the finalizer still runs" (fun runtime ->
                         let mutable finalizerRan = false
-
                         let effect =
                             fio {
                                 try
@@ -631,7 +609,6 @@ let ceTests =
                 [
                     testAllRuntimes "For - iterates over sequence" (fun runtime ->
                         let mutable counter = 0
-
                         let effect =
                             fio {
                                 for i in [ 1; 2; 3; 4; 5 ] do
@@ -649,7 +626,6 @@ let ceTests =
 
                     testAllRuntimes "For - empty sequence returns unit" (fun runtime ->
                         let mutable counter = 0
-
                         let effect =
                             fio {
                                 for _ in [] do
@@ -668,7 +644,6 @@ let ceTests =
                     testPropertyWithConfig fsCheckConfig "For - error in body propagates"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let mutable iterations = 0
-
                         let effect =
                             fio {
                                 for i in [ 1; 2; 3; 4; 5 ] do
@@ -685,7 +660,6 @@ let ceTests =
 
                     testAllRuntimes "For - over lazy sequence disposes enumerator" (fun runtime ->
                         let mutable enumeratorDisposed = false
-
                         let lazySeq =
                             seq {
                                 try
@@ -695,9 +669,7 @@ let ceTests =
                                 finally
                                     enumeratorDisposed <- true
                             }
-
                         let mutable sum = 0
-
                         let effect =
                             fio {
                                 for i in lazySeq do
@@ -715,7 +687,6 @@ let ceTests =
 
                     testAllRuntimes "For - try/with inside for loop" (fun runtime ->
                         let mutable recovered = 0
-
                         let effect =
                             fio {
                                 for i in [ 1; 2; 3 ] do
@@ -727,11 +698,11 @@ let ceTests =
                             }
 
                         runtime.Run(effect).UnsafeSuccess()
+
                         Expect.equal recovered 1 "Should recover from error inside for loop")
 
                     testAllRuntimes "For - error in body disposes enumerator" (fun runtime ->
                         let mutable enumeratorDisposed = false
-
                         let lazySeq =
                             seq {
                                 try
@@ -741,7 +712,6 @@ let ceTests =
                                 finally
                                     enumeratorDisposed <- true
                             }
-
                         let effect =
                             fio {
                                 for i in lazySeq do
@@ -756,13 +726,11 @@ let ceTests =
 
                     testAllRuntimes "For - laziness: sequence not enumerated until Run" (fun runtime ->
                         let mutable enumerated = false
-
                         let lazySeq =
                             seq {
                                 enumerated <- true
                                 yield 1
                             }
-
                         let effect =
                             fio {
                                 for _ in lazySeq do
@@ -770,13 +738,13 @@ let ceTests =
                             }
 
                         Expect.isFalse enumerated "Sequence should not be enumerated before Run"
+
                         runtime.Run(effect).UnsafeSuccess() |> ignore
 
                         Expect.isTrue enumerated "Sequence should be enumerated during Run")
 
                     testAllRuntimes "For - stack safety with large iteration count" (fun runtime ->
                         let mutable counter = 0
-
                         let effect =
                             fio {
                                 for _ in seq { 1..10000 } do
@@ -799,7 +767,6 @@ let ceTests =
                     testAllRuntimes "While - guard is evaluated at runtime" (fun runtime ->
                         let mutable started = false
                         let mutable counter = 0
-
                         let effect =
                             fio {
                                 while started && counter < 3 do
@@ -808,8 +775,8 @@ let ceTests =
                                             counter <- counter + 1
                                             FIO.unit ())
                             }
-
                         started <- true
+
                         let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result () "while...do should return unit"
@@ -817,7 +784,6 @@ let ceTests =
 
                     testAllRuntimes "While - loops while condition true" (fun runtime ->
                         let mutable counter = 0
-
                         let effect =
                             fio {
                                 while counter < 5 do
@@ -835,7 +801,6 @@ let ceTests =
 
                     testAllRuntimes "While - false condition never executes body" (fun runtime ->
                         let mutable counter = 0
-
                         let effect =
                             fio {
                                 while false do
@@ -854,7 +819,6 @@ let ceTests =
                     testPropertyWithConfig fsCheckConfig "While - error in body propagates"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let mutable iterations = 0
-
                         let effect =
                             fio {
                                 while true do
@@ -871,7 +835,6 @@ let ceTests =
 
                     testAllRuntimes "While - stack safety with large iteration count" (fun runtime ->
                         let mutable counter = 0
-
                         let effect =
                             fio {
                                 while counter < 10000 do
@@ -889,7 +852,6 @@ let ceTests =
 
                     testAllRuntimes "While - laziness: guard not evaluated until Run" (fun runtime ->
                         let mutable guardEvaluated = false
-
                         let effect =
                             fio {
                                 while (guardEvaluated <- true
@@ -898,6 +860,7 @@ let ceTests =
                             }
 
                         Expect.isFalse guardEvaluated "Guard should not be evaluated before Run"
+
                         runtime.Run(effect).UnsafeSuccess() |> ignore
 
                         Expect.isTrue guardEvaluated "Guard should be evaluated during Run")
@@ -905,7 +868,6 @@ let ceTests =
                     testAllRuntimes "While - error recovery in loop body with try...with" (fun runtime ->
                         let mutable recovered = 0
                         let mutable iterations = 0
-
                         let effect =
                             fio {
                                 while iterations < 5 do
@@ -931,7 +893,6 @@ let ceTests =
                     testPropertyWithConfig fsCheckConfig "Using - use disposes resource after use"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let resource = new TestDisposable()
-
                         let effect =
                             fio {
                                 use _ = resource
@@ -939,6 +900,7 @@ let ceTests =
                             }
 
                         Expect.isFalse resource.IsDisposed "Resource should not be disposed before running"
+
                         let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result value "use should return value"
@@ -947,7 +909,6 @@ let ceTests =
                     testPropertyWithConfig fsCheckConfig "Using - use disposes resource even on failure"
                     <| fun (runtime: FIORuntime, errorValue: int) ->
                         let resource = new TestDisposable()
-
                         let effect =
                             fio {
                                 use _ = resource
@@ -955,6 +916,7 @@ let ceTests =
                             }
 
                         Expect.isFalse resource.IsDisposed "Resource should not be disposed before running"
+
                         let result = runtime.Run(effect).UnsafeError()
 
                         Expect.equal result errorValue "use should propagate error"
@@ -963,7 +925,6 @@ let ceTests =
                     testPropertyWithConfig fsCheckConfig "Using - use! acquires and disposes effectful resource"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let resource = new TestDisposable()
-
                         let effect =
                             fio {
                                 use! _ = FIO.succeed resource
@@ -971,6 +932,7 @@ let ceTests =
                             }
 
                         Expect.isFalse resource.IsDisposed "Resource should not be disposed before running"
+
                         let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result value "use! should return value"
@@ -979,7 +941,6 @@ let ceTests =
                     testPropertyWithConfig fsCheckConfig "Using - use! failure during acquisition does not call dispose"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let mutable disposeCalled = false
-
                         let effect =
                             fio {
                                 use! _ =
@@ -1001,7 +962,6 @@ let ceTests =
                     testPropertyWithConfig fsCheckConfig "Using - cleanup happens before try...with catches error"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let resource = new TestDisposable()
-
                         let effect =
                             fio {
                                 try
@@ -1019,12 +979,10 @@ let ceTests =
                     testPropertyWithConfig fsCheckConfig "Using - nested use blocks dispose in reverse order"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable disposeOrder = []
-
                         let makeResource name =
                             { new IDisposable with
                                 member _.Dispose() = disposeOrder <- disposeOrder @ [ name ]
                             }
-
                         let effect =
                             fio {
                                 use _ = makeResource "first"
@@ -1040,7 +998,6 @@ let ceTests =
 
                     testAllRuntimes "Using - use with null disposable does not throw" (fun runtime ->
                         let mutable ran = false
-
                         let effect =
                             fio {
                                 use _ = null: IDisposable
@@ -1065,20 +1022,18 @@ let ceTests =
                                 | v when v < 0 -> return "negative"
                                 | _ -> return "zero"
                             }
-
-                        let result = runtime.Run(effect).UnsafeSuccess()
-
                         let expected =
                             if value > 0 then "positive"
                             elif value < 0 then "negative"
                             else "zero"
+
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result expected "match! should pattern match on effect result"
 
                     testPropertyWithConfig fsCheckConfig "Match - match! on failing effect short-circuits"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let mutable reached = false
-
                         let effect =
                             fio {
                                 match! FIO.fail error with
@@ -1163,7 +1118,6 @@ let ceTests =
                     testAllRuntimes "MergeSources - and! executes in parallel (the left operand parks until the right has started)" (fun runtime ->
                         let rendezvous = Channel<unit>()
                         let overlapped = ref false
-
                         let effect: FIO<int * int, string> =
                             fio {
                                 let! a =
@@ -1192,7 +1146,6 @@ let ceTests =
                         let fromThird = Channel<unit>()
                         let sawSecond = ref false
                         let sawThird = ref false
-
                         let effect: FIO<int * int * int, string> =
                             fio {
                                 let! a =
@@ -1370,7 +1323,6 @@ let ceTests =
                                 let! x = FIO.succeed value
                                 return x * 2
                             }
-
                         let outer =
                             fio {
                                 let! y = inner
@@ -1390,7 +1342,6 @@ let ceTests =
                                     let! inner = nested (depth - 1)
                                     return inner + 1
                                 }
-
                         let effect = nested 1000
 
                         let result = runtime.Run(effect).UnsafeSuccess()
@@ -1400,12 +1351,10 @@ let ceTests =
                     testAllRuntimes "Complex - use with for loop keeps resource alive during iteration" (fun runtime ->
                         let mutable usedWhileAlive = 0
                         let mutable disposedAt = -1
-
                         let resource =
                             { new IDisposable with
                                 member _.Dispose() = disposedAt <- usedWhileAlive
                             }
-
                         let effect =
                             fio {
                                 use _ = resource
@@ -1427,7 +1376,6 @@ let ceTests =
                     testPropertyWithConfig fsCheckConfig "Complex - inner CE failure propagates to outer CE"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let inner = fio { return! FIO.fail error }
-
                         let outer =
                             fio {
                                 let! x = inner
@@ -1441,7 +1389,6 @@ let ceTests =
                     testPropertyWithConfig fsCheckConfig "Complex - inner CE failure caught by outer try...with"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let inner = fio { return! FIO.fail error }
-
                         let outer =
                             fio {
                                 try

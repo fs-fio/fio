@@ -39,16 +39,24 @@ module ServerSocket =
                     (fun () -> new Sockets.Socket(config.AddressFamily, config.SocketType, config.ProtocolType))
                     SocketError.fromException
 
-            let! endpoint =
-                FIO.attempt
-                    (fun () -> IPEndPoint(resolveBindAddress config, config.BindPort) :> EndPoint)
-                    (fun ex -> BindFailed(config.BindAddress, config.BindPort, ex))
+            let listen =
+                fio {
+                    let! endpoint =
+                        FIO.attempt
+                            (fun () -> IPEndPoint(resolveBindAddress config, config.BindPort) :> EndPoint)
+                            (fun ex -> BindFailed(config.BindAddress, config.BindPort, ex))
 
-            do! FIO.attempt
-                    (fun () ->
-                        netSocket.Bind endpoint
-                        netSocket.Listen config.Backlog)
-                    (fun ex -> BindFailed(config.BindAddress, config.BindPort, ex))
+                    do! FIO.attempt
+                            (fun () ->
+                                netSocket.Bind endpoint
+                                netSocket.Listen config.Backlog)
+                            (fun ex -> BindFailed(config.BindAddress, config.BindPort, ex))
+                }
+
+            do! listen.TapError(fun _ ->
+                    FIO.succeedWith (fun () ->
+                        try netSocket.Dispose()
+                        with _ -> ()))
 
             return { NetSocket = netSocket; Config = config }
         }
