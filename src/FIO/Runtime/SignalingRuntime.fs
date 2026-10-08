@@ -10,6 +10,7 @@ type private EvaluationWorkerConfig =
     {
         Runtime: SignalingRuntime
         ActiveWorkItemQueue: MailboxQueue<WorkItem>
+        Reschedule: Action<WorkItem>
         EvaluationSteps: int
     }
 
@@ -34,7 +35,9 @@ and private EvaluationWorker(config: EvaluationWorkerConfig, workerId: int) =
                     else
                         let! workItem = config.ActiveWorkItemQueue.ReadAsync()
 
-                        if not (workItem.FiberContext.IsCompleted()) then
+                        if cancellationToken.IsCancellationRequested then
+                            loop <- false
+                        elif not (workItem.FiberContext.IsCompleted()) then
                             let fiberContext = workItem.FiberContext
                             try
                                 do! processWorkItem workItem
@@ -43,7 +46,7 @@ and private EvaluationWorker(config: EvaluationWorkerConfig, workerId: int) =
                                     do!
                                         fiberContext.CompleteAndReschedule(
                                             Error(defectError fiberContext ex),
-                                            config.ActiveWorkItemQueue)
+                                            config.Reschedule)
                                 with _ ->
                                     ()
 
@@ -64,18 +67,25 @@ and SignalingRuntime(config: WorkerConfig) as this =
 
     let activeWorkItemQueue = MailboxQueue<WorkItem>()
 
+    [<VolatileField>]
+    let mutable stopping = false
+
+    let reschedule = Action<WorkItem>(fun workItem -> activeWorkItemQueue.WriteAsync workItem |> ignore)
+
     let evaluationWorkers =
         List.init config.EvaluationWorkers (fun i ->
             new EvaluationWorker(
                 {
                     Runtime = this
                     ActiveWorkItemQueue = activeWorkItemQueue
+                    Reschedule = reschedule
                     EvaluationSteps = config.EvaluationSteps
                 },
                 i
             ))
 
     do this.StopWorkers <- fun () ->
+        stopping <- true
         evaluationWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
 
     override _.Name : string =
@@ -120,7 +130,7 @@ and SignalingRuntime(config: WorkerConfig) as this =
                                 onErrorComplete
                                 (OutcomeInterrupted error)
                     elif currentEvaluationSteps = 0 then
-                        if activeWorkItemQueue.Count > 0 then
+                        if stopping || activeWorkItemQueue.Count > 0 then
                             let newWorkItem =
                                 resumeWith &state (WorkItemPool.Rent(state.Effect, currentFiberContext, state.ContStack))
                             do! activeWorkItemQueue.WriteAsync newWorkItem
@@ -219,10 +229,9 @@ and SignalingRuntime(config: WorkerConfig) as this =
                                     let newWorkItem =
                                         resumeWith &state (WorkItemPool.Rent(state.Effect, currentFiberContext, state.ContStack))
                                     let waiter =
-                                        parkBlockingWaiter currentFiberContext state.InterruptionSuppressed newWorkItem (fun wi ->
-                                            activeWorkItemQueue.WriteAsync wi |> ignore)
+                                        parkBlockingWaiter currentFiberContext state.InterruptionSuppressed newWorkItem reschedule
                                     do! fiberContext.AddBlockingWorkItem waiter
-                                    let! _ = fiberContext.TryRescheduleBlockingWorkItems activeWorkItemQueue
+                                    fiberContext.RescheduleOnEnd reschedule
                                     state.Completed <- true
                             | HandleJoinFirst fiberContexts ->
                                 match tryFindTerminalIndex fiberContexts with
@@ -235,7 +244,7 @@ and SignalingRuntime(config: WorkerConfig) as this =
                                 | _ ->
                                     let newWorkItem =
                                         resumeWith &state (WorkItemPool.Rent(state.Effect, currentFiberContext, state.ContStack))
-                                    parkJoinFirstOnQueue fiberContexts currentFiberContext state.InterruptionSuppressed newWorkItem activeWorkItemQueue
+                                    parkJoinFirstOnQueue fiberContexts currentFiberContext state.InterruptionSuppressed newWorkItem reschedule
                                     state.Completed <- true
                             | HandleJoinAllFailFast fiberContexts ->
                                 match tryCompleteJoinAll fiberContexts with
@@ -248,7 +257,7 @@ and SignalingRuntime(config: WorkerConfig) as this =
                                 | ValueNone ->
                                     let newWorkItem =
                                         resumeWith &state (WorkItemPool.Rent(state.Effect, currentFiberContext, state.ContStack))
-                                    parkJoinAllFailFastOnQueue fiberContexts currentFiberContext state.InterruptionSuppressed newWorkItem activeWorkItemQueue
+                                    parkJoinAllFailFastOnQueue fiberContexts currentFiberContext state.InterruptionSuppressed newWorkItem reschedule
                                     state.Completed <- true
                             | HandleAwaitTask(awaited, onError) ->
                                 let waited = awaitedTask awaited state.InterruptionSuppressed currentFiberContext
@@ -272,9 +281,9 @@ and SignalingRuntime(config: WorkerConfig) as this =
 
                 match completionAction with
                 | CompleteSuccess value ->
-                    do! currentFiberContext.CompleteAndReschedule(Ok value, activeWorkItemQueue)
+                    do! currentFiberContext.CompleteAndReschedule(Ok value, reschedule)
                 | CompleteFailure error ->
-                    do! currentFiberContext.CompleteAndReschedule(Error error, activeWorkItemQueue)
+                    do! currentFiberContext.CompleteAndReschedule(Error error, reschedule)
                 | NoCompletion -> ()
 
                 return ()

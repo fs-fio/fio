@@ -111,6 +111,8 @@ let typesTests =
                         Expect.equal config.MaxMessageSize 1_048_576L "Default MaxMessageSize (1 MB)"
                         Expect.equal config.SendTimeout 30_000 "Default SendTimeout"
                         Expect.equal config.ReceiveTimeout 0 "Default ReceiveTimeout: none, since a timed-out receive aborts the connection"
+                        Expect.equal config.ShutdownTimeout 10_000 "Default ShutdownTimeout"
+                        Expect.equal config.MaxConnections 0 "Default MaxConnections: no limit"
 
                     testCase "builders - update their fields"
                     <| fun () ->
@@ -121,6 +123,8 @@ let typesTests =
                         let c3 = WebSocketConfig.withMaxMessageSize 2_097_152L config
                         let c4 = WebSocketConfig.withSendTimeout 5000 config
                         let c5 = WebSocketConfig.withReceiveTimeout 10000 config
+                        let c6 = WebSocketConfig.withShutdownTimeout 500 config
+                        let c7 = WebSocketConfig.withMaxConnections 64 config
 
                         Expect.equal c1.ReceiveBufferSize 8192 "ReceiveBufferSize updated"
                         Expect.equal c1.SendBufferSize 4096 "SendBufferSize preserved"
@@ -128,6 +132,8 @@ let typesTests =
                         Expect.equal c3.MaxMessageSize 2_097_152L "MaxMessageSize updated"
                         Expect.equal c4.SendTimeout 5000 "SendTimeout updated"
                         Expect.equal c5.ReceiveTimeout 10000 "ReceiveTimeout updated"
+                        Expect.equal c6.ShutdownTimeout 500 "ShutdownTimeout updated"
+                        Expect.equal c7.MaxConnections 64 "MaxConnections updated"
                 ]
 
             testList

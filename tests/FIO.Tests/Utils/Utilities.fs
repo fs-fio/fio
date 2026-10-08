@@ -22,6 +22,10 @@ let allRuntimes () =
         new WorkStealingRuntime(testConfig) :> FIORuntime
     ]
 
+let resultWithin (timeout: TimeSpan) (fiber: FIO.DSL.Fiber<'A, 'E>) =
+    let task = fiber.Task()
+    if task.Wait timeout then Some task.Result else None
+
 let waitForFlag (flag: bool ref) =
     let deadline = DateTime.UtcNow.AddSeconds 5.0
     while not flag.Value && DateTime.UtcNow < deadline do

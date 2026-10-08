@@ -14,12 +14,17 @@ module SocketClient =
             (fun () ->
                 let socket =
                     new Sockets.Socket(config.AddressFamily, config.SocketType, config.ProtocolType)
-                socket.SendBufferSize <- config.SendBufferSize
-                socket.ReceiveBufferSize <- config.ReceiveBufferSize
-                socket.SendTimeout <- config.SendTimeout
-                socket.ReceiveTimeout <- config.ReceiveTimeout
-                socket.NoDelay <- config.NoDelay
-                socket)
+
+                try
+                    socket.SendBufferSize <- config.SendBufferSize
+                    socket.ReceiveBufferSize <- config.ReceiveBufferSize
+                    socket.SendTimeout <- config.SendTimeout
+                    socket.ReceiveTimeout <- config.ReceiveTimeout
+                    socket.NoDelay <- config.NoDelay
+                    socket
+                with _ ->
+                    socket.Dispose()
+                    reraise ())
             SocketError.fromException
 
     // ConnectAsync throws at once for an argument it rejects, such as a port out of range; as a faulted task that

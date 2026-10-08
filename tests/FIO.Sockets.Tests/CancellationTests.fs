@@ -49,10 +49,9 @@ let cancellationTests =
                     "Interrupted connect should terminate well under the OS connect timeout")
 
             testAllRuntimes "serve - interrupted while waiting for a connection, unwinds promptly" (fun runtime ->
-                let port = freePort ()
                 let effect =
                     fio {
-                        let! config = ServerSocketConfig.create "127.0.0.1" port
+                        let! config = ServerSocketConfig.create "127.0.0.1" 0
                         let! server = (ServerSocket.serve config (fun _ -> FIO.unit ())).Fork()
                         do! sleepMs 200.0
                         do! server.InterruptNow ()
@@ -64,7 +63,6 @@ let cancellationTests =
                 Expect.isTrue unwound $"The scope should unwind within 3s; took {stopwatch.ElapsedMilliseconds}ms")
 
             testAllRuntimes "serve - interrupts its handlers with the loop, not after the fiber's other finalizers" (fun runtime ->
-                let port = freePort ()
                 let handlerStarted = new ManualResetEventSlim false
                 let handlerFinalized = ref false
                 let finalizedBeforeCleanupEnded = ref false
@@ -76,26 +74,19 @@ let cancellationTests =
                 let cleanup =
                     (sleepMs 300.0).FlatMap(fun () ->
                         FIO.succeedWith (fun () ->
-                            finalizedBeforeCleanupEnded.Value <- handlerFinalized.Value
-                            cleanupEnded.Value <- true))
+                            if handlerStarted.IsSet then
+                                finalizedBeforeCleanupEnded.Value <- handlerFinalized.Value
+                                cleanupEnded.Value <- true))
 
-                let server =
-                    runtime.Run(
+                let server, _, client =
+                    serveAndConnect runtime (fun port ->
                         (fio {
                             let! config = ServerSocketConfig.create "127.0.0.1" port
                             return! ServerSocket.serve config handler
-                        }).Ensuring(cleanup))
-                use client = new Sockets.TcpClient()
-                let deadline = Stopwatch.StartNew()
-                let mutable connected = false
-                while not connected && deadline.ElapsedMilliseconds < 5_000L do
-                    try
-                        client.Connect(IPAddress.Loopback, port)
-                        connected <- true
-                    with _ ->
-                        Thread.Sleep 20
+                        }).Ensuring cleanup)
+                use client = client
 
-                Expect.isTrue connected "The server should start listening"
+                Expect.isTrue client.Connected "The server should start listening"
                 Expect.isTrue (handlerStarted.Wait(TimeSpan.FromSeconds 5.0)) "The handler should start"
 
                 runtime.Run(server.InterruptNow()).Task().Wait()
@@ -121,28 +112,19 @@ let cancellationTests =
                         testCase name (fun () ->
                             let runtime = make ()
                             use control = new DirectRuntime()
-                            let blocking = new ManualResetEventSlim(false)
-                            let unblock = new ManualResetEventSlim(false)
-                            let port = freePort ()
+                            let blocking = new ManualResetEventSlim false
+                            let unblock = new ManualResetEventSlim false
 
                             try
-                                let server =
-                                    runtime.Run(
+                                let server, port, probe =
+                                    serveAndConnect runtime (fun port ->
                                         fio {
                                             let! config = ServerSocketConfig.create "127.0.0.1" port
                                             return! ServerSocket.serve config (fun _ -> FIO.never ())
                                         })
-                                use probe = new Sockets.TcpClient()
-                                let deadline = Stopwatch.StartNew()
-                                let mutable listening = false
-                                while not listening && deadline.ElapsedMilliseconds < 5_000L do
-                                    try
-                                        probe.Connect(IPAddress.Loopback, port)
-                                        listening <- true
-                                    with _ ->
-                                        Thread.Sleep 20
+                                use probe = probe
 
-                                Expect.isTrue listening "The server should start listening"
+                                Expect.isTrue probe.Connected "The server should start listening"
 
                                 Thread.Sleep 100
                                 let blocker =
@@ -162,12 +144,10 @@ let cancellationTests =
                                 let closed =
                                     try
                                         client.GetStream().Read(Array.zeroCreate<byte> 1, 0, 1) = 0
-                                    with :? IOException as ex ->
-                                        match ex.InnerException with
-                                        | :? Sockets.SocketException as socketEx -> socketEx.SocketErrorCode <> Sockets.SocketError.TimedOut
-                                        | _ -> true
+                                    with :? IOException ->
+                                        false
 
-                                Expect.isTrue closed "The accepted connection should be closed, not left open"
+                                Expect.isTrue closed "The accepted connection should be closed by the loop, not left open or reset"
                             finally
                                 unblock.Set()
 

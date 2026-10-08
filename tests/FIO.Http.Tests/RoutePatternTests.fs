@@ -117,6 +117,14 @@ let routePatternTests =
 
                         Expect.isNone result "Non-integer should not match"
 
+                    testCase "withInt - accepts a minus sign and rejects a plus sign or surrounding space"
+                    <| fun () ->
+                        let path = RoutePath.withInt [ "users" ] []
+
+                        let matched = [ for segment in [ "-5"; "+5"; " 5"; "5 " ] -> (RoutePath.tryMatch path [ "users"; segment ]).IsSome ]
+
+                        Expect.equal matched [ true; false; false; false ] "Only digits with an optional minus sign are an integer segment"
+
                     testCase "withInt - rejects a path whose leading segments differ"
                     <| fun () ->
                         let path = RoutePath.withInt [ "users" ] []

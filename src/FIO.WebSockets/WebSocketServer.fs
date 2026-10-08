@@ -58,7 +58,7 @@ module WebSocketServer =
     let startDefault (url: string) : FIO<HttpListener, WsError> =
         start url
 
-    /// Stops a listener, gracefully completing in-flight requests, suppressing errors.
+    /// Stops a listener, which also drops the connections it accepted, suppressing errors.
     let close (listener: HttpListener) : FIO<unit, WsError> =
         (FIO.attempt
             (fun () -> listener.Stop())
@@ -124,47 +124,66 @@ module WebSocketServer =
                 return None
         }
 
-    let private tryAccept (listener: HttpListener) (config: WebSocketConfig) (subProtocol: string option) (cancellationToken: CancellationToken) =
-        fio {
-            let! listenerCtx =
-                FIO.awaitTask
-                    (Task.Run<HttpListenerContext>(fun () ->
-                        task {
-                            use _reg =
-                                cancellationToken.Register(fun () ->
-                                    try
-                                        listener.Stop()
-                                    with _ ->
-                                        ())
-                            return! listener.GetContextAsync()
-                        }))
-                    WsError.connectionFailed
-
-            return! upgrade listenerCtx config subProtocol
-        }
+    let private nextContext (listener: HttpListener) (cancellationToken: CancellationToken) =
+        FIO.awaitTask
+            (Task.Run<HttpListenerContext>(fun () ->
+                task {
+                    use _reg =
+                        cancellationToken.Register(fun () ->
+                            try
+                                listener.Stop()
+                            with _ ->
+                                ())
+                    return! listener.GetContextAsync()
+                }))
+            WsError.connectionFailed
 
     /// Accepts the next WebSocket connection, optionally negotiating the given subprotocol; interrupting it stops the
-    /// listener and with it the connections accepted earlier.
+    /// listener and with it the connections accepted earlier, and closes a connection upgraded just then, barring a race.
     let accept (listener: HttpListener) (config: WebSocketConfig) (subProtocol: string option) : FIO<WebSocket, WsError> =
-        fio {
-            let! cancellationToken = FIO.cancellationToken ()
-
-            match! tryAccept listener config subProtocol cancellationToken with
-            | Some ws -> return ws
-            | None -> return! FIO.fail (ConnectionFailed "Not a WebSocket request")
-        }
+        FIO.cancellationToken().FlatMap(fun cancellationToken ->
+            // Uninterruptible: the token stops the listener, which ends the wait, so a request that arrived is always
+            // upgraded or answered.
+            FIO.uninterruptible (
+                (nextContext listener cancellationToken).FlatMap(fun listenerCtx ->
+                    (upgrade listenerCtx config subProtocol).FlatMap(fun upgraded ->
+                        match upgraded with
+                        | None -> FIO.fail (ConnectionFailed "Not a WebSocket request")
+                        | Some ws when cancellationToken.IsCancellationRequested ->
+                            FIO.succeedWith (fun () ->
+                                ws.Kill()
+                                ws)
+                        | Some ws -> FIO.succeed ws))))
 
     /// Accepts the next WebSocket connection without negotiating a subprotocol.
     let acceptDefault (listener: HttpListener) (config: WebSocketConfig) : FIO<WebSocket, WsError> =
         accept listener config None
 
-    /// Accepts connections continuously, forking the handler for each. Interrupting it shuts down: open connections get
-    /// a going-away close and the shutdown timeout to finish, the rest are interrupted, and the listener stops.
+    // A handler runs on its own fiber and nobody joins it; its typed failure is logged where it is caught, a crash here.
+    let private reportCrash (handler: Fiber<unit, WsError>) =
+        handler.Task().ContinueWith(
+            (fun (ended: Task<FiberResult<unit, WsError>>) ->
+                try
+                    if ended.IsCompletedSuccessfully then
+                        match ended.Result with
+                        | Interrupted ex ->
+                            match ex.cause with
+                            | Defect thrown -> eprintfn $"WebSocketServer connection handler crashed: {thrown}"
+                            | _ -> ()
+                        | _ -> ()
+                with _ ->
+                    ()),
+            TaskContinuationOptions.ExecuteSynchronously)
+        |> ignore
+
+    /// Accepts connections continuously, forking the handler for each; interrupting it gives handlers the shutdown timeout,
+    /// then interrupts them and ends their connections. A listener stopped under it ends it with an error.
     let acceptLoop (listener: HttpListener) (config: WebSocketConfig) (handler: WebSocket -> FIO<unit, WsError>) : FIO<unit, WsError> =
         FIO.suspend <| fun () ->
             let connections = ConcurrentDictionary<WebSocket, Connection>(HashIdentity.Reference)
             // The request being awaited outlives an interruption, so the shutdown refuses it instead of losing it.
             let pending = ref null
+            let listenerFailures = ref 0
 
             let nextRequest =
                 (FIO.attempt
@@ -196,6 +215,14 @@ module WebSocketServer =
                     .Ensuring(disposeConnection connection.Socket)
                     .Ensuring(finish connection)
 
+            let refuseAtLimit (request: HttpListenerContext) =
+                (FIO.attempt
+                    (fun () ->
+                        request.Response.StatusCode <- 503
+                        request.Response.Close())
+                    WsError.fromException)
+                    .CatchAll(logAndSuppress "refusing a request at the connection limit")
+
             // Forked in the uninterruptible hand-off, a handler is protected: the loop's interruption leaves it running
             // for the shutdown's close, and the loop's exit interrupts what the shutdown left behind.
             let handOff (request: HttpListenerContext) =
@@ -203,28 +230,50 @@ module WebSocketServer =
                     fio {
                         pending.Value <- null
 
-                        match! upgrade request config None with
-                        | Some ws ->
-                            let connection =
-                                {
-                                    Socket = ws
-                                    Finished = TaskCompletionSource TaskCreationOptions.RunContinuationsAsynchronously
-                                    Handler = None
-                                }
+                        if config.MaxConnections > 0 && connections.Count >= config.MaxConnections then
+                            do! refuseAtLimit request
+                        else
+                            match! upgrade request config None with
+                            | Some ws ->
+                                let connection =
+                                    {
+                                        Socket = ws
+                                        Finished = TaskCompletionSource TaskCreationOptions.RunContinuationsAsynchronously
+                                        Handler = None
+                                    }
 
-                            connections[ws] <- connection
-                            let! fiber = (handleConnection connection).Fork()
-                            connection.Handler <- Some fiber
-                        | None -> ()
+                                connections[ws] <- connection
+                                let! fiber = (handleConnection connection).Fork()
+                                connection.Handler <- Some fiber
+                                reportCrash fiber
+                            | None -> ()
                     })
 
+            let isListening () =
+                try
+                    listener.IsListening
+                with _ ->
+                    false
+
+            // A failed handshake says nothing about the listener, so it costs no pause; a failing listener backs off
+            // from 25 ms to 1 s, and a stopped one ends the loop.
             let step =
-                (nextRequest.FlatMap handOff)
+                nextRequest
+                    .FlatMap(fun request ->
+                        listenerFailures.Value <- 0
+                        (handOff request).CatchAll(logAndSuppress "handshake"))
                     .CatchAll(fun error ->
-                        fio {
-                            do! logAndSuppress "accept loop iteration" error
-                            do! FIO.sleep (TimeSpan.FromMilliseconds 25.0)
-                        })
+                        if not (isListening ()) then
+                            FIO.fail error
+                        else
+                            fio {
+                                listenerFailures.Value <- listenerFailures.Value + 1
+
+                                if listenerFailures.Value = 1 || listenerFailures.Value % 40 = 0 then
+                                    do! logAndSuppress $"accept loop iteration (failure {listenerFailures.Value} in a row)" error
+
+                                do! FIO.sleep (TimeSpan.FromMilliseconds(float (min 1000 (25 <<< min 6 (listenerFailures.Value - 1)))))
+                            })
 
             let rec refuse () =
                 fio {
@@ -262,8 +311,10 @@ module WebSocketServer =
                     let limit = if config.ShutdownTimeout > 0 then config.ShutdownTimeout else Timeout.Infinite
                     let deadline = Task.Delay limit
 
-                    let abort (connection: Connection) =
-                        connection.Socket.Abort().CatchAll(logAndSuppress "aborting a connection at the shutdown deadline")
+                    // An abort does not end I/O that is pending without a token, such as a close waiting in a handler's
+                    // finalizer for a peer that never answers; ending the connection does.
+                    let endConnection (connection: Connection) =
+                        FIO.succeedWith (fun () -> connection.Socket.Kill())
 
                     let! goingAway = (FIO.forEachParDiscard open' closeGoingAway).Fork()
                     let! _ = FIO.awaitTask (Task.WhenAny(goingAway.Task() :> Task, deadline)) WsError.fromException
@@ -271,7 +322,6 @@ module WebSocketServer =
                     if goingAway.Task().IsCompleted then
                         do! goingAway.Await().Unit()
                     else
-                        do! FIO.forEachDiscard open' abort
                         do! goingAway.InterruptNow()
 
                     let finished =
@@ -284,7 +334,7 @@ module WebSocketServer =
                         |> Array.filter (fun connection -> connection.Handler.IsSome && not connection.Finished.Task.IsCompleted)
 
                     do! FIO.forEachDiscard unfinished (fun connection -> connection.Handler.Value.InterruptNow())
-                    do! FIO.forEachDiscard unfinished abort
+                    do! FIO.forEachDiscard unfinished endConnection
                     do! FIO.awaitUnitTask (Task.WhenAll finished) WsError.fromException
                     do! close listener
                     do! refusal.Await().Unit()
@@ -299,7 +349,7 @@ module WebSocketServer =
             (fun listener -> (close listener).FlatMap(fun () -> dispose listener))
             (fun listener -> acceptLoop listener config handler)
 
-    /// Serves a request/response protocol, decoding each request and encoding each reply with the given codecs.
+    /// Serves a request/response protocol with the given codecs, one request and one reply per connection.
     let serveWith<'A, 'A1>
         (url: string)
         (config: WebSocketConfig)

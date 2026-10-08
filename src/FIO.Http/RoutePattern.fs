@@ -1,6 +1,7 @@
 namespace FIO.Http
 
 open System
+open System.Globalization
 
 /// A pattern describing how a request path is matched.
 type RoutePath =
@@ -96,10 +97,12 @@ module RoutePath =
         Pattern <| fun segments ->
             match matchBefore before segments with
             | Some(param :: remaining) ->
-                match Int32.TryParse param with
-                | true, value ->
+                let style = NumberStyles.AllowLeadingSign
+
+                match Int32.TryParse(param, style, CultureInfo.InvariantCulture) with
+                | true, value when not (param.StartsWith '+') ->
                     matchAfter after remaining [ box value ]
-                | false, _ ->
+                | _ ->
                     None
             | _ ->
                 None

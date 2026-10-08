@@ -345,5 +345,84 @@ let tests =
 
                         Expect.isTrue (waitForFlag finalizerDone) "The parent's finalizer should run"
                         Expect.isTrue childInterrupted.Value "An ordinary child must be interrupted as soon as its parent is")
+
+                    testAllRuntimes "Ensuring - a fiber is interruptible again once a finalizer has completed" (fun runtime ->
+                        let started = new ManualResetEventSlim false
+                        let laterFinalized = new ManualResetEventSlim(false)
+                        let effect =
+                            (FIO.unit<exn>().Ensuring(FIO.unit ())).FlatMap(fun () ->
+                                (FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never<unit, exn> ()))
+                                    .Ensuring(FIO.succeedWith (fun () -> laterFinalized.Set())))
+                        let fiber = runtime.Run effect
+                        let running = started.Wait(TimeSpan.FromSeconds 5.0)
+
+                        runtime.Run(fiber.InterruptNow()).Task().Wait()
+                        let finalized = laterFinalized.Wait(TimeSpan.FromSeconds 5.0)
+
+                        Expect.isTrue running "The body after the first finalizer should start"
+                        Expect.isTrue finalized "An interruption after a completed finalizer should end the fiber and run its later finalizer")
+
+                    testAllRuntimes "Ensuring - inside an uninterruptible region, a failing finalizer does not turn an interruption into a failure" (fun runtime ->
+                        let caught = ref false
+                        let unwound = new ManualResetEventSlim(false)
+                        let region =
+                            FIO.uninterruptible (
+                                (FIO.interruptNow<unit, string>().Ensuring(FIO.fail "the finalizer failed"))
+                                    .CatchAll(fun _ -> FIO.succeedWith (fun () -> caught.Value <- true)))
+
+                        let result = runtime.Run(region.Ensuring(FIO.succeedWith (fun () -> unwound.Set()))).UnsafeResult()
+                        let ended = unwound.Wait(TimeSpan.FromSeconds 5.0)
+
+                        match result with
+                        | Interrupted _ -> ()
+                        | other -> failtest $"Expected Interrupted but got {other}"
+                        Expect.isTrue ended "The fiber should unwind"
+                        Expect.isFalse caught.Value "The interruption must not become a failure the region can catch")
+
+                    testAllRuntimes "acquireReleaseWith - inside an uninterruptible region, a failed acquire on an interrupted fiber stays a failure" (fun runtime ->
+                        let entered = new ManualResetEventSlim(false)
+                        let gate = Tasks.TaskCompletionSource()
+                        let caught = ref ""
+                        let acquire: FIO<int, string> = FIO.fail "the acquire failed"
+                        let region =
+                            FIO.succeedWith(fun () -> entered.Set())
+                                .FlatMap(fun () -> FIO.awaitUnitTask gate.Task (fun ex -> ex.Message))
+                                .FlatMap(fun () -> FIO.acquireReleaseWith acquire (fun _ -> FIO.unit ()) (fun _ -> FIO.unit ()))
+                                .CatchAll(fun error -> FIO.succeedWith (fun () -> caught.Value <- error))
+                        let unwound = new ManualResetEventSlim(false)
+                        let fiber = runtime.Run((FIO.uninterruptible region).Ensuring(FIO.succeedWith (fun () -> unwound.Set())))
+                        let waiting = entered.Wait(TimeSpan.FromSeconds 5.0)
+
+                        runtime.Run(fiber.InterruptNow()).Task().Wait()
+                        gate.SetResult()
+                        let result = fiber.UnsafeResult()
+                        let ended = unwound.Wait(TimeSpan.FromSeconds 5.0)
+
+                        Expect.isTrue waiting "The region should start"
+                        match result with
+                        | Interrupted _ -> ()
+                        | other -> failtest $"Expected Interrupted but got {other}"
+                        Expect.isTrue ended "The fiber should unwind"
+                        Expect.equal caught.Value "the acquire failed" "The outer region defers the interruption, so its handler sees the acquire's failure")
+
+                    testAllRuntimes "Interrupt - the result is published at once, while the fiber's finalizer still runs" (fun runtime ->
+                        let started = new ManualResetEventSlim false
+                        let finalized = ref false
+                        let effect =
+                            (FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never<unit, exn> ()))
+                                .Ensuring(
+                                    (FIO.sleep (TimeSpan.FromMilliseconds 500.0)).FlatMap(fun () ->
+                                        FIO.succeedWith (fun () -> finalized.Value <- true)))
+                        let fiber = runtime.Run effect
+                        let running = started.Wait(TimeSpan.FromSeconds 5.0)
+
+                        runtime.Run(fiber.InterruptNow()).Task().Wait()
+                        let published = fiber.Task().Wait(TimeSpan.FromMilliseconds 250.0)
+                        let finalizedAtPublish = finalized.Value
+
+                        Expect.isTrue running "The body should start"
+                        Expect.isTrue published "An interrupted fiber should surface its result without waiting for its finalizer"
+                        Expect.isFalse finalizedAtPublish "The finalizer should still be running when the result is published"
+                        Expect.isTrue (waitForFlag finalized) "The finalizer should still run to its end")
                 ]
         ]

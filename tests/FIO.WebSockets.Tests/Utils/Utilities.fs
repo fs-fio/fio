@@ -12,6 +12,7 @@ open System
 open System.Net
 open System.Net.Sockets
 open System.Diagnostics
+open System.Threading.Tasks
 
 open Expecto
 open FsCheck.FSharp
@@ -65,6 +66,13 @@ let testAllRuntimes name (f: FIORuntime -> unit) =
                     finally
                         disposeRuntime rt)
         ]
+
+let stressEnabled =
+    Environment.GetEnvironmentVariable "FIO_RUN_STRESS" = "1"
+
+let stressTestAllRuntimes name (f: FIORuntime -> unit) =
+    if stressEnabled then testSequenced (testAllRuntimes name f)
+    else ptestCase name ignore
 
 let findAvailablePort () =
     let listener = new TcpListener(IPAddress.Loopback, 0)
@@ -121,14 +129,14 @@ let runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, WsError>) =
     | Failed error -> failtest $"Effect failed: {error}"
     | Interrupted ex -> failtest $"Interrupted: {ex.Message}"
 
-let startTestListenerOn (host: string) =
+let startListenerWith (start: string -> FIO<HttpListener, WsError>) (host: string) =
     let rec attempt remaining =
         fio {
             let port = findAvailablePort ()
             let url = $"http://{host}:{port}/"
 
             let! outcome =
-                (WebSocketServer.start url)
+                (start url)
                     .Map(fun listener -> Ok(port, listener))
                     .CatchAll(fun error -> FIO.succeed (Error error))
 
@@ -144,30 +152,51 @@ let startTestListenerOn (host: string) =
 
     attempt 10
 
+let startTestListenerOn (host: string) =
+    startListenerWith WebSocketServer.start host
+
 let startTestListener () =
     startTestListenerOn "localhost"
 
 let private portConflict (error: WsError) =
     match error with
-    | ConnectionFailed message -> message.Contains "conflicts with an existing registration"
+    | ConnectionFailed message ->
+        [ "conflicts with an existing registration"; "already in use"; "being used by another process" ]
+        |> List.exists message.Contains
     | _ -> false
 
-let withServedUrl (startServer: string -> FIO<unit, WsError>) (action: string -> FIO<'A, WsError>) =
+type ServedServer =
+    {
+        Server: Fiber<unit, WsError>
+        Url: string
+        Unwound: Task
+    }
+
+// An interrupted fiber publishes before its finalizers run, so only Unwound tells that the server has shut down.
+let withServerOn (host: string) (startServer: string -> FIO<unit, WsError>) (action: ServedServer -> FIO<'A, WsError>) =
     let rec attempt remaining =
         fio {
             let port = findAvailablePort ()
-            let! serverFiber = (startServer $"http://localhost:{port}/").Fork()
+            let unwound = TaskCompletionSource()
+
+            let! server =
+                (startServer $"http://{host}:{port}/")
+                    .Ensuring(FIO.succeedWith (fun () -> unwound.TrySetResult() |> ignore))
+                    .Fork()
 
             let serverDied =
-                (serverFiber.Join())
-                    .FlatMap(fun _ -> FIO.fail (ConnectionFailed "server exited before the client connected"))
+                server.Await().FlatMap(fun result ->
+                    match result with
+                    | Succeeded () -> FIO.fail (ConnectionFailed "server exited before the test was done with it")
+                    | Failed error -> FIO.fail error
+                    | Interrupted _ -> FIO.never ())
 
             let! outcome =
-                ((action $"ws://localhost:{port}/").RaceFirst serverDied)
+                ((action { Server = server; Url = $"ws://{host}:{port}/"; Unwound = unwound.Task }).RaceFirst serverDied)
                     .Map(fun value -> Ok value)
                     .CatchAll(fun error -> FIO.succeed (Error error))
 
-            do! (serverFiber.InterruptNow()).CatchAll(fun _ -> FIO.unit ())
+            do! (server.InterruptNow()).CatchAll(fun _ -> FIO.unit ())
 
             match outcome with
             | Ok value -> return value
@@ -176,6 +205,9 @@ let withServedUrl (startServer: string -> FIO<unit, WsError>) (action: string ->
         }
 
     attempt 5
+
+let withServedUrl (startServer: string -> FIO<unit, WsError>) (action: string -> FIO<'A, WsError>) =
+    withServerOn "localhost" startServer (fun served -> action served.Url)
 
 let connectWhenListening (url: string) =
     (WebSocketClient.connectDefault url)

@@ -7,9 +7,9 @@ open System.Threading
 open System.Threading.Tasks
 open System.Collections.Concurrent
 
-// Stdin is process-global and its reads block, so one background thread owns every read. A read whose
-// fiber gave up still completes here; its input is stashed for the next request of the same kind.
-module private StdinReader =
+// Stdin is process-global and its reads block, so one background thread owns every read. Input that reached no
+// reader, because its fiber gave up, waits here for the next request.
+module internal StdinReader =
 
     type Request =
         | Line of TaskCompletionSource<string>
@@ -17,19 +17,45 @@ module private StdinReader =
 
     let private requests = new BlockingCollection<Request>()
 
-    let mutable private pendingLine = ValueNone
+    let private undeliveredLines = ConcurrentQueue<string>()
 
-    let mutable private pendingKey = ValueNone
+    let private undeliveredKeys = ConcurrentQueue<ConsoleKeyInfo>()
 
-    let private serve (tcs: TaskCompletionSource<'T>) (stash: byref<'T voption>) (read: unit -> 'T) =
-        match stash with
-        | ValueSome value ->
-            stash <- ValueNone
+    // Values a fiber received and then gave back, owed before anything read later.
+    let private returnedLines = ConcurrentQueue<string>()
 
-            if not (tcs.TrySetResult value) then
-                stash <- ValueSome value
-        | ValueNone ->
-            let mutable value = Unchecked.defaultof<'T>
+    let private returnedKeys = ConcurrentQueue<ConsoleKeyInfo>()
+
+    // Replaced by tests: Console.ReadKey cannot be fed without a terminal.
+    let mutable readKey : bool -> ConsoleKeyInfo = fun intercept -> Console.ReadKey intercept
+
+    let private readLineOrEnd () =
+        match Console.In.ReadLine() with
+        | null -> raise (IO.EndOfStreamException "End of standard input")
+        | line -> line
+
+    // A key that an abandoned key read took was the start of the line now being read.
+    let private readLineAfter (key: ConsoleKeyInfo) =
+        if key.Key = ConsoleKey.Enter then ""
+        elif Char.IsControl key.KeyChar then readLineOrEnd ()
+        else string key.KeyChar + readLineOrEnd ()
+
+    // Only this thread dequeues, so the value it peeked is the one it removes. A request abandoned before its turn
+    // reads nothing.
+    let private serve
+        (tcs: TaskCompletionSource<'T>)
+        (returned: ConcurrentQueue<'T>)
+        (undelivered: ConcurrentQueue<'T>)
+        (read: unit -> 'T) =
+        let mutable value = Unchecked.defaultof<'T>
+
+        if returned.TryPeek &value then
+            if tcs.TrySetResult value then
+                returned.TryDequeue &value |> ignore
+        elif undelivered.TryPeek &value then
+            if tcs.TrySetResult value then
+                undelivered.TryDequeue &value |> ignore
+        elif not tcs.Task.IsCompleted then
             let mutable thrown = null
 
             try
@@ -40,18 +66,28 @@ module private StdinReader =
             if not (isNull thrown) then
                 tcs.TrySetException thrown |> ignore
             elif not (tcs.TrySetResult value) then
-                stash <- ValueSome value
+                undelivered.Enqueue value
 
-    let private readLineOrEnd () =
-        match Console.In.ReadLine() with
-        | null -> raise (IO.EndOfStreamException "End of standard input")
-        | line -> line
+    // The key is removed only once its line was read, so a failed read leaves it for the next request.
+    let private readLine () =
+        let mutable key = Unchecked.defaultof<ConsoleKeyInfo>
+
+        if returnedKeys.TryPeek &key then
+            let line = readLineAfter key
+            returnedKeys.TryDequeue &key |> ignore
+            line
+        elif undeliveredKeys.TryPeek &key then
+            let line = readLineAfter key
+            undeliveredKeys.TryDequeue &key |> ignore
+            line
+        else
+            readLineOrEnd ()
 
     let private loop () =
         for request in requests.GetConsumingEnumerable() do
             match request with
-            | Line tcs -> serve tcs &pendingLine readLineOrEnd
-            | Key(intercept, tcs) -> serve tcs &pendingKey (fun () -> Console.ReadKey intercept)
+            | Line tcs -> serve tcs returnedLines undeliveredLines readLine
+            | Key(intercept, tcs) -> serve tcs returnedKeys undeliveredKeys (fun () -> readKey intercept)
 
     let private thread =
         lazy (Thread(loop, IsBackground = true, Name = "FIO stdin reader").Start())
@@ -60,13 +96,21 @@ module private StdinReader =
         thread.Force()
         requests.Add request
 
+    let giveBackLine (line: string) =
+        returnedLines.Enqueue line
+
+    let giveBackKey (key: ConsoleKeyInfo) =
+        returnedKeys.Enqueue key
+
 [<RequireQualifiedAccess>]
 module Console =
 
-    // The runtime's await is what interrupts the fiber; the registration only marks the request abandoned so the
-    // reader stashes its input. The finalizer marks it too: a runtime that resumes inline from the await's own
-    // cancellation callback reaches the finalizer before the registration has run, and disposing it skips it.
-    let private awaitStdin (request: TaskCompletionSource<'T> -> StdinReader.Request) (onError: exn -> 'E) =
+    // The finalizer marks the request abandoned as well as the registration, which a runtime resuming inline may skip;
+    // input that arrived for an interrupted fiber goes back, as the interruption would drop it when the region ends.
+    let private awaitStdin
+        (request: TaskCompletionSource<'T> -> StdinReader.Request)
+        (giveBack: 'T -> unit)
+        (onError: exn -> 'E) =
         FIO.cancellationToken().FlatMap <| fun cancellationToken ->
             let tcs = TaskCompletionSource<'T> TaskCreationOptions.RunContinuationsAsynchronously
             let registration = cancellationToken.Register(fun () -> tcs.TrySetCanceled cancellationToken |> ignore)
@@ -75,7 +119,11 @@ module Console =
             (FIO.awaitTask tcs.Task onError)
                 .Ensuring(FIO.succeedWith (fun () ->
                     registration.Dispose()
-                    tcs.TrySetCanceled() |> ignore))
+
+                    if not (tcs.TrySetCanceled())
+                       && cancellationToken.IsCancellationRequested
+                       && tcs.Task.IsCompletedSuccessfully then
+                        giveBack tcs.Task.Result))
 
     /// Returns an effect that writes formatted text to standard output.
     let print<'E> (format: Printf.TextWriterFormat<unit>) (onError: exn -> 'E) : FIO<unit, 'E> =
@@ -85,22 +133,22 @@ module Console =
     let printLine<'E> (format: Printf.TextWriterFormat<unit>) (onError: exn -> 'E) : FIO<unit, 'E> =
         FIO.attempt (fun () -> fprintfn Console.Out format) onError
 
-    /// Returns an effect that reads a line from standard input, failing through onError with
-    /// <c>EndOfStreamException</c> at end of input. Input typed for an interrupted read is delivered to the next one.
+    /// Returns an effect that reads a line from standard input, failing through onError with EndOfStreamException at end
+    /// of input; input typed for an interrupted read goes to the next read, not to System.Console.ReadLine.
     let readLine<'E> (onError: exn -> 'E) : FIO<string, 'E> =
-        awaitStdin StdinReader.Line onError
+        awaitStdin StdinReader.Line StdinReader.giveBackLine onError
 
     /// Returns an effect that reads a line from standard input, yielding None at end of input; interruption behaves
     /// as in readLine.
     let tryReadLine<'E> (onError: exn -> 'E) : FIO<string option, 'E> =
-        (awaitStdin StdinReader.Line id).Map(Some).CatchAll(function
+        (awaitStdin StdinReader.Line StdinReader.giveBackLine id).Map(Some).CatchAll(function
             | :? IO.EndOfStreamException -> FIO.succeed None
             | ex -> FIO.fail (onError ex))
 
-    /// Returns an effect that reads the next key press, without echoing it when intercept is true; fails through
-    /// onError when input is redirected. A key typed for an interrupted read is delivered to the next one.
+    /// Returns an effect that reads the next key press, echoed unless intercept is true; fails through onError when input
+    /// is redirected. A key typed for an interrupted read goes to the next readKey, or begins the next readLine.
     let readKey<'E> (intercept: bool) (onError: exn -> 'E) : FIO<ConsoleKeyInfo, 'E> =
-        awaitStdin (fun tcs -> StdinReader.Key(intercept, tcs)) onError
+        awaitStdin (fun tcs -> StdinReader.Key(intercept, tcs)) StdinReader.giveBackKey onError
 
     /// Returns an effect that writes text to standard output.
     let write<'E> (text: string) (onError: exn -> 'E) : FIO<unit, 'E> =

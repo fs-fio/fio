@@ -11,23 +11,23 @@ type SocketError =
     | ConnectionFailed of host: string * port: int * exn
     /// The connection was closed.
     | ConnectionClosed of string
-    /// Sending data failed.
+    /// Sending data failed. Reserved: a failed write is currently reported as GeneralError.
     | SendFailed of exn
-    /// Receiving data failed.
+    /// Receiving data failed. Reserved: a failed read is currently reported as GeneralError.
     | ReceiveFailed of exn
     /// The operation timed out.
     | TimeoutError of string
-    /// More data was requested than the buffer could hold.
+    /// A line or frame from the peer exceeded the size limit passed to the receive.
     | BufferOverflow of requested: int * available: int
-    /// The socket was in an unexpected state.
+    /// An argument was invalid, such as an empty host, a port out of range or a non-positive buffer size.
     | InvalidState of expected: string * actual: string
     /// Binding the server socket failed.
     | BindFailed of address: string * port: int * exn
     /// Accepting an incoming connection failed.
     | AcceptFailed of exn
-    /// The connection pool ran out of available connections.
+    /// The connection pool ran out of available connections. Reserved: connection pooling is not implemented yet.
     | PoolExhausted of maxSize: int
-    /// The connection pool is closed.
+    /// The connection pool is closed. Reserved: connection pooling is not implemented yet.
     | PoolClosed
     /// Encoding or decoding a value failed.
     | CodecError of string * exn
@@ -153,8 +153,8 @@ module SocketConfig =
     let withNoDelay (noDelay: bool) (config: SocketConfig) : SocketConfig =
         { config with NoDelay = noDelay }
 
-    /// Sets how closing treats unsent data: disabled closes gracefully, enabled waits up to timeoutSeconds for it, and
-    /// enabled with 0 resets the connection at once.
+    /// Sets how closing treats unsent data: disabled closes gracefully, enabled with 0 resets the connection at once,
+    /// and enabled with a positive timeoutSeconds asks the system to bound the graceful close by that time.
     let withLinger (enabled: bool) (timeoutSeconds: int) (config: SocketConfig) : SocketConfig =
         { config with LingerEnabled = enabled; LingerTimeout = timeoutSeconds }
 
@@ -229,7 +229,7 @@ module ServerSocketConfig =
     let withAddressFamily (family: Sockets.AddressFamily) (config: ServerSocketConfig) : ServerSocketConfig =
         { config with AddressFamily = family }
 
-/// Configuration for a pool of client socket connections.
+/// Configuration for a pool of client socket connections. Reserved: connection pooling is not implemented yet.
 type SocketPoolConfig =
     {
         /// The configuration used for each pooled connection.

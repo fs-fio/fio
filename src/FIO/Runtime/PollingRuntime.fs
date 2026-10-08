@@ -72,7 +72,9 @@ and private EvaluationWorker(config: EvaluationWorkerConfig, workerId: int) =
                     else
                         let! workItem = config.ActiveWorkItemQueue.ReadAsync()
 
-                        if not (workItem.FiberContext.IsCompleted()) then
+                        if cancellationToken.IsCancellationRequested then
+                            loop <- false
+                        elif not (workItem.FiberContext.IsCompleted()) then
                             let fiberContext = workItem.FiberContext
                             try
                                 do! processWorkItem workItem
@@ -187,7 +189,8 @@ and internal BlockingWorker(config: BlockingWorkerConfig, workerId: int) =
 
                     if blockedFiber.IsCompleted() then
                         ()
-                    elif blockedFiber.IsInterrupted() || isReady entry then
+                    elif isReady entry
+                         || blockedFiber.IsInterrupted() && (getWorkItem entry).InterruptionSuppressed = 0 then
                         do! queueActive (getWorkItem entry)
                     else
                         let missed = { entry with MissCount = entry.MissCount + 1 }
@@ -264,9 +267,12 @@ and PollingRuntime(config: WorkerConfig) as this =
 
     let activeWorkItemQueue = MailboxQueue<WorkItem>()
 
+    [<VolatileField>]
+    let mutable stopping = false
+
     let blockingEntryQueue = MailboxQueue<BlockingEntry>()
 
-
+    let reschedule = Action<WorkItem>(fun workItem -> activeWorkItemQueue.WriteAsync workItem |> ignore)
 
     let struct (blockingWorkers, evaluationWorkers) =
         WorkerBuilders.buildPairedWorkers
@@ -292,6 +298,7 @@ and PollingRuntime(config: WorkerConfig) as this =
                 ))
 
     do this.StopWorkers <- fun () ->
+        stopping <- true
         blockingWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
         evaluationWorkers |> List.iter (fun w -> (w :> IDisposable).Dispose())
 
@@ -343,7 +350,7 @@ and PollingRuntime(config: WorkerConfig) as this =
                                 onErrorComplete
                                 (OutcomeInterrupted error)
                     elif currentEvaluationSteps = 0 then
-                        if activeWorkItemQueue.Count > 0 then
+                        if stopping || activeWorkItemQueue.Count > 0 then
                             let newWorkItem =
                                 resumeWith &state (WorkItemPool.Rent(state.Effect, currentFiberContext, state.ContStack))
                             do! activeWorkItemQueue.WriteAsync newWorkItem
@@ -421,7 +428,7 @@ and PollingRuntime(config: WorkerConfig) as this =
                                 | _ ->
                                     let newWorkItem =
                                         resumeWith &state (WorkItemPool.Rent(state.Effect, currentFiberContext, state.ContStack))
-                                    parkJoinFirstOnHooks fiberContexts currentFiberContext state.InterruptionSuppressed newWorkItem activeWorkItemQueue
+                                    parkJoinFirstOnHooks fiberContexts currentFiberContext state.InterruptionSuppressed newWorkItem reschedule
                                     state.Completed <- true
                             | HandleJoinAllFailFast fiberContexts ->
                                 match tryCompleteJoinAll fiberContexts with
@@ -434,7 +441,7 @@ and PollingRuntime(config: WorkerConfig) as this =
                                 | ValueNone ->
                                     let newWorkItem =
                                         resumeWith &state (WorkItemPool.Rent(state.Effect, currentFiberContext, state.ContStack))
-                                    parkJoinAllFailFastOnQueue fiberContexts currentFiberContext state.InterruptionSuppressed newWorkItem activeWorkItemQueue
+                                    parkJoinAllFailFastOnQueue fiberContexts currentFiberContext state.InterruptionSuppressed newWorkItem reschedule
                                     state.Completed <- true
                             | HandleAwaitTask(awaited, onError) ->
                                 let waited = awaitedTask awaited state.InterruptionSuppressed currentFiberContext
@@ -457,9 +464,9 @@ and PollingRuntime(config: WorkerConfig) as this =
                                     state.Completed <- true
                 match completionAction with
                 | CompleteSuccess value ->
-                    do! currentFiberContext.CompleteAndReschedule(Ok value, activeWorkItemQueue)
+                    do! currentFiberContext.CompleteAndReschedule(Ok value, reschedule)
                 | CompleteFailure error ->
-                    do! currentFiberContext.CompleteAndReschedule(Error error, activeWorkItemQueue)
+                    do! currentFiberContext.CompleteAndReschedule(Error error, reschedule)
                 | NoCompletion -> ()
 
                 return ()

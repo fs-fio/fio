@@ -28,8 +28,9 @@ see [For AI agents & contributors](#for-ai-agents--contributors).
 4. **"this effect" voice for members.** On instance members, refer to the
    receiver as "this effect", "this fiber", "this channel".
 5. **Don't restate the obvious.** If the parameter is `value: 'A`, don't add
-   `<param name="value">The value.</param>`. Add a `<param>` only when the name
-   doesn't already tell the whole story (e.g. `onError`).
+   `<param name="value">The value.</param>`. When the name doesn't tell the
+   whole story (e.g. `onError`), fold the clarification into the summary rather
+   than adding a `<param>` (§3).
 6. **Consistent vocabulary.** effect, fiber, channel, succeed / fail, interrupt,
    finalizer. Use these words the same way everywhere.
 
@@ -45,7 +46,7 @@ see [For AI agents & contributors](#for-ai-agents--contributors).
 - Public types: DUs, records, classes, and type aliases (`HttpHandler<'E>`).
 - Public DU cases and record fields (one short line each).
 - The abstract members of `FIOApp` that a user overrides (`effect`, `runtime`,
-  `onShutdown`, `onShutdownTimeout`, `mapExitCode`).
+  `onOutcome`, `onOutcomeTimeout`, `onShutdown`, `onShutdownTimeout`, `mapExitCode`).
 - Infix operators.
 - The `fio` computation-expression value.
 
@@ -236,19 +237,18 @@ A summary on the type, then one line per field. Field docs go on the line above
 the field.
 
 ```fsharp
-/// Tunable limits and timeouts for a WebSocket connection.
-type WebSocketConfig =
+/// Configuration for an HTTP server.
+type ServerConfig =
     {
-        /// Buffer size, in bytes, for receiving message frames.
-        ReceiveBufferSize: int
-        /// Buffer size, in bytes, for sending message frames.
-        SendBufferSize: int
-        /// Largest message, in bytes, that may be received before the connection is closed.
-        MaxMessageSize: int64
-        /// Send timeout, in milliseconds.
-        SendTimeout: int
-        /// Receive timeout, in milliseconds.
-        ReceiveTimeout: int
+        /// The host or IP address to bind to.
+        Host: string
+        /// The port to listen on.
+        Port: int
+        /// The maximum request body size, in bytes.
+        MaxRequestBodySize: int64
+        /// How long, in milliseconds, a stopping server lets requests in flight finish before it interrupts their
+        /// handlers; 0 or less waits indefinitely.
+        ShutdownTimeout: int
     }
 ```
 
@@ -291,7 +291,7 @@ type HttpHandler<'E> = HttpRequest -> FIO<HttpResponse, 'E>
 - The computation expression: document the `fio` value, not the builder methods.
 
 ```fsharp
-/// Builds effects with `let!`, `do!`, `return`, `for`, `while`, `use`, and `try/with`/`try/finally`.
+/// Builds effects with `let!`, `and!` (which runs its effects concurrently), `do!`, `return`, `for`, `while`, `use`, and `try/with`/`try/finally`.
 let fio = FIOBuilder()
 ```
 
@@ -384,7 +384,7 @@ When you touch the public API, follow these rules:
    "tidy" by adding comments the existing code deliberately omits. Tests carry no
    comments; examples one line per app and example function; benchmarks one line
    per class and per workload actor (§2). Internals: `//` only for an invisible
-   why, one line, two at most (§7). Before finishing, run the two checks in §3.
+   why, one line, two at most (§7). Before finishing, run the two checks in §2.
 7. **Explain in the commit message, not the code.** A fix that needed a paragraph
    to justify gets that paragraph in its commit; the code gets one line naming the
    constraint.

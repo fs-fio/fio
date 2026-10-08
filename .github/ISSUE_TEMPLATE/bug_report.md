@@ -12,10 +12,10 @@ assignees: ""
 
 ## Affected package(s)
 
-- [ ] FIO (core)
-- [ ] FIO.Http
-- [ ] FIO.Sockets
-- [ ] FIO.WebSockets
+- [ ] FSharp.FIO (core)
+- [ ] FSharp.FIO.Http
+- [ ] FSharp.FIO.Sockets
+- [ ] FSharp.FIO.WebSockets
 
 ## Reproduction
 
@@ -35,7 +35,7 @@ assignees: ""
 ## Environment
 
 - FIO version:
-- Runtime used (DirectRuntime / PollingRuntime / WorkStealingRuntime):
+- Runtime used (DirectRuntime / PollingRuntime / SignalingRuntime / WorkStealingRuntime):
 - .NET SDK version (`dotnet --version`):
 - OS:
 

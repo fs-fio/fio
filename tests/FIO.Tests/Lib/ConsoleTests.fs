@@ -14,6 +14,7 @@ open System
 open System.IO
 open System.Threading
 open System.Diagnostics
+open System.Collections.Concurrent
 
 type private ThrowingWriter(message: string) =
     inherit StringWriter()
@@ -41,6 +42,20 @@ type private SequencedReader(gate: ManualResetEventSlim, lines: string array) =
         let line = lines[min next (lines.Length - 1)]
         next <- next + 1
         line
+
+// Feeds readKey from a queue, since Console.ReadKey cannot be driven without a terminal, and signals the reader's entry.
+let private withTypedKeys (test: BlockingCollection<ConsoleKeyInfo> -> ManualResetEventSlim -> unit) =
+    let original = StdinReader.readKey
+    use keys = new BlockingCollection<ConsoleKeyInfo>()
+    use entered = new ManualResetEventSlim(false)
+    StdinReader.readKey <- fun _ ->
+        entered.Set()
+        keys.Take()
+
+    try
+        test keys entered
+    finally
+        StdinReader.readKey <- original
 
 // Releases and drains the abandoned read afterwards, or its line would reach the next test's readLine.
 let private withBlockingStdIn (line: string) (test: ManualResetEventSlim -> unit) =
@@ -279,6 +294,84 @@ let consoleTests =
                         let next = runtime.Run(Console.readLine<exn> id).UnsafeSuccess()
 
                         Expect.equal next "released" "The released line reaches the next read"))
+
+                testCase "readLine - a line that arrived for a fiber interrupted before using it reaches the next read" (fun () ->
+                    let originalIn = Console.In
+                    use gate = new ManualResetEventSlim false
+                    use reader = new SequencedReader(gate, [| "first"; "second" |])
+                    Console.SetIn reader
+                    use runtime = new WorkStealingRuntime { WorkerConfig.Default with EvaluationWorkers = 1 }
+
+                    try
+                        let reading = runtime.Run(Console.readLine<exn> id)
+                        Thread.Sleep 50
+                        runtime.Run(FIO.succeedWith (fun () -> Thread.Sleep 300): FIO<unit, exn>) |> ignore
+                        Thread.Sleep 50
+                        gate.Set()
+                        Thread.Sleep 50
+                        reading.Context.Interrupt(ExplicitInterrupt, "interrupted after the line arrived")
+                        let unwound = SpinWait.SpinUntil((fun () -> runtime.TrackedCount = 0), 5_000)
+                        let next = runtime.Run(Console.readLine<exn> id).UnsafeSuccess()
+
+                        Expect.isTrue unwound "The interrupted read should unwind"
+                        Expect.equal next "first" "A line no fiber used must not be lost"
+                    finally
+                        gate.Set()
+                        Console.SetIn originalIn)
+
+                testAllRuntimes "readLine - begins with the key an interrupted readKey took" (fun runtime ->
+                    withTypedKeys (fun keys entered ->
+                        withBlockingStdIn "ello" (fun gate ->
+                            let abandoned = runtime.Run(Console.readKey<exn> true id)
+                            let inSeam = entered.Wait(TimeSpan.FromSeconds 5.0)
+                            abandoned.Context.Interrupt(ExplicitInterrupt, "abandoned")
+                            let reading = runtime.Run(Console.readLine<exn> id)
+                            Thread.Sleep 50
+
+                            keys.Add(ConsoleKeyInfo('h', ConsoleKey.H, false, false, false))
+                            gate.Set()
+                            let line = reading.UnsafeSuccess()
+
+                            Expect.isTrue inSeam "The abandoned read should reach the reader"
+                            Expect.equal line "hello" "The key the abandoned read took was the first character of the line")))
+
+                testAllRuntimes "readLine - keeps the key an interrupted readKey took when the line read fails" (fun runtime ->
+                    withTypedKeys (fun keys entered ->
+                        let originalIn = Console.In
+
+                        try
+                            let abandoned = runtime.Run(Console.readKey<exn> true id)
+                            let inSeam = entered.Wait(TimeSpan.FromSeconds 5.0)
+                            abandoned.Context.Interrupt(ExplicitInterrupt, "abandoned")
+                            Thread.Sleep 50
+                            keys.Add(ConsoleKeyInfo('h', ConsoleKey.H, false, false, false))
+                            Thread.Sleep 50
+                            Console.SetIn(new StringReader(""))
+
+                            let failed = runtime.Run(Console.readLine<exn> id).UnsafeResult()
+                            Console.SetIn(new StringReader "ello\n")
+                            let line = runtime.Run(Console.readLine<exn> id).UnsafeSuccess()
+
+                            Expect.isTrue inSeam "The abandoned read should reach the reader"
+                            match failed with
+                            | Failed (:? EndOfStreamException) -> ()
+                            | other -> failtest $"Expected the read at end of input to fail, got {other}"
+                            Expect.equal line "hello" "The key must not be lost with the failed read"
+                        finally
+                            Console.SetIn originalIn))
+
+                testAllRuntimes "readKey - a key typed for an interrupted read reaches the next readKey" (fun runtime ->
+                    withTypedKeys (fun keys entered ->
+                        let abandoned = runtime.Run(Console.readKey<exn> true id)
+                        let inSeam = entered.Wait(TimeSpan.FromSeconds 5.0)
+                        abandoned.Context.Interrupt(ExplicitInterrupt, "abandoned")
+                        Thread.Sleep 50
+
+                        keys.Add(ConsoleKeyInfo('k', ConsoleKey.K, false, false, false))
+                        let key = runtime.Run(Console.readKey<exn> true id).UnsafeSuccess()
+
+                        Expect.isTrue inSeam "The abandoned read should reach the reader"
+                        Expect.equal key.KeyChar 'k' "The key typed for the abandoned read must reach the next read"))
 
                 testAllRuntimes "readKey - fails through onError when input is redirected" (fun runtime ->
                     if Console.IsInputRedirected then

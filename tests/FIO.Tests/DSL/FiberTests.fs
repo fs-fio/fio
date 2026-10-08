@@ -11,6 +11,11 @@ open Expecto
 
 open System
 open System.IO
+open System.Threading
+open System.Threading.Tasks
+
+let private observeCompleted (runtime: FIORuntime) (fiber: Fiber<int, string>) =
+    fiber.UnsafeResult(), fiber.IsCompleted(), fiber.IsInterrupted(), runtime.Run(fiber.Join()).UnsafeResult()
 
 [<Tests>]
 let fiberTests =
@@ -583,7 +588,7 @@ let fiberTests =
             testList
                 "Fiber - UnsafePrintResult"
                 [
-                    testAllRuntimes "UnsafePrintResult - does not throw on success" (fun runtime ->
+                    testAllRuntimesSequenced "UnsafePrintResult - does not throw on success" (fun runtime ->
                         let fiber = runtime.Run(FIO.succeed 42)
                         let oldOut = Console.Out
                         Console.SetOut TextWriter.Null
@@ -611,48 +616,117 @@ let fiberTests =
             testList
                 "Fiber - IDisposable"
                 [
-                    testAllRuntimes "Dispose - succeeds after completion" (fun runtime ->
-                        let fiber =
-                            runtime.Run(FIO.succeed 42)
+                    testAllRuntimes "Dispose - leaves a completed fiber's result readable" (fun runtime ->
+                        let fiber: Fiber<int, string> = runtime.Run(FIO.succeed 42)
                         let _result = fiber.UnsafeSuccess()
 
                         (fiber :> IDisposable).Dispose()
+                        let observed = observeCompleted runtime fiber
 
-                        Expect.isTrue true "Dispose should not throw on completed fiber")
+                        Expect.equal observed (Succeeded 42, true, false, Succeeded 42) "A disposed fiber should still report its result, its state and a join of it")
 
-                    testAllRuntimes "Dispose - a second call does not throw" (fun runtime ->
-                        let fiber =
-                            runtime.Run(FIO.succeed 42)
+                    testAllRuntimes "Dispose - a second call changes nothing" (fun runtime ->
+                        let fiber: Fiber<int, string> = runtime.Run(FIO.succeed 42)
                         let _result = fiber.UnsafeSuccess()
 
                         (fiber :> IDisposable).Dispose()
+                        let afterFirst = observeCompleted runtime fiber
+
+                        Expect.equal afterFirst (Succeeded 42, true, false, Succeeded 42) "The first Dispose should leave the result readable"
+
                         (fiber :> IDisposable).Dispose()
+                        let afterSecond = observeCompleted runtime fiber
 
-                        Expect.isTrue true "Double dispose should not throw")
+                        Expect.equal afterSecond afterFirst "A second Dispose should change nothing")
 
-                    testAllRuntimes "Dispose - disposing a running fiber's handle ends it as a defect and leaves the runtime usable" (fun runtime ->
-                        let fiber = runtime.Run((FIO.sleep (TimeSpan.FromMilliseconds 200.0)).FlatMap(fun () -> FIO.succeed 1))
+                    testAllRuntimes "Dispose - disposing a running fiber's handle leaves it running to its result" (fun runtime ->
+                        let finalized = ref false
+                        let effect: FIO<int, exn> =
+                            (FIO.sleep(TimeSpan.FromMilliseconds 200.0).FlatMap(fun () -> FIO.succeed 1))
+                                .Ensuring(FIO.succeedWith (fun () -> finalized.Value <- true))
+                        let fiber = runtime.Run effect
+
                         (fiber :> IDisposable).Dispose()
-                        let result = fiber.Task()
+                        let result = resultWithin (TimeSpan.FromSeconds 10.0) fiber
 
-                        Expect.isTrue (result.Wait(TimeSpan.FromSeconds 10.0)) "A disposed fiber must still end"
-                        match result.Result with
-                        | Interrupted ex ->
-                            match ex.cause with
-                            | Defect _ -> ()
-                            | other -> failtest $"Expected a Defect, got {other}"
-                        | other -> failtest $"Expected the disposed fiber to end as a defect, got {other}"
+                        Expect.equal result (Some(Succeeded 1)) "A disposed handle must not disturb its running fiber"
+                        Expect.isTrue finalized.Value "The fiber's finalizer should have run")
 
-                        let rerun = runtime.Run(FIO.succeed 7).UnsafeSuccess()
+                    testAllRuntimes "Dispose - a fiber parked on a task resumes after its handle was disposed" (fun runtime ->
+                        let source = TaskCompletionSource<int>()
+                        let fiber = runtime.Run(FIO.awaitTask source.Task id)
+                        Thread.Sleep 100
 
-                        Expect.equal rerun 7 "The runtime must keep running effects")
+                        (fiber :> IDisposable).Dispose()
+                        source.SetResult 5
+                        let result = resultWithin (TimeSpan.FromSeconds 10.0) fiber
+
+                        Expect.equal result (Some(Succeeded 5)) "The parked fiber should resume with the task's value")
+
+                    testAllRuntimes "Dispose - a fiber parked on a channel read resumes after its handle was disposed" (fun runtime ->
+                        let channel = Channel<int>()
+                        let fiber = runtime.Run(channel.Read(): FIO<int, exn>)
+                        Thread.Sleep 100
+
+                        (fiber :> IDisposable).Dispose()
+                        runtime.Run(channel.Write 6: FIO<int, exn>).UnsafeResult() |> ignore
+                        let result = resultWithin (TimeSpan.FromSeconds 10.0) fiber
+
+                        Expect.equal result (Some(Succeeded 6)) "The parked reader should resume with the message")
+
+                    testAllRuntimes "Dispose - a writer parked on a full channel resumes after its handle was disposed" (fun runtime ->
+                        let channel = Channel<int>.Bounded 1
+                        runtime.Run(channel.Write 1: FIO<int, exn>).UnsafeResult() |> ignore
+                        let fiber = runtime.Run(channel.Write 2: FIO<int, exn>)
+                        Thread.Sleep 100
+
+                        (fiber :> IDisposable).Dispose()
+                        runtime.Run(channel.Read(): FIO<int, exn>).UnsafeResult() |> ignore
+                        let result = resultWithin (TimeSpan.FromSeconds 10.0) fiber
+
+                        Expect.equal result (Some(Succeeded 2)) "The parked writer should resume and write its message")
+
+                    testAllRuntimes "Dispose - a fiber whose handle was disposed still awaits and interrupts its scoped child" (fun runtime ->
+                        let childFinalized = ref false
+                        let child: FIO<unit, exn> =
+                            FIO.never<unit, exn>().Ensuring(FIO.succeedWith (fun () -> childFinalized.Value <- true))
+                        let parent =
+                            child.Fork().FlatMap(fun _ -> FIO.sleep (TimeSpan.FromMilliseconds 200.0)).FlatMap(fun () -> FIO.succeed 3)
+                        let fiber = runtime.Run parent
+                        Thread.Sleep 50
+
+                        (fiber :> IDisposable).Dispose()
+                        let result = resultWithin (TimeSpan.FromSeconds 10.0) fiber
+
+                        Expect.equal result (Some(Succeeded 3)) "The parent should finish with its value"
+                        Expect.isTrue childFinalized.Value "The parent should publish only after its child has unwound")
+
+                    testAllRuntimes "Dispose - a fiber whose handle was disposed can still be interrupted and runs its finalizer" (fun runtime ->
+                        let started = new ManualResetEventSlim false
+                        let finalized = new ManualResetEventSlim false
+                        let effect: FIO<unit, exn> =
+                            (FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never ()))
+                                .Ensuring(FIO.succeedWith (fun () -> finalized.Set()))
+                        let fiber = runtime.Run effect
+                        let running = started.Wait(TimeSpan.FromSeconds 5.0)
+
+                        (fiber :> IDisposable).Dispose()
+                        runtime.Run(fiber.Interrupt ExplicitInterrupt "stop").UnsafeResult() |> ignore
+                        let result = resultWithin (TimeSpan.FromSeconds 10.0) fiber
+                        let ranFinalizer = finalized.Wait(TimeSpan.FromSeconds 5.0)
+
+                        Expect.isTrue running "The fiber should start"
+                        match result with
+                        | Some(Interrupted ex) -> Expect.equal ex.cause ExplicitInterrupt "The fiber should end by the interrupt, not as a defect"
+                        | other -> failtest $"Expected Interrupted but got {other}"
+                        Expect.isTrue ranFinalizer "The interrupted fiber's finalizer should run")
 
                     testList
                         "Dispose - disposing a fiber parked on a task or a full channel does not crash the process"
                         [
                             for name, scenario in [ "parked on a task", "dispose-parked-on-task"; "parked on a full channel", "dispose-parked-writer" ] ->
                                 testCase name (fun () ->
-                                    use child = new FIO.Tests.ChildProcess.ChildProcess(scenario)
+                                    use child = new ChildProcess.ChildProcess(scenario)
 
                                     let exitCode = child.WaitForExit(TimeSpan.FromSeconds 60.0)
 

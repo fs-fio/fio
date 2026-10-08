@@ -54,6 +54,9 @@ type internal Scheduler(workerCount: int) =
 
     let mutable numSearching = 0
 
+    [<VolatileField>]
+    let mutable stopping = false
+
     let hasAnyWorkApprox () =
         if globalQueue.Count > 0 then
             true
@@ -82,11 +85,24 @@ type internal Scheduler(workerCount: int) =
         if Volatile.Read &numSearching = 0 && hasAnyWorkApprox () then
             releaseOne ()
 
+    let enqueue = Action<WorkItem>(fun workItem -> globalQueue.WriteAsync workItem |> ignore)
+
+    let enqueueAndSignal =
+        Action<WorkItem>(fun workItem ->
+            globalQueue.WriteAsync workItem |> ignore
+            signalWork ())
+
     member _.GlobalQueue =
         globalQueue
 
     member _.SignalWork () =
         signalWork ()
+
+    member _.Enqueue =
+        enqueue
+
+    member _.EnqueueAndSignal =
+        enqueueAndSignal
 
     member _.ScheduleLocal (workerId: int, workItem: WorkItem) =
         let previous = Interlocked.Exchange(&runNext.[workerId], workItem)
@@ -135,7 +151,7 @@ type internal Scheduler(workerCount: int) =
         cascadeWake ()
 
     member _.HasOtherWork (workerId: int) =
-        not deques.[workerId].IsEmpty || globalQueue.Count > 0
+        stopping || not deques.[workerId].IsEmpty || globalQueue.Count > 0
 
     member _.RegisterWaiter () =
         Interlocked.Increment &waitingWorkers |> ignore
@@ -151,6 +167,9 @@ type internal Scheduler(workerCount: int) =
 
     member _.Dispose () =
         workGate.Dispose()
+
+    member _.Stop () =
+        stopping <- true
 
     member _.RentContStack (workerId: int) =
         let pool = contStackPools.[workerId]
@@ -257,7 +276,7 @@ and private Worker(config: EvaluationWorkerConfig) =
                                 do!
                                     fiberContext.CompleteAndReschedule(
                                         Error(defectError fiberContext ex),
-                                        scheduler.GlobalQueue)
+                                        scheduler.Enqueue)
                                 scheduler.SignalWork()
                             with _ ->
                                 ()
@@ -292,6 +311,7 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                 })
 
     do this.StopWorkers <- fun () ->
+        scheduler.Stop()
         workers |> List.iter (fun w -> (w :> IDisposable).Dispose())
         scheduler.Dispose()
 
@@ -385,9 +405,7 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                                     let newWorkItem =
                                         resumeWith &state (scheduler.RentWorkItem(workerId, state.Effect, currentFiberContext, state.ContStack))
                                     let waiter =
-                                        parkBlockingWaiter currentFiberContext state.InterruptionSuppressed newWorkItem (fun wi ->
-                                            scheduler.GlobalQueue.WriteAsync wi |> ignore
-                                            scheduler.SignalWork())
+                                        parkBlockingWaiter currentFiberContext state.InterruptionSuppressed newWorkItem scheduler.EnqueueAndSignal
                                     do! channel.AddBlockingWorkItem waiter
                                     if channel.Count > 0 then
                                         let mutable blockedReader = Unchecked.defaultof<WorkItem>
@@ -416,13 +434,9 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                                     let newWorkItem =
                                         resumeWith &state (scheduler.RentWorkItem(workerId, state.Effect, currentFiberContext, state.ContStack))
                                     let waiter =
-                                        parkBlockingWaiter currentFiberContext state.InterruptionSuppressed newWorkItem (fun wi ->
-                                            scheduler.GlobalQueue.WriteAsync wi |> ignore
-                                            scheduler.SignalWork())
+                                        parkBlockingWaiter currentFiberContext state.InterruptionSuppressed newWorkItem scheduler.EnqueueAndSignal
                                     do! fiberContext.AddBlockingWorkItem waiter
-                                    let! rescheduled = fiberContext.TryRescheduleBlockingWorkItems scheduler.GlobalQueue
-                                    if rescheduled then
-                                        scheduler.SignalWork()
+                                    fiberContext.RescheduleOnEnd scheduler.EnqueueAndSignal
                                     state.Completed <- true
                             | HandleJoinFirst fiberContexts ->
                                 match tryFindTerminalIndex fiberContexts with
@@ -436,17 +450,11 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                                     let newWorkItem =
                                         resumeWith &state (scheduler.RentWorkItem(workerId, state.Effect, currentFiberContext, state.ContStack))
                                     let waiter =
-                                        parkBlockingWaiter currentFiberContext state.InterruptionSuppressed newWorkItem (fun wi ->
-                                            scheduler.GlobalQueue.WriteAsync wi |> ignore
-                                            scheduler.SignalWork())
+                                        parkBlockingWaiter currentFiberContext state.InterruptionSuppressed newWorkItem scheduler.EnqueueAndSignal
                                     for fiberContext in fiberContexts do
                                         do! fiberContext.AddBlockingWorkItem waiter
-                                    let mutable anyRescheduled = false
                                     for fiberContext in fiberContexts do
-                                        let! rescheduled = fiberContext.TryRescheduleBlockingWorkItems scheduler.GlobalQueue
-                                        anyRescheduled <- anyRescheduled || rescheduled
-                                    if anyRescheduled then
-                                        scheduler.SignalWork()
+                                        fiberContext.RescheduleOnEnd scheduler.EnqueueAndSignal
                                     state.Completed <- true
                             | HandleJoinAllFailFast fiberContexts ->
                                 match tryCompleteJoinAll fiberContexts with
@@ -460,9 +468,7 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                                     let newWorkItem =
                                         resumeWith &state (scheduler.RentWorkItem(workerId, state.Effect, currentFiberContext, state.ContStack))
                                     let waiter =
-                                        parkBlockingWaiter currentFiberContext state.InterruptionSuppressed newWorkItem (fun wi ->
-                                            scheduler.GlobalQueue.WriteAsync wi |> ignore
-                                            scheduler.SignalWork())
+                                        parkBlockingWaiter currentFiberContext state.InterruptionSuppressed newWorkItem scheduler.EnqueueAndSignal
                                     registerJoinAllLatch fiberContexts (fun () ->
                                         if waiter.TryClaim() then
                                             let wi = waiter.WorkItem
@@ -493,10 +499,10 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
 
                 match completionAction with
                 | CompleteSuccess value ->
-                    do! currentFiberContext.CompleteAndReschedule(Ok value, scheduler.GlobalQueue)
+                    do! currentFiberContext.CompleteAndReschedule(Ok value, scheduler.Enqueue)
                     scheduler.SignalWork()
                 | CompleteFailure error ->
-                    do! currentFiberContext.CompleteAndReschedule(Error error, scheduler.GlobalQueue)
+                    do! currentFiberContext.CompleteAndReschedule(Error error, scheduler.Enqueue)
                     scheduler.SignalWork()
                 | NoCompletion -> ()
 

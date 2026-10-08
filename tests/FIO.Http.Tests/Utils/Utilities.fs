@@ -14,9 +14,8 @@ open System.Net
 open System.Text
 open System.Threading
 open System.Net.Sockets
-open Microsoft.AspNetCore.Builder
-open Microsoft.AspNetCore.Hosting
-open Microsoft.Extensions.Logging
+open System.Threading.Tasks
+open Microsoft.AspNetCore.Connections
 
 open Expecto
 
@@ -130,8 +129,7 @@ let getWhenListening (url: string) =
     | Some body -> body
     | None -> failtest $"Server at {url} never became ready"
 
-// Kestrel aborts a connection whose client half-closes, which would race the response, so the request must ask for
-// `Connection: close` and the socket stays open until the server ends it.
+// Kestrel aborts a half-closed connection, so a raw request asks for `Connection: close` and keeps its socket open.
 let sendRawRequest (port: int) (request: string) =
     use tcp = new TcpClient()
     tcp.Connect("127.0.0.1", port)
@@ -152,8 +150,7 @@ let findAvailablePort () =
     listener.Stop()
     port
 
-// Windows retries a refused loopback connect for about two seconds, so a connect that does not finish quickly counts as
-// nothing listening.
+// Windows retries a refused loopback connect for two seconds, so a connect that is not quick counts as not listening.
 let isListening (port: int) =
     use tcp = new TcpClient()
 
@@ -162,55 +159,104 @@ let isListening (port: int) =
     with _ ->
         false
 
-let private startTestHttpApp (routes: Routes<exn>) (maxBodySize: int64) (runtime: DefaultRuntime) =
+let tryGet (port: int) (path: string) : string option =
+    use client = new Http.HttpClient(Timeout = TimeSpan.FromSeconds 1.0)
+
+    try
+        Some(client.GetStringAsync($"http://127.0.0.1:{port}{path}").Result)
+    with _ ->
+        None
+
+// Kestrel reports a port that something else holds as an IOException around AddressInUseException.
+let rec isAddressInUse (error: exn) =
+    match error with
+    | null -> false
+    | :? AddressInUseException -> true
+    | :? SocketException as ex when ex.SocketErrorCode = SocketError.AddressAlreadyInUse -> true
+    | _ -> isAddressInUse error.InnerException
+
+// A port from findAvailablePort can be taken before the server binds it, so a start that lost its port retries on a fresh one.
+let startOnFreePort (runtime: FIORuntime) (start: int -> FIO<'S, exn>) : int * 'S =
     let rec attempt remaining =
         let port = findAvailablePort ()
+        let started = runtime.Run(start port).Task()
 
-        let builder = WebApplication.CreateBuilder()
-        builder.Logging.ClearProviders() |> ignore
+        if not (started.Wait(TimeSpan.FromSeconds 30.0)) then
+            failtest $"The server on port {port} did not start within 30 s"
 
-        builder.WebHost.ConfigureKestrel(fun options ->
-            options.Listen(IPAddress.Parse "127.0.0.1", port))
-            |> ignore
-
-        let app = builder.Build()
-
-        RunExtensions.Run(
-            app,
-            Microsoft.AspNetCore.Http.RequestDelegate(fun ctx ->
-                task {
-                    try
-                        do! KestrelBridge.handleRequest runtime routes maxBodySize ctx
-                    with ex ->
-                        let message =
-                            sprintf "%s\n%s" ex.Message (if isNull ex.StackTrace then "" else ex.StackTrace)
-                        ctx.Response.StatusCode <- 500
-                        let bytes = Encoding.UTF8.GetBytes message
-                        do! ctx.Response.Body.WriteAsync(bytes, 0, bytes.Length)
-                })
-        )
-
-        try
-            app.StartAsync().Wait()
-            port, app
-        with _ when remaining > 0 ->
-            try app.DisposeAsync().AsTask().Wait() with _ -> ()
+        match started.Result with
+        | Succeeded server -> port, server
+        | Failed error when remaining > 0 && isAddressInUse error ->
             Thread.Sleep 50
             attempt (remaining - 1)
+        | Failed error -> raise error
+        | Interrupted ex -> raise ex
 
     attempt 10
 
-let withTestHttpServerMaxBody (maxBodySize: int64) (routes: Routes<exn>) (action: int -> 'T) : 'T =
+// The driver ends only once the server it forked has unwound; `ended` says whether the server ended because it lost its port.
+let forkServerOnFreePort (runtime: FIORuntime) (interrupt: Task) (probe: string) (serve: int -> FIO<unit, exn>) : int * Fiber<unit, exn> =
+    let rec attempt remaining =
+        let port = findAvailablePort ()
+        let ended = TaskCompletionSource<bool> TaskCreationOptions.RunContinuationsAsynchronously
+        let driver =
+            fio {
+                let! server =
+                    (serve port)
+                        .TapError(fun error -> FIO.succeedWith (fun () -> ended.TrySetResult(isAddressInUse error) |> ignore))
+                        .Ensuring(FIO.succeedWith (fun () -> ended.TrySetResult false |> ignore))
+                        .Fork()
+                do! FIO.awaitUnitTask (Task.WhenAny(interrupt, ended.Task)) id
+                do! server.InterruptNow()
+            }
+        let fiber = runtime.Run driver
+        let deadline = DateTime.UtcNow.AddSeconds 30.0
+
+        while not ended.Task.IsCompleted && (tryGet port probe).IsNone && DateTime.UtcNow < deadline do
+            Thread.Sleep 25
+
+        if ended.Task.IsCompleted && ended.Task.Result && remaining > 0 then
+            fiber.Task().Wait(TimeSpan.FromSeconds 30.0) |> ignore
+            attempt (remaining - 1)
+        else
+            port, fiber
+
+    attempt 10
+
+// A round that finds its port held by another program returns None and is repeated on a fresh port.
+let onFreePort (round: int -> 'T option) : 'T =
+    let rec attempt remaining =
+        match round (findAvailablePort ()) with
+        | Some value -> value
+        | None when remaining > 0 -> attempt (remaining - 1)
+        | None -> failtest "Every port tried was held by something other than the server under test"
+
+    attempt 10
+
+let private startConfiguredServer (configure: ServerConfig -> ServerConfig) (routes: Routes<exn>) (runtime: DefaultRuntime) =
+    startOnFreePort runtime (fun port -> Server.startServerWithRuntime (configure (ServerConfig.create "127.0.0.1" port)) routes runtime)
+
+// Runs the action against a server started through Server, so what a test sees is what a user's server does.
+let withConfiguredServer (configure: ServerConfig -> ServerConfig) (routes: Routes<exn>) (action: int -> FIOServer -> 'T) : 'T =
     let runtime = new DefaultRuntime()
-    let port, app = startTestHttpApp routes maxBodySize runtime
+    let port, server = startConfiguredServer configure routes runtime
 
     try
-        Thread.Sleep 200
-        action port
+        action port server
     finally
-        app.StopAsync().Wait()
-        app.DisposeAsync().AsTask().Wait()
+        runtime.Run(Server.stop server).UnsafeResult() |> ignore
         (runtime :> IDisposable).Dispose()
 
 let withTestHttpServer (routes: Routes<exn>) (action: int -> 'T) : 'T =
-    withTestHttpServerMaxBody (ServerConfig.create "127.0.0.1" 0).MaxRequestBodySize routes action
+    withConfiguredServer id routes (fun port _ -> action port)
+
+let withCapturedError (body: unit -> 'T) : 'T * string =
+    let original = Console.Error
+    use captured = new IO.StringWriter()
+    Console.SetError captured
+
+    try
+        let result = body ()
+        result, captured.ToString()
+    finally
+        Console.SetError original

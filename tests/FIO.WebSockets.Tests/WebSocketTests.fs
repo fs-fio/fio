@@ -283,34 +283,48 @@ let webSocketTests =
                         Expect.notEqual state WebSocketState.Open "CloseOutput must leave the socket no longer open")
 
                     testAllRuntimes "CloseOutput - accepts an explicit status and description" (fun runtime ->
-                        let state =
+                        let observed = Channel<WebSocketMessage>()
+
+                        let state, received =
                             withTestServer
-                                echoHandler
+                                (fun ws -> ws.ReceiveMessage().FlatMap(fun message -> (observed.Write message).Unit()))
                                 (fun port ->
                                     fio {
                                         let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
-                                        do! ws.CloseOutput(WebSocketCloseStatus.NormalClosure, "done here")
+                                        do! ws.CloseOutput(WebSocketCloseStatus.PolicyViolation, "done here")
                                         let! state = ws.State()
-                                        return state
+                                        let! received = (observed.Read()).Timeout(TimeSpan.FromSeconds 5.0)
+                                        return state, received
                                     })
                                 runtime
 
-                        Expect.notEqual state WebSocketState.Open "An explicit CloseOutput must also close the output")
+                        Expect.equal state WebSocketState.CloseSent "An explicit CloseOutput must close the output and wait for the peer's close"
+                        Expect.equal
+                            received
+                            (Some(ConnectionClosed(Some WebSocketCloseStatus.PolicyViolation, "done here")))
+                            "The peer must receive the given status and description")
 
-                    testAllRuntimes "Abort - tears the connection down immediately" (fun runtime ->
-                        let state =
+                    testAllRuntimes "Abort - ends the peer's receive without a clean close" (fun runtime ->
+                        let observed = Channel<Result<WebSocketMessage, WsError>>()
+
+                        let state, received =
                             withTestServer
-                                echoHandler
+                                (fun ws -> ws.ReceiveMessage().Result().FlatMap(fun outcome -> (observed.Write outcome).Unit()))
                                 (fun port ->
                                     fio {
                                         let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
                                         do! ws.Abort()
+                                        let! received = (observed.Read()).Timeout(TimeSpan.FromSeconds 5.0)
                                         let! state = ws.State()
-                                        return state
+                                        return state, received
                                     })
                                 runtime
 
-                        Expect.equal state WebSocketState.Aborted "Abort must leave the socket in the Aborted state")
+                        Expect.equal state WebSocketState.Aborted "Abort must leave this side's connection aborted"
+                        match received with
+                        | Some(Error _)
+                        | Some(Ok(ConnectionClosed(None, _))) -> ()
+                        | other -> failtest $"The peer's receive should end with an error or a disconnect, not a clean close, got %A{other}")
                 ]
 
             testList
@@ -603,7 +617,7 @@ let webSocketTests =
                         | Undecodable _ -> ()
                         | other -> failtest $"Expected Undecodable but got {other}")
 
-                    testAllRuntimes "TryReceive - yields PeerClosed when the peer closes" (fun runtime ->
+                    testAllRuntimes "TryReceive - yields Disconnected when the peer closes" (fun runtime ->
                         let outcome =
                             withTestServer
                                 (fun ws -> ws.Close())
@@ -617,8 +631,8 @@ let webSocketTests =
                                 runtime
 
                         match outcome with
-                        | PeerClosed _ -> ()
-                        | other -> failtest $"Expected PeerClosed but got {other}")
+                        | Disconnected _ -> ()
+                        | other -> failtest $"Expected Disconnected but got {other}")
 
                     testAllRuntimes "TryReceive - still fails with any other error" (fun runtime ->
                         let result =

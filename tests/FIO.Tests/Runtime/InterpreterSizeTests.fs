@@ -10,8 +10,6 @@ open System.Reflection
 open System.Reflection.Emit
 open System.Runtime.CompilerServices
 
-// The JIT silently compiles a method of more than 2,000 basic blocks without optimization; the count is estimated
-// from the IL of the Release build's state machine, so the check needs `dotnet test -c Release`.
 let private blockLimit = 1_800
 
 let private opcodes =

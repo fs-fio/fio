@@ -9,6 +9,9 @@ open FIO.Runtime
 open Expecto
 
 open System
+open System.Threading
+open System.Diagnostics
+open System.Threading.Tasks
 
 [<Tests>]
 let fioTests =
@@ -545,6 +548,27 @@ let fioTests =
 
                         Expect.isTrue (result.Wait(TimeSpan.FromSeconds 60.0)) "The root should publish once the leaf's interruption has unwound back up the chain"
                         Expect.equal result.Result (Succeeded ()) "The chain should complete"
+
+                    testAllRuntimesSequenced "Join - resumes promptly when its target publishes at the end of a 10,000-deep chain of nested forks"
+                    <| fun (runtime: FIORuntime) ->
+                        let gate = TaskCompletionSource()
+                        let leafReached = new ManualResetEventSlim false
+                        let rec chain (level: int) : FIO<unit, string> =
+                            if level = 0 then
+                                FIO.succeedWith(fun () -> leafReached.Set()).FlatMap(fun () -> FIO.never ())
+                            else
+                                FIO.suspend(fun () -> chain (level - 1)).Fork().FlatMap(fun _ -> FIO.awaitUnitTask gate.Task (fun ex -> ex.Message))
+                        let joiner = runtime.Run((chain 10000).Fork().FlatMap(fun top -> top.Join()))
+                        let reached = leafReached.Wait(TimeSpan.FromSeconds 60.0)
+                        let clock = Stopwatch.StartNew()
+
+                        gate.SetResult()
+                        let joined = joiner.Task().Wait(TimeSpan.FromSeconds 60.0)
+                        let elapsed = clock.ElapsedMilliseconds
+
+                        Expect.isTrue reached "Every level should have forked and be waiting on the gate"
+                        Expect.isTrue joined "The joiner should resume"
+                        Expect.isLessThan elapsed 800L "The joiner should be rescheduled when the chain publishes, not at a worker's idle timeout"
                 ]
 
             testList

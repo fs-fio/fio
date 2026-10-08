@@ -9,23 +9,28 @@ type WebSocketConfig =
     {
         /// The receive buffer size, in bytes.
         ReceiveBufferSize: int
-        /// The send buffer size, in bytes.
+        /// The send buffer size, in bytes. Reserved: no operation uses it yet.
         SendBufferSize: int
         /// The maximum message size, in bytes.
         MaxMessageSize: int64
-        /// The send timeout, in milliseconds; 0 or less waits indefinitely. A send that times out aborts the connection.
+        /// The send timeout, in milliseconds, counted from the call; 0 or less waits indefinitely. A send that times out
+        /// while in flight aborts the connection.
         SendTimeout: int
-        /// The receive timeout, in milliseconds; 0 or less waits indefinitely. A receive that times out aborts the connection.
+        /// The receive timeout for a whole message, in milliseconds, counted from the call; 0 or less waits indefinitely.
+        /// A receive that times out while in flight aborts the connection.
         ReceiveTimeout: int
-        /// How long, in milliseconds, a shutting-down server gives handlers to finish; 0 or less waits indefinitely.
+        /// How long, in milliseconds, a shutting-down server gives handlers before it interrupts them and ends their
+        /// connections; 0 or less waits indefinitely. Their finalizers still run to their end.
         ShutdownTimeout: int
+        /// The most connections serve and acceptLoop keep open at once, answering 503 to further requests; 0 or less means no limit.
+        MaxConnections: int
     }
 
 [<RequireQualifiedAccess>]
 module WebSocketConfig =
 
     /// The default configuration: 4 KB buffers, a 1 MB message limit, a 30 s send timeout, no receive timeout, a 10 s
-    /// shutdown.
+    /// shutdown, no connection limit.
     let defaultConfig : WebSocketConfig =
         {
             ReceiveBufferSize = 4096
@@ -34,6 +39,7 @@ module WebSocketConfig =
             SendTimeout = 30_000
             ReceiveTimeout = 0
             ShutdownTimeout = 10_000
+            MaxConnections = 0
         }
 
     /// Sets the receive buffer size on a configuration.
@@ -60,6 +66,10 @@ module WebSocketConfig =
     let withShutdownTimeout (timeout: int) (config: WebSocketConfig) : WebSocketConfig =
         { config with ShutdownTimeout = timeout }
 
+    /// Sets the most connections serve and acceptLoop keep open at once; 0 or less means no limit.
+    let withMaxConnections (limit: int) (config: WebSocketConfig) : WebSocketConfig =
+        { config with MaxConnections = limit }
+
 /// A single WebSocket frame.
 type WebSocketFrame =
     /// A UTF-8 text frame.
@@ -82,8 +92,8 @@ type ReceiveOutcome<'A> =
     | Received of message: 'A
     /// A frame the codec could not decode, with the reason.
     | Undecodable of reason: string
-    /// The connection is closed — by the peer, cleanly or not, or already by this side — with a description.
-    | PeerClosed of reason: string
+    /// The connection is closed, by the peer, cleanly or not, or by this side, with a description.
+    | Disconnected of reason: string
 
 /// An error produced by a WebSocket operation.
 type WsError =

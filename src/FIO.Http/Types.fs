@@ -39,7 +39,7 @@ module internal HeaderHelpers =
     let contains (name: string) (map: Map<string, string list>) =
         map |> Map.exists (fun key _ -> String.Equals(key, name, StringComparison.OrdinalIgnoreCase))
 
-/// An error produced by the HTTP server or a route handler.
+/// An error for modelling failures inside a route handler; the server itself never produces one.
 type HttpError =
     /// The request did not match any registered route.
     | InvalidRoute of pattern: string
@@ -88,15 +88,25 @@ module HttpError =
 /// An HTTP request method.
 [<RequireQualifiedAccess>]
 type HttpMethod =
+    /// The GET method.
     | GET
+    /// The POST method.
     | POST
+    /// The PUT method.
     | PUT
+    /// The DELETE method.
     | DELETE
+    /// The PATCH method.
     | PATCH
+    /// The HEAD method.
     | HEAD
+    /// The OPTIONS method.
     | OPTIONS
+    /// The TRACE method.
     | TRACE
+    /// The CONNECT method.
     | CONNECT
+    /// Any other method, by name.
     | Custom of string
 
     override this.ToString () : string =

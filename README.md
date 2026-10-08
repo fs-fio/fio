@@ -56,12 +56,17 @@ let main _ = App().Run()
 ```
 
 `FIOApp` runs `effect`, then `onOutcome` with the settled result, then `onShutdown`, and exits with
-`mapExitCode`. Ctrl+C and SIGTERM interrupt the effect; its finalizers run before the hooks, so
-cleanup that needs effect state belongs in `Ensuring`/`acquireReleaseWith`, and `onShutdown` is for
-process-level goodbyes. A finalizer that never completes holds shutdown; a second Ctrl+C or SIGTERM
-terminates the process. A defect or an invalid argument in the effect is a fatal error, not an
-interruption: like a typed failure it exits with 1, as every non-success exit does in ZIO; an
-interruption exits with 130.
+`mapExitCode`. Ctrl+C, SIGTERM and SIGQUIT (`Ctrl+\`, or Ctrl+Break on Windows) interrupt the
+effect; its finalizers run before the hooks, so cleanup that needs effect state belongs in
+`Ensuring`/`acquireReleaseWith`, and `onShutdown` is for process-level goodbyes. A finalizer that
+never completes holds shutdown; a second such signal terminates the process, and so does the first
+one after `Stop()`. Once the effect has ended, the first signal during `onOutcome` or `onShutdown`
+does not interrupt the hook and the next one ends the process; a signal after the hooks, while the
+runtime is disposed, ends it at once. SIGHUP is not handled: it ends the process without running
+finalizers or hooks. A defect, an invalid argument or resource exhaustion in
+the effect is a fatal error, not an interruption: like a typed failure it exits with 1, as every
+non-success exit does in ZIO; an interruption exits with 130. The default hooks print nothing, so
+report a failure from `onOutcome`.
 
 ## Concurrency
 
@@ -126,7 +131,9 @@ let worker (jobs: Channel<Job>) (run: Job -> FIO<unit, exn>) =
 
 Inside an uninterruptible region, `FIO.cancellationToken()` yields a token that never cancels, and
 work the region forks, or that a finalizer forks (a `Timeout`, a `ZipPar`), keeps running until the
-fiber exits instead of being interrupted with it.
+fiber exits instead of being interrupted with it. Use a restorer only in the body of its own mask:
+in a finalizer it would make the cleanup interruptible again. A finalizer that fails replaces a
+success with its failure, but never an earlier failure or interruption.
 
 ## Channels
 
@@ -138,9 +145,10 @@ fiber exits instead of being interrupted with it.
 | `Channel<'A>.Dropping n` | drops the new message |
 | `Channel<'A>.Sliding n` | drops the oldest message |
 
-`Write` yields the message it wrote (use `.Write(message).Unit()` to discard it); on a full bounded
-channel it suspends. `TryWrite` never suspends and yields whether the message was written — `false`
-from a full bounded or dropping channel. `Read` suspends until a message arrives.
+`Write` yields its message (use `.Write(message).Unit()` to discard it), also when a full dropping
+channel dropped it; on a full bounded channel it suspends. `TryWrite` never suspends and yields
+whether the message was written — `false` from a full bounded or dropping channel, `true` from a
+full sliding one. `Read` suspends until a message arrives. A capacity below 1 throws.
 
 ## Features
 
@@ -168,8 +176,13 @@ Effects are interpreted by a runtime. Pick one explicitly, or use `DefaultRuntim
 
 A runtime is `IDisposable`. `Dispose()` interrupts every fiber still running on it — roots started
 with `Run`, and daemons — waits up to 10 seconds for their finalizers, then stops its workers;
-`Shutdown timeout` does the same with your own bound. `Run` afterwards throws
-`ObjectDisposedException`. `FIOApp` disposes its runtime when the app ends.
+`Shutdown timeout` does the same with your own bound. A fiber still unwinding when the time is up is
+abandoned: on the worker runtimes it runs no further step once its current slice of steps ends (a
+step that is running your code runs to its end), while on `DirectRuntime`, which has no workers to
+stop, it goes on unwinding after `Shutdown` returns. A root or daemon that had finished
+and only waited for its children gets its result; a fiber deeper in the tree in that state does not.
+`Run` afterwards throws `ObjectDisposedException`.
+`FIOApp` disposes its runtime when the app ends.
 
 ## Benchmarks
 

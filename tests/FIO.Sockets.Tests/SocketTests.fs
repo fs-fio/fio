@@ -8,6 +8,7 @@ open FIO.Sockets
 open System
 open System.Net
 open System.Text
+open System.Threading.Tasks
 
 open Expecto
 
@@ -859,7 +860,7 @@ let socketTests =
                             "ping"
                             "A generous timeout must not interfere with a normal exchange")
 
-                    testAllRuntimes "ReceiveExactly - a timeout part-way through a read closes the receive side" (fun runtime ->
+                    testAllRuntimes "ReceiveExactly - a timeout part-way through a read keeps what arrived for the next receive" (fun runtime ->
                         let first, second =
                             withTestServer
                                 (fun socket ->
@@ -883,10 +884,10 @@ let socketTests =
                                 runtime
 
                         match first, second with
-                        | Error(TimeoutError _), Error(ConnectionClosed _) -> ()
-                        | other -> failtest $"A read cut off by a timeout must leave the receive side closed, got %A{other}")
+                        | Error(TimeoutError _), Ok [| 1uy; 2uy; 3uy; 4uy |] -> ()
+                        | other -> failtest $"A read cut off by a timeout must keep its bytes for the next read, got %A{other}")
 
-                    testAllRuntimes "ReceiveLine - a timeout part-way through a line closes the receive side" (fun runtime ->
+                    testAllRuntimes "ReceiveLine - a timeout part-way through a line keeps what arrived for the next receive" (fun runtime ->
                         let first, second =
                             withTestServer
                                 (fun socket ->
@@ -910,8 +911,8 @@ let socketTests =
                                 runtime
 
                         match first, second with
-                        | Error(TimeoutError _), Error(ConnectionClosed _) -> ()
-                        | other -> failtest $"A line cut off by a timeout must leave the receive side closed, got %A{other}")
+                        | Error(TimeoutError _), Ok "PARTIAL" -> ()
+                        | other -> failtest $"A line cut off by a timeout must keep its bytes for the next read, got %A{other}")
 
                     testAllRuntimes "ReceiveLine - an idle timeout leaves the socket usable" (fun runtime ->
                         let first, second =
@@ -971,5 +972,256 @@ let socketTests =
                             | None -> failtest "Reading from a reset connection must fail"
                         finally
                             listener.Stop())
+                ]
+
+            testList
+                "Receives that give up or overlap"
+                [
+                    testAllRuntimes "ReceiveLine - a receive given up on leaves the following line whole" (fun runtime ->
+                        let first, second =
+                            withTestServer
+                                (fun socket ->
+                                    fio {
+                                        do! sleepMs 400.0
+                                        do! socket.SendBytes(Encoding.UTF8.GetBytes "HELLO\nWORLD\n")
+                                        do! sleepMs 1000.0
+                                    })
+                                (fun port ->
+                                    fio {
+                                        let! baseConfig = SocketConfig.create "127.0.0.1" port
+                                        let! socket = SocketClient.connect (SocketConfig.withReceiveTimeout 5000 baseConfig)
+                                        let! first = socket.ReceiveLine(64).Timeout(TimeSpan.FromMilliseconds 100.0)
+                                        let! second = socket.ReceiveLine 64
+                                        do! socket.Close()
+                                        return first, second
+                                    })
+                                runtime
+
+                        Expect.equal first None "The first receive should give up before any byte arrives"
+                        Expect.equal second "HELLO" "The read the first receive left behind must not swallow the line's first bytes")
+
+                    testAllRuntimes "ReceiveExactly - an interrupted receive keeps the bytes it had for the next receive" (fun runtime ->
+                        let received =
+                            withTestServer
+                                (fun socket ->
+                                    fio {
+                                        do! socket.SendBytes(Encoding.UTF8.GetBytes "AAAA")
+                                        do! sleepMs 500.0
+                                        do! socket.SendBytes(Encoding.UTF8.GetBytes "BBBB")
+                                        do! sleepMs 1000.0
+                                    })
+                                (fun port ->
+                                    fio {
+                                        let! socket = SocketClient.connectWith "127.0.0.1" port
+                                        let! reading = socket.ReceiveExactly(8).Fork()
+                                        do! sleepMs 200.0
+                                        let! _ = reading.InterruptAwaitNow()
+                                        let! bytes = socket.ReceiveExactly 8
+                                        do! socket.Close()
+                                        return Encoding.UTF8.GetString bytes
+                                    })
+                                runtime
+
+                        Expect.equal received "AAAABBBB" "Bytes that arrived for the interrupted receive belong to the next one")
+
+                    testAllRuntimes "ReceiveLine - polling with a short Timeout truncates and repeats nothing" (fun runtime ->
+                        let lines = [ for i in 1..150 -> $"line-{i}" ]
+
+                        let received =
+                            withTestServer
+                                (fun socket ->
+                                    (FIO.forEachDiscard lines (fun line -> socket.SendLine(line).FlatMap(fun () -> sleepMs 11.0)))
+                                        .FlatMap(fun () -> sleepMs 2000.0))
+                                (fun port ->
+                                    fio {
+                                        let! socket = SocketClient.connectWith "127.0.0.1" port
+                                        let collected = ResizeArray<string>()
+                                        let mutable attempts = 0
+
+                                        while collected.Count < lines.Length && attempts < 5_000 do
+                                            attempts <- attempts + 1
+
+                                            match! socket.ReceiveLine(64).Timeout(TimeSpan.FromMilliseconds 10.0) with
+                                            | Some line -> collected.Add line
+                                            | None -> ()
+
+                                        do! socket.Close()
+                                        return List.ofSeq collected
+                                    })
+                                runtime
+
+                        let inOrder = received |> List.forall (fun line -> List.contains line lines) && received = List.distinct received
+                        let positions = received |> List.map (fun line -> List.findIndex ((=) line) lines)
+
+                        Expect.isTrue inOrder $"Every line should arrive whole and at most once, got %A{received}"
+                        Expect.equal positions (List.sort positions) "Lines should arrive in the order they were sent"
+                        Expect.isGreaterThanOrEqual received.Length (lines.Length - 1) "At most a line caught at the very moment of its timeout may be lost")
+
+                    testAllRuntimes "ReceiveFramed - a receive interrupted while it decodes gives its frame to the next receive" (fun runtime ->
+                        let decoding = TaskCompletionSource()
+                        let stalled: SocketCodec<string> =
+                            { Codec.string with
+                                Decode = fun _ -> FIO.succeedWith(fun () -> decoding.TrySetResult() |> ignore).FlatMap(fun () -> FIO.never ()) }
+
+                        let received =
+                            withTestServer
+                                (fun socket ->
+                                    fio {
+                                        do! socket.SendFramed(Codec.string, "FRAME")
+                                        do! sleepMs 1000.0
+                                    })
+                                (fun port ->
+                                    fio {
+                                        let! socket = SocketClient.connectWith "127.0.0.1" port
+                                        let! first = socket.ReceiveFramed(stalled).Fork()
+                                        do! FIO.awaitUnitTask decoding.Task SocketError.fromException
+                                        let! _ = first.InterruptAwaitNow()
+                                        let! frame = socket.ReceiveFramed(Codec.string).Timeout(TimeSpan.FromSeconds 3.0)
+                                        do! socket.Close()
+                                        return frame
+                                    })
+                                runtime
+
+                        Expect.equal received (Some "FRAME") "A frame its receiver never used must reach the next receive")
+
+                    testAllRuntimes "ReceiveFramed - memory follows the bytes that arrived, not the announced length" (fun runtime ->
+                        let allocated =
+                            withTestServer
+                                (fun socket ->
+                                    fio {
+                                        do! socket.SendBytes [| 0uy; 255uy; 255uy; 255uy |]
+                                        do! sleepMs 1500.0
+                                    })
+                                (fun port ->
+                                    fio {
+                                        let! socket = SocketClient.connectWith "127.0.0.1" port
+                                        do! sleepMs 100.0
+                                        let before = GC.GetTotalAllocatedBytes false
+                                        let! _ = socket.ReceiveFramed(Codec.bytes).Timeout(TimeSpan.FromMilliseconds 300.0)
+                                        let after = GC.GetTotalAllocatedBytes false
+                                        do! socket.Close()
+                                        return after - before
+                                    })
+                                runtime
+
+                        Expect.isLessThan allocated 4_000_000L "A 16 MB frame of which only the prefix arrived must not cost 16 MB")
+
+                    testAllRuntimes "ReceiveLine - accepts a line of exactly maxBytes with its newline; one byte more closes the receive side" (fun runtime ->
+                        let first, second, third =
+                            withTestServer
+                                (fun socket ->
+                                    fio {
+                                        do! socket.SendBytes(Encoding.UTF8.GetBytes "ABC\nABCD\nX\n")
+                                        do! sleepMs 500.0
+                                    })
+                                (fun port ->
+                                    fio {
+                                        let! socket = SocketClient.connectWith "127.0.0.1" port
+                                        let! first = socket.ReceiveLine 4
+                                        let! second = socket.ReceiveLine(4).Map(Ok).CatchAll(fun error -> FIO.succeed (Error error))
+                                        let! third = socket.ReceiveBytes(16).Map(Ok).CatchAll(fun error -> FIO.succeed (Error error))
+                                        do! socket.Close()
+                                        return first, second, third
+                                    })
+                                runtime
+
+                        Expect.equal first "ABC" "Four bytes with the newline fit a limit of four"
+                        match second with
+                        | Error(BufferOverflow(5, 4)) -> ()
+                        | other -> failtest $"A line of five bytes must overflow a limit of four, got %A{other}"
+                        match third with
+                        | Error(ConnectionClosed _) -> ()
+                        | other -> failtest $"After a rejected line every receive must fail, got %A{other}")
+
+                    testAllRuntimes "ReceiveLine - rejects a line at once when maxBytes arrived without its newline" (fun runtime ->
+                        let outcome =
+                            withTestServer
+                                (fun socket ->
+                                    fio {
+                                        do! socket.SendBytes(Encoding.UTF8.GetBytes "ABCD")
+                                        do! sleepMs 2000.0
+                                    })
+                                (fun port ->
+                                    fio {
+                                        let! socket = SocketClient.connectWith "127.0.0.1" port
+                                        let! outcome =
+                                            socket.ReceiveLine(4).Map(Ok).CatchAll(fun error -> FIO.succeed (Error error)).Timeout(TimeSpan.FromSeconds 1.0)
+                                        do! socket.Close()
+                                        return outcome
+                                    })
+                                runtime
+
+                        match outcome with
+                        | Some(Error(BufferOverflow(5, 4))) -> ()
+                        | other -> failtest $"Four bytes with no newline fill a limit of four, so the line is too long, got %A{other}")
+
+                    testAllRuntimes "ReceiveLine - receives at once take turns, each getting whole lines" (fun runtime ->
+                        let lines = [ for i in 1..40 -> String.replicate (i % 7 + 1) $"{i}," ]
+
+                        let received =
+                            withTestServer
+                                (fun socket ->
+                                    fio {
+                                        do! sleepMs 200.0
+                                        do! socket.SendBytes(Encoding.UTF8.GetBytes(String.concat "" [ for line in lines -> line + "\n" ]))
+                                        do! sleepMs 1000.0
+                                    })
+                                (fun port ->
+                                    fio {
+                                        let! socket = SocketClient.connectWith "127.0.0.1" port
+                                        let! halves = FIO.forEachPar [ 1..2 ] (fun _ -> FIO.forEach [ 1..20 ] (fun _ -> socket.ReceiveLine 256))
+                                        do! socket.Close()
+                                        return List.concat halves
+                                    })
+                                runtime
+
+                        Expect.equal (List.sort received) (List.sort lines) "Every line should arrive whole and once, whichever receiver took it")
+
+                    testAllRuntimes "ReceiveLine - returns what the peer sent before a send to it failed" (fun runtime ->
+                        if OperatingSystem.IsWindows() then
+                            skiptest "A reset connection discards its unread data on Windows"
+
+                        let reply =
+                            withTestServer
+                                (fun socket -> socket.SendLine "REPLY")
+                                (fun port ->
+                                    fio {
+                                        let! socket = SocketClient.connectWith "127.0.0.1" port
+                                        do! sleepMs 200.0
+                                        do! socket.SendString("first").CatchAll(fun _ -> FIO.unit ())
+                                        do! sleepMs 100.0
+                                        do! socket.SendString("second").CatchAll(fun _ -> FIO.unit ())
+                                        do! sleepMs 100.0
+                                        let! reply = socket.ReceiveLine 64
+                                        do! socket.Close()
+                                        return reply
+                                    })
+                                runtime
+
+                        Expect.equal reply "REPLY" "Data the peer delivered stays readable after a failed send")
+
+                    testAllRuntimes "Close - with linger enabled and a zero timeout resets the connection, as its peer sees" (fun runtime ->
+                        let peerSend = TaskCompletionSource<Result<unit, SocketError>>()
+                        let peer (socket: Socket) =
+                            fio {
+                                do! sleepMs 400.0
+                                let! outcome = socket.SendBytes([| 1uy |]).Map(Ok).CatchAll(fun error -> FIO.succeed (Error error))
+                                peerSend.TrySetResult outcome |> ignore
+                            }
+
+                        let outcome =
+                            withTestServer
+                                peer
+                                (fun port ->
+                                    fio {
+                                        let! baseConfig = SocketConfig.create "127.0.0.1" port
+                                        let! socket = SocketClient.connect (SocketConfig.withLinger true 0 baseConfig)
+                                        do! sleepMs 100.0
+                                        do! socket.Close()
+                                        return! FIO.awaitTask (peerSend.Task.WaitAsync(TimeSpan.FromSeconds 3.0)) SocketError.fromException
+                                    })
+                                runtime
+
+                        Expect.isError outcome "After a reset the peer's next send fails; after a graceful close it would still be accepted")
                 ]
         ]

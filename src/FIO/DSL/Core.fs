@@ -58,6 +58,12 @@ and [<Sealed>] internal BlockingWaiter(workItem: WorkItem) =
     member _.SetRegistration (value: CancellationTokenRegistration) =
         registration <- value
 
+    member _.Disarm () =
+        claimed <- 2
+
+    member _.Arm () =
+        Interlocked.CompareExchange(&claimed, 0, 2) |> ignore
+
     member _.TryClaim () =
         if tryClaim &claimed then
             registration.Dispose()
@@ -178,7 +184,7 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
     let mutable pendingValue = Unchecked.defaultof<Result<obj, obj>>
 
     [<VolatileField>]
-    let mutable pendingQueue = null
+    let mutable rescheduleSink: Action<WorkItem> = null
 
     [<VolatileField>]
     let mutable disposed = 0
@@ -208,31 +214,25 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
 
     member internal this.SetOnUnwound (callback: Action<FiberContext>) =
         Interlocked.Exchange<Action<FiberContext>>(&onUnwoundCallback, callback) |> ignore
-        if Volatile.Read &published = 1 then
+        if Volatile.Read &published = 2 then
             this.InvokeOnUnwound()
 
     member internal this.AddBlockingWorkItem (waiter: BlockingWaiter) =
         let queue = this.GetOrCreateBlockingQueue()
         queue.WriteAsync waiter
 
-    member internal _.RescheduleBlockingWorkItems (activeWorkItemQueue: MailboxQueue<WorkItem>) =
-        task {
-            let queue = Volatile.Read &blockingWorkItemQueue
-            if not (isNull queue) then
-                let mutable waiter = Unchecked.defaultof<_>
-                while queue.TryRead &waiter do
-                    if waiter.TryClaim() then
-                        do! activeWorkItemQueue.WriteAsync waiter.WorkItem
-        }
+    member private _.RescheduleBlockingWorkItems (reschedule: Action<WorkItem>) =
+        let queue = Volatile.Read &blockingWorkItemQueue
+        if not (isNull queue) then
+            let mutable waiter = Unchecked.defaultof<_>
+            while queue.TryRead &waiter do
+                if waiter.TryClaim() then
+                    reschedule.Invoke waiter.WorkItem
 
-    member internal this.TryRescheduleBlockingWorkItems (activeWorkItemQueue: MailboxQueue<WorkItem>) =
-        if not (this.IsTerminal()) then
-            ValueTask<bool> false
-        else
-            ValueTask<bool>(task {
-                do! this.RescheduleBlockingWorkItems activeWorkItemQueue
-                return true
-            })
+    member internal this.RescheduleOnEnd (reschedule: Action<WorkItem>) =
+        Interlocked.Exchange(&rescheduleSink, reschedule) |> ignore
+        if this.IsTerminal() then
+            this.RescheduleBlockingWorkItems reschedule
 
     member internal _.ChildScopeToken =
         (initIfNull &childScope (fun () -> new CancellationTokenSource())).Token
@@ -270,60 +270,63 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
     member internal _.IsTerminal () =
         Volatile.Read &state <> int FiberContextState.Running
 
-    member internal _.HasUnwound =
-        Volatile.Read &published = 1
-
-    member private this.Publish value =
+    member private this.Publish (value, reschedule: Action<WorkItem>) =
         let previous = transitionFrom &state (int FiberContextState.Running) (int FiberContextState.Completed)
         this.DisposeRegistrations()
 
         if previous = int FiberContextState.Running then
             resultSource.TrySetResult value |> ignore
+        else
+            let mutable spinner = SpinWait()
+            while not resultSource.Task.IsCompleted do
+                spinner.SpinOnce()
 
         this.InvokeOnTerminal()
 
-        match Volatile.Read &pendingQueue with
+        match if isNull reschedule then Volatile.Read &rescheduleSink else reschedule with
         | null -> ()
-        | queue ->
-            let blocked = Volatile.Read &blockingWorkItemQueue
-            if not (isNull blocked) && blocked.Count > 0 then
-                this.RescheduleBlockingWorkItems queue |> ignore
+        | reschedule -> this.RescheduleBlockingWorkItems reschedule
 
         match Volatile.Read &parent with
         | null -> ()
         | scope -> scope.OnChildUnwound()
 
+        Interlocked.Exchange(&published, 2) |> ignore
+        this.ReleaseIfRequested()
         this.InvokeOnUnwound()
 
-    member private this.TryFinish () =
+    member private this.TryFinish (reschedule: Action<WorkItem>) =
         if Volatile.Read &completing = 1
            && Volatile.Read &outstanding = 0
            && tryClaim &published then
-            this.Publish pendingValue
+            this.Publish(pendingValue, reschedule)
+
+    member internal this.Abandon () =
+        if Volatile.Read &completing = 1 && tryClaim &published then
+            this.Publish(pendingValue, null)
 
     member private this.OnChildUnwound () =
         Interlocked.Decrement &outstanding |> ignore
 
         if RuntimeHelpers.TryEnsureSufficientExecutionStack() then
-            this.TryFinish()
+            this.TryFinish null
         else
-            ThreadPool.UnsafeQueueUserWorkItem(WaitCallback(fun _ -> this.TryFinish()), null) |> ignore
+            ThreadPool.UnsafeQueueUserWorkItem(WaitCallback(fun _ -> this.TryFinish null), null) |> ignore
 
     member internal this.Complete value =
         this.CompleteInternal(value, null)
 
-    member internal this.CompleteAndReschedule (value, activeWorkItemQueue) =
-        this.CompleteInternal(value, activeWorkItemQueue)
+    member internal this.CompleteAndReschedule (value, reschedule: Action<WorkItem>) =
+        this.CompleteInternal(value, reschedule)
         ValueTask.CompletedTask
 
-    member private this.CompleteInternal (value, activeWorkItemQueue: MailboxQueue<WorkItem>) =
+    member private this.CompleteInternal (value, reschedule: Action<WorkItem>) =
         pendingValue <- value
-        Volatile.Write(&pendingQueue, activeWorkItemQueue)
 
         if Interlocked.Exchange(&completing, 1) = 0 then
             this.CancelChildScope()
             cancelScope (Volatile.Read &protectedScope)
-            this.TryFinish()
+            this.TryFinish reschedule
 
     member internal this.Interrupt (?cause, ?message) =
         let cause = defaultArg cause ExplicitInterrupt
@@ -333,7 +336,6 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
             let interruptError = Error(FiberInterruptedException(id, cause, message) :> obj)
             resultSource.TrySetResult interruptError |> ignore
 
-            // A callback registered on the token belongs to user code; its failure must not stop the interruption.
             try
                 cancelSource.Cancel(throwOnFirstException = false)
             with _ ->
@@ -342,6 +344,10 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
             this.CancelChildScope()
             this.DisposeRegistrations()
             this.InvokeOnTerminal()
+
+            match Volatile.Read &rescheduleSink with
+            | null -> ()
+            | reschedule -> this.RescheduleBlockingWorkItems reschedule
 
     member private _.InvokeOnTerminal () =
         let callback = onTerminalCallback
@@ -370,27 +376,25 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
                 with :? ObjectDisposedException ->
                     ()
 
-    member private _.Dispose disposing =
-        if tryClaim &disposed then
-            if disposing then
-                cancelSource.Dispose()
+    member private _.ReleaseIfRequested () =
+        if Volatile.Read &disposed = 2 && Interlocked.CompareExchange(&disposed, 1, 2) = 2 then
+            cancelSource.Dispose()
 
-                match Volatile.Read &childScope with
-                | null -> ()
-                | source -> source.Dispose()
+            match Volatile.Read &childScope with
+            | null -> ()
+            | source -> source.Dispose()
 
-                match Volatile.Read &protectedScope with
-                | null -> ()
-                | source -> source.Dispose()
-
-    override this.Finalize () =
-        this.Dispose false
+            match Volatile.Read &protectedScope with
+            | null -> ()
+            | source -> source.Dispose()
 
     interface IDisposable with
 
         member this.Dispose () =
-            this.Dispose true
-            GC.SuppressFinalize this
+            Interlocked.CompareExchange(&disposed, 2, 0) |> ignore
+
+            if Volatile.Read &published = 2 then
+                this.ReleaseIfRequested()
 
 and [<Sealed>] internal JoinAllLatch(count: int, signal: unit -> unit) =
 
@@ -415,7 +419,8 @@ and [<Sealed>] internal JoinAllLatch(count: int, signal: unit -> unit) =
         elif Interlocked.Decrement &remaining = 0 && tryClaim &settled then
             signal ()
 
-/// A running fiber (green thread) executing an effect. Join, await, interrupt, or poll it for its result.
+/// A running fiber (green thread) executing an effect. Join, await, interrupt, or poll it for its result; disposing it
+/// releases its resources once it has finished.
 and [<Sealed>] Fiber<'A, 'E> internal () =
     let fiberContext = new FiberContext()
 
@@ -566,15 +571,18 @@ and [<Sealed; AllowNullLiteral>] Channel<'A> private
     /// Creates a new, empty channel with no capacity limit.
     new() = Channel(Guid.NewGuid(), MailboxQueue<obj>(), BlockingWorkItemSlot(), Unbounded)
 
-    /// Creates a new, empty channel holding at most the given number of messages; a write to a full channel suspends until a message is read.
+    /// Creates a new, empty channel holding at most the given number of messages; a write to a full channel suspends
+    /// until a message is read. A capacity below 1 throws ArgumentOutOfRangeException.
     static member Bounded (capacity: int) : Channel<'A> =
         Channel<'A>(Guid.NewGuid(), bounded capacity BoundedChannelFullMode.Wait, BlockingWorkItemSlot(), Bounded)
 
-    /// Creates a new, empty channel holding at most the given number of messages; a write to a full channel drops the new message.
+    /// Creates a new, empty channel holding at most the given number of messages; a write to a full channel drops the
+    /// new message. A capacity below 1 throws ArgumentOutOfRangeException.
     static member Dropping (capacity: int) : Channel<'A> =
         Channel<'A>(Guid.NewGuid(), bounded capacity BoundedChannelFullMode.Wait, BlockingWorkItemSlot(), Dropping)
 
-    /// Creates a new, empty channel holding at most the given number of messages; a write to a full channel drops the oldest message.
+    /// Creates a new, empty channel holding at most the given number of messages; a write to a full channel drops the
+    /// oldest message. A capacity below 1 throws ArgumentOutOfRangeException.
     static member Sliding (capacity: int) : Channel<'A> =
         Channel<'A>(Guid.NewGuid(), bounded capacity BoundedChannelFullMode.DropOldest, BlockingWorkItemSlot(), Sliding)
 
@@ -586,11 +594,13 @@ and [<Sealed; AllowNullLiteral>] Channel<'A> private
     member _.Count : int =
         valueQueue.Count
 
-    /// Returns an effect that writes a message to this channel, yielding the written message; a write to a full bounded channel suspends until a message is read.
+    /// Returns an effect that writes a message to this channel and yields it; when the channel is full it suspends
+    /// (Bounded), drops the message (Dropping) or displaces the oldest one (Sliding).
     member this.Write<'E> (message: 'A) : FIO<'A, 'E> =
         WriteChan(box message, this.Upcast(), false)
 
-    /// Returns an effect that writes a message to this channel only if it has room now, yielding whether it did; it never suspends.
+    /// Returns an effect that writes a message to this channel without ever suspending, yielding whether it was
+    /// written: false from a full Bounded or Dropping channel, true from a full Sliding one, which displaces its oldest.
     member this.TryWrite<'E> (message: 'A) : FIO<bool, 'E> =
         WriteChan(box message, this.Upcast(), true)
 
@@ -669,11 +679,12 @@ and FIO<'A, 'E> =
         ChainError(this.UpcastError(), fun error -> onError (error :?> 'E))
 
     /// Returns an effect that runs the given finalizer after this effect on success, failure, and interruption alike.
+    /// A finalizer that fails replaces a success with its failure, but not an earlier failure or interruption.
     member this.Ensuring (finalizer: FIO<unit, 'E>) : FIO<'A, 'E> =
         OnFinalize(this, finalizer.UpcastBoth())
 
-    /// Returns an effect that runs this effect on a new fiber scoped to this one, yielding its handle: the child is
-    /// interrupted when this fiber is interrupted or finishes, and finishing waits for it to unwind. See ForkDaemon.
+    /// Returns an effect that runs this effect on a new fiber scoped to this one, which interrupts and awaits it when it
+    /// finishes, and interrupts it at once when interrupted unless it was forked uninterruptibly. See ForkDaemon.
     member this.Fork<'E1> () : FIO<Fiber<'A, 'E>, 'E1> =
         Suspend(fun () ->
             let fiber = new Fiber<'A, 'E>()

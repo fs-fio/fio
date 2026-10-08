@@ -368,6 +368,29 @@ let tests =
                             result.Message
                             "raceAll must terminate with a racer error, not hang, when an interrupted racer leaves the race")
 
+                    testAllRuntimes "raceAll - racers that all crashed pass a racer's defect on" (fun runtime ->
+                        let crashing (message: string) : FIO<int, exn> =
+                            FIO.succeedWith (fun () -> failwith message)
+                        let effect = FIO.raceAll (seq { crashing "first crash"; crashing "second crash" })
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        match result with
+                        | Interrupted ex ->
+                            match ex.cause with
+                            | Defect inner -> Expect.contains [ "first crash"; "second crash" ] inner.Message "The defect should be a racer's"
+                            | other -> failtest $"Expected a racer's Defect, got {other}"
+                        | other -> failtest $"Expected Interrupted, got {other}")
+
+                    testAllRuntimes "raceAll - a typed failure wins over a racer's crash" (fun runtime ->
+                        let crashing: FIO<int, exn> = FIO.succeedWith (fun () -> failwith "crash")
+                        let failing: FIO<int, exn> = FIO.fail (exn "typed")
+                        let effect = FIO.raceAll (seq { crashing; failing })
+
+                        let result = runtime.Run(effect).UnsafeError()
+
+                        Expect.equal result.Message "typed" "raceAll should fail with the typed error when one racer failed")
+
                     testAllRuntimes "raceAll - every racer interrupted yields Interrupted" (fun runtime ->
                         let effect =
                             FIO.raceAll (seq {

@@ -16,6 +16,7 @@ echo "==> Packing FIO"
 
 dotnet pack \
     -c Release \
+    -p:StripInternals=true \
     -o "$ARTIFACTS_DIR"
 
 echo

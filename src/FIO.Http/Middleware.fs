@@ -14,7 +14,7 @@ module Middleware =
     let apply (middleware: Middleware<'E>) (routes: Routes<'E>) : Routes<'E> =
         middleware routes
 
-    /// Composes two middlewares, running the inner one first.
+    /// Composes two middlewares, applying the inner one first, so the outer one wraps it.
     let compose (outer: Middleware<'E>) (inner: Middleware<'E>) : Middleware<'E> =
         fun routes -> outer (inner routes)
 
@@ -193,8 +193,8 @@ module Middleware =
 
     /// Creates a middleware that converts handler errors into responses.
     let errorHandler (handleError: 'E -> HttpResponse) : Middleware<'E> =
-        create <| fun handler -> 
-            fun request -> 
+        create <| fun handler ->
+            fun request ->
                 (handler request).CatchAll(fun error -> FIO.succeed (handleError error))
 
 module MiddlewareOperators =

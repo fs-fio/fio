@@ -32,6 +32,30 @@ let private testFreshRuntimes name (test: FIORuntime -> unit) =
                 testCase runtimeName (fun () -> test (make ()))
         ]
 
+let private lowestCpuSecondsOf (samples: int) =
+    List.init samples (fun _ ->
+        let before = Process.GetCurrentProcess().TotalProcessorTime
+        Thread.Sleep 400
+        (Process.GetCurrentProcess().TotalProcessorTime - before).TotalSeconds)
+    |> List.min
+
+let private cpuAddedByInterruptedWait (runtime: FIORuntime) (wait: FIO<unit, string>) =
+    let started = new ManualResetEventSlim(false)
+    let waiting = FIO.uninterruptible (FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> wait))
+    let ambient = lowestCpuSecondsOf 3
+    let fiber = runtime.Run waiting
+    started.Wait(TimeSpan.FromSeconds 5.0) |> ignore
+    runtime.Run(fiber.InterruptNow(): FIO<unit, string>).UnsafeResult() |> ignore
+    Thread.Sleep 300
+    lowestCpuSecondsOf 3 - ambient
+
+let private workerRuntimes : (string * (unit -> FIORuntime)) list =
+    [
+        "PollingRuntime", (fun () -> new PollingRuntime(testConfig) :> FIORuntime)
+        "SignalingRuntime", (fun () -> new SignalingRuntime(testConfig) :> FIORuntime)
+        "WorkStealingRuntime", (fun () -> new WorkStealingRuntime(testConfig) :> FIORuntime)
+    ]
+
 let private expectDefect (runtime: FIORuntime) (label: string) (effect: FIO<int, string>) =
     let name = runtime.GetType().Name
 
@@ -482,24 +506,68 @@ let conformanceTests =
                     testSequenced (
                         stressTestCase "PollingRuntime - an idle blocked fiber does not burn CPU"
                         <| fun () ->
-                            let lowestOf n =
-                                List.init n (fun _ ->
-                                    let before = Diagnostics.Process.GetCurrentProcess().TotalProcessorTime
-                                    Thread.Sleep 400
-                                    (Diagnostics.Process.GetCurrentProcess().TotalProcessorTime - before).TotalSeconds)
-                                |> List.min
                             use runtime = new PollingRuntime(testConfig)
                             let channel = Channel<int>()
 
-                            let ambient = lowestOf 3
+                            let ambient = lowestCpuSecondsOf 3
                             runtime.Run(channel.Read().Unit(): FIO<unit, string>) |> ignore
                             Thread.Sleep 300
-                            let added = lowestOf 3 - ambient
+                            let added = lowestCpuSecondsOf 3 - ambient
 
                             Expect.isLessThan
                                 added
                                 0.4
                                 $"A blocked fiber must not keep a PollingRuntime worker spinning (added {added:F2} CPU-seconds/s over {ambient:F2} ambient)")
+
+                    testSequenced (
+                        testList
+                            "PollingRuntime - an interrupted fiber waiting uninterruptibly does not burn CPU"
+                            [
+                                stressTestCase "on a channel read" (fun () ->
+                                    use runtime = new PollingRuntime(testConfig)
+                                    let channel = Channel<int>()
+
+                                    let added = cpuAddedByInterruptedWait runtime (channel.Read().Unit())
+                                    runtime.Run(channel.Write 1: FIO<int, string>).UnsafeResult() |> ignore
+
+                                    Expect.isLessThan added 0.4 $"An interruption the fiber cannot act on yet must not make the workers spin (added {added:F2} CPU-seconds per 0.4 s)")
+
+                                stressTestCase "on a join" (fun () ->
+                                    use runtime = new PollingRuntime(testConfig)
+                                    let gate = TaskCompletionSource<int>()
+                                    let target = runtime.Run(FIO.awaitTask gate.Task (fun ex -> ex.Message))
+
+                                    let added = cpuAddedByInterruptedWait runtime (target.Join().Unit())
+                                    gate.SetResult 1
+
+                                    Expect.isLessThan added 0.4 $"An interruption the fiber cannot act on yet must not make the workers spin (added {added:F2} CPU-seconds per 0.4 s)")
+                            ])
+
+                    testSequenced (
+                        testList
+                            "Channel - a writer parked on a full channel inside a finalizer does not burn CPU"
+                            [
+                                for runtimeName, make in workerRuntimes ->
+                                    stressTestCase runtimeName (fun () ->
+                                        use runtime = make ()
+                                        let channel = Channel<int>.Bounded 1
+                                        let started = new ManualResetEventSlim(false)
+                                        runtime.Run(channel.Write 1: FIO<int, string>).UnsafeResult() |> ignore
+                                        let effect: FIO<unit, string> =
+                                            (FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never ()))
+                                                .Ensuring(channel.Write(2).Unit())
+
+                                        let ambient = lowestCpuSecondsOf 3
+                                        let fiber = runtime.Run effect
+                                        let running = started.Wait(TimeSpan.FromSeconds 5.0)
+                                        runtime.Run(fiber.InterruptNow(): FIO<unit, string>).UnsafeResult() |> ignore
+                                        Thread.Sleep 300
+                                        let added = lowestCpuSecondsOf 3 - ambient
+                                        runtime.Run(channel.Read(): FIO<int, string>).UnsafeResult() |> ignore
+
+                                        Expect.isTrue running "The fiber should start"
+                                        Expect.isLessThan added 0.4 $"A writer that waits in a finalizer must not spin on its fiber's cancelled token (added {added:F2} CPU-seconds per 0.4 s)")
+                            ])
 
                     testAllRuntimes "Run - several fibers started at once all complete"
                     <| fun runtime ->
@@ -516,10 +584,208 @@ let conformanceTests =
                 ]
 
             testList
+                "Awaited task cancellation"
+                [
+                    testFreshRuntimes "awaitTask - in a finalizer of an interrupted fiber, a task cancelled by another token fails through onError" (fun runtime ->
+                        let started = new ManualResetEventSlim false
+                        let awaiting = new ManualResetEventSlim false
+                        let foreign = TaskCompletionSource<int>()
+                        let seen = TaskCompletionSource<string>()
+                        let finalizer: FIO<unit, string> =
+                            FIO.succeedWith(fun () -> awaiting.Set())
+                                .FlatMap(fun () -> FIO.awaitTask foreign.Task (fun ex -> ex.GetType().Name))
+                                .CatchAll(fun name ->
+                                    FIO.succeedWith (fun () ->
+                                        seen.TrySetResult name |> ignore
+                                        0))
+                                .Unit()
+                        let effect: FIO<unit, string> =
+                            (FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never ())).Ensuring finalizer
+                        let fiber = runtime.Run effect
+                        let running = started.Wait(TimeSpan.FromSeconds 5.0)
+
+                        runtime.Run(fiber.InterruptNow(): FIO<unit, string>).UnsafeResult() |> ignore
+                        let parked = awaiting.Wait(TimeSpan.FromSeconds 5.0)
+                        Thread.Sleep 50
+                        foreign.SetCanceled()
+                        let handled = seen.Task.Wait(TimeSpan.FromSeconds 5.0)
+
+                        Expect.isTrue (running && parked) "The fiber should reach its finalizer"
+                        Expect.isTrue handled "The finalizer's CatchAll should see the task's cancellation as a typed error"
+                        Expect.equal seen.Task.Result "TaskCanceledException" "onError should receive the cancellation"
+
+                        (runtime :> IDisposable).Dispose())
+
+                    testFreshRuntimes "awaitTask - in an uninterruptible region of an interrupted fiber, a task cancelled by another token fails through onError" (fun runtime ->
+                        let awaiting = new ManualResetEventSlim false
+                        let foreign = TaskCompletionSource<int>()
+                        let seen = TaskCompletionSource<string>()
+                        let region: FIO<unit, string> =
+                            FIO.succeedWith(fun () -> awaiting.Set())
+                                .FlatMap(fun () -> FIO.awaitTask foreign.Task (fun ex -> ex.GetType().Name))
+                                .CatchAll(fun name ->
+                                    FIO.succeedWith (fun () ->
+                                        seen.TrySetResult name |> ignore
+                                        0))
+                                .Unit()
+                        let fiber = runtime.Run(FIO.uninterruptible region)
+                        let parked = awaiting.Wait(TimeSpan.FromSeconds 5.0)
+
+                        runtime.Run(fiber.InterruptNow(): FIO<unit, string>).UnsafeResult() |> ignore
+                        Thread.Sleep 50
+                        foreign.SetCanceled()
+                        let handled = seen.Task.Wait(TimeSpan.FromSeconds 5.0)
+
+                        Expect.isTrue parked "The fiber should reach its await"
+                        Expect.isTrue handled "The region's CatchAll should see the task's cancellation as a typed error"
+                        Expect.equal seen.Task.Result "TaskCanceledException" "onError should receive the cancellation"
+
+                        (runtime :> IDisposable).Dispose())
+
+                    testFreshRuntimes "awaitTask - a task faulted with OperationCanceledException fails through onError, also on an interrupted fiber" (fun runtime ->
+                        let started = new ManualResetEventSlim false
+                        let seen = TaskCompletionSource<string>()
+                        let faulted = Task.FromException<int>(OperationCanceledException "the task's own failure")
+                        let finalizer: FIO<unit, string> =
+                            (FIO.awaitTask faulted (fun ex -> ex.Message))
+                                .CatchAll(fun message ->
+                                    FIO.succeedWith (fun () ->
+                                        seen.TrySetResult message |> ignore
+                                        0))
+                                .Unit()
+                        let effect: FIO<unit, string> =
+                            (FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never ())).Ensuring finalizer
+                        let fiber = runtime.Run effect
+                        let running = started.Wait(TimeSpan.FromSeconds 5.0)
+
+                        runtime.Run(fiber.InterruptNow(): FIO<unit, string>).UnsafeResult() |> ignore
+                        let handled = seen.Task.Wait(TimeSpan.FromSeconds 5.0)
+
+                        Expect.isTrue running "The fiber should start"
+                        Expect.isTrue handled "A faulted task is a typed error, whatever exception it holds"
+                        Expect.equal seen.Task.Result "the task's own failure" "onError should receive the task's exception"
+
+                        (runtime :> IDisposable).Dispose())
+
+                    testFreshRuntimes "awaitTask - a cancelled task hands onError a TaskCanceledException" (fun runtime ->
+                        let cancelled = Task.FromCanceled<int>(CancellationToken true)
+
+                        let result = runtime.Run(FIO.awaitTask cancelled (fun ex -> ex.GetType().Name)).UnsafeResult()
+
+                        Expect.equal result (Failed "TaskCanceledException") "Every runtime should hand onError the same exception type"
+
+                        (runtime :> IDisposable).Dispose())
+                ]
+
+            testList
+                "Workers after shutdown"
+                [
+                    for runtimeName, make in workerRuntimes ->
+                        testCase $"Shutdown - a fiber abandoned at the timeout runs no further step.{runtimeName}" (fun () ->
+                            let runtime = make ()
+                            let gate = TaskCompletionSource()
+                            let parked = new ManualResetEventSlim false
+                            let steps = ref 0
+                            let abandoned: FIO<unit, string> =
+                                FIO.uninterruptible (
+                                    FIO.succeedWith(fun () -> parked.Set())
+                                        .FlatMap(fun () -> FIO.awaitUnitTask gate.Task (fun ex -> ex.Message))
+                                        .FlatMap(fun () -> FIO.succeedWith (fun () -> Interlocked.Increment steps |> ignore)))
+                            Thread.Sleep 100
+                            runtime.Run abandoned |> ignore
+                            let waiting = parked.Wait(TimeSpan.FromSeconds 5.0)
+                            Thread.Sleep 50
+
+                            runtime.Shutdown(TimeSpan.FromMilliseconds 50.0)
+                            gate.SetResult()
+                            Thread.Sleep 300
+
+                            Expect.isTrue waiting "The fiber should reach its await"
+                            Expect.equal steps.Value 0 "A worker that was stopped should not pick up the abandoned fiber again")
+
+                    for runtimeName, make in workerRuntimes ->
+                        testCase $"Shutdown - a fiber still running steps leaves its stopped worker.{runtimeName}" (fun () ->
+                            let runtime = make ()
+                            let steps = ref 0L
+                            let rec spin () : FIO<unit, string> =
+                                FIO.succeedWith(fun () -> Interlocked.Increment steps |> ignore).FlatMap(fun () -> spin ())
+                            runtime.Run(FIO.uninterruptible (spin ())) |> ignore
+                            let running = SpinWait.SpinUntil((fun () -> Interlocked.Read &steps.contents > 1_000L), 5_000)
+
+                            runtime.Shutdown(TimeSpan.FromMilliseconds 100.0)
+                            Thread.Sleep 50
+                            let afterShutdown = Interlocked.Read &steps.contents
+                            Thread.Sleep 300
+                            let later = Interlocked.Read &steps.contents
+
+                            Expect.isTrue running "The fiber should be running"
+                            Expect.equal later afterShutdown "No step should run once the runtime has shut down")
+                ]
+
+            testList
+                "Joining an interrupted fiber"
+                [
+                    testFreshRuntimes "Join - resumes when its target is interrupted, without waiting for the target's finalizer" (fun runtime ->
+                        let started = TaskCompletionSource()
+                        let clock = Stopwatch()
+                        let resumedAt = ref -1L
+                        let target: FIO<int, string> =
+                            (FIO.succeedWith(fun () -> started.SetResult()).FlatMap(fun () -> FIO.never ()))
+                                .Ensuring(FIO.sleep (TimeSpan.FromMilliseconds 700.0))
+                        let effect =
+                            target.Fork().FlatMap(fun fiber ->
+                                let joiner =
+                                    fiber.Join().Ensuring(FIO.succeedWith (fun () -> resumedAt.Value <- clock.ElapsedMilliseconds))
+                                joiner.Fork().FlatMap(fun joining ->
+                                    (FIO.awaitUnitTask started.Task (fun ex -> ex.Message))
+                                        .FlatMap(fun () -> FIO.sleep (TimeSpan.FromMilliseconds 100.0))
+                                        .FlatMap(fun () -> FIO.succeedWith (fun () -> clock.Start()))
+                                        .FlatMap(fun () -> fiber.Interrupt ExplicitInterrupt "stop")
+                                        .FlatMap(fun () -> joining.Await())))
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        match result with
+                        | Succeeded(Interrupted _) -> ()
+                        | other -> failtest $"{runtime.GetType().Name}: expected the joiner to be interrupted, got {other}"
+                        Expect.isLessThan resumedAt.Value 300L "The joiner should resume at the interruption, not after the 700 ms finalizer"
+
+                        (runtime :> IDisposable).Dispose())
+
+                    testFreshRuntimes "JoinFirst - resumes when a target is interrupted, without waiting for the target's finalizer" (fun runtime ->
+                        let started = TaskCompletionSource()
+                        let clock = Stopwatch()
+                        let resumedAt = ref -1L
+                        let target: FIO<int, string> =
+                            (FIO.succeedWith(fun () -> started.SetResult()).FlatMap(fun () -> FIO.never ()))
+                                .Ensuring(FIO.sleep (TimeSpan.FromMilliseconds 700.0))
+                        let effect =
+                            target.Fork().FlatMap(fun fiber ->
+                                let joiner =
+                                    (FIO.joinFirst [ fiber.Context ]: FIO<int, string>)
+                                        .FlatMap(fun index -> FIO.succeedWith (fun () ->
+                                            resumedAt.Value <- clock.ElapsedMilliseconds
+                                            index))
+                                joiner.Fork().FlatMap(fun joining ->
+                                    (FIO.awaitUnitTask started.Task (fun ex -> ex.Message))
+                                        .FlatMap(fun () -> FIO.sleep (TimeSpan.FromMilliseconds 100.0))
+                                        .FlatMap(fun () -> FIO.succeedWith (fun () -> clock.Start()))
+                                        .FlatMap(fun () -> fiber.Interrupt ExplicitInterrupt "stop")
+                                        .FlatMap(fun () -> joining.Await())))
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        Expect.equal result (Succeeded(Succeeded 0)) "The joiner should yield the index of the interrupted fiber"
+                        Expect.isLessThan resumedAt.Value 300L "The joiner should resume at the interruption, not after the 700 ms finalizer"
+
+                        (runtime :> IDisposable).Dispose())
+                ]
+
+            testList
                 "Runtime disposal"
                 [
                     testFreshRuntimes "Dispose - interrupts a running fiber and returns after its finalizer ran" (fun runtime ->
-                        let started = new ManualResetEventSlim(false)
+                        let started = new ManualResetEventSlim false
                         let finalized = ref false
                         let effect : FIO<unit, string> =
                             FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never ())
@@ -539,7 +805,7 @@ let conformanceTests =
                         | other -> failtest $"Expected Interrupted but got {other}")
 
                     testFreshRuntimes "Dispose - interrupts daemon fibers and runs their finalizers" (fun runtime ->
-                        let started = new ManualResetEventSlim(false)
+                        let started = new ManualResetEventSlim false
                         let finalized = ref false
                         let daemon : FIO<unit, string> =
                             (FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never ()))
@@ -554,7 +820,7 @@ let conformanceTests =
                         Expect.isTrue finalized.Value "Dispose should interrupt the daemon and wait for its finalizer")
 
                     testFreshRuntimes "Dispose - a daemon forked by a finalizer during disposal is interrupted at once" (fun runtime ->
-                        let started = new ManualResetEventSlim(false)
+                        let started = new ManualResetEventSlim false
                         let late = TaskCompletionSource<FiberResult<unit, string>>()
                         let lateDaemon: FIO<unit, string> = FIO.never ()
                         let root: FIO<unit, string> =
@@ -576,7 +842,7 @@ let conformanceTests =
                         | other -> failtest $"Expected the late daemon to be interrupted, got {other}")
 
                     testFreshRuntimes "Dispose - waits for scoped children to unwind" (fun runtime ->
-                        let started = new ManualResetEventSlim(false)
+                        let started = new ManualResetEventSlim false
                         let childFinalized = ref false
                         let child : FIO<unit, string> =
                             (FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never ()))
@@ -666,7 +932,7 @@ let conformanceTests =
                             "A runtime shut down with no time limit should be disposed")
 
                     testFreshRuntimes "Shutdown - gives up after its timeout when a finalizer never ends" (fun runtime ->
-                        let started = new ManualResetEventSlim(false)
+                        let started = new ManualResetEventSlim false
                         let effect : FIO<unit, string> =
                             (FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never ())).Ensuring(FIO.never ())
 
@@ -678,6 +944,24 @@ let conformanceTests =
                         runtime.Shutdown(TimeSpan.FromMilliseconds 300.0)
 
                         Expect.isLessThan stopwatch.ElapsedMilliseconds 3_000L "Shutdown should stop waiting at its timeout")
+
+                    testFreshRuntimes "Shutdown - a fiber that only waits for its child gets its result when the timeout abandons it" (fun runtime ->
+                        let childStarted = TaskCompletionSource()
+                        let child: FIO<unit, string> =
+                            (FIO.succeedWith(fun () -> childStarted.SetResult()).FlatMap(fun () -> FIO.never ()))
+                                .Ensuring(FIO.sleep (TimeSpan.FromSeconds 3.0))
+                        let root =
+                            child.Fork().FlatMap(fun _ -> FIO.awaitUnitTask childStarted.Task (fun ex -> ex.Message)).FlatMap(fun () -> FIO.succeed 1)
+                        let fiber = runtime.Run root
+                        let started = childStarted.Task.Wait(TimeSpan.FromSeconds 5.0)
+                        Thread.Sleep 100
+
+                        runtime.Shutdown(TimeSpan.FromMilliseconds 500.0)
+                        let published = fiber.Task().Wait(TimeSpan.FromSeconds 1.0)
+
+                        Expect.isTrue started "The child should start"
+                        Expect.isTrue published "A root that had finished its effect should not be left without a result"
+                        Expect.equal (fiber.Task().Result) (Succeeded 1) "The root should publish the result it had")
 
                     testFreshRuntimes "Shutdown - a concurrent second call waits for the first to finish" (fun runtime ->
                         let started = new ManualResetEventSlim false
@@ -699,6 +983,62 @@ let conformanceTests =
 
                         first.Wait())
 
+                    testFreshRuntimes "Run - releases a root fiber once it has unwound, whichever thread ran it" (fun runtime ->
+                        let threads =
+                            [|
+                                for i in 1..8 ->
+                                    Thread(fun () -> runtime.Run(FIO.succeed i: FIO<int, string>).UnsafeResult() |> ignore)
+                            |]
+
+                        for thread in threads do
+                            thread.Start()
+                        for thread in threads do
+                            thread.Join()
+                        let released = SpinWait.SpinUntil((fun () -> runtime.TrackedCount = 0), 5_000)
+
+                        Expect.isTrue released $"A finished fiber should not stay tracked, but {runtime.TrackedCount} did"
+
+                        (runtime :> IDisposable).Dispose())
+
+                    testFreshRuntimes "Run - releases every fiber of a burst" (fun runtime ->
+                        let burst = 2_000
+
+                        let fibers = [| for i in 1..burst -> runtime.Run(FIO.succeed i: FIO<int, string>) |]
+                        for fiber in fibers do
+                            fiber.UnsafeResult() |> ignore
+                        let released = SpinWait.SpinUntil((fun () -> runtime.TrackedCount = 0), 5_000)
+
+                        Expect.isTrue released $"A finished fiber should not stay tracked, but {runtime.TrackedCount} did"
+
+                        (runtime :> IDisposable).Dispose())
+
+                    testFreshRuntimes "ForkDaemon - releases a daemon fiber once it has unwound" (fun runtime ->
+                        let daemon: FIO<int, string> = FIO.succeed 1
+
+                        runtime.Run(daemon.ForkDaemon<string>().FlatMap(fun fiber -> fiber.Await())).UnsafeResult() |> ignore
+                        let released = SpinWait.SpinUntil((fun () -> runtime.TrackedCount = 0), 5_000)
+
+                        Expect.isTrue released $"A finished daemon should not stay tracked, but {runtime.TrackedCount} did"
+
+                        (runtime :> IDisposable).Dispose())
+
+                    testFreshRuntimes "Run - keeps a running fiber tracked until it unwinds" (fun runtime ->
+                        let started = new ManualResetEventSlim false
+                        let effect: FIO<unit, string> =
+                            FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never ())
+
+                        runtime.Run effect |> ignore
+                        let running = started.Wait(TimeSpan.FromSeconds 5.0)
+                        let tracked = runtime.TrackedCount
+
+                        Expect.isTrue running "The fiber should start"
+                        Expect.equal tracked 1 "A running fiber should be tracked"
+
+                        (runtime :> IDisposable).Dispose()
+                        let afterDispose = runtime.TrackedCount
+
+                        Expect.equal afterDispose 0 "Dispose should leave nothing tracked")
+
                     testList
                         "Stress - Run racing Dispose never loses a fiber"
                         [
@@ -712,6 +1052,7 @@ let conformanceTests =
                                 stressTestCase runtimeName (fun () ->
                                     let deadline = Stopwatch.StartNew()
                                     let mutable lost = 0
+                                    let mutable pending = 0
 
                                     while deadline.ElapsedMilliseconds < 3_000L && lost = 0 do
                                         let runtime = make ()
@@ -735,10 +1076,13 @@ let conformanceTests =
                                         (runtime :> IDisposable).Dispose()
                                         Task.WaitAll spammers
                                         for fiber in fibers do
+                                            if not (fiber.Task().IsCompleted) then
+                                                pending <- pending + 1
                                             if not (fiber.Task().Wait(TimeSpan.FromSeconds 2.0)) then
                                                 lost <- lost + 1
 
-                                    Expect.equal lost 0 "Every fiber a successful Run returned should complete")
+                                    Expect.equal lost 0 "Every fiber a successful Run returned should complete"
+                                    Expect.equal pending 0 "Dispose should return only once every fiber has its result")
                         ]
                 ]
         ]

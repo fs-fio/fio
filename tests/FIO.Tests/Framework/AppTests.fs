@@ -173,6 +173,44 @@ type private ThrowingHookApp(log: ResizeArray<string>, throwingHook: string) =
 
         FIO.unit ()
 
+type private ThrowingExitCodeApp(log: ResizeArray<string>, effect: unit -> FIO<int, string>) =
+    inherit FIOApp<int, string>()
+
+    override _.effect = effect ()
+    override _.onOutcome _ = FIO.attempt (fun () -> log.Add "onOutcome") (fun ex -> ex.Message)
+    override _.onShutdown () = FIO.attempt (fun () -> log.Add "onShutdown") (fun ex -> ex.Message)
+    override _.mapExitCode _ = failwith "mapExitCode threw"
+
+type private StopWhileCreatingRuntimeApp() as this =
+    inherit FIOApp<int, string>()
+
+    override _.effect = FIO.never ()
+
+    override _.runtime =
+        this.Stop()
+        new WorkStealingRuntime() :> FIORuntime
+
+type private FinalizingHooksApp(log: ResizeArray<string>) =
+    inherit FIOApp<int, string>()
+
+    let finalizer (name: string) : FIO<unit, string> =
+        FIO.succeedWith (fun () -> lock log (fun () -> log.Add name))
+
+    let slowly (name: string) : FIO<unit, string> =
+        (FIO.sleep (TimeSpan.FromMilliseconds 100.0)).FlatMap(fun () -> finalizer name)
+
+    override _.effect = FIO.succeed 0
+
+    override _.onOutcome _ =
+        FIO.succeedWith(fun () -> failwith "onOutcome crashed")
+            .Ensuring(slowly "outcomeInner")
+            .Ensuring(finalizer "outcomeOuter")
+
+    override _.onShutdown () =
+        FIO.interruptNow<unit, string>()
+            .Ensuring(slowly "shutdownInner")
+            .Ensuring(finalizer "shutdownOuter")
+
 type private DisposedRuntimeApp(log: ResizeArray<string>) =
     inherit FIOApp<int, string>()
 
@@ -192,6 +230,11 @@ type private DisposedRuntimeApp(log: ResizeArray<string>) =
         | other -> log.Add $"outcome:{other}"
 
         base.mapExitCode outcome
+
+let private runLogged (run: TestApp -> int) (effect: FIO<int, string>) =
+    let log = ResizeArray()
+    let exitCode = run (TestApp(effect, log))
+    exitCode, Seq.toList log
 
 let private testUnix name (body: unit -> unit) =
     testCase name (fun () ->
@@ -246,12 +289,13 @@ let appTests =
 
                     testCase "RunAsync - returns same result as Run"
                     <| fun () ->
-                        let log = ResizeArray()
-                        let app = TestApp(FIO.succeed 42, log)
+                        let effects: FIO<int, string> list = [ FIO.succeed 42; FIO.fail "boom"; FIO.interruptNow () ]
 
-                        let exitCode = app.RunAsync().Result
+                        let viaRun = effects |> List.map (runLogged (fun app -> app.Run()))
+                        let viaRunAsync = effects |> List.map (runLogged (fun app -> app.RunAsync().Result))
 
-                        Expect.equal exitCode 0 "RunAsync should return exit code 0 for success"
+                        Expect.equal viaRunAsync viaRun "RunAsync should give the exit code and run the hooks as Run does"
+                        Expect.equal (List.map fst viaRunAsync) [ 0; 1; 130 ] "RunAsync should map success, failure and interruption"
                 ]
 
             testList
@@ -295,6 +339,17 @@ let appTests =
                         match seen.Value with
                         | Some(AppFatalError ex) -> Expect.equal ex.Message "effect defect" "onOutcome should see the thrown exception itself"
                         | other -> failtest $"Expected AppFatalError but got {other}"
+
+                    testCase "Run - a race whose racers all crashed is a fatal error, not an interruption"
+                    <| fun () ->
+                        let log = ResizeArray()
+                        let crashing: FIO<int, string> = FIO.succeedWith (fun () -> failwith "racer defect")
+                        let app = TestApp(FIO.raceAll (seq { crashing; crashing }), log)
+
+                        let exitCode = silenceErr (fun () -> app.Run())
+
+                        Expect.equal exitCode 1 "Racers that crashed are a crash of the race"
+                        Expect.contains (Seq.toList log) "outcome:FatalError" "mapExitCode should see AppFatalError"
 
                     testCase "Run - an invalid argument in the effect is a fatal error"
                     <| fun () ->
@@ -396,11 +451,13 @@ let appTests =
                     testCase "onShutdown - failing hook does not prevent exit code from being computed"
                     <| fun () ->
                         let log = ResizeArray()
-                        let app = TestApp(FIO.succeed 42, log, onShutdown = FIO.fail "hook error")
+                        let hook = FIO.attempt (fun () -> log.Add "shutdownHookFailing") (fun (ex: exn) -> ex.Message)
+                        let app = TestApp(FIO.succeed 42, log, onShutdown = hook.FlatMap(fun () -> FIO.fail "hook error"))
 
                         let exitCode = app.Run()
 
                         Expect.equal exitCode 0 "Failing shutdown should not change the main outcome's exit code"
+                        Expect.sequenceEqual log [ "onOutcomeRan:Succeeded"; "shutdownHookFailing"; "outcome:Succeeded" ] "The failing shutdown hook should have run before the exit code was computed"
 
                     testCase "onShutdown - a hook that throws while building its effect keeps the exit code"
                     <| fun () ->
@@ -564,11 +621,13 @@ let appTests =
                     testCase "onOutcome - failing hook does not prevent exit code from being computed"
                     <| fun () ->
                         let log = ResizeArray()
-                        let app = TestApp(FIO.succeed 42, log, onOutcome = fun _ -> FIO.fail "hook error")
+                        let hook = FIO.attempt (fun () -> log.Add "outcomeHookFailing") (fun (ex: exn) -> ex.Message)
+                        let app = TestApp(FIO.succeed 42, log, onOutcome = fun _ -> hook.FlatMap(fun () -> FIO.fail "hook error"))
 
                         let exitCode = app.Run()
 
                         Expect.equal exitCode 0 "Failing outcome hook should not change the exit code"
+                        Expect.sequenceEqual log [ "onOutcomeRan:Succeeded"; "outcomeHookFailing"; "onShutdownRan"; "outcome:Succeeded" ] "The failing outcome hook should have run, then onShutdown, before the exit code was computed"
 
                     testCase "onOutcome - a hook that throws while building its effect keeps the exit code and still runs onShutdown"
                     <| fun () ->
@@ -728,6 +787,25 @@ let appTests =
 
                         Expect.isFalse app.IsRunning "Stop on idle app should not throw"
 
+                    testCase "Stop - a request made before Run is not remembered"
+                    <| fun () ->
+                        let app = MinimalApp(FIO.succeed 1)
+                        app.Stop()
+
+                        let exitCode = app.Run()
+
+                        Expect.equal exitCode 0 "A Stop on an app that was not running must not interrupt its later run"
+
+                    testCase "Stop - a request made while the runtime is being created interrupts the effect"
+                    <| fun () ->
+                        let app = StopWhileCreatingRuntimeApp()
+
+                        let runTask = silenceErr (fun () -> app.RunAsync())
+                        let ended = runTask.Wait(TimeSpan.FromSeconds 20.0)
+
+                        Expect.isTrue ended "The effect should be interrupted once it is forked"
+                        Expect.equal runTask.Result 130 "The app should end as interrupted"
+
                     testUnix "Run - a SIGTERM interrupts the effect, runs its finalizers before the hooks and exits with 130" (fun () ->
                         let exitCode, output = runSignalled "app" "TERM"
 
@@ -754,8 +832,68 @@ let appTests =
                         Expect.isSome (child.WaitForExit(TimeSpan.FromSeconds 10.0)) "A second SIGTERM must terminate the process"
                         Expect.isFalse (child.Output |> List.contains "shutdown") "The hooks must not run once the process is terminated")
 
+                    testUnix "Run - a second Ctrl+C (SIGINT) while a finalizer hangs terminates the process" (fun () ->
+                        use child = new ChildProcess "app-hanging-finalizer"
+
+                        Expect.isTrue (child.WaitForLine "ready" (TimeSpan.FromSeconds 60.0)) $"The child app should start; output: {child.Output}"
+
+                        child.Signal "INT"
+
+                        Expect.isTrue (child.WaitForLine "finalizing" (TimeSpan.FromSeconds 10.0)) "The first Ctrl+C should start the shutdown"
+
+                        child.Signal "INT"
+
+                        Expect.isSome (child.WaitForExit(TimeSpan.FromSeconds 10.0)) "A second Ctrl+C must terminate the process"
+                        Expect.isFalse (child.Output |> List.contains "shutdown") "The hooks must not run once the process is terminated")
+
+                    testUnix "Run - leaves a second Ctrl+C to another handler that cancels it" (fun () ->
+                        use child = new ChildProcess "app-beside-canceling-handler"
+
+                        Expect.isTrue (child.WaitForLine "ready" (TimeSpan.FromSeconds 60.0)) $"The child app should start; output: {child.Output}"
+
+                        child.Signal "INT"
+
+                        Expect.isTrue (child.WaitForLine "finalizing" (TimeSpan.FromSeconds 10.0)) "The first Ctrl+C should start the shutdown"
+
+                        child.Signal "INT"
+                        let exited = child.WaitForExit(TimeSpan.FromSeconds 3.0)
+
+                        Expect.isNone exited "The app must not overrule a handler that cancelled the second Ctrl+C")
+
+                    testUnix "Run - leaves a second SIGTERM to another handler that cancels it" (fun () ->
+                        use child = new ChildProcess "app-beside-canceling-sigterm-handler"
+
+                        Expect.isTrue (child.WaitForLine "ready" (TimeSpan.FromSeconds 60.0)) $"The child app should start; output: {child.Output}"
+
+                        child.Signal "TERM"
+
+                        Expect.isTrue (child.WaitForLine "finalizing" (TimeSpan.FromSeconds 10.0)) "The first SIGTERM should start the shutdown"
+
+                        child.Signal "TERM"
+                        let exited = child.WaitForExit(TimeSpan.FromSeconds 3.0)
+
+                        Expect.isNone exited "The app must not overrule a handler that cancelled the second SIGTERM")
+
+                    FsCheckProperties.stressTestCase "Run - an app whose runtime is shut down under it always ends, 200 times in a row" (fun () ->
+                        let outcomes =
+                            silenceErr (fun () ->
+                                [
+                                    for _ in 1..200 ->
+                                        let log = ResizeArray()
+                                        let started = new ManualResetEventSlim false
+                                        let runtime = new WorkStealingRuntime(testConfig)
+                                        let effect: FIO<int, string> = FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never ())
+                                        let app = TestApp(effect, log, runtime = runtime)
+                                        let runTask = app.RunAsync()
+                                        started.Wait(TimeSpan.FromSeconds 5.0) |> ignore
+                                        runtime.Shutdown(TimeSpan.FromSeconds 5.0)
+                                        if runTask.Wait(TimeSpan.FromSeconds 10.0) then Some runTask.Result else None
+                                ])
+
+                        Expect.allEqual outcomes (Some 130) "Every app should end as interrupted")
+
                     testUnix "Run - a SIGTERM while the runtime is being created interrupts the effect and exits with 130" (fun () ->
-                        use child = new ChildProcess("app-slow-runtime")
+                        use child = new ChildProcess "app-slow-runtime"
 
                         Expect.isTrue (child.WaitForLine "creating-runtime" (TimeSpan.FromSeconds 60.0)) $"The child app should start creating its runtime; output: {child.Output}"
 
@@ -784,6 +922,40 @@ let appTests =
                         let exitCode = silenceErr (fun () -> FatalCleanupThrowsApp().Run())
 
                         Expect.equal exitCode 88 "A failing cleanup hook must not change the fatal exit code"
+
+                    testCase "Run - a throwing mapExitCode exits with 1 and runs each hook once"
+                    <| fun () ->
+                        let log = ResizeArray<string>()
+                        let app = ThrowingExitCodeApp(log, fun () -> FIO.succeed 0)
+
+                        let exitCode = silenceErr (fun () -> app.Run())
+
+                        Expect.equal exitCode 1 "A mapExitCode that throws is a crash"
+                        Expect.sequenceEqual log [ "onOutcome"; "onShutdown" ] "Each hook should run once"
+
+                    testCase "Run - a throwing mapExitCode on the fatal path exits with 1 and runs each hook once"
+                    <| fun () ->
+                        let log = ResizeArray<string>()
+                        let app = ThrowingExitCodeApp(log, fun () -> failwith "effect construction exploded")
+
+                        let exitCode = silenceErr (fun () -> app.Run())
+
+                        Expect.equal exitCode 1 "A mapExitCode that throws is a crash"
+                        Expect.sequenceEqual log [ "onOutcome"; "onShutdown" ] "Each hook should run once"
+
+                    testCase "Run - a hook that crashes or interrupts itself still runs its own finalizers"
+                    <| fun () ->
+                        let log = ResizeArray<string>()
+                        let app = FinalizingHooksApp log
+
+                        let exitCode = silenceErr (fun () -> app.Run())
+
+                        Expect.equal exitCode 0 "A failing hook should not change the exit code"
+                        let order (name: string) = Seq.findIndex ((=) name) log
+
+                        Expect.equal (List.sort (List.ofSeq log)) [ "outcomeInner"; "outcomeOuter"; "shutdownInner"; "shutdownOuter" ] "Every finalizer of each hook should run"
+                        Expect.isLessThan (order "outcomeInner") (order "outcomeOuter") "A hook's inner finalizer runs before its outer one"
+                        Expect.isLessThan (order "shutdownInner") (order "shutdownOuter") "A hook's inner finalizer runs before its outer one"
 
                     testCase "Run - a runtime disposed before Run is a fatal error and its hooks are contained"
                     <| fun () ->

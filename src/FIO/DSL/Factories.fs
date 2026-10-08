@@ -4,7 +4,8 @@ open System
 open System.Threading
 open System.Threading.Tasks
 
-/// Restores, inside an uninterruptibleMask region, the interruptibility that was in force outside it.
+/// Restores, inside an uninterruptibleMask region, the interruptibility in force outside it. Use it only in that
+/// region's body: in a finalizer it would make the cleanup interruptible.
 [<Sealed>]
 type InterruptibilityRestorer internal (level: int) =
 
@@ -84,7 +85,8 @@ module FIO =
         cancellationToken().FlatMap <| fun cancellationToken ->
             awaitTask (Async.StartAsTask(async, cancellationToken = cancellationToken)) onError
 
-    /// Creates an effect that starts a non-generic task on a new fiber, mapping any exception to a typed error.
+    /// Creates an effect that starts a non-generic task on the current fiber and awaits it on a new one, mapping any
+    /// exception to a typed error.
     let inline forkUnitTask<'E, 'E1> (taskFactory: unit -> Task) (onError: exn -> 'E) : FIO<Fiber<unit, 'E>, 'E1> =
         suspend <| fun () ->
             let task =
@@ -92,7 +94,8 @@ module FIO =
                 with ex -> Task.FromException ex
             (awaitUnitTask task onError).Fork()
 
-    /// Creates an effect that starts a task on a new fiber, mapping any exception to a typed error.
+    /// Creates an effect that starts a task on the current fiber and awaits it on a new one, mapping any exception to a
+    /// typed error.
     let inline forkTask<'A, 'E, 'E1> (taskFactory: unit -> Task<'A>) (onError: exn -> 'E) : FIO<Fiber<'A, 'E>, 'E1> =
         suspend <| fun () ->
             let task =
@@ -115,8 +118,8 @@ module FIO =
                 registration.Dispose()
             (awaitTask resultSource.Task onError).FlatMap fromResult
 
-    /// Creates an effect that suspends the current fiber for the given duration; a negative one, or one over about
-    /// 49.7 days, is an invalid argument.
+    /// Creates an effect that suspends the current fiber for the given duration. Timeout.InfiniteTimeSpan sleeps until
+    /// the fiber is interrupted; any other negative duration, or one over about 49.7 days, is an invalid argument.
     let sleep<'E> (duration: TimeSpan) : FIO<unit, 'E> =
         if duration < TimeSpan.Zero && duration <> Timeout.InfiniteTimeSpan then
             interrupt (InvalidArgument("duration", "must not be negative")) $"Cannot sleep for {duration}"
@@ -156,7 +159,7 @@ module FIO =
         WithSuppression(raiseSuppression, fun level -> body (InterruptibilityRestorer level))
 
     /// Acquires a resource, uses it, and releases it on success, failure or interruption; acquire and release run
-    /// uninterruptibly, so keep them short.
+    /// uninterruptibly. The release function is called as soon as the resource exists, before the use function.
     let acquireReleaseWith<'A, 'A1, 'E>
         (acquire: FIO<'A1, 'E>)
         (release: 'A1 -> FIO<unit, 'E>)
@@ -410,7 +413,7 @@ module FIO =
                 effect) head
 
     /// Runs the given effects concurrently, succeeding with the first to succeed and interrupting the rest; when none
-    /// succeeds it fails with the last error seen, or is interrupted when every racer was.
+    /// succeeds it fails with the last error, or is interrupted with a crashed racer's cause if there was one.
     let raceAll<'A, 'E> (effects: seq<FIO<'A, 'E>>) : FIO<'A, 'E> =
         suspend <| fun () ->
             let arr = Seq.toArray effects
@@ -437,12 +440,17 @@ module FIO =
                                 .FlatMap <| fun () -> go rest
                     go fibers
 
-                let rec awaitFirstSuccess (remaining: Fiber<'A, 'E> list) (lastError: 'E voption) : FIO<'A, 'E> =
+                let rec awaitFirstSuccess
+                    (remaining: Fiber<'A, 'E> list)
+                    (lastError: 'E voption)
+                    (crash: FiberInterruptedException voption)
+                    : FIO<'A, 'E> =
                     match remaining with
                     | [] ->
-                        match lastError with
-                        | ValueSome error -> fail error
-                        | ValueNone -> interrupt ExplicitInterrupt "Every racer was interrupted"
+                        match lastError, crash with
+                        | ValueSome error, _ -> fail error
+                        | ValueNone, ValueSome crash -> interrupt crash.cause crash.message
+                        | ValueNone, ValueNone -> interrupt ExplicitInterrupt "Every racer was interrupted"
                     | _ ->
                         (joinFirst (remaining |> List.map (fun fiber -> fiber.Context))).FlatMap <| fun index ->
                             let settled = remaining[index]
@@ -456,9 +464,14 @@ module FIO =
                                 | Succeeded value ->
                                     (interruptAll rest).FlatMap <| fun () -> succeed value
                                 | Failed error ->
-                                    awaitFirstSuccess rest (ValueSome error)
-                                | Interrupted _ ->
-                                    awaitFirstSuccess rest lastError
+                                    awaitFirstSuccess rest (ValueSome error) crash
+                                | Interrupted ex ->
+                                    match ex.cause with
+                                    | ExplicitInterrupt
+                                    | ParentInterrupted _ -> awaitFirstSuccess rest lastError crash
+                                    | Defect _
+                                    | InvalidArgument _
+                                    | ResourceExhaustion _ -> awaitFirstSuccess rest lastError (ValueSome ex)
 
                 (forkAll 0 []).FlatMap <| fun fibers ->
-                    awaitFirstSuccess fibers ValueNone
+                    awaitFirstSuccess fibers ValueNone ValueNone

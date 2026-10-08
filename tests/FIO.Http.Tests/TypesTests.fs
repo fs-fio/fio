@@ -472,13 +472,21 @@ let typesTests =
                         Expect.equal cfg.Host "127.0.0.1" "Host"
                         Expect.equal cfg.Port 8080 "Port"
                         Expect.equal cfg.MaxRequestBodySize (30L * 1024L * 1024L) "MaxBodySize"
+                        Expect.equal cfg.ShutdownTimeout 10_000 "ShutdownTimeout"
 
-                    testCase "create - sets the host and port"
+                    testCase "create - sets the host and port and keeps the other defaults"
                     <| fun () ->
                         let cfg = ServerConfig.create "0.0.0.0" 3000
 
                         Expect.equal cfg.Host "0.0.0.0" "Host"
                         Expect.equal cfg.Port 3000 "Port"
+                        Expect.equal cfg { ServerConfig.defaultConfig with Host = "0.0.0.0"; Port = 3000 } "Other fields"
+
+                    testCase "withShutdownTimeout - updates the field"
+                    <| fun () ->
+                        let cfg = ServerConfig.defaultConfig |> ServerConfig.withShutdownTimeout 250
+
+                        Expect.equal cfg.ShutdownTimeout 250 "ShutdownTimeout"
 
                     testCase "withMaxBodySize - updates the field"
                     <| fun () ->

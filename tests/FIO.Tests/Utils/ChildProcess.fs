@@ -14,6 +14,7 @@ open System.Threading
 open System.Diagnostics
 open System.Threading.Tasks
 open System.Collections.Concurrent
+open System.Runtime.InteropServices
 
 let private print (line: string) =
     FIO.attempt
@@ -51,8 +52,7 @@ type private SlowRuntimeApp() =
         Thread.Sleep 2000
         new WorkStealingRuntime() :> FIORuntime
 
-// RunAsync registers its signal handlers before its first await, so `ready` marks the point from which a signal is
-// handled by the app.
+// RunAsync registers its signal handlers before its first await, so `ready` means a signal is handled by the app.
 let private runApp (app: FIOApp<unit, exn>) =
     let running = app.RunAsync()
     Console.Out.WriteLine "ready"
@@ -67,6 +67,8 @@ let private workerRuntimes : (string * (unit -> FIORuntime)) list =
     ]
 
 let private disposeParkedOnTask () =
+    let mutable failed = false
+
     for name, make in workerRuntimes do
         use runtime = make ()
         let source = TaskCompletionSource<int>()
@@ -74,12 +76,16 @@ let private disposeParkedOnTask () =
         Thread.Sleep 100
         (fiber :> IDisposable).Dispose()
         source.SetCanceled()
-        Thread.Sleep 200
-        Console.Out.WriteLine $"survived {name}"
 
-    0
+        match fiber.Task().Wait(TimeSpan.FromSeconds 5.0), fiber.Task() with
+        | true, ended when (match ended.Result with Failed _ -> true | _ -> false) -> Console.Out.WriteLine $"survived {name}"
+        | _ -> failed <- true
+
+    if failed then 1 else 0
 
 let private disposeParkedWriter () =
+    let mutable failed = false
+
     for name, make in workerRuntimes do
         use runtime = make ()
         let channel = Channel<int>.Bounded 1
@@ -88,15 +94,31 @@ let private disposeParkedWriter () =
         Thread.Sleep 100
         (fiber :> IDisposable).Dispose()
         runtime.Run(channel.Read()).UnsafeResult() |> ignore
-        Thread.Sleep 200
-        Console.Out.WriteLine $"survived {name}"
 
-    0
+        match fiber.Task().Wait(TimeSpan.FromSeconds 5.0), fiber.Task() with
+        | true, ended when (match ended.Result with Succeeded 2 -> true | _ -> false) -> Console.Out.WriteLine $"survived {name}"
+        | _ -> failed <- true
+
+    if failed then 1 else 0
+
+let private runAppBesideCancelingHandler () =
+    Console.CancelKeyPress.Add(fun args -> args.Cancel <- true)
+    runApp (SignalApp true)
+
+// .NET runs SIGTERM handlers newest first, so registering after RunAsync makes the app's handler run last and decide.
+let private runAppBesideCancelingSigtermHandler () =
+    let running = (SignalApp true).RunAsync()
+    use _registration = PosixSignalRegistration.Create(PosixSignal.SIGTERM, fun context -> context.Cancel <- true)
+    Console.Out.WriteLine "ready"
+    Console.Out.Flush()
+    running.GetAwaiter().GetResult()
 
 let run (scenario: string) : int =
     match scenario with
     | "app" -> runApp (SignalApp false)
     | "app-hanging-finalizer" -> runApp (SignalApp true)
+    | "app-beside-canceling-handler" -> runAppBesideCancelingHandler ()
+    | "app-beside-canceling-sigterm-handler" -> runAppBesideCancelingSigtermHandler ()
     | "app-slow-runtime" -> runApp (SlowRuntimeApp())
     | "dispose-parked-on-task" -> disposeParkedOnTask ()
     | "dispose-parked-writer" -> disposeParkedWriter ()

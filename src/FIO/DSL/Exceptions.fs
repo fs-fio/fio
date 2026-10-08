@@ -23,7 +23,8 @@ type InterruptionCause =
         | ResourceExhaustion reason -> $"ResourceExhaustion ({reason})"
         | Defect ex -> $"Defect ({ex.GetType().Name}: {ex.Message})"
 
-/// Raised inside a fiber to interrupt it, carrying the interrupted fiber's id, the cause, and a message.
+/// Describes a fiber's interruption: the interrupted fiber's id, the cause, and a message. An Interrupted result
+/// carries it; do not throw it or fail with it yourself, because an error of this type is read as an interruption.
 exception FiberInterruptedException of fiberId: Guid * cause: InterruptionCause * message: string with
 
     override this.Message =
