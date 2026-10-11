@@ -18,5 +18,5 @@ let rec private fibEffect n threshold =
                 leftFiber.Join().Map <| fun left -> left + right
 
 // Builds the Fibonacci workload: recursive parallel computation of fib n.
-let effect n threshold : FIO<unit, exn> =
+let effect n threshold =
     (fibEffect n threshold).Unit()

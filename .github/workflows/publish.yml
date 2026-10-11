@@ -20,44 +20,44 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v6
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
         with:
           global-json-file: global.json
 
       - name: Cache NuGet packages
-        uses: actions/cache@v6
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.nuget/packages
           key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj', 'Directory.Packages.props', 'global.json') }}
           restore-keys: |
             ${{ runner.os }}-nuget-
 
-      - name: Restore dependencies
-        run: dotnet restore ./FIO.slnx
-
-      - name: Build Release
-        run: dotnet build -c Release --no-restore ./FIO.slnx
-
-      - name: Run tests
-        run: dotnet test -c Release --no-build --verbosity normal ./FIO.slnx
-
       - name: Resolve release target
         id: release
         run: |
           ref="${GITHUB_REF_NAME}"
           props_version="$(grep -oE '<Version>[^<]+</Version>' Directory.Build.props | head -1 | sed -E 's#</?Version>##g')"
+          all="src/FIO/FIO.fsproj src/FIO.Sockets/FIO.Sockets.fsproj src/FIO.WebSockets/FIO.WebSockets.fsproj src/FIO.Http/FIO.Http.fsproj"
           mode=""; version=""; projects=""; pack_arg=""
-          case "$ref" in
-            core-v*)       version="${ref#core-v}";       mode="core";      projects="src/FIO/FIO.fsproj";                       pack_arg="-p:Version=${version}" ;;
-            http-v*)       version="${ref#http-v}";       mode="extension"; projects="src/FIO.Http/FIO.Http.fsproj";             pack_arg="-p:PackageReleaseVersion=${version}" ;;
-            sockets-v*)    version="${ref#sockets-v}";    mode="extension"; projects="src/FIO.Sockets/FIO.Sockets.fsproj";       pack_arg="-p:PackageReleaseVersion=${version}" ;;
-            websockets-v*) version="${ref#websockets-v}"; mode="extension"; projects="src/FIO.WebSockets/FIO.WebSockets.fsproj"; pack_arg="-p:PackageReleaseVersion=${version}" ;;
-            v*)            version="${ref#v}";            mode="lockstep";  projects="src/FIO/FIO.fsproj src/FIO.Sockets/FIO.Sockets.fsproj src/FIO.WebSockets/FIO.WebSockets.fsproj src/FIO.Http/FIO.Http.fsproj"; pack_arg="-p:Version=${version}" ;;
-            *)             mode="manual";   projects="src/FIO/FIO.fsproj src/FIO.Sockets/FIO.Sockets.fsproj src/FIO.WebSockets/FIO.WebSockets.fsproj src/FIO.Http/FIO.Http.fsproj"; pack_arg="" ;;
-          esac
+
+          # Only a tag names a release; a dispatch on a branch is a dry run of the lockstep pack.
+          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
+            mode="manual"; projects="$all"
+          else
+            case "$ref" in
+              core-v*)       version="${ref#core-v}";       mode="core";      projects="src/FIO/FIO.fsproj";                       pack_arg="-p:Version=${version}" ;;
+              http-v*)       version="${ref#http-v}";       mode="extension"; projects="src/FIO.Http/FIO.Http.fsproj";             pack_arg="-p:PackageReleaseVersion=${version}" ;;
+              sockets-v*)    version="${ref#sockets-v}";    mode="extension"; projects="src/FIO.Sockets/FIO.Sockets.fsproj";       pack_arg="-p:PackageReleaseVersion=${version}" ;;
+              websockets-v*) version="${ref#websockets-v}"; mode="extension"; projects="src/FIO.WebSockets/FIO.WebSockets.fsproj"; pack_arg="-p:PackageReleaseVersion=${version}" ;;
+              v*)            version="${ref#v}";            mode="lockstep";  projects="$all";                                     pack_arg="-p:Version=${version}" ;;
+              *)
+                echo "::error::Tag '$ref' matches no release pattern (v*, core-v*, http-v*, sockets-v*, websockets-v*)."
+                exit 1 ;;
+            esac
+          fi
 
           if [[ -n "$version" && ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
             echo "::error::Invalid version '$version' parsed from tag '$ref'."
@@ -71,35 +71,56 @@ jobs:
             fi
           fi
 
+          prerelease=false
+          if [[ "$version" == *-* ]]; then prerelease=true; fi
+
           {
             echo "mode=$mode"
+            echo "version=$version"
+            echo "prerelease=$prerelease"
             echo "projects=$projects"
             echo "pack_arg=$pack_arg"
           } >> "$GITHUB_OUTPUT"
           echo "Release mode: ${mode} | version: ${version:-<props default>} | projects: ${projects}"
+
+      - name: Restore dependencies
+        run: dotnet restore ./FIO.slnx
+
+      - name: Build Release
+        run: dotnet build -c Release --no-restore ./FIO.slnx
+
+      - name: Run tests
+        run: >
+          dotnet test -c Release --no-build --verbosity normal ./FIO.slnx
+          --blame-hang-timeout 5m --blame-hang-dump-type none
 
       - name: Pack NuGet packages
         env:
           PROJECTS: ${{ steps.release.outputs.projects }}
           PACK_ARG: ${{ steps.release.outputs.pack_arg }}
         run: |
+          # The packed assemblies grant no friend access: the test projects' InternalsVisibleTo is left out.
           for proj in $PROJECTS; do
-            dotnet pack "$proj" -c Release $PACK_ARG -o ./nupkgs
+            dotnet pack "$proj" -c Release $PACK_ARG -p:StripInternals=true -o ./nupkgs
           done
 
       - name: Upload packages as artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: nuget-packages
           path: ./nupkgs/*.nupkg
 
+      # Only a pushed tag publishes; a manual run, on a branch or on a tag, is a dry run.
       - name: Push to NuGet.org
-        if: startsWith(github.ref, 'refs/tags/')
-        run: dotnet nuget push ./nupkgs/*.nupkg --api-key ${{ secrets.NUGET_API_KEY }} --source https://api.nuget.org/v3/index.json --skip-duplicate
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: dotnet nuget push ./nupkgs/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v3
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           generate_release_notes: true
+          prerelease: ${{ steps.release.outputs.prerelease == 'true' }}
           files: ./nupkgs/*.nupkg

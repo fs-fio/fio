@@ -14,6 +14,11 @@
         <PackageTags>fsharp;effect;sockets;tcp;networking;functional</PackageTags>
     </PropertyGroup>
 
+    <!-- Left out of published packages: publish.yml and scripts/pack.sh pack with StripInternals=true. -->
+    <ItemGroup Condition="'$(StripInternals)' != 'true'">
+        <InternalsVisibleTo Include="FIO.Sockets.Tests" />
+    </ItemGroup>
+
     <ItemGroup>
         <Compile Include="Types.fs" />
         <Compile Include="Codec.fs" />

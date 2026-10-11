@@ -10,9 +10,12 @@ open FIO.Runtime.WorkStealing
 
 open System
 open System.Net
+open System.Diagnostics
 
 open Expecto
 open FsCheck.FSharp
+
+let testConfig = { WorkerConfig.Default with EvaluationWorkers = 2 }
 
 module FsCheckProperties =
 
@@ -21,9 +24,9 @@ module FsCheckProperties =
             Gen.oneof
                 [
                     Gen.constant (new DirectRuntime() :> FIORuntime)
-                    Gen.constant (new PollingRuntime() :> FIORuntime)
-                    Gen.constant (new SignalingRuntime() :> FIORuntime)
-                    Gen.constant (new WorkStealingRuntime() :> FIORuntime)
+                    Gen.constant (new PollingRuntime(testConfig) :> FIORuntime)
+                    Gen.constant (new SignalingRuntime(testConfig) :> FIORuntime)
+                    Gen.constant (new WorkStealingRuntime(testConfig) :> FIORuntime)
                 ]
             |> Arb.fromGen
 
@@ -39,9 +42,9 @@ type TestMessage = { Id: int; Text: string }
 let runtimes () =
     [
         new DirectRuntime() :> FIORuntime
-        new PollingRuntime() :> FIORuntime
-        new SignalingRuntime() :> FIORuntime
-        new WorkStealingRuntime() :> FIORuntime
+        new PollingRuntime(testConfig) :> FIORuntime
+        new SignalingRuntime(testConfig) :> FIORuntime
+        new WorkStealingRuntime(testConfig) :> FIORuntime
     ]
 
 let private disposeRuntime (runtime: FIORuntime) =
@@ -72,16 +75,75 @@ let echoHandler (socket: Socket) =
         do! socket.SendBytes data
     }
 
+// Async.RunSynchronously's timeout waits for the computation to stop, which a hung fiber never does, so it never fires.
 let runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, SocketError>) =
     let fiber = runtime.Run effect
-    match
-        fiber.Task()
-        |> Async.AwaitTask
-        |> fun async -> Async.RunSynchronously(async, timeout = 10_000)
-    with
+    let result = fiber.Task()
+
+    if not (result.Wait(TimeSpan.FromSeconds 10.0)) then
+        runtime.Run(fiber.InterruptNow()) |> ignore
+        failtest $"The effect did not finish within 10 s on {runtime.Name}"
+
+    match result.Result with
     | Succeeded value -> value
     | Failed error -> failtest $"Effect failed: {error}"
     | Interrupted ex -> failtest $"Interrupted: {ex.Message}"
+
+let sleepMs (ms: float) =
+    FIO.sleep (TimeSpan.FromMilliseconds ms)
+
+let freePort () =
+    let probe = new Sockets.TcpListener(IPAddress.Loopback, 0)
+    probe.Start()
+    let port = (probe.LocalEndpoint :?> IPEndPoint).Port
+    probe.Stop()
+    port
+
+// The port freePort returns can be taken before the server binds it, so a server whose bind failed is started again on a fresh port.
+let serveAndConnect (runtime: FIORuntime) (serveOn: int -> FIO<unit, SocketError>) =
+    let rec start attemptsLeft =
+        let port = freePort ()
+        let server = runtime.Run(serveOn port)
+        let deadline = Stopwatch.StartNew()
+        let mutable client = new Sockets.TcpClient()
+
+        while not client.Connected && not (server.IsTerminal()) && deadline.ElapsedMilliseconds < 5_000L do
+            try
+                client.ConnectAsync(IPAddress.Loopback, port).Wait(500) |> ignore
+            with _ ->
+                ()
+
+            if not client.Connected then
+                client.Dispose()
+                client <- new Sockets.TcpClient()
+                Threading.Thread.Sleep 20
+
+        let lostPort =
+            not client.Connected
+            && server.IsTerminal()
+            && (match server.Task().Result with
+                | Failed(BindFailed _) -> true
+                | _ -> false)
+
+        if lostPort && attemptsLeft > 1 then
+            client.Dispose()
+            start (attemptsLeft - 1)
+        else
+            server, port, client
+
+    start 5
+
+let waitForTerminal (fiber: Fiber<'A, 'E>) (budgetMs: int) =
+    fio {
+        let stopwatch = Stopwatch.StartNew()
+        let mutable terminal = fiber.IsCompleted() || fiber.IsInterrupted()
+
+        while not terminal && stopwatch.ElapsedMilliseconds < int64 budgetMs do
+            do! sleepMs 20.0
+            terminal <- fiber.IsCompleted() || fiber.IsInterrupted()
+
+        return terminal, stopwatch.ElapsedMilliseconds
+    }
 
 let connectWhenListening (host: string) (port: int) =
     (SocketClient.connectWith host port)

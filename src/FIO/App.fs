@@ -6,6 +6,7 @@ open FIO.Runtime.Default
 
 open System
 open System.Threading
+open System.Threading.Tasks
 open System.Runtime.InteropServices
 
 /// The outcome of running a FIOApp.
@@ -14,9 +15,9 @@ type AppResult<'A, 'E> =
     | AppSucceeded of value: 'A
     /// The application's effect failed with a typed error.
     | AppFailed of error: 'E
-    /// The application's effect was asked to stop: Ctrl+C, SIGTERM, Stop(), or an explicit interrupt.
+    /// The application's effect was asked to stop: Ctrl+C, SIGTERM, SIGQUIT, Stop(), or an explicit interrupt.
     | AppInterrupted of ex: FiberInterruptedException
-    /// The application crashed: an unexpected exception, a defect in the effect, or an invalid argument.
+    /// The application crashed: an unexpected exception, a defect in the effect, an invalid argument, or resource exhaustion.
     | AppFatalError of ex: exn
 
 /// Base class for a FIO application. Override `effect`; optionally override the rest.
@@ -29,7 +30,7 @@ type FIOApp<'A, 'E>() as this =
     let mutable running = 0
 
     [<VolatileField>]
-    let mutable effectContext: FiberContext option = None
+    let mutable effectContext = None
 
     [<VolatileField>]
     let mutable shutdownRequested = 0
@@ -50,8 +51,7 @@ type FIOApp<'A, 'E>() as this =
         | InvalidArgument _
         | ResourceExhaustion _ -> AppFatalError(ex :> exn)
 
-    // A request that arrives before the effect is forked is applied by scoped, so a Stop() racing
-    // startup is not lost.
+    // Applied by scoped when the effect is forked, so a Stop() racing startup is not lost.
     let requestShutdown (source: string) =
         if Volatile.Read &running = 1 && tryClaim &shutdownRequested then
             match Volatile.Read &effectContext with
@@ -73,55 +73,67 @@ type FIOApp<'A, 'E>() as this =
 
             child.Await())
 
+    // The exit code is computed after the hooks, outside anything that would run them again.
+    let exitCodeOf (outcome: AppResult<'A, 'E>) =
+        try
+            this.mapExitCode outcome
+        with ex ->
+            eprintfn "FIOApp mapExitCode threw: %s" ex.Message
+            1
+
     /// The effect this application runs. Override this.
     abstract member effect: FIO<'A, 'E>
 
-    /// The runtime used to run the effect. Defaults to the recommended runtime.
+    /// The runtime used to run the effect, disposed when the application ends. Defaults to the recommended runtime.
     abstract member runtime: FIORuntime
-    default _.runtime = new DefaultRuntime()
+    default _.runtime : FIORuntime = new DefaultRuntime()
 
-    /// An effect run with the application's outcome once the effect has settled and its finalizers have run,
-    /// before onShutdown. Defaults to no-op.
+    /// An effect run with the application's settled outcome, after the effect's finalizers and before onShutdown;
+    /// no-op by default.
     abstract member onOutcome: AppResult<'A, 'E> -> FIO<unit, 'E>
-    default _.onOutcome _ = FIO.unit ()
+    default _.onOutcome _ : FIO<unit, 'E> = FIO.unit ()
 
-    /// How long to wait for the outcome effect before continuing to shutdown. Defaults to 10 seconds.
+    /// How long to wait for the outcome effect, 10 seconds by default: 0 to Int32.MaxValue milliseconds or
+    /// Timeout.InfiniteTimeSpan; any other value makes Run throw before the effect starts.
     abstract member onOutcomeTimeout: TimeSpan
-    default _.onOutcomeTimeout = TimeSpan.FromSeconds 10.0
+    default _.onOutcomeTimeout : TimeSpan = TimeSpan.FromSeconds 10.0
 
-    /// An effect run after onOutcome, before the process exits. The effect's finalizers have already run, so
-    /// use this for process-level work and put cleanup in a finalizer. Defaults to no-op.
+    /// An effect run after onOutcome, before the process exits; the effect's finalizers have already run, so this is
+    /// for process-level work. No-op by default.
     abstract member onShutdown: unit -> FIO<unit, 'E>
-    default _.onShutdown () = FIO.unit ()
+    default _.onShutdown () : FIO<unit, 'E> = FIO.unit ()
 
-    /// How long to wait for the shutdown effect before forcing exit. Defaults to 10 seconds.
+    /// How long to wait for the shutdown effect, 10 seconds by default: 0 to Int32.MaxValue milliseconds or
+    /// Timeout.InfiniteTimeSpan; any other value makes Run throw before the effect starts.
     abstract member onShutdownTimeout: TimeSpan
-    default _.onShutdownTimeout = TimeSpan.FromSeconds 10.0
+    default _.onShutdownTimeout : TimeSpan = TimeSpan.FromSeconds 10.0
 
-    /// Maps the application's outcome to a process exit code.
+    /// Maps the application's outcome to a process exit code: 0 on success, 1 on a failure or a fatal error (as in
+    /// ZIO), 130 when interrupted. If it throws, the exit code is 1.
     abstract member mapExitCode: AppResult<'A, 'E> -> int
-    default _.mapExitCode outcome =
+    default _.mapExitCode outcome : int =
         match outcome with
         | AppSucceeded _ -> 0
         | AppFailed _ -> 1
         | AppInterrupted _ -> 130
-        | AppFatalError _ -> 2
+        | AppFatalError _ -> 1
 
     /// Returns true from Run or RunAsync until onShutdown has finished.
-    member _.IsRunning =
+    member _.IsRunning : bool =
         Volatile.Read &running = 1
 
-    /// Requests shutdown, interrupting the running effect.
-    member _.Stop () =
+    /// Requests shutdown, interrupting the running effect; before Run it does nothing. Once shutdown was requested,
+    /// by this or by a signal, a further Ctrl+C or SIGTERM is no longer handled and ends the process.
+    member _.Stop () : unit =
         requestShutdown "programmatically" |> ignore
 
-    member private _.RunHookAsync (runtime: FIORuntime) (label: string) (timeout: TimeSpan) (effect: FIO<unit, 'E>) =
+    member private _.RunHookAsync (runtime: FIORuntime) (label: string) (timeout: TimeSpan) (hook: unit -> FIO<unit, 'E>) =
         task {
             let mutable fiberOpt = None
             let mutable timedOut = false
 
             try
-                let fiber = runtime.Run effect
+                let fiber = runtime.Run(hook ())
                 fiberOpt <- Some fiber
                 let! _ = (fiber.Task()).WaitAsync timeout
                 ()
@@ -132,82 +144,77 @@ type FIOApp<'A, 'E>() as this =
             | ex ->
                 eprintfn "FIOApp %s hook threw: %s" label ex.Message
 
-            if timedOut then
-                match fiberOpt with
-                | Some fiber ->
-                    fiber.Context.Interrupt(
-                        ExplicitInterrupt,
-                        sprintf "%s hook exceeded timeout." label)
-
-                    try
-                        let! _ = (fiber.Task()).WaitAsync(TimeSpan.FromSeconds 2.0)
-                        ()
-                    with :? TimeoutException ->
-                        ()
-                | None -> ()
-
             match fiberOpt with
+            | Some fiber when timedOut ->
+                fiber.Context.Interrupt(ExplicitInterrupt, sprintf "%s hook exceeded timeout." label)
             | Some fiber -> (fiber :> IDisposable).Dispose()
             | None -> ()
         }
 
-    member private this.RunOutcomeAsync (runtime: FIORuntime) (outcome: AppResult<'A, 'E>) =
-        this.RunHookAsync runtime "outcome" this.onOutcomeTimeout (this.onOutcome outcome)
-
-    member private this.RunShutdownAsync (runtime: FIORuntime) =
-        this.RunHookAsync runtime "shutdown" this.onShutdownTimeout (this.onShutdown ())
+    member private this.RunHooksAsync (runtime: FIORuntime) (outcomeTimeout: TimeSpan) (shutdownTimeout: TimeSpan) (outcome: AppResult<'A, 'E>) =
+        task {
+            do! this.RunHookAsync runtime "outcome" outcomeTimeout (fun () -> this.onOutcome outcome)
+            do! this.RunHookAsync runtime "shutdown" shutdownTimeout (fun () -> this.onShutdown ())
+        }
 
     /// Runs the application asynchronously and returns its process exit code.
-    member this.RunAsync () =
+    member this.RunAsync () : Task<int> =
+        let outcomeTimeout = this.onOutcomeTimeout
+        let shutdownTimeout = this.onShutdownTimeout
+        validateTimeout (nameof this.onOutcomeTimeout) outcomeTimeout
+        validateTimeout (nameof this.onShutdownTimeout) shutdownTimeout
+
         if not <| tryClaim &runStarted then
             invalidOp "FIOApp can only be run once per instance; create a new instance to run again."
 
         Volatile.Write(&running, 1)
 
         task {
-            let mutable signalRegistrations: PosixSignalRegistration list = []
-            let mutable cancelKeyHandler: ConsoleCancelEventHandler option = None
+            let mutable signalRegistrations = []
+            let mutable cancelKeyHandler = None
+            let mutable outcome = Unchecked.defaultof<AppResult<'A, 'E>>
 
             try
                 try
+                    let requestShutdownFrom (source: string) =
+                        try
+                            requestShutdown source
+                        with ex ->
+                            eprintfn "FIOApp failed to interrupt from %s handler: %s" source ex.Message
+                            true
+
+                    signalRegistrations <-
+                        [ PosixSignal.SIGTERM ]
+                        |> List.choose (fun signal ->
+                            try
+                                Some(
+                                    PosixSignalRegistration.Create(
+                                        signal,
+                                        fun context ->
+                                            if requestShutdownFrom (string context.Signal) then
+                                                context.Cancel <- true))
+                            with ex ->
+                                eprintfn "FIOApp failed to register %O handler: %s" signal ex.Message
+                                None)
+
+                    let handler =
+                        ConsoleCancelEventHandler(fun _ args ->
+                            let source = string args.SpecialKey
+
+                            if requestShutdownFrom source then
+                                args.Cancel <- true)
+
+                    try
+                        Console.CancelKeyPress.AddHandler handler
+                        cancelKeyHandler <- Some handler
+                    with ex ->
+                        eprintfn "FIOApp failed to register CancelKeyPress handler: %s" ex.Message
+
                     let runtime = lazyRuntime.Value
                     let fiber = runtime.Run (scoped this.effect)
 
                     try
-                        let requestShutdownFrom (source: string) =
-                            try
-                                requestShutdown source
-                            with ex ->
-                                eprintfn "FIOApp failed to interrupt from %s handler: %s" source ex.Message
-                                true
-
-                        signalRegistrations <-
-                            [ PosixSignal.SIGTERM ]
-                            |> List.choose (fun signal ->
-                                try
-                                    Some(
-                                        PosixSignalRegistration.Create(
-                                            signal,
-                                            fun context ->
-                                                let claimed = requestShutdownFrom (string context.Signal)
-                                                context.Cancel <- claimed))
-                                with ex ->
-                                    eprintfn "FIOApp failed to register %O handler: %s" signal ex.Message
-                                    None)
-
-                        let handler =
-                            ConsoleCancelEventHandler(fun _ args ->
-                                let source = string args.SpecialKey
-                                let claimed = requestShutdownFrom source
-                                args.Cancel <- claimed)
-
-                        try
-                            Console.CancelKeyPress.AddHandler handler
-                            cancelKeyHandler <- Some handler
-                        with ex ->
-                            eprintfn "FIOApp failed to register CancelKeyPress handler: %s" ex.Message
-
-                        let! outcome =
+                        let! settled =
                             task {
                                 match! fiber.Task() with
                                 | Succeeded(Succeeded value) ->
@@ -222,22 +229,21 @@ type FIOApp<'A, 'E>() as this =
                                     return outcomeOfInterruption ex
                             }
 
-                        do! this.RunOutcomeAsync runtime outcome
-                        do! this.RunShutdownAsync runtime
-                        return this.mapExitCode outcome
+                        do! this.RunHooksAsync runtime outcomeTimeout shutdownTimeout settled
+                        outcome <- settled
                     finally
                         (fiber :> IDisposable).Dispose()
                 with ex ->
                     eprintfn "FIOApp fatal error: %s" ex.Message
+                    outcome <- AppFatalError ex
 
                     if lazyRuntime.IsValueCreated then
                         try
-                            do! this.RunOutcomeAsync lazyRuntime.Value (AppFatalError ex)
-                            do! this.RunShutdownAsync lazyRuntime.Value
+                            do! this.RunHooksAsync lazyRuntime.Value outcomeTimeout shutdownTimeout outcome
                         with cleanupEx ->
                             eprintfn "FIOApp fatal cleanup failed: %s" cleanupEx.Message
 
-                    return this.mapExitCode (AppFatalError ex)
+                return exitCodeOf outcome
             finally
                 Volatile.Write(&effectContext, None)
                 Volatile.Write(&running, 0)
@@ -272,5 +278,5 @@ type FIOApp<'A, 'E>() as this =
         }
 
     /// Runs the application and returns its process exit code.
-    member this.Run () =
+    member this.Run () : int =
         this.RunAsync().GetAwaiter().GetResult()

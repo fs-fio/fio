@@ -5,6 +5,9 @@
         <IsPackable>false</IsPackable>
         <IsTestProject>true</IsTestProject>
         <GenerateProgramFile>false</GenerateProgramFile>
+        <!-- Parallel tests block pool threads while they wait, and FIO's workers run on the pool: with the default
+             minimum (one thread per core) the runtimes under test stalled for seconds and missed timing budgets. -->
+        <ThreadPoolMinThreads>64</ThreadPoolMinThreads>
     </PropertyGroup>
 
     <ItemGroup>

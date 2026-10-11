@@ -3,7 +3,7 @@
 ## Supported versions
 
 FIO is pre-1.0 (`0.x`). Only the latest published release of each package
-(**FIO**, **FIO.Http**, **FIO.Sockets**, **FIO.WebSockets**) receives security
+(**FSharp.FIO**, **FSharp.FIO.Http**, **FSharp.FIO.Sockets**, **FSharp.FIO.WebSockets**) receives security
 fixes. Older `0.x` releases are not patched — upgrade to the latest version.
 
 ## Reporting a vulnerability

@@ -14,13 +14,17 @@ open FsCheck.FSharp
 
 let testConfig = { WorkerConfig.Default with EvaluationWorkers = 2 }
 
-let allRuntimes () : FIORuntime list =
+let allRuntimes () =
     [
         new DirectRuntime() :> FIORuntime
         new PollingRuntime(testConfig) :> FIORuntime
         new SignalingRuntime(testConfig) :> FIORuntime
         new WorkStealingRuntime(testConfig) :> FIORuntime
     ]
+
+let resultWithin (timeout: TimeSpan) (fiber: FIO.DSL.Fiber<'A, 'E>) =
+    let task = fiber.Task()
+    if task.Wait timeout then Some task.Result else None
 
 let waitForFlag (flag: bool ref) =
     let deadline = DateTime.UtcNow.AddSeconds 5.0

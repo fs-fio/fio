@@ -62,11 +62,11 @@ dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Fork*" -
 dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Fork*" --exporters GitHub
 ```
 
-The default run (no `--filter`) executes all 12 benchmarks × all parameter combinations × 4 runtimes × 30 iterations. This produces a comprehensive performance profile across Direct, Polling, Signaling, and WorkStealing runtimes.
+The full run (`--filter "*"`) executes all 12 benchmarks × all parameter combinations × 4 runtimes × 30 iterations. This produces a comprehensive performance profile across Direct, Polling, Signaling, and WorkStealing runtimes.
 
-> Passing `--job` on the command line (e.g. `--job Dry` or `--job Short`) **overrides** the
-> env-var-configured job — only the CLI job runs. Omit `--job` to honor `FIO_BENCH_WARMUP` /
-> `FIO_BENCH_ITERATIONS`; for a quick run without `--job`, set `FIO_BENCH_ITERATIONS=1 FIO_BENCH_WARMUP=0`.
+> Passing `--job` (or `-j`) on the command line (e.g. `--job Dry` or `-j Short`) **overrides** the
+> env-var-configured job — only the CLI job runs. Omit it to honor `FIO_BENCH_WARMUP` /
+> `FIO_BENCH_ITERATIONS`; for a quick run without a CLI job, set `FIO_BENCH_ITERATIONS=1 FIO_BENCH_WARMUP=0`.
 
 Results are written to `BenchmarkDotNet.Artifacts/results/`.
 
@@ -86,12 +86,12 @@ Runtime spec format: `Direct` | `Polling-{EWC}-{EWS}-{BWC}` | `Signaling-{EWC}-{
 
 | Param | Meaning | Recommended |
 |-------|---------|-------------|
-| **EWC** | Evaluation worker count (fiber schedulers) | `CPU cores - 2` (reserves 1 for BWC + 1 for OS/BDN) |
+| **EWC** | Evaluation worker count (fiber schedulers) | `CPU cores - 2` (reserves 1 for the `Polling` blocking worker + 1 for OS/BDN) |
 | **EWS** | Evaluation steps per work item before rescheduling | `100`–`300` (default: `200`) |
-| **BWC** | Blocking worker count — used by `PollingRuntime`; **ignored by `WorkStealingRuntime`** | `1` |
+| **BWC** | Blocking worker count — used by `PollingRuntime`; **ignored by `SignalingRuntime` and `WorkStealingRuntime`** (must still be > 0) | `1` |
 
 **Tuning guidance:**
-- **EWC** — Set to `nproc - 2` to leave one core for the blocking worker and one for the OS/BDN harness. More workers than available cores causes contention; fewer underutilizes the machine.
+- **EWC** — Set to `nproc - 2` to leave one core for the `Polling` blocking worker and one for the OS/BDN harness. More workers than available cores causes contention; fewer underutilizes the machine.
 - **EWS** — Higher values reduce scheduling overhead but increase tail latency. `200` is a good balance. Use `100` for latency-sensitive workloads, `300`+ for throughput-heavy ones.
 - **BWC** — `1`.
 
@@ -125,7 +125,7 @@ Runtime spec format: `Direct` | `Polling-{EWC}-{EWS}-{BWC}` | `Signaling-{EWC}-{
 | `FIO_BENCH_CHAMENEOS_MEETINGS` | `100000` | Chameneos meeting count |
 | `FIO_BENCH_COUNTING_MESSAGES` | `1000000` | Counting-actor message count |
 | `FIO_BENCH_FIBONACCI_N` | `25,30` | Fibonacci input(s) |
-| `FIO_BENCH_FIBONACCI_THRESHOLD` | `12` | Depth at/below which fib is computed sequentially |
+| `FIO_BENCH_FIBONACCI_THRESHOLD` | `12` | Value of `n` at/below which fib is computed sequentially |
 | `FIO_BENCH_FORK_ACTORS` | `1000,10000,50000` | Fork actor counts |
 | `FIO_BENCH_PHILOSOPHERS_COUNT` | `20` | Dining-philosophers count |
 | `FIO_BENCH_PHILOSOPHERS_ROUNDS` | `10000` | Dining-philosophers eat rounds |
@@ -146,7 +146,7 @@ FIO_BENCH_RUNTIMES="WorkStealing-12-200-1" FIO_BENCH_FORK_ACTORS="5000,25000" \
 ## Interpreting results
 
 - **Runtime ranking is not a size crossover.** A full 112-case sweep (all 12 workloads × every
-  parameter combination × all four runtimes, 30 measured iterations, M4 Max / .NET 10.0.400) gives
+  parameter combination × all four runtimes, 30 measured iterations, M4 Max / .NET 10.0.400, measured September 2026, before 0.5.0-beta) gives
   these geometric-mean speedups against `Direct` — above 1.00× is faster than `Direct`:
 
   | Runtime | smallest params | largest params | overall | faster than `Direct` in |
@@ -163,7 +163,7 @@ FIO_BENCH_RUNTIMES="WorkStealing-12-200-1" FIO_BENCH_FORK_ACTORS="5000,25000" \
   sequentially, so there is one runnable fiber at a time and no parallelism to offset the park/wake
   cost. Both remain useful as comparison runtimes; neither is a recommendation.
 - **Direct + huge fork counts:** a large `FIO_BENCH_FORK_ACTORS` (e.g. `50000`) spawns one .NET task
-  per actor under `Direct`. Measured, this is *not* a handicap — at 50 000 fibers `Direct` is both the
+  per actor under `Direct`. Measured (September 2026, before 0.5.0-beta), this is *not* a handicap — at 50 000 fibers `Direct` is both the
   fastest and the lightest runtime in the set:
 
   | Fibers | `Direct` | `Polling` | `Signaling` | `WorkStealing` |
@@ -175,9 +175,11 @@ FIO_BENCH_RUNTIMES="WorkStealing-12-200-1" FIO_BENCH_FORK_ACTORS="5000,25000" \
   `WorkStealing`'s lead on Fork *shrinks* with scale rather than growing — 1.18× at 1 000 fibers,
   1.04× at 10 000, 0.97× at 50 000. Mass fiber creation is the one axis where the .NET thread pool is
   the thing to beat, so keep the large counts in the sweep: they are the interesting part.
-- **Allocations and boxing:** every benchmark except **Big** passes `int` messages, which the channel
-  implementation boxes to `obj`. The `Allocated` column therefore includes per-message boxing as well as
-  scheduling allocations; **Big** uses reference-typed messages and does not box.
+- **Allocations and boxing:** the channel implementation boxes every message to `obj`. **Bang**, **Pingpong** and
+  **Threadring** pass `int` messages (and **BoundedBuffer** replies with `int` items), so their `Allocated` column
+  includes per-message boxing as well as scheduling allocations; **Big**, **Chameneos**, **Counting** and
+  **Philosophers** send reference-typed messages, which do not box, and **Fibonacci**, **Fork**, **Trapezoidal**
+  and **ZipRace** use no channels.
 - **Reading the `Allocated` column for fiber runtimes:** `Polling`, `Signaling`, and `WorkStealing` keep worker
   threads alive continuously, and those workers perform small scheduler-housekeeping allocations
   proportional to *wall-clock time*, not to the workload. For short iterations this inflates the per-op
@@ -208,7 +210,7 @@ python benchmarks/plot.py --results-dir path/to/results --output-dir path/to/plo
 ```
 
 `kaleido` is what renders the static images; if it is missing the script still writes the HTML and
-prints a one-line notice. This reads all `*-report.csv` files from
+prints a short notice. This reads all `*-report.csv` files from
 `BenchmarkDotNet.Artifacts/results/` and writes to `BenchmarkDotNet.Artifacts/plots/` — an
 interactive `.html` (loads Plotly from a CDN, needs network to render) plus `.png`/`.svg` static
 images per output. Two outputs are produced:
@@ -237,7 +239,7 @@ Directories are searched recursively; rows are matched on (method, params, runti
 default to time ±10% / alloc ±5% (`--time-threshold` / `--alloc-threshold`).
 
 **Interpreting deltas:** allocated bytes are deterministic and comparable across sessions; wall
-time drifts with machine load/thermals (20–50% observed on an M4 Max across one day), so only
+time drifts with machine load/thermals (20–50% observed on an M4 Max across one day, July 2026), so only
 compare times from runs taken back-to-back in the same session — ideally adjacent A/B pairs per
 benchmark, bracketed by re-runs of a fixed sentinel benchmark to measure the session noise floor.
 

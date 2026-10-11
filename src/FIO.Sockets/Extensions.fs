@@ -9,7 +9,7 @@ module SocketExtensions =
     type Socket with
 
         /// Sends a value as JSON over this socket, optionally using the given serializer options.
-        member this.SendJson<'A> (value: 'A, ?options) =
+        member this.SendJson<'A> (value: 'A, ?options) : FIO<unit, SocketError> =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
                 let codec = Codec.jsonWithOptions<'A> opts
@@ -17,7 +17,7 @@ module SocketExtensions =
             }
 
         /// Receives a JSON value from this socket, optionally using the given serializer options.
-        member this.ReceiveJson<'A> (maxBytes: int, ?options) =
+        member this.ReceiveJson<'A> (maxBytes: int, ?options) : FIO<'A, SocketError> =
             fio {
                 let opts = defaultArg options (JsonSerializerOptions())
                 let codec = Codec.jsonWithOptions<'A> opts
@@ -25,15 +25,17 @@ module SocketExtensions =
             }
 
         /// Sends a value as a newline-terminated JSON message, optionally using the given serializer options.
-        member this.SendJsonLine<'A> (value: 'A, ?options) =
+        member this.SendJsonLine<'A> (value: 'A, ?options) : FIO<unit, SocketError> =
             fio {
                 let codec = Codec.jsonLine<'A> options
                 do! this.Send(codec, value)
             }
 
-        /// Receives a newline-terminated JSON value, optionally using the given serializer options.
-        member this.ReceiveJsonLine<'A> (maxBytes: int, ?options) =
+        /// Receives a newline-terminated JSON value, optionally using the given serializer options; maxBytes bounds the
+        /// line, newline included.
+        member this.ReceiveJsonLine<'A> (maxBytes: int, ?options) : FIO<'A, SocketError> =
             fio {
                 let codec = Codec.jsonLine<'A> options
-                return! this.Receive(codec, maxBytes)
+                let! line = this.ReceiveLine maxBytes
+                return! codec.Decode(System.Text.Encoding.UTF8.GetBytes line)
             }

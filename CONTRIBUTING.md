@@ -23,6 +23,16 @@ Benchmarks (Release, BenchmarkDotNet):
 dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*"
 ```
 
+Two scripts cover what a single `dotnet` command does not:
+
+```bash
+bash scripts/pack.sh             # pack the four packages as the release does, into artifacts/
+bash scripts/stress-test.sh 50   # build Release and run the whole suite 50 times, counting failures
+```
+
+`stress-test.sh` passes any further arguments to `dotnet test`, so a `--filter` narrows the runs; put
+`FIO_RUN_STRESS=1` in front to include the opt-in stress tests.
+
 ## Project layout
 
 - `src/` — the four packages: `FIO` (core), `FIO.Http`, `FIO.Sockets`, `FIO.WebSockets`
@@ -61,7 +71,8 @@ dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*"
 4. Use short, descriptive, sentence-style commit messages (e.g. "Fix benchmark output") — no strict prefixes.
 5. Open the PR against `main` and fill out the template.
 
-CI runs tests on Ubuntu, Windows, and macOS; Ubuntu also collects coverage.
+CI runs the tests, stress tests included, in Debug on Ubuntu, Windows, and macOS, and in Release on Ubuntu and
+macOS; run `dotnet test -c Release` locally too, since the interpreter's JIT-limit guard runs only there.
 
 ## License
 

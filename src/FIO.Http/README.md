@@ -16,7 +16,7 @@ up and hand to the server.
 ## Install
 
 ```bash
-dotnet add package FSharp.FIO.Http
+dotnet add package FSharp.FIO.Http --prerelease
 ```
 
 ## Quick Start
@@ -73,10 +73,18 @@ let routes =
 let server = Server.runServer ServerConfig.defaultConfig (routes @@ logging)
 ```
 
+JSON follows ASP.NET Core's web defaults in both directions: `okJson` and the other JSON responses write
+camelCase names, and `HttpHandler.jsonBody` binds a request body whatever the casing of its names, so a
+client can post back what the server sent. Reading is lenient in the same way as ASP.NET Core's: numbers
+written as strings (`"id": "1"`) are accepted. `HttpHandler.jsonBodyWith` takes other
+`JsonSerializerOptions`; use it with the same options if you pass your own to
+`KestrelBridge.handleRequestWithOptions`.
+
 ## Errors
 
 The server pipeline is typed as `Routes<exn>`, so a handler is `HttpRequest -> FIO<HttpResponse, exn>`
-and a handler that fails becomes a `500`. To model failures precisely *inside* a handler, use the
+and a handler that fails, or throws, becomes a `500` and is logged on standard error (without the
+query string); a handler that interrupts itself is answered `503`. To model failures precisely *inside* a handler, use the
 `HttpError` union — `InvalidRoute`, `ParsingFailed`, `HandlerFailed`, `MiddlewareFailed`,
 `ServerFailed`, `BodyReadFailed`, `JsonFailed`, `TimeoutError`, `GeneralError` — and map back to
 `exn` at the edge:
@@ -88,6 +96,32 @@ let handler request =
 ```
 
 `HttpError.fromException` bridges the other way.
+
+A request the server refuses before any handler runs gets a client error, not a `500`: a body over
+`MaxRequestBodySize` is answered `413` and a path segment containing a backslash `400`. Kestrel
+resolves `.` and `..` itself before routing, so `/files/../secret` is routed as `/secret`; a body
+shorter than its `Content-Length` gets no response when the client closes, or `408` when it stalls.
+
+## Stopping
+
+`Server.stop` — and `runServer`, which stops the server when it is interrupted or gets the first
+Ctrl+C, SIGTERM or SIGQUIT (a second one ends the process) — answers new requests
+`503` at once, gives requests in flight `ShutdownTimeout` (10 s by default; set it with
+`ServerConfig.withShutdownTimeout`, and 0 or less waits indefinitely) to finish, then interrupts the
+handlers still running, which are answered `503`. Their finalizers run. A handler is interrupted the
+same way when its client disconnects, since nobody waits for the answer; wrap work that must finish
+regardless in `FIO.uninterruptible`.
+
+A server that was stopped cannot be started again: create a new one. The server listens only where
+its `ServerConfig` says: `appsettings.json` and environment variables cannot add listeners or change
+its limits or its stop timeout. Never call `stop` from one of the server's own handlers: it would
+wait for that handler and then interrupt it. A handler that has returned but still awaits children
+it forked is answered `503` at the cut, while its children unwind.
+
+An error response replaces whatever the failed response had set: its headers are cleared and its body
+is plain text. A response that fails after it has started — a stream that throws part-way — can no
+longer change its status, so the connection is aborted and the client sees an incomplete response
+instead of a truncated success.
 
 ## Links
 

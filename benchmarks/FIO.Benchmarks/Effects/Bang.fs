@@ -5,7 +5,7 @@ open FIO.DSL
 
 type private Actor =
     {
-        Channel: Channel<int> 
+        Channel: Channel<int>
     }
 
 // Repeatedly sends a fixed message to the shared receiver's channel.

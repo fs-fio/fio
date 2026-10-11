@@ -13,24 +13,23 @@ let routesTests =
     testList
         "Routes"
         [
-            testAllRuntimes "empty dispatches to 404" (fun runtime ->
+            testAllRuntimes "empty - dispatches to 404" (fun runtime ->
                 let resp = dispatchAndRun runtime Routes.empty (makeGetRequest "/anything")
 
                 Expect.equal resp.Status HttpStatusCode.NotFound "404")
 
-            testAllRuntimes "route creates dispatchable single route" (fun runtime ->
+            testAllRuntimes "route - creates a dispatchable single route" (fun runtime ->
                 let routes = Routes.route (Route.get "/hello") (HttpHandler.text "world")
+
                 let resp = dispatchAndRun runtime routes (makeGetRequest "/hello")
 
                 Expect.equal resp.Status HttpStatusCode.OK "200"
-
                 match resp.Body with
                 | ResponseBody.Text t -> Expect.equal t "world" "Body"
                 | _ -> failtest "Expected Text body")
 
-            testAllRuntimes "single creates parameterized route" (fun runtime ->
+            testAllRuntimes "single - creates a parameterized route" (fun runtime ->
                 let pattern = RoutePattern.get (RoutePath.withInt [ "users" ] [])
-
                 let routes =
                     Routes.single pattern (fun params' ->
                         match params' with
@@ -43,7 +42,7 @@ let routesTests =
                 | ResponseBody.Text t -> Expect.equal t "user-42" "Param extracted"
                 | _ -> failtest "Expected Text body")
 
-            testAllRuntimes "combine merges two route sets" (fun runtime ->
+            testAllRuntimes "combine - merges two route sets" (fun runtime ->
                 let r1 = Routes.route (Route.get "/a") (HttpHandler.text "A")
                 let r2 = Routes.route (Route.get "/b") (HttpHandler.text "B")
                 let combined = Routes.combine r1 r2
@@ -57,16 +56,15 @@ let routesTests =
                     Expect.equal b "B" "Route B"
                 | _ -> failtest "Expected Text bodies")
 
-            testAllRuntimes "dispatch matches exact route via index" (fun runtime ->
+            testAllRuntimes "dispatch - matches an exact route via the index" (fun runtime ->
                 let routes = Routes.route (Route.get "/exact") (HttpHandler.text "found")
 
                 let resp = dispatchAndRun runtime routes (makeGetRequest "/exact")
 
                 Expect.equal resp.Status HttpStatusCode.OK "Exact match")
 
-            testAllRuntimes "dispatch normalizes trailing slashes" (fun runtime ->
+            testAllRuntimes "dispatch - normalizes trailing slashes" (fun runtime ->
                 let routes = Routes.route (Route.get "/path") (HttpHandler.text "ok")
-
                 let req =
                     { HttpRequest.create HttpMethod.GET "/path/" with
                         PathSegments = [ "path" ]
@@ -76,14 +74,14 @@ let routesTests =
 
                 Expect.equal resp.Status HttpStatusCode.OK "Trailing slash normalized")
 
-            testAllRuntimes "dispatch returns notFound for unmatched path" (fun runtime ->
+            testAllRuntimes "dispatch - returns notFound for an unmatched path" (fun runtime ->
                 let routes = Routes.route (Route.get "/exists") (HttpHandler.text "here")
 
                 let resp = dispatchAndRun runtime routes (makeGetRequest "/missing")
 
                 Expect.equal resp.Status HttpStatusCode.NotFound "404")
 
-            testAllRuntimes "dispatch returns 405 for wrong method with Allow header" (fun runtime ->
+            testAllRuntimes "dispatch - returns 405 with an Allow header for the wrong method" (fun runtime ->
                 let routes = Routes.route (Route.get "/only-get") (HttpHandler.text "ok")
 
                 let resp = dispatchAndRun runtime routes (makeRequest HttpMethod.POST "/only-get")
@@ -91,21 +89,21 @@ let routesTests =
                 Expect.equal resp.Status HttpStatusCode.MethodNotAllowed "Wrong method -> 405"
                 Expect.equal (HttpResponse.header "Allow" resp) (Some "GET") "Allow header lists GET")
 
-            testAllRuntimes "dispatch falls through to notFound for OPTIONS" (fun runtime ->
+            testAllRuntimes "dispatch - falls through to notFound for OPTIONS" (fun runtime ->
                 let routes = Routes.route (Route.get "/only-get") (HttpHandler.text "ok")
 
                 let resp = dispatchAndRun runtime routes (makeRequest HttpMethod.OPTIONS "/only-get")
 
                 Expect.equal resp.Status HttpStatusCode.NotFound "OPTIONS not treated as 405")
 
-            testAllRuntimes "dispatch routes HEAD to matching GET handler" (fun runtime ->
+            testAllRuntimes "dispatch - routes HEAD to the matching GET handler" (fun runtime ->
                 let routes = Routes.route (Route.get "/page") (HttpHandler.text "content")
 
                 let resp = dispatchAndRun runtime routes (makeRequest HttpMethod.HEAD "/page")
 
                 Expect.equal resp.Status HttpStatusCode.OK "HEAD served by GET handler")
 
-            testAllRuntimes "withNotFound changes fallback handler" (fun runtime ->
+            testAllRuntimes "withNotFound - changes the fallback handler" (fun runtime ->
                 let routes = Routes.empty |> Routes.withNotFound (HttpHandler.text "custom 404")
 
                 let resp = dispatchAndRun runtime routes (makeGetRequest "/anything")
@@ -114,7 +112,7 @@ let routesTests =
                 | ResponseBody.Text t -> Expect.equal t "custom 404" "Custom not found"
                 | _ -> failtest "Expected Text body")
 
-            testAllRuntimes "add appends route" (fun runtime ->
+            testAllRuntimes "add - appends a route" (fun runtime ->
                 let routes =
                     Routes.empty |> Routes.addRoute (Route.get "/added") (HttpHandler.text "added")
 
@@ -124,7 +122,19 @@ let routesTests =
                 | ResponseBody.Text t -> Expect.equal t "added" "Added route"
                 | _ -> failtest "Expected Text body")
 
-            testAllRuntimes "fromList creates from pattern-handler pairs" (fun runtime ->
+            testAllRuntimes "add - keeps the first handler when a path is added twice" (fun runtime ->
+                let routes =
+                    Routes.empty
+                    |> Routes.addRoute (Route.get "/twice") (HttpHandler.text "first")
+                    |> Routes.addRoute (Route.get "/twice") (HttpHandler.text "second")
+
+                let resp = dispatchAndRun runtime routes (makeGetRequest "/twice")
+
+                match resp.Body with
+                | ResponseBody.Text t -> Expect.equal t "first" "The first handler added for a path must win"
+                | _ -> failtest "Expected Text body")
+
+            testAllRuntimes "fromList - creates routes from pattern-handler pairs" (fun runtime ->
                 let routes =
                     Routes.fromList
                         [
@@ -141,7 +151,7 @@ let routesTests =
                     Expect.equal b "2" "Second"
                 | _ -> failtest "Expected Text bodies")
 
-            testAllRuntimes "map transforms all handlers" (fun runtime ->
+            testAllRuntimes "map - transforms every handler" (fun runtime ->
                 let routes =
                     Routes.route (Route.get "/test") (HttpHandler.text "original")
                     |> Routes.map (fun handler ->
@@ -159,7 +169,7 @@ let routesTests =
                 "RoutesOperators"
                 [
 
-                    testAllRuntimes "++ combines routes" (fun runtime ->
+                    testAllRuntimes "( ++ ) - combines routes" (fun runtime ->
                         let routes =
                             RoutesOperators.(++)
                                 (Routes.route (Route.get "/a") (HttpHandler.text "A"))
@@ -171,7 +181,7 @@ let routesTests =
                         | ResponseBody.Text t -> Expect.equal t "B" "Combined"
                         | _ -> failtest "Expected Text body")
 
-                    testAllRuntimes "=> creates route from pattern and handler" (fun runtime ->
+                    testAllRuntimes "( => ) - creates a route from a pattern and a handler" (fun runtime ->
                         let routes = RoutesOperators.(=>) (Route.get "/op") (HttpHandler.text "via op")
 
                         let r = dispatchAndRun runtime routes (makeGetRequest "/op")
@@ -185,7 +195,7 @@ let routesTests =
                 "TypedRoutes"
                 [
 
-                    testAllRuntimes "getInt extracts integer parameter" (fun runtime ->
+                    testAllRuntimes "getInt - extracts an integer parameter" (fun runtime ->
                         let routes =
                             TypedRoutes.getInt [ "users" ] [] (fun id -> HttpHandler.text $"id={id}")
 
@@ -195,7 +205,7 @@ let routesTests =
                         | ResponseBody.Text t -> Expect.equal t "id=99" "Int param"
                         | _ -> failtest "Expected Text body")
 
-                    testAllRuntimes "postInt extracts integer parameter" (fun runtime ->
+                    testAllRuntimes "postInt - extracts an integer parameter" (fun runtime ->
                         let routes =
                             TypedRoutes.postInt [ "users" ] [] (fun id -> HttpHandler.text $"posted={id}")
 
@@ -205,7 +215,7 @@ let routesTests =
                         | ResponseBody.Text t -> Expect.equal t "posted=7" "postInt must bind the id"
                         | other -> failtest $"Expected a text body, got {other}")
 
-                    testAllRuntimes "putInt extracts integer parameter" (fun runtime ->
+                    testAllRuntimes "putInt - extracts an integer parameter" (fun runtime ->
                         let routes =
                             TypedRoutes.putInt [ "users" ] [] (fun id -> HttpHandler.text $"put={id}")
 
@@ -215,7 +225,7 @@ let routesTests =
                         | ResponseBody.Text t -> Expect.equal t "put=12" "putInt must bind the id"
                         | other -> failtest $"Expected a text body, got {other}")
 
-                    testAllRuntimes "deleteInt extracts integer parameter" (fun runtime ->
+                    testAllRuntimes "deleteInt - extracts an integer parameter" (fun runtime ->
                         let routes =
                             TypedRoutes.deleteInt [ "users" ] [] (fun id -> HttpHandler.text $"deleted={id}")
 
@@ -225,9 +235,8 @@ let routesTests =
                         | ResponseBody.Text t -> Expect.equal t "deleted=3" "deleteInt must bind the id"
                         | other -> failtest $"Expected a text body, got {other}")
 
-                    testAllRuntimes "an int route does not match a non-integer segment" (fun runtime ->
+                    testAllRuntimes "TypedRoutes - an int route does not match a non-integer segment" (fun runtime ->
                         let reached = ref false
-
                         let routes =
                             TypedRoutes.getInt [ "users" ] [] (fun id ->
                                 fun request ->
@@ -239,7 +248,7 @@ let routesTests =
                         Expect.isFalse reached.Value "A non-integer segment must never reach the typed handler"
                         Expect.equal resp.Status HttpStatusCode.NotFound "It must fall through to not-found")
 
-                    testAllRuntimes "an int route does not match a wrong method" (fun runtime ->
+                    testAllRuntimes "TypedRoutes - an int route does not match a wrong method" (fun runtime ->
                         let routes =
                             TypedRoutes.postInt [ "users" ] [] (fun id -> HttpHandler.text $"posted={id}")
 
@@ -247,7 +256,7 @@ let routesTests =
 
                         Expect.notEqual resp.Status HttpStatusCode.OK "A GET must not reach a POST-only typed route")
 
-                    testAllRuntimes "getString extracts string parameter" (fun runtime ->
+                    testAllRuntimes "getString - extracts a string parameter" (fun runtime ->
                         let routes =
                             TypedRoutes.getString [ "items" ] [] (fun name -> HttpHandler.text $"name={name}")
 
@@ -263,7 +272,7 @@ let routesTests =
                 "SimpleRoutes"
                 [
 
-                    testAllRuntimes "get/post/put/delete/patch create routes" (fun runtime ->
+                    testAllRuntimes "get/post/put/delete/patch - create routes" (fun runtime ->
                         let routes =
                             get "/g" (HttpHandler.text "G")
                             |> Routes.combine (post "/p" (HttpHandler.text "P"))
@@ -285,17 +294,18 @@ let routesTests =
                 ]
 
             testList
-                "RouteBuilder CE (shipped public API, previously never executed)"
+                "RouteBuilder CE"
                 [
-                    testAllRuntimes "RouteBuilder routes CE yields an empty collection" (fun runtime ->
-                        let collected: Routes<exn> = RouteBuilder.routes { () }
+                    testAllRuntimes "routes - yields an empty collection" (fun runtime ->
+                        let collected = RouteBuilder.routes { () }
                         let request = makeGetRequest "/anything"
+
                         let response = dispatchAndRun runtime collected request
 
                         Expect.equal response.Status HttpStatusCode.NotFound "An empty CE must route nothing")
 
-                    testAllRuntimes "RouteBuilder routes CE combines yielded collections" (fun runtime ->
-                        let collected: Routes<exn> =
+                    testAllRuntimes "routes - combines yielded collections" (fun runtime ->
+                        let collected =
                             RouteBuilder.routes {
                                 yield SimpleRoutes.get "/a" (HttpHandler.text "A")
                                 yield SimpleRoutes.get "/b" (HttpHandler.text "B")
@@ -310,8 +320,8 @@ let routesTests =
                             Expect.equal tb "B" "Second yielded route must be reachable"
                         | other -> failtest $"Expected text bodies from both routes, got {other}")
 
-                    testAllRuntimes "RouteBuilder routes CE preserves first-match order" (fun runtime ->
-                        let collected: Routes<exn> =
+                    testAllRuntimes "routes - preserves first-match order" (fun runtime ->
+                        let collected =
                             RouteBuilder.routes {
                                 yield SimpleRoutes.get "/dup" (HttpHandler.text "first")
                                 yield SimpleRoutes.get "/dup" (HttpHandler.text "second")

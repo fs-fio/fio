@@ -34,13 +34,11 @@ let joinFirstTests =
 
             testAllRuntimes "joinFirst - blocking path returns the first fiber to settle" (fun runtime ->
                 let sentinel = -1
-
                 let effect =
                     (FIO.sleep (TimeSpan.FromSeconds 10.0)).Fork().FlatMap <| fun slowFiber ->
                         (FIO.sleep (TimeSpan.FromMilliseconds 50.0)).Fork().FlatMap <| fun fastFiber ->
                             (FIO.joinFirst [slowFiber.Context; fastFiber.Context]).FlatMap <| fun index ->
                                 slowFiber.InterruptNow().Ignore().As index
-
                 let bounded =
                     effect.TimeoutFail sentinel (TimeSpan.FromSeconds 5.0)
 
@@ -50,13 +48,11 @@ let joinFirstTests =
 
             testAllRuntimes "joinFirst - a failed fiber counts as settled" (fun runtime ->
                 let sentinel = -1
-
                 let effect =
                     (FIO.never<unit, int>()).Fork().FlatMap <| fun neverFiber ->
                         (FIO.fail<unit, int> 7).Fork().FlatMap <| fun failedFiber ->
                             (FIO.joinFirst [neverFiber.Context; failedFiber.Context]).FlatMap <| fun index ->
                                 neverFiber.InterruptNow().Ignore().As index
-
                 let bounded =
                     effect.TimeoutFail sentinel (TimeSpan.FromSeconds 5.0)
 
@@ -66,12 +62,10 @@ let joinFirstTests =
 
             testAllRuntimes "joinFirst - parent interruption while parked yields Interrupted without hanging" (fun runtime ->
                 let sentinel = -1
-
                 let parkedJoin =
                     (FIO.never<unit, int>()).Fork().FlatMap <| fun never1 ->
                         (FIO.never<unit, int>()).Fork().FlatMap <| fun never2 ->
                             FIO.joinFirst [never1.Context; never2.Context]
-
                 let effect =
                     parkedJoin.Fork().FlatMap <| fun fiber ->
                         (FIO.sleep (TimeSpan.FromMilliseconds 100.0)).FlatMap <| fun () ->
@@ -79,7 +73,6 @@ let joinFirstTests =
                                 match result with
                                 | Interrupted _ -> FIO.succeed true
                                 | _ -> FIO.succeed false
-
                 let bounded =
                     effect.TimeoutFail sentinel (TimeSpan.FromSeconds 5.0)
 
@@ -89,13 +82,11 @@ let joinFirstTests =
 
             testAllRuntimes "joinFirst - single-element list settles with index 0" (fun runtime ->
                 let sentinel = -1
-
                 let effect =
                     ((FIO.sleep (TimeSpan.FromMilliseconds 50.0))
                         .FlatMap(fun () -> FIO.succeed 9)).Fork().FlatMap <| fun fiber ->
                             (FIO.joinFirst [fiber.Context]).FlatMap <| fun index ->
                                 fiber.Join().Map <| fun value -> index, value
-
                 let bounded =
                     effect.TimeoutFail sentinel (TimeSpan.FromSeconds 5.0)
 
@@ -106,8 +97,7 @@ let joinFirstTests =
             stressTestAllRuntimes "joinFirst - stress: park races completion without lost wakeups" (fun runtime ->
                 let sentinel = -1
                 let iterations = 2000
-
-                let rec loop i : FIO<unit, int> =
+                let rec loop i =
                     if i = 0 then
                         FIO.unit ()
                     else
@@ -116,11 +106,12 @@ let joinFirstTests =
                                 (FIO.joinFirst [neverFiber.Context; quickFiber.Context]).FlatMap <| fun index ->
                                     neverFiber.InterruptNow().Ignore().FlatMap <| fun () ->
                                         if index = 1 then loop (i - 1) else FIO.fail i
-
                 let bounded =
                     (loop iterations).TimeoutFail sentinel (TimeSpan.FromSeconds 60.0)
 
-                Expect.equal (runtime.Run(bounded).UnsafeSuccess()) () "every joinFirst in the stress loop should settle on the completed fiber")
+                let result = runtime.Run(bounded).UnsafeSuccess()
+
+                Expect.equal result () "every joinFirst in the stress loop should settle on the completed fiber")
 
             testAllRuntimes "joinFirst - empty list interrupts with InvalidArgument" (fun runtime ->
                 let result = runtime.Run(FIO.joinFirst<int> []).UnsafeResult()
@@ -131,4 +122,40 @@ let joinFirstTests =
                     | InvalidArgument _ -> ()
                     | cause -> failtest $"joinFirst on an empty list should interrupt with InvalidArgument, got cause: %A{cause}"
                 | other -> failtest $"joinFirst on an empty list should interrupt with InvalidArgument, got: %A{other}")
+
+            testCase "parkJoinFirstOnHooks - a park that wakes its parent while installing hooks leaves the next park's hook in place" (fun () ->
+                let settled = new FiberContext()
+                let pending = new FiberContext()
+                let parent = new FiberContext()
+                let newWorkItem () =
+                    { Effect = Unchecked.defaultof<_>; FiberContext = parent; ContStack = null; InterruptionSuppressed = 0 }
+                let first = newWorkItem ()
+                let second = newWorkItem ()
+                let rescheduled = ResizeArray<string>()
+                let rec onReschedule (workItem: WorkItem) =
+                    if obj.ReferenceEquals(workItem, first) then
+                        rescheduled.Add "first"
+                        InterpreterCore.parkJoinFirstOnHooks [ pending ] parent 0 second (Action<WorkItem> onReschedule)
+                    else
+                        rescheduled.Add "second"
+                settled.Complete(Ok(box 1))
+
+                InterpreterCore.parkJoinFirstOnHooks [ settled; pending ] parent 0 first (Action<WorkItem> onReschedule)
+
+                Expect.equal (List.ofSeq rescheduled) [ "first" ] "the settled fiber should wake the first park at once"
+
+                pending.Complete(Ok(box 2))
+
+                Expect.equal (List.ofSeq rescheduled) [ "first"; "second" ] "the second park should be woken when its fiber settles")
+
+            testCase "parkJoinFirstOnHooks - a park whose parent is already interrupted wakes at once" (fun () ->
+                let pending = new FiberContext()
+                let parent = new FiberContext()
+                let workItem = { Effect = Unchecked.defaultof<_>; FiberContext = parent; ContStack = null; InterruptionSuppressed = 0 }
+                let rescheduled = ResizeArray<WorkItem>()
+                parent.Interrupt()
+
+                InterpreterCore.parkJoinFirstOnHooks [ pending ] parent 0 workItem (Action<WorkItem> rescheduled.Add)
+
+                Expect.equal rescheduled.Count 1 "an interrupted parent should be rescheduled without waiting for its fibers")
         ]

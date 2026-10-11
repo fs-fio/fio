@@ -22,10 +22,9 @@ let codecTests =
                 "bytes"
                 [
 
-                    testPropertyWithConfig fsCheckConfig "roundtrip preserves data"
+                    testPropertyWithConfig fsCheckConfig "bytes - roundtrip preserves the data"
                     <| fun (runtime: FIORuntime) ->
                         let data = Encoding.UTF8.GetBytes "hello bytes"
-
                         let effect =
                             fio {
                                 let! encoded = Codec.bytes.Encode data
@@ -42,10 +41,9 @@ let codecTests =
                 "string"
                 [
 
-                    testPropertyWithConfig fsCheckConfig "roundtrip preserves string"
+                    testPropertyWithConfig fsCheckConfig "string - roundtrip preserves the string"
                     <| fun (runtime: FIORuntime) ->
                         let text = "hello world"
-
                         let effect =
                             fio {
                                 let! encoded = Codec.string.Encode text
@@ -57,7 +55,7 @@ let codecTests =
 
                         Expect.equal result text "string codec roundtrip"
 
-                    testAllRuntimes "empty string" (fun runtime ->
+                    testAllRuntimes "string - roundtrips an empty string" (fun runtime ->
                         let effect =
                             fio {
                                 let! encoded = Codec.string.Encode ""
@@ -69,7 +67,7 @@ let codecTests =
 
                         Expect.equal result "" "empty string roundtrip")
 
-                    testAllRuntimes "unicode string" (fun runtime ->
+                    testAllRuntimes "string - roundtrips a unicode string" (fun runtime ->
                         let effect =
                             fio {
                                 let! encoded = Codec.string.Encode "héllo wörld 🌍"
@@ -86,7 +84,7 @@ let codecTests =
                 "line"
                 [
 
-                    testPropertyWithConfig fsCheckConfig "encode appends newline"
+                    testPropertyWithConfig fsCheckConfig "line - encode appends a newline"
                     <| fun (runtime: FIORuntime) ->
                         let effect =
                             fio {
@@ -98,7 +96,7 @@ let codecTests =
 
                         Expect.equal result "hello\n" "Should append newline"
 
-                    testAllRuntimes "decode trims newline" (fun runtime ->
+                    testAllRuntimes "line - decode trims the newline" (fun runtime ->
                         let effect =
                             fio {
                                 let bytes = Encoding.UTF8.GetBytes "hello\n"
@@ -110,7 +108,7 @@ let codecTests =
 
                         Expect.equal result2 "hello" "Should trim \\n")
 
-                    testAllRuntimes "decode trims carriage return" (fun runtime ->
+                    testAllRuntimes "line - decode trims a carriage return" (fun runtime ->
                         let effect =
                             fio {
                                 let bytes = Encoding.UTF8.GetBytes "hello\r\n"
@@ -122,10 +120,9 @@ let codecTests =
 
                         Expect.equal result "hello" "Should trim \\r\\n")
 
-                    testPropertyWithConfig fsCheckConfig "roundtrip preserves line content"
+                    testPropertyWithConfig fsCheckConfig "line - roundtrip preserves the line content"
                     <| fun (runtime: FIORuntime) ->
                         let text = "test line"
-
                         let effect =
                             fio {
                                 let! encoded = Codec.line.Encode text
@@ -142,10 +139,9 @@ let codecTests =
                 "json"
                 [
 
-                    testAllRuntimes "TestMessage roundtrip" (fun runtime ->
+                    testAllRuntimes "json - roundtrips a TestMessage" (fun runtime ->
                         let msg = { Id = 42; Text = "hello" }
                         let codec = Codec.json
-
                         let effect =
                             fio {
                                 let! encoded = codec.Encode msg
@@ -158,9 +154,10 @@ let codecTests =
                         Expect.equal result.Id msg.Id "Id should match"
                         Expect.equal result.Text msg.Text "Text should match")
 
-                    testAllRuntimes "invalid bytes produce CodecError" (fun runtime ->
+                    testAllRuntimes "json - invalid bytes produce CodecError" (fun runtime ->
                         let codec = Codec.json
                         let effect = codec.Decode [| 0uy; 1uy; 2uy |]
+
                         let error = runtime.Run(effect).UnsafeError()
 
                         match error with
@@ -172,21 +169,20 @@ let codecTests =
                 "jsonLine"
                 [
 
-                    testAllRuntimes "roundtrip with trailing newline" (fun runtime ->
+                    testAllRuntimes "jsonLine - roundtrips with a trailing newline" (fun runtime ->
                         let msg = { Id = 1; Text = "jsonline" }
                         let codec = Codec.jsonLine None
-
                         let effect =
                             fio {
                                 let! encoded = codec.Encode msg
                                 let encodedStr = Encoding.UTF8.GetString encoded
-                                Expect.stringContains encodedStr "\n" "Should contain newline"
                                 let! decoded = codec.Decode encoded
-                                return decoded
+                                return encodedStr, decoded
                             }
 
-                        let result = runtime.Run(effect).UnsafeSuccess()
+                        let encodedStr, result = runtime.Run(effect).UnsafeSuccess()
 
+                        Expect.stringContains encodedStr "\n" "Should contain newline"
                         Expect.equal result.Id msg.Id "Id should match"
                         Expect.equal result.Text msg.Text "Text should match")
                 ]
@@ -195,10 +191,9 @@ let codecTests =
                 "map"
                 [
 
-                    testPropertyWithConfig fsCheckConfig "bidirectional mapping roundtrip"
+                    testPropertyWithConfig fsCheckConfig "map - roundtrips through a bidirectional mapping"
                     <| fun (runtime: FIORuntime) ->
                         let intCodec = Codec.string |> Codec.map int string
-
                         let effect =
                             fio {
                                 let! encoded = intCodec.Encode 42
@@ -207,6 +202,7 @@ let codecTests =
                             }
 
                         let result = runtime.Run(effect).UnsafeSuccess()
+
                         Expect.equal result 42 "map codec roundtrip"
                 ]
 
@@ -214,9 +210,8 @@ let codecTests =
                 "compose"
                 [
 
-                    testAllRuntimes "pair roundtrip" (fun runtime ->
+                    testAllRuntimes "compose - roundtrips a pair" (fun runtime ->
                         let pairCodec = Codec.compose Codec.string Codec.string
-
                         let effect =
                             fio {
                                 let! encoded = pairCodec.Encode("hello", "world")
@@ -228,7 +223,7 @@ let codecTests =
 
                         Expect.equal result ("hello", "world") "compose codec roundtrip")
 
-                    testAllRuntimes "malformed length prefix produces CodecError" (fun runtime ->
+                    testAllRuntimes "compose - a malformed length prefix produces CodecError" (fun runtime ->
                         let codec = Codec.compose Codec.string Codec.string
 
                         let error =
@@ -239,15 +234,50 @@ let codecTests =
                         match error with
                         | CodecError _ -> ()
                         | other -> failtest $"Expected CodecError but got {other}")
+
+                    testAllRuntimes "compose - fewer than 8 bytes produce CodecError" (fun runtime ->
+                        let codec = Codec.compose Codec.string Codec.string
+
+                        let error = runtime.Run(codec.Decode [| 0uy; 0uy; 0uy |]).UnsafeError()
+
+                        match error with
+                        | CodecError(message, _) -> Expect.stringContains message "Insufficient bytes" "The failure should say why"
+                        | other -> failtest $"Expected CodecError but got {other}")
+
+                    testAllRuntimes "compose - a first payload past the end produces CodecError" (fun runtime ->
+                        let codec = Codec.compose Codec.string Codec.string
+
+                        let error = runtime.Run(codec.Decode [| 0uy; 0uy; 0uy; 10uy; 0uy; 0uy; 0uy; 0uy |]).UnsafeError()
+
+                        match error with
+                        | CodecError(message, _) -> Expect.stringContains message "Incomplete first payload" "The failure should say why"
+                        | other -> failtest $"Expected CodecError but got {other}")
+
+                    testAllRuntimes "compose - a negative second length produces CodecError" (fun runtime ->
+                        let codec = Codec.compose Codec.string Codec.string
+
+                        let error = runtime.Run(codec.Decode [| 0uy; 0uy; 0uy; 0uy; 0xFFuy; 0xFFuy; 0xFFuy; 0xFFuy |]).UnsafeError()
+
+                        match error with
+                        | CodecError(message, _) -> Expect.stringContains message "Negative second payload length" "The failure should say why"
+                        | other -> failtest $"Expected CodecError but got {other}")
+
+                    testAllRuntimes "compose - a second payload past the end produces CodecError" (fun runtime ->
+                        let codec = Codec.compose Codec.string Codec.string
+
+                        let error = runtime.Run(codec.Decode [| 0uy; 0uy; 0uy; 0uy; 0uy; 0uy; 0uy; 5uy; 1uy; 2uy |]).UnsafeError()
+
+                        match error with
+                        | CodecError(message, _) -> Expect.stringContains message "Incomplete second payload" "The failure should say why"
+                        | other -> failtest $"Expected CodecError but got {other}")
                 ]
 
             testList
                 "lengthPrefixed"
                 [
 
-                    testAllRuntimes "roundtrip" (fun runtime ->
+                    testAllRuntimes "lengthPrefixed - roundtrip preserves the data" (fun runtime ->
                         let codec = Codec.lengthPrefixed Codec.string
-
                         let effect =
                             fio {
                                 let! encoded = codec.Encode "hello"
@@ -259,16 +289,17 @@ let codecTests =
 
                         Expect.equal result "hello" "lengthPrefixed roundtrip")
 
-                    testAllRuntimes "insufficient bytes produce CodecError" (fun runtime ->
+                    testAllRuntimes "lengthPrefixed - insufficient bytes produce CodecError" (fun runtime ->
                         let codec = Codec.lengthPrefixed Codec.string
                         let effect = codec.Decode [| 0uy; 0uy |]
+
                         let error = runtime.Run(effect).UnsafeError()
 
                         match error with
                         | CodecError _ -> ()
                         | other -> failtest $"Expected CodecError but got {other}")
 
-                    testAllRuntimes "negative length prefix produces CodecError" (fun runtime ->
+                    testAllRuntimes "lengthPrefixed - a negative length prefix produces CodecError" (fun runtime ->
                         let codec = Codec.lengthPrefixed Codec.string
 
                         let error =
@@ -278,9 +309,9 @@ let codecTests =
                         | CodecError _ -> ()
                         | other -> failtest $"Expected CodecError but got {other}")
 
-                    testAllRuntimes "length exceeding buffer produces CodecError" (fun runtime ->
+                    testAllRuntimes "lengthPrefixed - a length exceeding the buffer produces CodecError" (fun runtime ->
                         let codec = Codec.lengthPrefixed Codec.string
-                        // big-endian length 100 but only 3 payload bytes available
+
                         let error =
                             runtime.Run(codec.Decode [| 0uy; 0uy; 0uy; 100uy; 1uy; 2uy; 3uy |]).UnsafeError()
 
@@ -288,8 +319,9 @@ let codecTests =
                         | CodecError _ -> ()
                         | other -> failtest $"Expected CodecError but got {other}")
 
-                    testAllRuntimes "encode uses network byte order" (fun runtime ->
+                    testAllRuntimes "lengthPrefixed - encode uses network byte order" (fun runtime ->
                         let codec = Codec.lengthPrefixed Codec.bytes
+
                         let encoded = runtime.Run(codec.Encode [| 0xAAuy |]).UnsafeSuccess()
 
                         Expect.equal
@@ -302,11 +334,10 @@ let codecTests =
                 "jsonWithOptions"
                 [
 
-                    testAllRuntimes "custom options roundtrip" (fun runtime ->
+                    testAllRuntimes "jsonWithOptions - roundtrips with custom options" (fun runtime ->
                         let options = JsonSerializerOptions(PropertyNameCaseInsensitive = true)
                         let codec = Codec.jsonWithOptions options
                         let msg = { Id = 42; Text = "hello" }
-
                         let effect =
                             fio {
                                 let! encoded = codec.Encode msg
@@ -324,11 +355,10 @@ let codecTests =
                 "create"
                 [
 
-                    testAllRuntimes "effectful encode/decode roundtrip" (fun runtime ->
+                    testAllRuntimes "create - roundtrips through an effectful encode and decode" (fun runtime ->
                         let codec =
                             Codec.create (fun (str: string) -> FIO.succeed (Encoding.UTF8.GetBytes str)) (fun bytes ->
                                 FIO.succeed (Encoding.UTF8.GetString bytes))
-
                         let effect =
                             fio {
                                 let! encoded = codec.Encode "hello"
@@ -345,24 +375,24 @@ let codecTests =
                 "createPure"
                 [
 
-                    testAllRuntimes "throwing encoder produces CodecError" (fun runtime ->
+                    testAllRuntimes "createPure - a throwing encoder produces CodecError" (fun runtime ->
                         let codec =
                             Codec.createPure (fun (_: string) -> failwith "boom") (fun bytes ->
                                 Encoding.UTF8.GetString bytes)
-
                         let effect = codec.Encode "test"
+
                         let error = runtime.Run(effect).UnsafeError()
 
                         match error with
                         | CodecError _ -> ()
                         | other -> failtest $"Expected CodecError but got {other}")
 
-                    testAllRuntimes "throwing decoder produces CodecError" (fun runtime ->
+                    testAllRuntimes "createPure - a throwing decoder produces CodecError" (fun runtime ->
                         let codec =
                             Codec.createPure (fun (str: string) -> Encoding.UTF8.GetBytes str) (fun (_: byte[]) ->
                                 failwith "boom")
-
                         let effect = codec.Decode [| 1uy |]
+
                         let error = runtime.Run(effect).UnsafeError()
 
                         match error with

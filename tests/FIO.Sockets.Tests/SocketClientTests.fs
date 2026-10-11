@@ -5,6 +5,7 @@ open FIO.Sockets.Tests.Utilities
 open FIO.DSL
 open FIO.Sockets
 
+open System
 open System.Text
 
 open Expecto
@@ -17,34 +18,38 @@ let socketClientTests =
             testList
                 "Connect"
                 [
-                    testAllRuntimes "connect succeeds to listening server" (fun runtime ->
-                        withTestServer
-                            noopHandler
-                            (fun port ->
-                                fio {
-                                    let! config = SocketConfig.create "127.0.0.1" port
-                                    let! socket = SocketClient.connect config
+                    testAllRuntimes "connect - succeeds against a listening server" (fun runtime ->
+                        let connected =
+                            withTestServer
+                                noopHandler
+                                (fun port ->
+                                    fio {
+                                        let! config = SocketConfig.create "127.0.0.1" port
+                                        let! socket = SocketClient.connect config
+                                        let connected = socket.IsConnected()
+                                        do! socket.Close()
+                                        return connected
+                                    })
+                                runtime
 
-                                    Expect.isTrue (socket.IsConnected()) "Should be connected"
+                        Expect.isTrue connected "Should be connected")
 
-                                    do! socket.Close()
-                                })
-                            runtime)
+                    testAllRuntimes "connectWith - connects to a listening server" (fun runtime ->
+                        let connected =
+                            withTestServer
+                                noopHandler
+                                (fun port ->
+                                    fio {
+                                        let! socket = SocketClient.connectWith "127.0.0.1" port
+                                        let connected = socket.IsConnected()
+                                        do! socket.Close()
+                                        return connected
+                                    })
+                                runtime
 
-                    testAllRuntimes "connectWith convenience works" (fun runtime ->
-                        withTestServer
-                            noopHandler
-                            (fun port ->
-                                fio {
-                                    let! socket = SocketClient.connectWith "127.0.0.1" port
+                        Expect.isTrue connected "Should be connected")
 
-                                    Expect.isTrue (socket.IsConnected()) "Should be connected"
-
-                                    do! socket.Close()
-                                })
-                            runtime)
-
-                    testAllRuntimes "connect fails for unreachable host" (fun runtime ->
+                    testAllRuntimes "connect - fails for an unreachable host" (fun runtime ->
                         let effect =
                             fio {
                                 let! config = SocketConfig.create "127.0.0.1" 1
@@ -58,70 +63,187 @@ let socketClientTests =
                         match result with
                         | Some(ConnectionFailed _) -> ()
                         | other -> failtest $"Expected ConnectionFailed but got {other}")
+
+                    testAllRuntimes "connect - fails with ConnectionFailed for a record whose port is out of range" (fun runtime ->
+                        let effect =
+                            fio {
+                                let! config = SocketConfig.create "127.0.0.1" 1
+
+                                return!
+                                    SocketClient
+                                        .connect({ config with Port = 70000 })
+                                        .Map(fun _ -> None)
+                                        .CatchAll(fun error -> FIO.succeed (Some error))
+                            }
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        match result with
+                        | Succeeded(Some(ConnectionFailed("127.0.0.1", 70000, _))) -> ()
+                        | other -> failtest $"Expected ConnectionFailed but got {other}")
+
+                    testAllRuntimes "connect - closes the socket of a refused connection" (fun runtime ->
+                        if OperatingSystem.IsWindows() then
+                            skiptest "Open file descriptors are counted through /dev/fd, which Windows does not have"
+
+                        let refusedConnect =
+                            (SocketClient.connectWith "127.0.0.1" 1)
+                                .FlatMap(fun socket -> socket.Close().Map(fun () -> false))
+                                .CatchAll(fun error ->
+                                    match error with
+                                    | ConnectionFailed _ -> FIO.succeed true
+                                    | _ -> FIO.succeed false)
+                        let openDescriptors () = IO.Directory.GetFileSystemEntries("/dev/fd").Length
+                        runtime.Run(refusedConnect).UnsafeSuccess() |> ignore
+                        let before = openDescriptors ()
+
+                        let refused = runtime.Run(FIO.forEach [ 1..100 ] (fun _ -> refusedConnect)).UnsafeSuccess()
+                        let after = openDescriptors ()
+
+                        Expect.allEqual refused true "Every connect should be refused"
+                        Expect.isLessThan (after - before) 10 $"A refused connect should not leave its socket open ({before} descriptors before, {after} after)")
                 ]
 
             testList
                 "Scoped lifetime"
                 [
-                    testAllRuntimes "withConnection auto-closes socket" (fun runtime ->
-                        withTestServer
-                            noopHandler
-                            (fun port ->
-                                fio {
-                                    let! config = SocketConfig.create "127.0.0.1" port
+                    testAllRuntimes "withConnection - closes the socket when the scope ends, as its peer sees" (fun runtime ->
+                        let held = ref Unchecked.defaultof<Socket>
+                        let peerSawClose = Threading.Tasks.TaskCompletionSource<bool>()
+                        let untilClosed (socket: Socket) =
+                            fio {
+                                let! _ = socket.ReceiveBytes 16
+                                let! next = socket.ReceiveBytes(16).Map(Ok).CatchAll(fun error -> FIO.succeed (Error error))
 
-                                    let! wasConnected =
-                                        SocketClient.withConnection config (fun socket -> FIO.succeed (socket.IsConnected()))
+                                match next with
+                                | Error(ConnectionClosed _) -> peerSawClose.TrySetResult true |> ignore
+                                | _ -> peerSawClose.TrySetResult false |> ignore
+                            }
 
-                                    Expect.isTrue wasConnected "Should have been connected during action"
-                                })
-                            runtime)
+                        let wasConnected, closed =
+                            withTestServer
+                                untilClosed
+                                (fun port ->
+                                    fio {
+                                        let! config = SocketConfig.create "127.0.0.1" port
+                                        let! wasConnected =
+                                            SocketClient.withConnection config (fun socket ->
+                                                held.Value <- socket
+                                                socket.SendString("x").Map(fun () -> socket.IsConnected()))
+                                        let! first =
+                                            FIO.awaitTask
+                                                (Threading.Tasks.Task.WhenAny(peerSawClose.Task, Threading.Tasks.Task.Delay 3000))
+                                                SocketError.fromException
+                                        return wasConnected, obj.ReferenceEquals(first, peerSawClose.Task) && peerSawClose.Task.Result
+                                    })
+                                runtime
 
-                    testAllRuntimes "withConnectionTo echoes data" (fun runtime ->
-                        withTestServer
-                            echoHandler
-                            (fun port ->
-                                fio {
-                                    let! result =
-                                        SocketClient.withConnectionTo "127.0.0.1" port (fun socket ->
-                                            fio {
-                                                let data = Encoding.UTF8.GetBytes "echo test"
-                                                do! socket.SendBytes data
-                                                let! received, bytesRead = socket.ReceiveBytes 8192
-                                                return Encoding.UTF8.GetString(received, 0, bytesRead)
-                                            })
+                        Expect.isTrue wasConnected "Should have been connected during action"
+                        Expect.isTrue closed "The peer should see the connection end when the scope ends, without a collection"
+                        GC.KeepAlive held.Value)
 
-                                    Expect.equal result "echo test" "Should echo data"
-                                })
-                            runtime)
+                    testAllRuntimes "withConnection - fails with ConnectionFailed when nothing listens" (fun runtime ->
+                        let actionRan = ref false
+                        let effect =
+                            fio {
+                                let! config = SocketConfig.create "127.0.0.1" 1
+
+                                return!
+                                    (SocketClient.withConnection config (fun _ ->
+                                        FIO.succeedWith (fun () -> actionRan.Value <- true)))
+                                        .Map(fun _ -> None)
+                                        .CatchAll(fun error -> FIO.succeed (Some error))
+                            }
+
+                        let result = runtime.Run(effect).UnsafeSuccess()
+
+                        match result with
+                        | Some(ConnectionFailed("127.0.0.1", 1, _)) -> ()
+                        | other -> failtest $"Expected ConnectionFailed but got {other}"
+                        Expect.isFalse actionRan.Value "The action must not run without a connection")
+
+                    testAllRuntimes "withConnectionTo - connects and echoes data" (fun runtime ->
+                        let result =
+                            withTestServer
+                                echoHandler
+                                (fun port ->
+                                    SocketClient.withConnectionTo "127.0.0.1" port (fun socket ->
+                                        fio {
+                                            let data = Encoding.UTF8.GetBytes "echo test"
+                                            do! socket.SendBytes data
+                                            let! received, bytesRead = socket.ReceiveBytes 8192
+                                            return Encoding.UTF8.GetString(received, 0, bytesRead)
+                                        }))
+                                runtime
+
+                        Expect.equal result "echo test" "Should echo data")
                 ]
 
             testList
                 "Codec wrappers"
                 [
-                    testAllRuntimes "receiveWith receives data with codec" (fun runtime ->
-                        withTestServer
-                            (fun socket -> fio { do! socket.SendString "hello receiveWith" })
-                            (fun port ->
-                                fio {
-                                    let! config = SocketConfig.create "127.0.0.1" port
-                                    let! result = SocketClient.receiveWith Codec.string 8192 config
-                                    Expect.equal result "hello receiveWith" "Should receive data"
-                                })
-                            runtime)
+                    testAllRuntimes "receiveWith - receives data through a codec" (fun runtime ->
+                        let result =
+                            withTestServer
+                                (fun socket -> fio { do! socket.SendString "hello receiveWith" })
+                                (fun port ->
+                                    fio {
+                                        let! config = SocketConfig.create "127.0.0.1" port
+                                        return! SocketClient.receiveWith Codec.string 8192 config
+                                    })
+                                runtime
 
-                    testAllRuntimes "sendWith sends data with codec" (fun runtime ->
-                        withTestServer
-                            (fun socket ->
-                                fio {
-                                    let! _, _ = socket.ReceiveBytes 8192
-                                    return ()
-                                })
-                            (fun port ->
-                                fio {
-                                    let! config = SocketConfig.create "127.0.0.1" port
-                                    do! SocketClient.sendWith Codec.string "hello sendWith" config
-                                })
-                            runtime)
+                        Expect.equal result "hello receiveWith" "Should receive data")
+
+                    testAllRuntimes "sendWith - sends data through a codec" (fun runtime ->
+                        let received = Channel<string>()
+
+                        let result =
+                            withTestServer
+                                (fun socket ->
+                                    fio {
+                                        let! message = socket.Receive(Codec.string, 8192)
+                                        do! (received.Write message).Unit()
+                                    })
+                                (fun port ->
+                                    fio {
+                                        let! config = SocketConfig.create "127.0.0.1" port
+                                        do! SocketClient.sendWith Codec.string "hello sendWith" config
+                                        return! received.Read()
+                                    })
+                                runtime
+
+                        Expect.equal result "hello sendWith" "The server should decode what the codec sent")
+
+                    testAllRuntimes "sendWith - delivers every byte before closing the connection" (fun runtime ->
+                        let payload = Array.create (1024 * 1024) 7uy
+                        let received = Channel<int * bool>()
+                        let rec drain (socket: Socket) (total: int) =
+                            (socket.ReceiveBytes 4096)
+                                .Map(fun (_, count) -> Ok count)
+                                .CatchAll(fun error -> FIO.succeed (Error error))
+                                .FlatMap(function
+                                    | Ok count -> (FIO.sleep (TimeSpan.FromMilliseconds 1.0)).FlatMap(fun () -> drain socket (total + count))
+                                    | Error(ConnectionClosed _) -> FIO.succeed (total, true)
+                                    | Error _ -> FIO.succeed (total, false))
+
+                        let total, closedCleanly =
+                            withTestServer
+                                (fun socket ->
+                                    fio {
+                                        do! FIO.sleep (TimeSpan.FromMilliseconds 300.0)
+                                        let! outcome = drain socket 0
+                                        do! (received.Write outcome).Unit()
+                                    })
+                                (fun port ->
+                                    fio {
+                                        let! config = SocketConfig.create "127.0.0.1" port
+                                        do! SocketClient.sendWith Codec.bytes payload config
+                                        return! received.Read()
+                                    })
+                                runtime
+
+                        Expect.equal total payload.Length "Every byte sent before the close must arrive"
+                        Expect.isTrue closedCleanly "The connection should end with a clean close, not a reset")
                 ]
         ]

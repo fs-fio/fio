@@ -18,7 +18,7 @@
 
 ## Checklist
 
-- [ ] `dotnet build` succeeds with no warnings (`WarningsAsErrors=true`)
+- [ ] `dotnet build` succeeds with no warnings (`TreatWarningsAsErrors=true`)
 - [ ] `dotnet test` passes
 - [ ] Tests added/updated for behavior changes
 - [ ] Examples and docs updated where relevant

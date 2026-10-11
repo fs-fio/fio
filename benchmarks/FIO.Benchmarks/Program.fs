@@ -48,7 +48,7 @@ let private buildConfig () =
 [<EntryPoint>]
 let main args =
     let hasCliJob =
-        args |> Array.exists (fun arg -> arg = "--job")
+        args |> Array.exists (fun arg -> arg = "--job" || arg.StartsWith "--job=" || arg.StartsWith "-j")
 
     let config =
         if hasCliJob then (ManualConfig.Create DefaultConfig.Instance).WithSummaryStyle summaryStyle
