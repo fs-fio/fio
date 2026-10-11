@@ -50,6 +50,30 @@ let private withStuckServer scenario (shutdownTimeout: int) (test: ChildProcess.
 
     test child port stuck
 
+// A reused connection already holds Kestrel's abort token, so its cancellation is scheduled rather than immediate.
+let private loggedWhenClientsLeaveMidBody (rounds: int) (reuseConnection: bool) (leave: Socket -> unit) =
+    let routes = post "/upload" (fun req -> FIO.succeed (Response.okText (string (req.Body.AsBytes().Length))))
+
+    let _, logged =
+        withCapturedError (fun () ->
+            withTestHttpServer routes (fun port ->
+                for _ in 1..rounds do
+                    use client = new Socket(SocketType.Stream, ProtocolType.Tcp, ReceiveTimeout = 5_000)
+                    client.Connect("127.0.0.1", port)
+
+                    if reuseConnection then
+                        client.Send(Encoding.ASCII.GetBytes "POST /upload HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 5\r\n\r\nhello") |> ignore
+                        client.Receive(Array.zeroCreate<byte> 4096) |> ignore
+
+                    client.Send(Encoding.ASCII.GetBytes "POST /upload HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 1000\r\n\r\npartial") |> ignore
+                    Thread.Sleep 50
+                    leave client
+                    Thread.Sleep 100
+
+                Thread.Sleep 500))
+
+    logged
+
 // A stopping server answers new requests 503, which shows that its stop has begun.
 let private waitForRefusal (port: int) =
     use client = new HttpClient(Timeout = TimeSpan.FromSeconds 2.0)
@@ -155,6 +179,20 @@ let serverTests =
 
                             Expect.equal status 200 "200"
                             Expect.equal body "test payload" "Echoed body"
+
+                        testCase "Body handling - binds the JSON it serves when a client posts it back"
+                        <| fun () ->
+                            let routes =
+                                post "/echo-json" (HttpHandler.jsonBody<TestMessage, exn> (fun message -> FIO.succeed (Response.okJson message)) id)
+
+                            let body =
+                                withTestHttpServer routes (fun port ->
+                                    use client = new HttpClient()
+                                    use content = new StringContent("""{"id":1,"text":"hello"}""", Encoding.UTF8, "application/json")
+                                    let resp = client.PostAsync($"http://127.0.0.1:{port}/echo-json", content).Result
+                                    resp.Content.ReadAsStringAsync().Result)
+
+                            Expect.equal body """{"id":1,"text":"hello"}""" "JSON in the server's own casing should round-trip"
 
                         testCase "Body handling - serves a text response body"
                         <| fun () ->
@@ -452,21 +490,24 @@ let serverTests =
 
                         testCase "Logging - a client that resets its connection in the middle of a body is not logged as an error"
                         <| fun () ->
-                            let routes = post "/upload" (fun req -> FIO.succeed (Response.okText (string (req.Body.AsBytes().Length))))
-
-                            let _, logged =
-                                withCapturedError (fun () ->
-                                    withTestHttpServer routes (fun port ->
-                                        let client = new TcpClient()
-                                        client.Connect("127.0.0.1", port)
-                                        let head = Encoding.ASCII.GetBytes "POST /upload HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 1000\r\n\r\npartial"
-                                        client.GetStream().Write(head, 0, head.Length)
-                                        Thread.Sleep 200
-                                        client.LingerState <- LingerOption(true, 0)
-                                        client.Close()
-                                        Thread.Sleep 500))
+                            let logged =
+                                loggedWhenClientsLeaveMidBody 1 false (fun client ->
+                                    client.LingerState <- LingerOption(true, 0)
+                                    client.Close())
 
                             Expect.equal logged "" "A client that left is not an error of the server"
+
+                        testCase "Logging - a client that ends its connection in the middle of a body is not logged as an error"
+                        <| fun () ->
+                            let logged = loggedWhenClientsLeaveMidBody 1 false (fun client -> client.Shutdown SocketShutdown.Send)
+
+                            Expect.equal logged "" "A client that left is not an error of the server"
+
+                        testCase "Logging - a client that ends a reused connection in the middle of a body is not logged as an error"
+                        <| fun () ->
+                            let logged = loggedWhenClientsLeaveMidBody 10 true (fun client -> client.Shutdown SocketShutdown.Send)
+
+                            Expect.equal logged "" "A client that left is not an error of the server, on a reused connection too"
                     ]
 
                 testList

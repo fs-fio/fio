@@ -48,6 +48,23 @@ let typesTests =
 
                         Expect.stringContains result.Message "/bad" "Exception message should contain error details"
 
+                    testCase "toException - keeps the wrapped exception as InnerException"
+                    <| fun () ->
+                        let original = Exception "boom"
+                        let errors =
+                            [
+                                ParsingFailed("body", original)
+                                HandlerFailed("/path", original)
+                                MiddlewareFailed("auth", original)
+                                ServerFailed original
+                                BodyReadFailed original
+                                JsonFailed original
+                            ]
+
+                        let inners = errors |> List.map (fun error -> (HttpError.toException error).InnerException)
+
+                        Expect.all inners (fun inner -> Object.ReferenceEquals(inner, original)) "Every wrapped exception should be kept"
+
                     testCase "ToString - produces readable messages"
                     <| fun () ->
                         let invalidRoute = string (InvalidRoute "/x")

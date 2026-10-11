@@ -53,6 +53,23 @@ let typesTests =
                             result.Message
                             "peer disconnected"
                             "Exception message should contain error details"
+
+                    testCase "toException - keeps the wrapped exception as InnerException"
+                    <| fun () ->
+                        let original = Exception "boom"
+                        let errors =
+                            [
+                                ConnectionFailed("host", 1, original)
+                                SendFailed original
+                                ReceiveFailed original
+                                BindFailed("address", 1, original)
+                                AcceptFailed original
+                                CodecError("codec", original)
+                            ]
+
+                        let inners = errors |> List.map (fun error -> (SocketError.toException error).InnerException)
+
+                        Expect.all inners (fun inner -> Object.ReferenceEquals(inner, original)) "Every wrapped exception should be kept"
                 ]
 
             testList

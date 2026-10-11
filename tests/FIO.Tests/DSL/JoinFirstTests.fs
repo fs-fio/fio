@@ -123,7 +123,7 @@ let joinFirstTests =
                     | cause -> failtest $"joinFirst on an empty list should interrupt with InvalidArgument, got cause: %A{cause}"
                 | other -> failtest $"joinFirst on an empty list should interrupt with InvalidArgument, got: %A{other}")
 
-            testCase "joinFirst - a park that wakes its parent while installing hooks leaves the next park's hook in place" (fun () ->
+            testCase "parkJoinFirstOnHooks - a park that wakes its parent while installing hooks leaves the next park's hook in place" (fun () ->
                 let settled = new FiberContext()
                 let pending = new FiberContext()
                 let parent = new FiberContext()
@@ -148,7 +148,7 @@ let joinFirstTests =
 
                 Expect.equal (List.ofSeq rescheduled) [ "first"; "second" ] "the second park should be woken when its fiber settles")
 
-            testCase "joinFirst - a park whose parent is already interrupted wakes at once" (fun () ->
+            testCase "parkJoinFirstOnHooks - a park whose parent is already interrupted wakes at once" (fun () ->
                 let pending = new FiberContext()
                 let parent = new FiberContext()
                 let workItem = { Effect = Unchecked.defaultof<_>; FiberContext = parent; ContStack = null; InterruptionSuppressed = 0 }

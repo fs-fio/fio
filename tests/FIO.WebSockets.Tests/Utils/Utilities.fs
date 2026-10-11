@@ -118,13 +118,16 @@ let echoHandler (ws: WebSocket) =
 
     loop ()
 
+// Async.RunSynchronously's timeout waits for the computation to stop, which a hung fiber never does, so it never fires.
 let runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, WsError>) =
     let fiber = runtime.Run effect
-    match
-        fiber.Task()
-        |> Async.AwaitTask
-        |> fun async -> Async.RunSynchronously(async, timeout = 30_000)
-    with
+    let result = fiber.Task()
+
+    if not (result.Wait(TimeSpan.FromSeconds 30.0)) then
+        runtime.Run(fiber.InterruptNow()) |> ignore
+        failtest $"The effect did not finish within 30 s on {runtime.Name}"
+
+    match result.Result with
     | Succeeded value -> value
     | Failed error -> failtest $"Effect failed: {error}"
     | Interrupted ex -> failtest $"Interrupted: {ex.Message}"
@@ -158,8 +161,10 @@ let startTestListenerOn (host: string) =
 let startTestListener () =
     startTestListenerOn "localhost"
 
-let private portConflict (error: WsError) =
+// A client connecting while the managed HttpListener starts can fail Start and hold the port (dotnet/runtime#28658).
+let private retryOnNewPort (error: WsError) =
     match error with
+    | ConnectionFailed "Value cannot be null." -> true
     | ConnectionFailed message ->
         [ "conflicts with an existing registration"; "already in use"; "being used by another process" ]
         |> List.exists message.Contains
@@ -200,7 +205,7 @@ let withServerOn (host: string) (startServer: string -> FIO<unit, WsError>) (act
 
             match outcome with
             | Ok value -> return value
-            | Error error when remaining > 0 && portConflict error -> return! attempt (remaining - 1)
+            | Error error when remaining > 0 && retryOnNewPort error -> return! attempt (remaining - 1)
             | Error error -> return! FIO.fail error
         }
 

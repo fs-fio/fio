@@ -67,6 +67,13 @@ bound — only the first one a name resolves to — and a filter on each request
 Linux and macOS `+` binds IPv4 only; on Windows it needs a URL reservation (`netsh http add urlacl`) or
 an elevated process.
 
+Known issue on Linux and macOS: .NET's `HttpListener` accepts before it has finished starting
+([dotnet/runtime#28658](https://github.com/dotnet/runtime/issues/28658)), so a client that connects at
+that moment makes `start` (and `serve`) fail with `ConnectionFailed "Value cannot be null."`, and the
+port stays bound until the next garbage collection. A process restarted by its supervisor recovers; a
+server restarted in-process while clients keep reconnecting should retry, on another port or after
+`GC.Collect()` followed by `GC.WaitForPendingFinalizers()`, which releases the port.
+
 A request that is not a WebSocket upgrade, or whose handshake is invalid (a missing key or version, or
 a subprotocol the client did not offer), is answered `400` and closed, and `accept` fails with
 `ConnectionFailed`. `acceptLoop` and `serve` keep serving without a pause; they log an invalid
@@ -179,7 +186,9 @@ Interrupting `serve` or `acceptLoop` shuts the server down gracefully, as the se
    still running are then interrupted and their connections ended, so a peer that never reads or
    never answers the close cannot hold the shutdown open, even with a `SendTimeout` of 0. A handler's
    own finalizers and uninterruptible regions still run to their end, and the shutdown waits for them.
-3. The listener is stopped. `serve` also disposes it.
+3. The listener is stopped, and with it the refusing of new requests. If .NET's `Stop()` fails midway
+   and leaves the refusal waiting for a request that cannot come, the refusal is cut after a second
+   rather than holding the shutdown. `serve` also disposes the listener.
 
 Requests that arrive during the shutdown are refused with 503. Handlers are the loop's children, forked
 while it hands a connection off uninterruptibly, so interrupting the loop leaves them running until the

@@ -837,4 +837,37 @@ let fiberTests =
                             0
                             "Post-terminal SetOnTerminal after pre-terminal install must not refire (gate consumed)"
                 ]
+
+            testList
+                "FiberContext - Complete"
+                [
+                    testCase "Complete - a second completion does not replace the result of a fiber still waiting for its children"
+                    <| fun () ->
+                        let parent = new FiberContext()
+                        let child = new FiberContext()
+                        child.AttachTo parent
+                        parent.Complete(Ok(box 1))
+                        parent.Complete(Error(box "defect"))
+
+                        child.Complete(Ok(box 2))
+
+                        Expect.equal parent.Task.Result (Ok(box 1)) "The first completion's value should be published, not a later one's"
+
+                    testCase "Complete - a child-scope callback that throws neither escapes nor stops the protected scope"
+                    <| fun () ->
+                        let parent = new FiberContext()
+                        let protectedChild = new FiberContext()
+                        parent.ChildScopeToken.Register(fun () -> raise (InvalidOperationException "callback failed")) |> ignore
+                        parent.ProtectedChildScopeToken.Register(fun () -> protectedChild.Interrupt()) |> ignore
+
+                        let thrown =
+                            try
+                                parent.Complete(Ok(box 1))
+                                None
+                            with ex ->
+                                Some ex
+
+                        Expect.isNone thrown "Completing should not throw a scope callback's exception"
+                        Expect.isTrue (protectedChild.IsTerminal()) "The protected scope should still be cancelled"
+                ]
         ]

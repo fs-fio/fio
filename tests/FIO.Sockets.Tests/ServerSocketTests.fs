@@ -14,6 +14,41 @@ open System.Diagnostics
 
 open Expecto
 
+// One after another, so a pause after each dropped connection adds up; asynchronous, so no runtime thread is held.
+let private connectEachAndAwaitEnd (connections: int) (port: int) =
+    task {
+        let clock = Stopwatch.StartNew()
+        use giveUp = new CancellationTokenSource(TimeSpan.FromSeconds 8.0)
+        let mutable ended = 0
+
+        for _ in 1..connections do
+            use client = new Sockets.TcpClient()
+
+            try
+                do! client.ConnectAsync(IPAddress.Loopback, port, giveUp.Token).AsTask()
+                let! read = client.GetStream().ReadAsync(Array.zeroCreate<byte> 1, 0, 1, giveUp.Token)
+
+                if read = 0 then
+                    ended <- ended + 1
+            with _ ->
+                ()
+
+        return ended, clock.ElapsedMilliseconds
+    }
+
+let private acceptLoopTimed (connections: int) (configure: ServerSocketConfig -> ServerSocketConfig) =
+    fio {
+        let! config = ServerSocketConfig.create "127.0.0.1" 0
+        let! server = ServerSocket.bind (configure config)
+        let! ep = ServerSocket.getLocalEndPoint server
+        let! loopFiber = (ServerSocket.acceptLoop noopHandler server).Fork()
+        let! outcome = FIO.awaitTask (connectEachAndAwaitEnd connections (ep :?> IPEndPoint).Port) SocketError.fromException
+        do! sleepMs 300.0
+        do! loopFiber.InterruptNow()
+        do! ServerSocket.close server
+        return outcome
+    }
+
 let private withCapturedError (body: unit -> 'A) =
     let original = Console.Error
     use captured = new StringWriter()
@@ -551,56 +586,21 @@ let serverSocketTests =
                         | other -> failtest $"The loop must stop promptly with AcceptFailed once its server socket is closed, got %A{other}")
 
                     testAllRuntimes "acceptLoop - a connection whose options cannot be set is closed at once and costs the loop no pause" (fun runtime ->
-                        let connections = 40
+                        let connections = 200
                         let effect =
                             fio {
                                 let! accepted = SocketConfig.create "127.0.0.1" 1
-                                let! config = ServerSocketConfig.create "127.0.0.1" 0
-                                let unusable = ServerSocketConfig.withAcceptedConfig { accepted with SendBufferSize = -1 } config
-                                let! server = ServerSocket.bind unusable
-                                let! ep = ServerSocket.getLocalEndPoint server
-                                let port = (ep :?> IPEndPoint).Port
-                                let! loopFiber = (ServerSocket.acceptLoop noopHandler server).Fork()
-
-                                let! endedCleanly, elapsed =
-                                    FIO.attempt
-                                        (fun () ->
-                                            let clock = Stopwatch.StartNew()
-                                            let clients = [ for _ in 1..connections -> new Sockets.TcpClient() ]
-
-                                            for client in clients do
-                                                client.Connect(IPAddress.Loopback, port)
-                                                client.ReceiveTimeout <- 3_000
-
-                                            let endedCleanly =
-                                                clients
-                                                |> List.filter (fun client ->
-                                                    try
-                                                        client.GetStream().Read(Array.zeroCreate<byte> 1, 0, 1) = 0
-                                                    with :? IOException ->
-                                                        false)
-                                                |> List.length
-
-                                            let elapsed = clock.ElapsedMilliseconds
-
-                                            for client in clients do
-                                                client.Dispose()
-
-                                            endedCleanly, elapsed)
-                                        SocketError.fromException
-
-                                do! sleepMs 300.0
-                                do! loopFiber.InterruptNow()
-                                do! ServerSocket.close server
-                                return endedCleanly, elapsed
+                                let! dropped = acceptLoopTimed connections (ServerSocketConfig.withAcceptedConfig { accepted with SendBufferSize = -1 })
+                                let! handled = acceptLoopTimed connections id
+                                return dropped, handled
                             }
 
-                        let (endedCleanly, elapsed), logged = withCapturedError (fun () -> runWithTimeout runtime effect)
+                        let ((endedCleanly, droppedIn), (_, handledIn)), logged = withCapturedError (fun () -> runWithTimeout runtime effect)
                         let reports = logged.Split('\n') |> Array.filter (fun line -> line.Contains "accept loop iteration") |> Array.length
 
                         Expect.equal endedCleanly connections "Every dropped connection should be closed, so its client reads the end of the stream"
-                        Expect.isLessThan elapsed 800L "Dropping a connection must not pause the accept loop"
-                        Expect.equal reports 2 "A streak of failures should be reported by its first and its fortieth")
+                        Expect.isLessThan droppedIn (2L * handledIn + 1_000L) $"Dropping a connection must not pause the accept loop: dropping took {droppedIn} ms, handling {handledIn} ms"
+                        Expect.equal reports (1 + connections / 40) "A streak of failures should be reported by its first and every fortieth")
 
                     testAllRuntimes "acceptLoop - reports a handler's failure and a handler's crash on standard error" (fun runtime ->
                         let attempts = ref 0

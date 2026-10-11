@@ -542,6 +542,7 @@ let parkJoinFirstOnHooks
     (suppressed: int)
     (workItem: WorkItem)
     (reschedule: Action<WorkItem>) =
+    let cancellationToken = currentFiberContext.CancellationToken
     let waiter = BlockingWaiter workItem
     waiter.Disarm()
 
@@ -551,7 +552,7 @@ let parkJoinFirstOnHooks
 
     if suppressed = 0 then
         let registration =
-            currentFiberContext.CancellationToken.Register(fun () ->
+            cancellationToken.Register(fun () ->
                 try
                     wake ()
                 with _ ->
@@ -563,7 +564,7 @@ let parkJoinFirstOnHooks
 
     waiter.Arm()
 
-    if suppressed = 0 && currentFiberContext.CancellationToken.IsCancellationRequested then
+    if suppressed = 0 && cancellationToken.IsCancellationRequested then
         wake ()
 
     for fiberContext in fiberContexts do

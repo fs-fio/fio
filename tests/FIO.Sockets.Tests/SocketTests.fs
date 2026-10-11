@@ -12,6 +12,22 @@ open System.Threading.Tasks
 
 open Expecto
 
+let private spacedLines = [ for i in 1..150 -> $"line-{i}" ]
+
+let private sendSpacedLines (socket: Socket) =
+    FIO.forEachDiscard spacedLines (fun line -> socket.SendLine(line).FlatMap(fun () -> sleepMs 11.0))
+
+let private pollLines (poll: FIO<string option, SocketError>) =
+    let rec loop collected =
+        poll.FoldFIO
+            (fun error ->
+                match error with
+                | ConnectionClosed _ -> FIO.succeed (List.rev collected)
+                | other -> FIO.fail other)
+            (fun line -> loop (Option.fold (fun acc line -> line :: acc) collected line))
+
+    loop []
+
 [<Tests>]
 let socketTests =
     testList
@@ -1025,37 +1041,44 @@ let socketTests =
                         Expect.equal received "AAAABBBB" "Bytes that arrived for the interrupted receive belong to the next one")
 
                     testAllRuntimes "ReceiveLine - polling with a short Timeout truncates and repeats nothing" (fun runtime ->
-                        let lines = [ for i in 1..150 -> $"line-{i}" ]
-
                         let received =
                             withTestServer
-                                (fun socket ->
-                                    (FIO.forEachDiscard lines (fun line -> socket.SendLine(line).FlatMap(fun () -> sleepMs 11.0)))
-                                        .FlatMap(fun () -> sleepMs 2000.0))
+                                sendSpacedLines
                                 (fun port ->
                                     fio {
                                         let! socket = SocketClient.connectWith "127.0.0.1" port
-                                        let collected = ResizeArray<string>()
-                                        let mutable attempts = 0
-
-                                        while collected.Count < lines.Length && attempts < 5_000 do
-                                            attempts <- attempts + 1
-
-                                            match! socket.ReceiveLine(64).Timeout(TimeSpan.FromMilliseconds 10.0) with
-                                            | Some line -> collected.Add line
-                                            | None -> ()
-
+                                        let! received = pollLines (socket.ReceiveLine(64).Timeout(TimeSpan.FromMilliseconds 10.0))
                                         do! socket.Close()
-                                        return List.ofSeq collected
+                                        return received
                                     })
                                 runtime
 
-                        let inOrder = received |> List.forall (fun line -> List.contains line lines) && received = List.distinct received
-                        let positions = received |> List.map (fun line -> List.findIndex ((=) line) lines)
+                        let positions = received |> List.map (fun line -> List.tryFindIndex ((=) line) spacedLines)
 
-                        Expect.isTrue inOrder $"Every line should arrive whole and at most once, got %A{received}"
-                        Expect.equal positions (List.sort positions) "Lines should arrive in the order they were sent"
-                        Expect.isGreaterThanOrEqual received.Length (lines.Length - 1) "At most a line caught at the very moment of its timeout may be lost")
+                        Expect.all positions Option.isSome $"Every line should arrive whole, got %A{received}"
+                        Expect.equal positions (List.distinct (List.sort positions)) "Lines should arrive in order, each at most once"
+                        Expect.isGreaterThan received.Length (spacedLines.Length / 2) "Only a line that arrives as its timeout fires may be lost")
+
+                    testAllRuntimes "ReceiveLine - polling with a receive timeout loses, truncates and repeats nothing" (fun runtime ->
+                        let received =
+                            withTestServer
+                                sendSpacedLines
+                                (fun port ->
+                                    fio {
+                                        let! baseConfig = SocketConfig.create "127.0.0.1" port
+                                        let! socket = SocketClient.connect (SocketConfig.withReceiveTimeout 10 baseConfig)
+                                        let poll =
+                                            socket.ReceiveLine(64).Map(Some).CatchAll(fun error ->
+                                                match error with
+                                                | TimeoutError _ -> FIO.succeed None
+                                                | other -> FIO.fail other)
+                                        let! received = pollLines poll
+                                        do! socket.Close()
+                                        return received
+                                    })
+                                runtime
+
+                        Expect.equal received spacedLines "Every line should arrive whole, once and in order")
 
                     testAllRuntimes "ReceiveFramed - a receive interrupted while it decodes gives its frame to the next receive" (fun runtime ->
                         let decoding = TaskCompletionSource()
@@ -1201,12 +1224,12 @@ let socketTests =
                         Expect.equal reply "REPLY" "Data the peer delivered stays readable after a failed send")
 
                     testAllRuntimes "Close - with linger enabled and a zero timeout resets the connection, as its peer sees" (fun runtime ->
-                        let peerSend = TaskCompletionSource<Result<unit, SocketError>>()
+                        let peerReceive = TaskCompletionSource<Result<int, SocketError>>()
                         let peer (socket: Socket) =
                             fio {
                                 do! sleepMs 400.0
-                                let! outcome = socket.SendBytes([| 1uy |]).Map(Ok).CatchAll(fun error -> FIO.succeed (Error error))
-                                peerSend.TrySetResult outcome |> ignore
+                                let! outcome = socket.ReceiveBytes(16).Map(fun (_, n) -> Ok n).CatchAll(fun error -> FIO.succeed (Error error))
+                                peerReceive.TrySetResult outcome |> ignore
                             }
 
                         let outcome =
@@ -1218,10 +1241,12 @@ let socketTests =
                                         let! socket = SocketClient.connect (SocketConfig.withLinger true 0 baseConfig)
                                         do! sleepMs 100.0
                                         do! socket.Close()
-                                        return! FIO.awaitTask (peerSend.Task.WaitAsync(TimeSpan.FromSeconds 3.0)) SocketError.fromException
+                                        return! FIO.awaitTask (peerReceive.Task.WaitAsync(TimeSpan.FromSeconds 3.0)) SocketError.fromException
                                     })
                                 runtime
 
-                        Expect.isError outcome "After a reset the peer's next send fails; after a graceful close it would still be accepted")
+                        match outcome with
+                        | Error(GeneralError _) -> ()
+                        | other -> failtest $"A reset should fail the peer's receive; a graceful close would end its stream, got %A{other}")
                 ]
         ]

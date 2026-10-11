@@ -69,11 +69,23 @@ module SocketError =
     /// Wraps an exception as a general socket error.
     let fromException ex : SocketError = GeneralError ex
 
-    /// Converts a socket error back into an exception.
+    /// Converts a socket error back into an exception: a GeneralError's own exception, otherwise a new one that keeps
+    /// any wrapped exception as its inner exception.
     let toException error : exn =
         match error with
         | GeneralError ex -> ex
-        | _ -> Exception(error.ToString())
+        | ConnectionFailed(_, _, ex)
+        | SendFailed ex
+        | ReceiveFailed ex
+        | BindFailed(_, _, ex)
+        | AcceptFailed ex
+        | CodecError(_, ex) -> Exception(error.ToString(), ex)
+        | ConnectionClosed _
+        | TimeoutError _
+        | BufferOverflow _
+        | InvalidState _
+        | PoolExhausted _
+        | PoolClosed -> Exception(error.ToString())
 
 /// Configuration for a client socket connection.
 type SocketConfig =

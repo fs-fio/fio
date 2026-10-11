@@ -85,16 +85,22 @@ let testAllRuntimes name (f: FIORuntime -> unit) =
             ]
     )
 
-let runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, exn>) =
+// Async.RunSynchronously's timeout waits for the computation to stop, which a hung fiber never does, so it never fires.
+let private runWithin (seconds: float) (runtime: FIORuntime) (effect: FIO<'A, exn>) =
     let fiber = runtime.Run effect
-    match
-        fiber.Task()
-        |> Async.AwaitTask
-        |> fun async -> Async.RunSynchronously(async, timeout = 30_000)
-    with
+    let result = fiber.Task()
+
+    if not (result.Wait(TimeSpan.FromSeconds seconds)) then
+        runtime.Run(fiber.InterruptNow()) |> ignore
+        failtest $"The effect did not finish within {seconds} s on {runtime.Name}"
+
+    match result.Result with
     | Succeeded value -> value
     | Failed error -> failtest $"Effect failed: {error}"
     | Interrupted ex -> failtest $"Interrupted: {ex.Message}"
+
+let runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, exn>) =
+    runWithin 30.0 runtime effect
 
 let makeRequest (method: HttpMethod) (path: string) =
     HttpRequest.create method path
@@ -103,16 +109,7 @@ let makeGetRequest (path: string) =
     makeRequest HttpMethod.GET path
 
 let dispatchAndRun (runtime: FIORuntime) (routes: Routes<exn>) (request: HttpRequest) =
-    let effect = Routes.dispatch request routes
-    let fiber = runtime.Run effect
-    match
-        fiber.Task()
-        |> Async.AwaitTask
-        |> fun async -> Async.RunSynchronously(async, timeout = 10_000)
-    with
-    | Succeeded value -> value
-    | Failed error -> failtest $"Effect failed: {error}"
-    | Interrupted ex -> failtest $"Interrupted: {ex.Message}"
+    runWithin 10.0 runtime (Routes.dispatch request routes)
 
 let getWhenListening (url: string) =
     use client = new Http.HttpClient()

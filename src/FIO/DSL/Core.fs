@@ -163,9 +163,10 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
         match source with
         | null -> ()
         | source ->
+            // A child whose interrupt throws must not stop the scope's other children or the completion that cancels it.
             try
                 source.Cancel(throwOnFirstException = false)
-            with :? ObjectDisposedException ->
+            with _ ->
                 ()
 
     [<VolatileField>]
@@ -321,7 +322,9 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
         ValueTask.CompletedTask
 
     member private this.CompleteInternal (value, reschedule: Action<WorkItem>) =
-        pendingValue <- value
+        // A later completion, such as a worker's crash handler, must not replace the value still waiting to be published.
+        if Volatile.Read &completing = 0 then
+            pendingValue <- value
 
         if Interlocked.Exchange(&completing, 1) = 0 then
             this.CancelChildScope()

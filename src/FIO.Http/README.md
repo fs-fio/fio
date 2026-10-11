@@ -73,6 +73,13 @@ let routes =
 let server = Server.runServer ServerConfig.defaultConfig (routes @@ logging)
 ```
 
+JSON follows ASP.NET Core's web defaults in both directions: `okJson` and the other JSON responses write
+camelCase names, and `HttpHandler.jsonBody` binds a request body whatever the casing of its names, so a
+client can post back what the server sent. Reading is lenient in the same way as ASP.NET Core's: numbers
+written as strings (`"id": "1"`) are accepted. `HttpHandler.jsonBodyWith` takes other
+`JsonSerializerOptions`; use it with the same options if you pass your own to
+`KestrelBridge.handleRequestWithOptions`.
+
 ## Errors
 
 The server pipeline is typed as `Routes<exn>`, so a handler is `HttpRequest -> FIO<HttpResponse, exn>`

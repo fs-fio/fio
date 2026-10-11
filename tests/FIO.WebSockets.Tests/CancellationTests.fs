@@ -95,30 +95,47 @@ let private stateAfterReadForInterruptedFiber (runtime: FIORuntime) =
     finally
         runWithTimeout peerRuntime (WebSocketServer.close listener)
 
-// The request arrives while the worker is held, and the accepting fiber is interrupted before it can resume.
+// The listener runs its authentication selector as it takes a request: the moment after which the interrupt must land.
 let private answeredAfterAcceptInterrupted (runtime: FIORuntime) =
     use otherRuntime = new WorkStealingRuntime(testConfig)
     let port, listener = runWithTimeout runtime (startTestListener ())
+    use taken = new ManualResetEventSlim false
+    listener.AuthenticationSchemeSelectorDelegate <-
+        Net.AuthenticationSchemeSelector(fun _ ->
+            taken.Set()
+            Net.AuthenticationSchemes.Anonymous)
 
     try
         let accepting = runtime.Run(WebSocketServer.acceptDefault listener WebSocketConfig.defaultConfig)
         Thread.Sleep 200
         let release = holdWorker runtime
         use client = new Net.WebSockets.ClientWebSocket()
-        use timeout = new CancellationTokenSource(TimeSpan.FromSeconds 3.0)
+        use timeout = new CancellationTokenSource(TimeSpan.FromSeconds 10.0)
         let connecting = client.ConnectAsync(Uri $"ws://localhost:{port}/", timeout.Token)
-        Thread.Sleep 300
+        let wasTaken = taken.Wait(TimeSpan.FromSeconds 5.0)
+        Thread.Sleep 500
         runWithTimeout otherRuntime (accepting.InterruptNow())
         release.Set()
 
         try
-            connecting.Wait(TimeSpan.FromSeconds 5.0) |> ignore
+            connecting.Wait(TimeSpan.FromSeconds 10.0) |> ignore
         with _ ->
             ()
 
-        connecting.IsCompleted && not timeout.IsCancellationRequested
+        wasTaken, connecting.Status
     finally
         runWithTimeout otherRuntime (WebSocketServer.close listener)
+
+// Leaves the request the loop awaits where a Stop() that throws midway leaves it: never completed.
+let private strandPendingRequest (listener: Net.HttpListener) =
+    let waiters =
+        typeof<Net.HttpListener>.GetField("_asyncWaitQueue", Reflection.BindingFlags.NonPublic ||| Reflection.BindingFlags.Instance).GetValue listener
+        :?> Collections.IList
+
+    if not (SpinWait.SpinUntil((fun () -> lock waiters.SyncRoot (fun () -> waiters.Count = 1)), 5_000)) then
+        failtest "The loop should be waiting for a request before the test strands it"
+
+    lock waiters.SyncRoot (fun () -> waiters.RemoveAt 0)
 
 [<Tests>]
 let cancellationTests =
@@ -431,6 +448,23 @@ let cancellationTests =
                 | Some(Succeeded(ConnectionClosed(Some Net.WebSockets.WebSocketCloseStatus.EndpointUnavailable, _))) -> ()
                 | other -> failtest $"Expected a going-away close but got {other}"
                 Expect.isFalse listener.IsListening "The loop must stop the listener once it has shut down"
+                listener.Close())
+
+            testAllRuntimes "acceptLoop - shuts down even when stopping the listener strands the request it awaits" (fun runtime ->
+                if OperatingSystem.IsWindows() then
+                    skiptest "Only the managed HttpListener of Linux and macOS has the wait queue this test strands"
+
+                let _, listener = runWithTimeout runtime (startTestListener ())
+                let unwound = TaskCompletionSource()
+                let loop =
+                    (WebSocketServer.acceptLoop listener WebSocketConfig.defaultConfig noopHandler)
+                        .Ensuring(FIO.succeedWith (fun () -> unwound.TrySetResult() |> ignore))
+                let fiber = runtime.Run loop
+                strandPendingRequest listener
+
+                runWithTimeout runtime (fiber.InterruptNow())
+
+                Expect.isTrue (unwound.Task.Wait(TimeSpan.FromSeconds 15.0)) "A request the listener's stop strands must not hold the shutdown forever"
                 listener.Close())
 
             testAllRuntimes "ReceiveMessage - an explicit pre-cancelled token short-circuits the receive" (fun runtime ->
@@ -821,7 +855,8 @@ let cancellationTests =
                 Expect.equal state Net.WebSockets.WebSocketState.Aborted "The message nobody received is lost, so the connection must not go on")
 
             testSingleWorkerRuntimes "accept - a request that arrived before the accept was interrupted is still answered" (fun runtime ->
-                let answered = answeredAfterAcceptInterrupted runtime
+                let wasTaken, connecting = answeredAfterAcceptInterrupted runtime
 
-                Expect.isTrue answered "A request the accept had already taken must not be left without a response")
+                Expect.isTrue wasTaken "The listener should take the request"
+                Expect.equal connecting TaskStatus.RanToCompletion "A request the accept had already taken must still get its 101")
         ]

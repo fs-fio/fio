@@ -81,13 +81,10 @@ type internal RequestTracker (runtime: FIO.Runtime.Default.DefaultRuntime) =
 [<RequireQualifiedAccess>]
 module KestrelBridge =
 
-    /// The default JSON serializer options (camelCase).
+    /// The default JSON serializer options, for responses and request bodies alike: ASP.NET Core's web defaults
+    /// (camelCase names; reading matches names in any casing and accepts numbers written as strings).
     let defaultJsonOptions : JsonSerializerOptions =
-        let options =
-            JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.CamelCase)
-        options.TypeInfoResolver <- Serialization.Metadata.DefaultJsonTypeInfoResolver()
-        options.MakeReadOnly()
-        options
+        JsonDefaults.options
 
     let private isValidPathSegment (segment: string) =
         not (
@@ -345,6 +342,21 @@ module KestrelBridge =
 
         Console.Error.WriteLine(builder.ToString())
 
+    // Kestrel cancels RequestAborted at once only while nothing has read it; once a reused connection holds its source,
+    // the cancellation is scheduled, so an error waits a moment to show whether the client left.
+    let private clientLeft (ctx: HttpContext) =
+        task {
+            let aborted = ctx.RequestAborted
+
+            if not aborted.IsCancellationRequested then
+                try
+                    do! Task.Delay(100, aborted)
+                with :? OperationCanceledException ->
+                    ()
+
+            return aborted.IsCancellationRequested
+        }
+
     let internal handleTracked
         (tracker: RequestTracker)
         (runtime: FIO.Runtime.Default.DefaultRuntime)
@@ -423,13 +435,19 @@ module KestrelBridge =
                                     tracker.Unregister fiber
                     with
                     // Kestrel rejects a request it won't read, such as a body over the limit, by throwing this from the read.
+                    // A body the client cut short by leaving throws it too, but aborts the request first.
                     | :? BadHttpRequestException as rejection ->
-                        logError ctx "RequestValidation" rejection.Message None
-                        do! writeStatusBody rejection.StatusCode rejection.Message
+                        let! left = clientLeft ctx
+
+                        if not left then
+                            logError ctx "RequestValidation" rejection.Message None
+                            do! writeStatusBody rejection.StatusCode rejection.Message
                     | :? Microsoft.AspNetCore.Connections.ConnectionResetException -> ()
                     | ex ->
                         // A client that left mid-request is not an error of the server, and nobody can be answered.
-                        if not ctx.RequestAborted.IsCancellationRequested then
+                        let! left = clientLeft ctx
+
+                        if not left then
                             logError ctx "UnhandledException" ex.Message (Some ex)
                             do! writeStatusBody 500 "Internal Server Error"
                 finally

@@ -68,8 +68,13 @@ included) or frame exceeds the limit you passed (16 MB for a frame when `Receive
 
 A socket buffers what it reads, and a receive takes nothing from that buffer until its whole item
 is there. So a receive that times out or is interrupted before its item is complete loses nothing:
-the bytes that had arrived stay for the next receive, and polling with
-`socket.ReceiveLine(n).Timeout(...)` is safe.
+the bytes that had arrived stay for the next receive.
+
+To poll, give the socket a receive timeout (`SocketConfig.withReceiveTimeout`): the receive itself
+decides whether its item arrived in time, so a poll that gives up takes nothing. Polling with
+`socket.ReceiveLine(n).Timeout(...)` races the receive against a timer instead, and a line that
+arrives as the timer fires can be taken by the losing receive and lost, though never split or
+repeated.
 
 A receive that rejects what the peer sent — a line or frame over its limit, a negative frame length
 — cannot read past it, so the socket's receive side stops there: every later receive fails with
@@ -106,6 +111,12 @@ let exchange (socket: Socket) (order: Order) =
 `SendFramed` and `ReceiveFramed` send each message as one frame behind a 4-byte big-endian length, so a
 peer written in another language has to frame its messages the same way. Protobuf's own
 `writeDelimitedTo` uses a varint length instead and does not match.
+
+The socket's own `SendJson`/`ReceiveJson` and `SendJsonLine`/`ReceiveJsonLine` use `Codec.json` and
+`Codec.jsonLine` with the serializer's default options (property names as declared, matched
+case-sensitively); `open FIO.Sockets.SocketExtensions` adds overloads that take `JsonSerializerOptions`.
+`ReceiveJson`, like `ReceiveString`, decodes whatever has arrived, up to its limit, so a message that may
+span several reads needs the line or framed forms.
 
 ## Closing
 

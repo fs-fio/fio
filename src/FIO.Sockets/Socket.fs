@@ -466,7 +466,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     member this.ReceiveFramed<'A> (codec: SocketCodec<'A>) : FIO<'A, SocketError> =
         this.ReceiveFramed(codec, 16 * 1024 * 1024)
 
-    /// Gracefully shuts down and closes this socket, suppressing errors.
+    /// Closes this socket, suppressing errors: gracefully, or with a reset when linger is enabled with a zero timeout.
     member _.Close () : FIO<unit, SocketError> =
         fio {
             do! (attempt <| fun () ->
@@ -476,7 +476,8 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
                         with _ ->
                             ()
 
-                        if netSocket.Connected then
+                        // A zero linger resets the connection; a shutdown first would end it gracefully instead.
+                        if netSocket.Connected && not (config.LingerEnabled && config.LingerTimeout = 0) then
                             try
                                 netSocket.Shutdown Sockets.SocketShutdown.Both
                             with _ ->

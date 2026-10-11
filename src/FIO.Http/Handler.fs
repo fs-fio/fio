@@ -183,23 +183,22 @@ module HttpHandler =
             else
                 falseHandler request
 
-    /// Parses the request body as JSON into the given type.
+    /// Parses the request body as JSON into the given type, with the given options or else
+    /// <c>KestrelBridge.defaultJsonOptions</c> (names bind in any casing, and numbers may be written as strings).
     let parseJsonBody<'A> (options: JsonSerializerOptions option) : HttpRequest -> FIO<'A, exn> =
         fun request ->
             FIO.attempt (fun () ->
                 let bodyStr = request.Body.AsString()
                 if System.String.IsNullOrWhiteSpace bodyStr then
                     raise (JsonException "Request body is empty")
-                let result =
-                    match options with
-                    | Some opts -> JsonSerializer.Deserialize<'A>(bodyStr, opts)
-                    | None -> JsonSerializer.Deserialize<'A> bodyStr
+                let result = JsonSerializer.Deserialize<'A>(bodyStr, defaultArg options JsonDefaults.options)
                 if obj.ReferenceEquals(box result, null) then
                     raise (JsonException "Request body deserialized to null")
                 result)
                 id
 
-    /// Creates a handler that parses the JSON request body and passes it to the given function.
+    /// Creates a handler that parses the JSON request body with <c>KestrelBridge.defaultJsonOptions</c> and passes it
+    /// to the given function.
     let jsonBody<'A, 'E> (func: 'A -> FIO<HttpResponse, 'E>) (onError: exn -> 'E) : HttpHandler<'E> =
         fun request ->
             fio {

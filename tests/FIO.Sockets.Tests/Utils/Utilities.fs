@@ -75,13 +75,16 @@ let echoHandler (socket: Socket) =
         do! socket.SendBytes data
     }
 
+// Async.RunSynchronously's timeout waits for the computation to stop, which a hung fiber never does, so it never fires.
 let runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, SocketError>) =
     let fiber = runtime.Run effect
-    match
-        fiber.Task()
-        |> Async.AwaitTask
-        |> fun async -> Async.RunSynchronously(async, timeout = 10_000)
-    with
+    let result = fiber.Task()
+
+    if not (result.Wait(TimeSpan.FromSeconds 10.0)) then
+        runtime.Run(fiber.InterruptNow()) |> ignore
+        failtest $"The effect did not finish within 10 s on {runtime.Name}"
+
+    match result.Result with
     | Succeeded value -> value
     | Failed error -> failtest $"Effect failed: {error}"
     | Interrupted ex -> failtest $"Interrupted: {ex.Message}"

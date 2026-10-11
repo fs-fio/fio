@@ -337,6 +337,10 @@ module WebSocketServer =
                     do! FIO.forEachDiscard unfinished endConnection
                     do! FIO.awaitUnitTask (Task.WhenAll finished) WsError.fromException
                     do! close listener
+                    // Stopping the listener fails the request the refusal awaits, unless the stop throws midway and strands
+                    // it; nothing else would interrupt the refusal, so it gets a moment to finish and is then interrupted.
+                    let! _ = FIO.awaitTask (Task.WhenAny(refusal.Task() :> Task, Task.Delay 1_000)) WsError.fromException
+                    do! refusal.InterruptNow()
                     do! refusal.Await().Unit()
                 }
 

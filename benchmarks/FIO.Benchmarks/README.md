@@ -64,9 +64,9 @@ dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Fork*" -
 
 The full run (`--filter "*"`) executes all 12 benchmarks × all parameter combinations × 4 runtimes × 30 iterations. This produces a comprehensive performance profile across Direct, Polling, Signaling, and WorkStealing runtimes.
 
-> Passing `--job` on the command line (e.g. `--job Dry` or `--job Short`) **overrides** the
-> env-var-configured job — only the CLI job runs. Omit `--job` to honor `FIO_BENCH_WARMUP` /
-> `FIO_BENCH_ITERATIONS`; for a quick run without `--job`, set `FIO_BENCH_ITERATIONS=1 FIO_BENCH_WARMUP=0`.
+> Passing `--job` (or `-j`) on the command line (e.g. `--job Dry` or `-j Short`) **overrides** the
+> env-var-configured job — only the CLI job runs. Omit it to honor `FIO_BENCH_WARMUP` /
+> `FIO_BENCH_ITERATIONS`; for a quick run without a CLI job, set `FIO_BENCH_ITERATIONS=1 FIO_BENCH_WARMUP=0`.
 
 Results are written to `BenchmarkDotNet.Artifacts/results/`.
 

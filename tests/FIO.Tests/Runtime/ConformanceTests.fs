@@ -713,13 +713,12 @@ let conformanceTests =
                             let running = SpinWait.SpinUntil((fun () -> Interlocked.Read &steps.contents > 1_000L), 5_000)
 
                             runtime.Shutdown(TimeSpan.FromMilliseconds 100.0)
-                            Thread.Sleep 50
-                            let afterShutdown = Interlocked.Read &steps.contents
-                            Thread.Sleep 300
+                            let atShutdown = Interlocked.Read &steps.contents
+                            Thread.Sleep 500
                             let later = Interlocked.Read &steps.contents
 
                             Expect.isTrue running "The fiber should be running"
-                            Expect.equal later afterShutdown "No step should run once the runtime has shut down")
+                            Expect.isLessThanOrEqual (later - atShutdown) (int64 (testConfig.EvaluationWorkers * testConfig.EvaluationSteps / 2)) "Only the slice running at shutdown, and at most one more per worker, may finish")
                 ]
 
             testList

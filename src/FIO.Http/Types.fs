@@ -4,6 +4,14 @@ open System
 open System.IO
 open System.Text
 
+module internal JsonDefaults =
+
+    let options =
+        let options = Json.JsonSerializerOptions Json.JsonSerializerDefaults.Web
+        options.TypeInfoResolver <- Json.Serialization.Metadata.DefaultJsonTypeInfoResolver()
+        options.MakeReadOnly()
+        options
+
 module internal HeaderHelpers =
 
     let isValidHeaderName (name: string) =
@@ -79,11 +87,19 @@ module HttpError =
     let fromException (ex: exn) : HttpError =
         GeneralError ex
 
-    /// Converts an HTTP error back into an exception.
+    /// Converts an HTTP error back into an exception: a GeneralError's own exception, otherwise a new one that keeps
+    /// any wrapped exception as its inner exception.
     let toException (error: HttpError) : exn =
         match error with
         | GeneralError ex -> ex
-        | _ -> Exception <| error.ToString()
+        | ParsingFailed(_, ex)
+        | HandlerFailed(_, ex)
+        | MiddlewareFailed(_, ex)
+        | ServerFailed ex
+        | BodyReadFailed ex
+        | JsonFailed ex -> Exception(error.ToString(), ex)
+        | InvalidRoute _
+        | TimeoutError _ -> Exception <| error.ToString()
 
 /// An HTTP request method.
 [<RequireQualifiedAccess>]
@@ -142,66 +158,123 @@ module HttpMethod =
 /// An HTTP response status code.
 [<RequireQualifiedAccess>]
 type HttpStatusCode =
+    /// 100: the client should continue sending its request.
     | Continue = 100
+    /// 101: the server is switching to the protocol the client asked for.
     | SwitchingProtocols = 101
+    /// 102: the server has accepted the request but not yet finished it.
     | Processing = 102
 
+    /// 200: the request succeeded.
     | OK = 200
+    /// 201: the request succeeded and created a new resource.
     | Created = 201
+    /// 202: the request was accepted for processing, which has not finished.
     | Accepted = 202
+    /// 203: the request succeeded, with content modified by a proxy.
     | NonAuthoritativeInformation = 203
+    /// 204: the request succeeded and there is no content to send.
     | NoContent = 204
+    /// 205: the request succeeded; the client should reset its view of the document.
     | ResetContent = 205
+    /// 206: the server is sending only the requested range of the resource.
     | PartialContent = 206
 
+    /// 300: the resource has several representations to choose from.
     | MultipleChoices = 300
+    /// 301: the resource has moved permanently to another URI.
     | MovedPermanently = 301
+    /// 302: the resource is temporarily at another URI.
     | Found = 302
+    /// 303: the client should get the result from another URI with GET.
     | SeeOther = 303
+    /// 304: the client's cached copy is still valid.
     | NotModified = 304
+    /// 305: deprecated; the resource must be reached through a proxy.
     | UseProxy = 305
+    /// 307: the resource is temporarily at another URI; repeat the request unchanged there.
     | TemporaryRedirect = 307
+    /// 308: the resource has moved permanently; repeat the request unchanged at the new URI.
     | PermanentRedirect = 308
 
+    /// 400: the server will not process the request because of an apparent client error.
     | BadRequest = 400
+    /// 401: the request needs valid authentication.
     | Unauthorized = 401
+    /// 402: reserved for future use.
     | PaymentRequired = 402
+    /// 403: the server understood the request but refuses to fulfil it.
     | Forbidden = 403
+    /// 404: the server cannot find the requested resource.
     | NotFound = 404
+    /// 405: the resource does not support the request's method.
     | MethodNotAllowed = 405
+    /// 406: no representation matches the request's Accept headers.
     | NotAcceptable = 406
+    /// 407: the client must authenticate with the proxy.
     | ProxyAuthenticationRequired = 407
+    /// 408: the server timed out waiting for the request.
     | RequestTimeout = 408
+    /// 409: the request conflicts with the current state of the resource.
     | Conflict = 409
+    /// 410: the resource is no longer available, and likely never will be again.
     | Gone = 410
+    /// 411: the request must carry a Content-Length header.
     | LengthRequired = 411
+    /// 412: a precondition in the request's headers is false.
     | PreconditionFailed = 412
+    /// 413: the request body is larger than the server accepts.
     | PayloadTooLarge = 413
+    /// 414: the request URI is longer than the server accepts.
     | URITooLong = 414
+    /// 415: the server does not support the request body's media type.
     | UnsupportedMediaType = 415
+    /// 416: the requested range lies outside the resource.
     | RangeNotSatisfiable = 416
+    /// 417: the server cannot meet the request's Expect header.
     | ExpectationFailed = 417
+    /// 418: reserved and unused; RFC 2324's April Fools' teapot.
     | ImATeapot = 418
+    /// 422: the request is well-formed but its content cannot be processed.
     | UnprocessableEntity = 422
+    /// 423: the resource is locked.
     | Locked = 423
+    /// 424: the request failed because an action it depended on failed.
     | FailedDependency = 424
+    /// 425: the server will not process a request that might be replayed.
     | TooEarly = 425
+    /// 426: the client must switch to another protocol.
     | UpgradeRequired = 426
+    /// 428: the server requires the request to be conditional.
     | PreconditionRequired = 428
+    /// 429: the client has sent too many requests in a given time.
     | TooManyRequests = 429
+    /// 431: the request's headers are too large.
     | RequestHeaderFieldsTooLarge = 431
+    /// 451: the resource is unavailable for legal reasons.
     | UnavailableForLegalReasons = 451
 
+    /// 500: the server hit an unexpected condition.
     | InternalServerError = 500
+    /// 501: the server does not support the functionality the request needs.
     | NotImplemented = 501
+    /// 502: the server, acting as a gateway, got an invalid response upstream.
     | BadGateway = 502
+    /// 503: the server cannot handle the request right now.
     | ServiceUnavailable = 503
+    /// 504: the server, acting as a gateway, got no response upstream in time.
     | GatewayTimeout = 504
+    /// 505: the server does not support the request's HTTP version.
     | HTTPVersionNotSupported = 505
+    /// 506: the server has a content-negotiation configuration error.
     | VariantAlsoNegotiates = 506
+    /// 507: the server cannot store what the request needs.
     | InsufficientStorage = 507
+    /// 508: the server found an infinite loop while processing the request.
     | LoopDetected = 508
+    /// 510: the request needs further extensions to be fulfilled.
     | NotExtended = 510
+    /// 511: the client must authenticate to gain network access.
     | NetworkAuthenticationRequired = 511
 
 /// The body of an HTTP request.

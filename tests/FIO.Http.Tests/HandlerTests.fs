@@ -233,6 +233,27 @@ let handlerTests =
                         Expect.equal msg.Id 1 "Id"
                         Expect.equal msg.Text "hello" "Text")
 
+                    testAllRuntimes "parseJsonBody - binds camelCase JSON, as the server writes it" (fun runtime ->
+                        let req =
+                            HttpRequest.create HttpMethod.POST "/data"
+                            |> HttpRequest.withBody (RequestBody.Text """{"id":1,"text":"hello"}""")
+                        let parser = HttpHandler.parseJsonBody None
+
+                        let msg = runtime.Run(parser req).UnsafeSuccess()
+
+                        Expect.equal msg.Id 1 "Id"
+                        Expect.equal msg.Text "hello" "Text")
+
+                    testAllRuntimes "parseJsonBody - binds a number written as a string" (fun runtime ->
+                        let req =
+                            HttpRequest.create HttpMethod.POST "/data"
+                            |> HttpRequest.withBody (RequestBody.Text """{"id":"1","text":"hello"}""")
+                        let parser = HttpHandler.parseJsonBody None
+
+                        let msg = runtime.Run(parser req).UnsafeSuccess()
+
+                        Expect.equal msg.Id 1 "A quoted number should bind, as the documentation promises")
+
                     testAllRuntimes "parseJsonBody - fails on invalid JSON" (fun runtime ->
                         let req =
                             HttpRequest.create HttpMethod.POST "/data"

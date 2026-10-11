@@ -114,17 +114,25 @@ let cancellationTests =
                             use control = new DirectRuntime()
                             let blocking = new ManualResetEventSlim false
                             let unblock = new ManualResetEventSlim false
+                            let listening = ref None
+                            use handedOff = new ManualResetEventSlim false
+                            let handler (_: Socket) =
+                                FIO.succeedWith(fun () -> handedOff.Set()).FlatMap(fun () -> FIO.never ())
 
                             try
                                 let server, port, probe =
                                     serveAndConnect runtime (fun port ->
                                         fio {
                                             let! config = ServerSocketConfig.create "127.0.0.1" port
-                                            return! ServerSocket.serve config (fun _ -> FIO.never ())
+                                            return!
+                                                ServerSocket.withServerSocket config (fun serverSocket ->
+                                                    listening.Value <- Some serverSocket.NetSocket
+                                                    ServerSocket.acceptLoop handler serverSocket)
                                         })
                                 use probe = probe
 
                                 Expect.isTrue probe.Connected "The server should start listening"
+                                Expect.isTrue (handedOff.Wait(TimeSpan.FromSeconds 5.0)) "The loop should hand the probe to a handler"
 
                                 Thread.Sleep 100
                                 let blocker =
@@ -138,6 +146,13 @@ let cancellationTests =
                                 client.Connect(IPAddress.Loopback, port)
                                 client.ReceiveTimeout <- 1_000
                                 Thread.Sleep 50
+                                let backlogged () = listening.Value.Value.Poll(0, Sockets.SelectMode.SelectRead)
+                                let waited = Stopwatch.StartNew()
+                                while backlogged () && waited.ElapsedMilliseconds < 5_000L do
+                                    Thread.Sleep 1
+
+                                Expect.isFalse (backlogged ()) "The loop should take the connection off the backlog"
+
                                 control.Run(server.InterruptNow()).Task().Wait()
                                 unblock.Set()
                                 blocker.Task().Wait()
