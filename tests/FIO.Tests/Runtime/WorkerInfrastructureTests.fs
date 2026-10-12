@@ -1,8 +1,6 @@
 module FIO.Tests.WorkerInfrastructureTests
 
 open FIO.Runtime
-open FIO.Runtime.Polling
-open FIO.Runtime.Signaling
 open FIO.Runtime.WorkStealing
 
 open System
@@ -21,13 +19,10 @@ let workerInfrastructureTests =
                         [
                             "EvaluationWorkers = 0", { WorkerConfig.Default with EvaluationWorkers = 0 }, "EWC: 0"
                             "EvaluationSteps = 0", { WorkerConfig.Default with EvaluationSteps = 0 }, "EWS: 0"
-                            "BlockingWorkers = 0", { WorkerConfig.Default with BlockingWorkers = 0 }, "BWC: 0"
                         ]
 
                     for runtimeName, make in
                         [
-                            "PollingRuntime", (fun config -> new PollingRuntime(config) :> FIORuntime)
-                            "SignalingRuntime", (fun config -> new SignalingRuntime(config) :> FIORuntime)
                             "WorkStealingRuntime", (fun config -> new WorkStealingRuntime(config) :> FIORuntime)
                         ] do
                         for field, config, shown in invalid ->

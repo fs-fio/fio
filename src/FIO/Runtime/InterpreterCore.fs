@@ -50,6 +50,11 @@ let interruptionFor (fiberContext: FiberContext) (fallbackMessage: string) =
     else
         FiberInterruptedException(fiberContext.Id, ExplicitInterrupt, fallbackMessage) :> obj
 
+let interruptedEffect (fiberContext: FiberContext) (fallbackMessage: string) : FIO<obj, obj> =
+    match interruptionFor fiberContext fallbackMessage with
+    | :? FiberInterruptedException as interruption -> Interrupt(interruption.cause, interruption.message)
+    | _ -> Interrupt(ExplicitInterrupt, fallbackMessage)
+
 [<MethodImpl(MethodImplOptions.NoInlining)>]
 let interruptedOnRegionExit (fiberContext: FiberContext) (outcome: Outcome) =
     match outcome with
@@ -359,9 +364,7 @@ let settledTaskEffect (waited: Task<obj>) (fiberContext: FiberContext) (suppress
     if waited.IsCompletedSuccessfully then
         Success waited.Result
     elif endsByInterruption waited fiberContext suppressed then
-        match interruptionFor fiberContext "Task has been cancelled." with
-        | :? FiberInterruptedException as interruption -> Interrupt(interruption.cause, interruption.message)
-        | _ -> Interrupt(ExplicitInterrupt, "Task has been cancelled.")
+        interruptedEffect fiberContext "Task has been cancelled."
     else
         let ex = failureOf waited
 
@@ -409,9 +412,7 @@ let parkUntilWritable
         let effect =
             try
                 if suppressed = 0 && fiberContext.CancellationToken.IsCancellationRequested then
-                    match interruptionFor fiberContext "Fiber was interrupted while blocked on a channel write." with
-                    | :? FiberInterruptedException as interruption -> Interrupt(interruption.cause, interruption.message)
-                    | _ -> Interrupt(ExplicitInterrupt, "Fiber was interrupted while blocked on a channel write.")
+                    interruptedEffect fiberContext "Fiber was interrupted while blocked on a channel write."
                 else
                     writeEffect
             with ex ->
@@ -516,73 +517,6 @@ let tryFindTerminalIndex (fiberContexts: FiberContext list) =
             remaining <- remaining.Tail
 
     result
-
-[<MethodImpl(MethodImplOptions.NoInlining)>]
-let parkJoinFirstOnQueue
-    (fiberContexts: FiberContext list)
-    (currentFiberContext: FiberContext)
-    (suppressed: int)
-    (workItem: WorkItem)
-    (reschedule: Action<WorkItem>) =
-    let waiter = parkBlockingWaiter currentFiberContext suppressed workItem reschedule
-
-    for fiberContext in fiberContexts do
-        let addVt = fiberContext.AddBlockingWorkItem waiter
-
-        if not addVt.IsCompletedSuccessfully then
-            addVt.AsTask() |> ignore
-
-    for fiberContext in fiberContexts do
-        fiberContext.RescheduleOnEnd reschedule
-
-[<MethodImpl(MethodImplOptions.NoInlining)>]
-let parkJoinFirstOnHooks
-    (fiberContexts: FiberContext list)
-    (currentFiberContext: FiberContext)
-    (suppressed: int)
-    (workItem: WorkItem)
-    (reschedule: Action<WorkItem>) =
-    let cancellationToken = currentFiberContext.CancellationToken
-    let waiter = BlockingWaiter workItem
-    waiter.Disarm()
-
-    let wake () =
-        if waiter.TryClaim() then
-            reschedule.Invoke waiter.WorkItem
-
-    if suppressed = 0 then
-        let registration =
-            cancellationToken.Register(fun () ->
-                try
-                    wake ()
-                with _ ->
-                    ())
-        waiter.SetRegistration registration
-
-    for fiberContext in fiberContexts do
-        fiberContext.SetOnTerminal wake
-
-    waiter.Arm()
-
-    if suppressed = 0 && cancellationToken.IsCancellationRequested then
-        wake ()
-
-    for fiberContext in fiberContexts do
-        if fiberContext.IsTerminal() then
-            wake ()
-
-[<MethodImpl(MethodImplOptions.NoInlining)>]
-let parkJoinAllFailFastOnQueue
-    (fiberContexts: FiberContext[])
-    (currentFiberContext: FiberContext)
-    (suppressed: int)
-    (workItem: WorkItem)
-    (reschedule: Action<WorkItem>) =
-    let waiter = parkBlockingWaiter currentFiberContext suppressed workItem reschedule
-
-    registerJoinAllLatch fiberContexts <| fun () ->
-        if waiter.TryClaim() then
-            reschedule.Invoke waiter.WorkItem
 
 [<MethodImpl(MethodImplOptions.NoInlining)>]
 let awaitJoinAllSettled

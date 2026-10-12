@@ -5,12 +5,12 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/fs-fio/fio/blob/main/LICENSE.md)
 
 Macro benchmarks for the [FIO](https://github.com/fs-fio/fio) effect system, built on
-[BenchmarkDotNet](https://benchmarkdotnet.org/). Every workload runs across all four runtimes
+[BenchmarkDotNet](https://benchmarkdotnet.org/). Every workload runs across both runtimes
 and reports **both execution time and allocated memory**, so a run is a full performance profile
 of the scheduler and channel machinery — not just a single number.
 
 - **12 workloads** — 11 classic concurrency benchmarks + a parallel-combinator microbenchmark
-- **4 runtimes** — Direct, Polling, Signaling, WorkStealing, compared side by side
+- **2 runtimes** — Direct, WorkStealing, compared side by side
 - **Time + memory** — each benchmark is `[<MemoryDiagnoser>]`, so allocations show up too
 - **Tunable** — worker config and per-benchmark parameters set via environment variables
 - **Plotting & A/B** — `plot.py` for charts, `compare.py` for regression-flagging diffs
@@ -62,7 +62,7 @@ dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Fork*" -
 dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Fork*" --exporters GitHub
 ```
 
-The full run (`--filter "*"`) executes all 12 benchmarks × all parameter combinations × 4 runtimes × 30 iterations. This produces a comprehensive performance profile across Direct, Polling, Signaling, and WorkStealing runtimes.
+The full run (`--filter "*"`) executes all 12 benchmarks × all parameter combinations × 2 runtimes × 30 iterations. This produces a comprehensive performance profile across the Direct and WorkStealing runtimes.
 
 > Passing `--job` (or `-j`) on the command line (e.g. `--job Dry` or `-j Short`) **overrides** the
 > env-var-configured job — only the CLI job runs. Omit it to honor `FIO_BENCH_WARMUP` /
@@ -77,35 +77,33 @@ All parameters are configurable via environment variables. If unset, sensible de
 ### Runtimes
 
 ```bash
-FIO_BENCH_RUNTIMES="Direct,WorkStealing-8-100-2"
+FIO_BENCH_RUNTIMES="Direct,WorkStealing-8-100"
 ```
 
-Default: `Direct,Polling-12-200-1,Signaling-12-200-1,WorkStealing-12-200-1`
+Default: `Direct,WorkStealing-12-200`
 
-Runtime spec format: `Direct` | `Polling-{EWC}-{EWS}-{BWC}` | `Signaling-{EWC}-{EWS}-{BWC}` | `WorkStealing-{EWC}-{EWS}-{BWC}`
+Runtime spec format: `Direct` | `WorkStealing-{EWC}-{EWS}`
 
 | Param | Meaning | Recommended |
 |-------|---------|-------------|
-| **EWC** | Evaluation worker count (fiber schedulers) | `CPU cores - 2` (reserves 1 for the `Polling` blocking worker + 1 for OS/BDN) |
+| **EWC** | Evaluation worker count (fiber schedulers) | `CPU cores - 2` (reserves headroom for the OS/BDN harness) |
 | **EWS** | Evaluation steps per work item before rescheduling | `100`–`300` (default: `200`) |
-| **BWC** | Blocking worker count — used by `PollingRuntime`; **ignored by `SignalingRuntime` and `WorkStealingRuntime`** (must still be > 0) | `1` |
 
 **Tuning guidance:**
-- **EWC** — Set to `nproc - 2` to leave one core for the `Polling` blocking worker and one for the OS/BDN harness. More workers than available cores causes contention; fewer underutilizes the machine.
+- **EWC** — Set to `nproc - 2` to leave headroom for the OS/BDN harness. More workers than available cores causes contention; fewer underutilizes the machine.
 - **EWS** — Higher values reduce scheduling overhead but increase tail latency. `200` is a good balance. Use `100` for latency-sensitive workloads, `300`+ for throughput-heavy ones.
-- **BWC** — `1`.
 
 **Quick reference by machine:**
 
 | Cores | Recommended spec |
 |:-----:|-----------------|
-| 4 | `WorkStealing-2-200-1` |
-| 8 | `WorkStealing-6-200-1` |
-| 10 | `WorkStealing-8-200-1` |
-| 14 | `WorkStealing-12-200-1` |
-| 16 | `WorkStealing-14-200-1` |
-| 32 | `WorkStealing-30-200-1` |
-| 64 | `WorkStealing-62-200-1` |
+| 4 | `WorkStealing-2-200` |
+| 8 | `WorkStealing-6-200` |
+| 10 | `WorkStealing-8-200` |
+| 14 | `WorkStealing-12-200` |
+| 16 | `WorkStealing-14-200` |
+| 32 | `WorkStealing-30-200` |
+| 64 | `WorkStealing-62-200` |
 
 ### Benchmark Parameters
 
@@ -139,7 +137,7 @@ Runtime spec format: `Direct` | `Polling-{EWC}-{EWS}-{BWC}` | `Signaling-{EWC}-{
 ### Full Example
 
 ```bash
-FIO_BENCH_RUNTIMES="WorkStealing-12-200-1" FIO_BENCH_FORK_ACTORS="5000,25000" \
+FIO_BENCH_RUNTIMES="WorkStealing-12-200" FIO_BENCH_FORK_ACTORS="5000,25000" \
   dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Fork*"
 ```
 

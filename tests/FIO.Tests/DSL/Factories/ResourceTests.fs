@@ -6,8 +6,6 @@ open FIO.Tests.Utilities.FsCheckProperties
 open FIO.DSL
 open FIO.Runtime
 open FIO.Runtime.Direct
-open FIO.Runtime.Polling
-open FIO.Runtime.Signaling
 open FIO.Runtime.WorkStealing
 
 open Expecto
@@ -288,8 +286,6 @@ let tests =
 
                             for name, make in
                                 [
-                                    "PollingRuntime", (fun () -> new PollingRuntime(oneWorker) :> FIORuntime)
-                                    "SignalingRuntime", (fun () -> new SignalingRuntime(oneWorker) :> FIORuntime)
                                     "WorkStealingRuntime", (fun () -> new WorkStealingRuntime(oneWorker) :> FIORuntime)
                                 ] ->
                                 testCase name (fun () ->

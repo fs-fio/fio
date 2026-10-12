@@ -15,8 +15,6 @@ module internal WorkerRuntimeDefaults =
 
     let EvaluationWorkerSteps = 200
 
-    let BlockingWorkerCount = 1
-
     let ComputeEvaluationWorkerCount () =
         let availableWorkers = Environment.ProcessorCount - ProcessorReserve
 
@@ -97,7 +95,7 @@ type internal WorkItemPool private () =
             workItem.InterruptionSuppressed <- 0
             pool.Push workItem
 
-type internal WorkStealingDeque(initialCapacity: int) =
+type internal LockedWorkDeque(initialCapacity: int) =
     let mutable items = Array.zeroCreate initialCapacity
 
     let mutable mask = initialCapacity - 1
@@ -224,15 +222,6 @@ type FIORuntime internal () =
     /// discards a fiber already running, so call it as often as you like.
     abstract member Run<'A, 'E> : FIO<'A, 'E> -> Fiber<'A, 'E>
 
-    /// Returns a filesystem-safe form of this runtime's display string (its name and configuration).
-    member this.ToFileString () : string =
-        this.ToString()
-            .ToLowerInvariant()
-            .Replace("(", "")
-            .Replace(")", "")
-            .Replace(":", "")
-            .Replace(' ', '-')
-
     override this.ToString () : string =
         this.ConfigString
 
@@ -304,9 +293,6 @@ type WorkerConfig =
         EvaluationWorkers: int
         /// Number of evaluation steps a work item runs before being rescheduled.
         EvaluationSteps: int
-        /// Number of workers that handle blocking operations; only PollingRuntime has them, but every worker runtime
-        /// requires a positive value.
-        BlockingWorkers: int
     }
 
     /// The default configuration, sized to the current machine.
@@ -314,5 +300,4 @@ type WorkerConfig =
         {
             EvaluationWorkers = WorkerRuntimeDefaults.ComputeEvaluationWorkerCount()
             EvaluationSteps = WorkerRuntimeDefaults.EvaluationWorkerSteps
-            BlockingWorkers = WorkerRuntimeDefaults.BlockingWorkerCount
         }

@@ -26,7 +26,7 @@ BYTE_UNITS = {
     "MB": 1024.0 ** 2,
     "GB": 1024.0 ** 3,
 }
-RUNTIME_PATTERN = re.compile(r"^(Direct|Polling|Signaling|WorkStealing)(-\d+-\d+-\d+)?$")
+RUNTIME_PATTERN = re.compile(r"^(Direct|Polling|Signaling|WorkStealing)(-\d+-\d+(-\d+)?)?$")
 LOG_SCALE_THRESHOLD = 10.0
 
 

@@ -30,8 +30,6 @@
         <Compile Include="Runtime\WorkerInfrastructure.fs" />
         <Compile Include="Runtime\InterpreterCore.fs" />
         <Compile Include="Runtime\DirectRuntime.fs" />
-        <Compile Include="Runtime\PollingRuntime.fs" />
-        <Compile Include="Runtime\SignalingRuntime.fs" />
         <Compile Include="Runtime\WorkStealingRuntime.fs" />
         <Compile Include="Runtime\DefaultRuntime.fs" />
         <Compile Include="App.fs" />

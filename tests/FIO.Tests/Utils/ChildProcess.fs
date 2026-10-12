@@ -5,8 +5,6 @@ open FIO.Tests.Utilities
 open FIO.App
 open FIO.DSL
 open FIO.Runtime
-open FIO.Runtime.Polling
-open FIO.Runtime.Signaling
 open FIO.Runtime.WorkStealing
 
 open System
@@ -61,8 +59,6 @@ let private runApp (app: FIOApp<unit, exn>) =
 
 let private workerRuntimes : (string * (unit -> FIORuntime)) list =
     [
-        "PollingRuntime", (fun () -> new PollingRuntime(testConfig) :> FIORuntime)
-        "SignalingRuntime", (fun () -> new SignalingRuntime(testConfig) :> FIORuntime)
         "WorkStealingRuntime", (fun () -> new WorkStealingRuntime(testConfig) :> FIORuntime)
     ]
 

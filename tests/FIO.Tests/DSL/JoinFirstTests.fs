@@ -122,40 +122,4 @@ let joinFirstTests =
                     | InvalidArgument _ -> ()
                     | cause -> failtest $"joinFirst on an empty list should interrupt with InvalidArgument, got cause: %A{cause}"
                 | other -> failtest $"joinFirst on an empty list should interrupt with InvalidArgument, got: %A{other}")
-
-            testCase "parkJoinFirstOnHooks - a park that wakes its parent while installing hooks leaves the next park's hook in place" (fun () ->
-                let settled = new FiberContext()
-                let pending = new FiberContext()
-                let parent = new FiberContext()
-                let newWorkItem () =
-                    { Effect = Unchecked.defaultof<_>; FiberContext = parent; ContStack = null; InterruptionSuppressed = 0 }
-                let first = newWorkItem ()
-                let second = newWorkItem ()
-                let rescheduled = ResizeArray<string>()
-                let rec onReschedule (workItem: WorkItem) =
-                    if obj.ReferenceEquals(workItem, first) then
-                        rescheduled.Add "first"
-                        InterpreterCore.parkJoinFirstOnHooks [ pending ] parent 0 second (Action<WorkItem> onReschedule)
-                    else
-                        rescheduled.Add "second"
-                settled.Complete(Ok(box 1))
-
-                InterpreterCore.parkJoinFirstOnHooks [ settled; pending ] parent 0 first (Action<WorkItem> onReschedule)
-
-                Expect.equal (List.ofSeq rescheduled) [ "first" ] "the settled fiber should wake the first park at once"
-
-                pending.Complete(Ok(box 2))
-
-                Expect.equal (List.ofSeq rescheduled) [ "first"; "second" ] "the second park should be woken when its fiber settles")
-
-            testCase "parkJoinFirstOnHooks - a park whose parent is already interrupted wakes at once" (fun () ->
-                let pending = new FiberContext()
-                let parent = new FiberContext()
-                let workItem = { Effect = Unchecked.defaultof<_>; FiberContext = parent; ContStack = null; InterruptionSuppressed = 0 }
-                let rescheduled = ResizeArray<WorkItem>()
-                parent.Interrupt()
-
-                InterpreterCore.parkJoinFirstOnHooks [ pending ] parent 0 workItem (Action<WorkItem> rescheduled.Add)
-
-                Expect.equal rescheduled.Count 1 "an interrupted parent should be rescheduled without waiting for its fibers")
         ]

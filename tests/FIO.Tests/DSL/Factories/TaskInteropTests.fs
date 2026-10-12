@@ -5,8 +5,6 @@ open FIO.Tests.Utilities.FsCheckProperties
 
 open FIO.DSL
 open FIO.Runtime
-open FIO.Runtime.Polling
-open FIO.Runtime.Signaling
 open FIO.Runtime.WorkStealing
 
 open Expecto
@@ -96,9 +94,7 @@ let tests =
 
                     testCase "awaitTask - a throwing onError resumed on a worker thread surfaces the task error instead of crashing the process" (fun () ->
                         let workerRuntimes: FIORuntime list =
-                            [ new PollingRuntime()
-                              new SignalingRuntime()
-                              new WorkStealingRuntime() ]
+                            [ new WorkStealingRuntime() ]
 
                         for runtime in workerRuntimes do
                             let faulting: Task<int> =

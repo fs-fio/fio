@@ -5,8 +5,6 @@ open System.Threading
 
 open FIO.Runtime
 open FIO.Runtime.Direct
-open FIO.Runtime.Polling
-open FIO.Runtime.Signaling
 open FIO.Runtime.WorkStealing
 
 open Expecto
@@ -17,8 +15,6 @@ let testConfig = { WorkerConfig.Default with EvaluationWorkers = 2 }
 let allRuntimes () =
     [
         new DirectRuntime() :> FIORuntime
-        new PollingRuntime(testConfig) :> FIORuntime
-        new SignalingRuntime(testConfig) :> FIORuntime
         new WorkStealingRuntime(testConfig) :> FIORuntime
     ]
 
@@ -60,8 +56,6 @@ module FsCheckProperties =
             Gen.oneof
                 [
                     Gen.constant (new DirectRuntime() :> FIORuntime)
-                    Gen.constant (new PollingRuntime(testConfig) :> FIORuntime)
-                    Gen.constant (new SignalingRuntime(testConfig) :> FIORuntime)
                     Gen.constant (new WorkStealingRuntime(testConfig) :> FIORuntime)
                 ]
             |> Arb.fromGen

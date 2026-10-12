@@ -168,8 +168,6 @@ Effects are interpreted by a runtime. Pick one explicitly, or use `DefaultRuntim
 | Runtime | Notes |
 |---------|-------|
 | `DirectRuntime` | Multi-threaded via the .NET thread pool — one task per fiber, no scheduler of its own. Handy for tests and as a baseline. |
-| `PollingRuntime` | Multi-threaded, linear-time handling of blocked fibers (polling). |
-| `SignalingRuntime` | Multi-threaded, event-driven handling of blocked fibers. |
 | `WorkStealingRuntime` | Multi-threaded, work-stealing scheduler. **The default.** |
 
 `DefaultRuntime = WorkStealingRuntime` — `FIOApp` uses it unless you `override _.runtime`.

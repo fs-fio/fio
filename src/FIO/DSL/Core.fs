@@ -58,22 +58,12 @@ and [<Sealed>] internal BlockingWaiter(workItem: WorkItem) =
     member _.SetRegistration (value: CancellationTokenRegistration) =
         registration <- value
 
-    member _.Disarm () =
-        claimed <- 2
-
-    member _.Arm () =
-        Interlocked.CompareExchange(&claimed, 0, 2) |> ignore
-
     member _.TryClaim () =
         if tryClaim &claimed then
             registration.Dispose()
             true
         else
             false
-
-and internal BlockingItem =
-    | BlockingChannel of channel: Channel<obj> * waitingWorkItem: WorkItem
-    | BlockingFiber of fiberContext: FiberContext * waitingWorkItem: WorkItem
 
 /// The outcome of running a fiber to completion: success, failure, or interruption.
 and FiberResult<'A, 'E> =
@@ -107,9 +97,6 @@ and [<Sealed; AllowNullLiteral>] internal MailboxQueue<'A> private (channel: Cha
 
     member internal _.WaitToWriteAsync (cancellationToken: CancellationToken) =
         writer.WaitToWriteAsync cancellationToken
-
-    member internal _.ReadAsync () =
-        reader.ReadAsync()
 
     member internal _.TryRead (value: byref<'A>) =
         reader.TryRead &value
@@ -435,18 +422,19 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
     member _.CancellationToken : CancellationToken =
         fiberContext.CancellationToken
 
+    static member inline private ClassifyResult (result: Result<obj, obj>) : FiberResult<'A, 'E> =
+        match result with
+        | Ok value -> Succeeded(value :?> 'A)
+        | Error error ->
+            match error with
+            | :? FiberInterruptedException as ex -> Interrupted ex
+            | _ -> Failed(error :?> 'E)
+
     /// Returns a task that completes with this fiber's result, for interop with task-based code.
     member _.Task () : Task<FiberResult<'A, 'E>> =
         task {
-            match! fiberContext.Task with
-            | Ok value ->
-                return Succeeded(value :?> 'A)
-            | Error error ->
-                match error with
-                | :? FiberInterruptedException as ex ->
-                    return Interrupted ex
-                | _ ->
-                    return Failed(error :?> 'E)
+            let! result = fiberContext.Task
+            return Fiber<'A, 'E>.ClassifyResult result
         }
 
     /// Returns an effect that waits for this fiber to complete and yields its success value.
@@ -480,15 +468,7 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
             if not (fiberContext.IsTerminal()) then
                 None
             else
-                match fiberContext.Task.Result with
-                | Ok value ->
-                    Some(Succeeded(value :?> 'A))
-                | Error error ->
-                    match error with
-                    | :? FiberInterruptedException as ex ->
-                        Some(Interrupted ex)
-                    | _ ->
-                        Some(Failed(error :?> 'E))),
+                Some(Fiber<'A, 'E>.ClassifyResult fiberContext.Task.Result)),
             Rethrow<_>.Instance)
 
     /// Returns an effect that waits for this fiber and continues with the matching handler for success, failure, or interruption.
@@ -610,16 +590,6 @@ and [<Sealed; AllowNullLiteral>] Channel<'A> private
     /// Returns an effect that reads the next message from this channel, suspending the fiber until one is available.
     member this.Read<'E> () : FIO<'A, 'E> =
         ReadChan this
-
-    member internal _.ReadAsync () =
-        let valueTask = valueQueue.ReadAsync()
-        if valueTask.IsCompletedSuccessfully then
-            ValueTask<'A>(valueTask.Result :?> 'A)
-        else
-            ValueTask<'A>(task {
-                let! value = valueTask
-                return value :?> 'A
-            })
 
     member internal _.BlockingWorkItemCount =
         blockingSlot.Count

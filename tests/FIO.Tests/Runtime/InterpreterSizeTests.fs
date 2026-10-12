@@ -104,7 +104,7 @@ let interpreterSizeTests =
     testList
         "Interpreter size"
         [
-            for runtime in [ "Direct"; "Polling"; "Signaling"; "WorkStealing" ] ->
+            for runtime in [ "Direct"; "WorkStealing" ] ->
                 testCase $"{runtime}Runtime - interpreter loop stays under the JIT's optimization limit"
                 <| fun () ->
                     if not optimizedBuild then

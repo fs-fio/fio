@@ -5,8 +5,6 @@ open FIO.WebSockets.Tests.Utilities
 open FIO.DSL
 open FIO.Runtime
 open FIO.WebSockets
-open FIO.Runtime.Polling
-open FIO.Runtime.Signaling
 open FIO.Runtime.WorkStealing
 
 open System
@@ -26,8 +24,6 @@ let private testSingleWorkerRuntimes name (test: FIORuntime -> unit) =
         [
             for runtimeName, make in
                 [
-                    "PollingRuntime", (fun () -> new PollingRuntime(config) :> FIORuntime)
-                    "SignalingRuntime", (fun () -> new SignalingRuntime(config) :> FIORuntime)
                     "WorkStealingRuntime", (fun () -> new WorkStealingRuntime(config) :> FIORuntime)
                 ] ->
                 testCase runtimeName (fun () ->

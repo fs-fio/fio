@@ -40,7 +40,7 @@ type internal Scheduler(workerCount: int) =
 
     let runNext: WorkItem[] = Array.zeroCreate workerCount
 
-    let deques = Array.init workerCount (fun _ -> WorkStealingDeque(DequeCapacity))
+    let deques = Array.init workerCount (fun _ -> LockedWorkDeque DequeCapacity)
 
     let tick = Array.zeroCreate workerCount
 

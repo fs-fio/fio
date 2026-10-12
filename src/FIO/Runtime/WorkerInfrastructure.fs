@@ -13,10 +13,10 @@ type FIOWorkerRuntime internal (config: WorkerConfig) =
     static let cultureEnUs = CultureInfo "en-US"
 
     static let describe (config: WorkerConfig) =
-        $"""EWC: %s{config.EvaluationWorkers.ToString("N0", cultureEnUs)} EWS: %s{config.EvaluationSteps.ToString("N0", cultureEnUs)} BWC: %s{config.BlockingWorkers.ToString("N0", cultureEnUs)}"""
+        $"""EWC: %s{config.EvaluationWorkers.ToString("N0", cultureEnUs)} EWS: %s{config.EvaluationSteps.ToString("N0", cultureEnUs)}"""
 
     let validateWorkerConfiguration () =
-        if config.EvaluationWorkers <= 0 || config.EvaluationSteps <= 0 || config.BlockingWorkers <= 0 then
+        if config.EvaluationWorkers <= 0 || config.EvaluationSteps <= 0 then
             invalidArg "config" $"Invalid worker configuration! %s{describe config}"
 
     do validateWorkerConfiguration ()
@@ -55,18 +55,3 @@ module internal WorkerLifecycle =
             ).Unwrap()
 
         struct (cancelSource, workerTask)
-
-module internal WorkerBuilders =
-
-    let inline buildPairedWorkers
-        (blockingCount: int)
-        (evaluationCount: int)
-        ([<InlineIfLambda>] blockingFactory: int -> 'A)
-        ([<InlineIfLambda>] evaluationFactory: int -> 'A -> 'A1) =
-        let blockingWorkers = List.init blockingCount blockingFactory
-        let blockingWorkerCount = blockingWorkers.Length
-
-        let evaluationWorkers =
-            List.init evaluationCount (fun i -> evaluationFactory i blockingWorkers[i % blockingWorkerCount])
-
-        struct (blockingWorkers, evaluationWorkers)

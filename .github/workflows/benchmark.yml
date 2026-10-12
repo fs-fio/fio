@@ -55,7 +55,7 @@ jobs:
       - name: Smoke test (all benchmarks × all runtimes, tiny params — fail fast on hang/throw)
         timeout-minutes: 10
         env:
-          FIO_BENCH_RUNTIMES: "Direct,Polling-2-200-1,Signaling-2-200-1,WorkStealing-2-200-1"
+          FIO_BENCH_RUNTIMES: "Direct,WorkStealing-2-200"
           FIO_BENCH_BANG_ACTORS: "4"
           FIO_BENCH_BANG_ROUNDS: "10"
           FIO_BENCH_BIG_ACTORS: "4"
@@ -79,7 +79,7 @@ jobs:
       - name: Run Pingpong benchmark (all runtimes)
         timeout-minutes: 20
         env:
-          FIO_BENCH_RUNTIMES: "Direct,Polling-2-200-1,Signaling-2-200-1,WorkStealing-2-200-1"
+          FIO_BENCH_RUNTIMES: "Direct,WorkStealing-2-200"
           FIO_BENCH_PINGPONG_ROUNDS: "50000"
           FIO_BENCH_WARMUP: "1"
           FIO_BENCH_ITERATIONS: "5"

@@ -85,9 +85,6 @@ module CE =
                     FIO.unit ()
             (body resource).Ensuring dispose
 
-        member inline _.Match<'A, 'E, 'T> (value: 'T, cases: 'T -> FIO<'A, 'E>) : FIO<'A, 'E> =
-            cases value
-
         member inline _.MergeSources<'A, 'A1, 'E> (effect: FIO<'A, 'E>, effect': FIO<'A1, 'E>) : FIO<'A * 'A1, 'E> =
             effect.ZipPar effect'
 

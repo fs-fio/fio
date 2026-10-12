@@ -37,7 +37,7 @@ BYTE_UNITS = {
     "MB": 1024.0 ** 2,
     "GB": 1024.0 ** 3,
 }
-RUNTIME_PATTERN = re.compile(r"^(Direct|Polling|Signaling|WorkStealing)(-\d+-\d+-\d+)?$")
+RUNTIME_PATTERN = re.compile(r"^(Direct|Polling|Signaling|WorkStealing)(-\d+-\d+(-\d+)?)?$")
 
 JOB_CHARACTERISTIC_COLS = {
     "AnalyzeLaunchVariance", "EvaluateOverhead", "MaxAbsoluteError", "MaxRelativeError",
@@ -189,6 +189,7 @@ def self_test() -> int:
     assert parse_scalar("NA", BYTE_UNITS) != parse_scalar("NA", BYTE_UNITS)  # NaN
     assert extract_benchmark_name("FIO.Benchmarks.Benchmarks.ForkBenchmark-report.csv") == "Fork"
     assert RUNTIME_PATTERN.match("WorkStealing-12-200-1")
+    assert RUNTIME_PATTERN.match("WorkStealing-12-200")
     assert RUNTIME_PATTERN.match("Direct")
     assert not RUNTIME_PATTERN.match(".NET 10.0")
     assert delta(100.0, 90.0) == -10.0

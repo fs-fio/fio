@@ -4,8 +4,6 @@ open FIO.DSL
 open FIO.Runtime
 open FIO.WebSockets
 open FIO.Runtime.Direct
-open FIO.Runtime.Polling
-open FIO.Runtime.Signaling
 open FIO.Runtime.WorkStealing
 
 open System
@@ -27,8 +25,6 @@ module FsCheckProperties =
             Gen.oneof
                 [
                     Gen.constant (new DirectRuntime() :> FIORuntime)
-                    Gen.constant (new PollingRuntime(testConfig) :> FIORuntime)
-                    Gen.constant (new SignalingRuntime(testConfig) :> FIORuntime)
                     Gen.constant (new WorkStealingRuntime(testConfig) :> FIORuntime)
                 ]
             |> Arb.fromGen
@@ -45,8 +41,6 @@ type TestMessage = { Id: int; Text: string }
 let runtimes () =
     [
         new DirectRuntime() :> FIORuntime
-        new PollingRuntime(testConfig) :> FIORuntime
-        new SignalingRuntime(testConfig) :> FIORuntime
         new WorkStealingRuntime(testConfig) :> FIORuntime
     ]
 

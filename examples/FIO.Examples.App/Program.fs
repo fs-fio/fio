@@ -464,7 +464,6 @@ type CustomRuntimeApp() =
         new WorkStealingRuntime {
             EvaluationWorkers = Environment.ProcessorCount * 2
             EvaluationSteps = 500
-            BlockingWorkers = 2
         }
 
     override _.effect =
@@ -472,7 +471,6 @@ type CustomRuntimeApp() =
             do! Console.printLine "Running with custom WorkStealingRuntime configuration:" id
             do! Console.printLine $" - Evaluation Workers: %d{Environment.ProcessorCount * 2}" id
             do! Console.printLine " - Evaluation Steps: 500" id
-            do! Console.printLine " - Blocking Workers: 2" id
         }
 
 // Ctrl+C releases the resource through its acquireReleaseWith finalizer; onShutdown only says goodbye.

@@ -6,8 +6,6 @@ open FIO.Tests.Utilities.FsCheckProperties
 open FIO.DSL
 open FIO.Runtime
 open FIO.Runtime.Direct
-open FIO.Runtime.Polling
-open FIO.Runtime.Signaling
 open FIO.Runtime.WorkStealing
 
 open Expecto
@@ -25,8 +23,6 @@ let private testFreshRuntimes name (test: FIORuntime -> unit) =
             for runtimeName, make in
                 [
                     "DirectRuntime", (fun () -> new DirectRuntime() :> FIORuntime)
-                    "PollingRuntime", (fun () -> new PollingRuntime(testConfig) :> FIORuntime)
-                    "SignalingRuntime", (fun () -> new SignalingRuntime(testConfig) :> FIORuntime)
                     "WorkStealingRuntime", (fun () -> new WorkStealingRuntime(testConfig) :> FIORuntime)
                 ] ->
                 testCase runtimeName (fun () -> test (make ()))
@@ -51,8 +47,6 @@ let private cpuAddedByInterruptedWait (runtime: FIORuntime) (wait: FIO<unit, str
 
 let private workerRuntimes : (string * (unit -> FIORuntime)) list =
     [
-        "PollingRuntime", (fun () -> new PollingRuntime(testConfig) :> FIORuntime)
-        "SignalingRuntime", (fun () -> new SignalingRuntime(testConfig) :> FIORuntime)
         "WorkStealingRuntime", (fun () -> new WorkStealingRuntime(testConfig) :> FIORuntime)
     ]
 
@@ -502,46 +496,6 @@ let conformanceTests =
                             $"{runtime.GetType().Name}: Run must schedule and return, not run the effect on the caller's thread"
 
                         fiber.UnsafeResult() |> ignore
-
-                    testSequenced (
-                        stressTestCase "PollingRuntime - an idle blocked fiber does not burn CPU"
-                        <| fun () ->
-                            use runtime = new PollingRuntime(testConfig)
-                            let channel = Channel<int>()
-
-                            let ambient = lowestCpuSecondsOf 3
-                            runtime.Run(channel.Read().Unit(): FIO<unit, string>) |> ignore
-                            Thread.Sleep 300
-                            let added = lowestCpuSecondsOf 3 - ambient
-
-                            Expect.isLessThan
-                                added
-                                0.4
-                                $"A blocked fiber must not keep a PollingRuntime worker spinning (added {added:F2} CPU-seconds/s over {ambient:F2} ambient)")
-
-                    testSequenced (
-                        testList
-                            "PollingRuntime - an interrupted fiber waiting uninterruptibly does not burn CPU"
-                            [
-                                stressTestCase "on a channel read" (fun () ->
-                                    use runtime = new PollingRuntime(testConfig)
-                                    let channel = Channel<int>()
-
-                                    let added = cpuAddedByInterruptedWait runtime (channel.Read().Unit())
-                                    runtime.Run(channel.Write 1: FIO<int, string>).UnsafeResult() |> ignore
-
-                                    Expect.isLessThan added 0.4 $"An interruption the fiber cannot act on yet must not make the workers spin (added {added:F2} CPU-seconds per 0.4 s)")
-
-                                stressTestCase "on a join" (fun () ->
-                                    use runtime = new PollingRuntime(testConfig)
-                                    let gate = TaskCompletionSource<int>()
-                                    let target = runtime.Run(FIO.awaitTask gate.Task (fun ex -> ex.Message))
-
-                                    let added = cpuAddedByInterruptedWait runtime (target.Join().Unit())
-                                    gate.SetResult 1
-
-                                    Expect.isLessThan added 0.4 $"An interruption the fiber cannot act on yet must not make the workers spin (added {added:F2} CPU-seconds per 0.4 s)")
-                            ])
 
                     testSequenced (
                         testList
@@ -1044,8 +998,6 @@ let conformanceTests =
                             for runtimeName, make in
                                 [
                                     "DirectRuntime", (fun () -> new DirectRuntime() :> FIORuntime)
-                                    "PollingRuntime", (fun () -> new PollingRuntime(testConfig) :> FIORuntime)
-                                    "SignalingRuntime", (fun () -> new SignalingRuntime(testConfig) :> FIORuntime)
                                     "WorkStealingRuntime", (fun () -> new WorkStealingRuntime(testConfig) :> FIORuntime)
                                 ] ->
                                 stressTestCase runtimeName (fun () ->
