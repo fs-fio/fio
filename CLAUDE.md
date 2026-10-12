@@ -132,8 +132,6 @@ FIORuntime (abstract)
 - **DirectRuntime** - .NET Tasks, waits for blocked fibers. The reference implementation and benchmark baseline
 - **WorkStealingRuntime** - Custom fibers, **work-stealing** scheduler: per-worker local queues (a `runNext` slot + a work-stealing deque) with work-stealing across idle workers, at-most-one-waker wakeups, and async parking.
 
-(The former `PollingRuntime` and `SignalingRuntime` were removed in the October 2026 simplification — see `docs/simplification/close_out.md` and git history.)
-
 **DefaultRuntime = WorkStealingRuntime** (recommended)
 
 Worker config fields: **EvaluationWorkers** (worker count), **EvaluationSteps** (interpreter steps per work item before a fiber yields). The `EWC`/`EWS` acronyms are the `ConfigString` display labels and the benchmark spec shorthand (`WorkStealing-{EWC}-{EWS}`).
