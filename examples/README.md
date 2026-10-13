@@ -1,8 +1,8 @@
 # FIO Examples
 
 Runnable example projects for [FIO](https://github.com/fs-fio/fio) — the core DSL, the
-`FIOApp` framework, and each extension library. Every project is a self-contained console
-app you can run directly with `dotnet run`.
+`FIOApp` framework, and each extension library. Every project is a console app that builds FIO
+from source; run it from the repository root with the command in its row.
 
 | Example | Shows | Run |
 |---------|-------|-----|

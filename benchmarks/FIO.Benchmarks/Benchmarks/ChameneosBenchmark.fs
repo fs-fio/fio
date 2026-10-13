@@ -23,7 +23,6 @@ module internal Chameneos =
             ReplyChannel: Channel<Response>
         }
 
-    // Returns the resulting color when two creatures of the given colors meet.
     let private complement = function
         | Red, Red -> Red
         | Yellow, Yellow -> Yellow

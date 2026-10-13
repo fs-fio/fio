@@ -123,5 +123,8 @@ let interpreterSizeTests =
                             $"The {runtime} interpreter loop has ~{blocks} basic blocks; at 2,000 the JIT stops optimizing it. Move rarely taken code out of the inlined processOutcome or handleSharedCase"
 
             yield testCase "Cont - stays 56 bytes"
-            <| fun () -> Expect.isLessThanOrEqual (Unsafe.SizeOf<Cont>()) 56 "Cont grew"
+            <| fun () ->
+                let size = Unsafe.SizeOf<Cont>()
+
+                Expect.isLessThanOrEqual size 56 "Cont grew"
         ]

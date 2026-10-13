@@ -378,7 +378,7 @@ let tests =
 
                     testCase "async - delayed callback completes correctly"
                     <| fun () ->
-                        let runtime = new WorkStealingRuntime() :> FIORuntime
+                        use runtime = new WorkStealingRuntime(testConfig) :> FIORuntime
                         let effect =
                             FIO.async (fun cb ->
                                 let _ = Task.Run(fun () ->
@@ -393,7 +393,7 @@ let tests =
 
                     testCase "async - subsequent callback invocations are ignored"
                     <| fun () ->
-                        let runtime = new WorkStealingRuntime() :> FIORuntime
+                        use runtime = new WorkStealingRuntime(testConfig) :> FIORuntime
                         let effect =
                             FIO.async (fun cb ->
                                 cb (Ok 1)

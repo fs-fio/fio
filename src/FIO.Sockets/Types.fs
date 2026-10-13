@@ -53,8 +53,7 @@ module SocketError =
     /// Wraps an exception as a general socket error.
     let fromException ex : SocketError = GeneralError ex
 
-    /// Converts a socket error back into an exception: a GeneralError's own exception, otherwise a new one that keeps
-    /// any wrapped exception as its inner exception.
+    /// Converts a socket error back into an exception: a GeneralError's own, else a new one wrapping any inner exception.
     let toException error : exn =
         match error with
         | GeneralError ex -> ex

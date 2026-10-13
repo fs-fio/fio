@@ -161,8 +161,8 @@ type WebSocket
             return struct (messageType, length, total)
         }
 
-    /// Receives the next complete message with the given cancellation token; a peer's close frame yields
-    /// <c>ConnectionClosed</c>, and an interruption while reading aborts the connection.
+    /// <summary>Receives the next complete message with the given cancellation token; a peer's close frame yields
+    /// <c>ConnectionClosed</c>, and an interruption while reading aborts this connection.</summary>
     member _.ReceiveMessage (cancellationToken: CancellationToken) : FIO<WebSocketMessage, WsError> =
         let bufferSize = config.ReceiveBufferSize
 
@@ -440,8 +440,8 @@ type WebSocket
             return! this.Receive(codec, cancellationToken)
         }
 
-    /// Receives and decodes a value with the given codec and cancellation token; a closed connection or an undecodable
-    /// frame is an outcome, not a failure. Cancelling the token fails with <c>ReceiveFailed</c>.
+    /// <summary>Receives and decodes a value with the given codec and cancellation token; a closed connection or an undecodable
+    /// frame is an outcome, not a failure. Cancelling the token fails with <c>ReceiveFailed</c>.</summary>
     member this.TryReceive<'A> (codec: WebSocketCodec<'A>, cancellationToken: CancellationToken) : FIO<ReceiveOutcome<'A>, WsError> =
         this.Receive(codec, cancellationToken).Map(Received).CatchAll(function
             | Closed reason -> FIO.succeed (Disconnected reason)
@@ -455,8 +455,8 @@ type WebSocket
             return! this.TryReceive(codec, cancellationToken)
         }
 
-    /// Closes the connection with the given status and description, bounded by the send timeout; while another fiber
-    /// is receiving, only the outgoing side closes and that receive ends with <c>ConnectionClosed</c>.
+    /// <summary>Closes this connection with the given status and description, bounded by the send timeout; while another fiber
+    /// is receiving, only the outgoing side closes and that receive ends with <c>ConnectionClosed</c>.</summary>
     member _.Close (closeStatus: WebSocketCloseStatus, statusDescription: string, cancellationToken: CancellationToken) : FIO<unit, WsError> =
         boundedBySendTimeout cancellationToken "Close operation" <| fun effectiveToken ->
             fio {
@@ -492,25 +492,25 @@ type WebSocket
                 return! closeOp.Ensuring finalizer
             }
 
-    /// Closes the connection with the given status and description, using the fiber's cancellation token.
+    /// Closes this connection with the given status and description, using the fiber's cancellation token.
     member this.Close (closeStatus: WebSocketCloseStatus, statusDescription: string) : FIO<unit, WsError> =
         fio {
             let! cancellationToken = FIO.cancellationToken ()
             return! this.Close(closeStatus, statusDescription, cancellationToken)
         }
 
-    /// Closes the connection normally, using the given cancellation token.
+    /// Closes this connection normally, using the given cancellation token.
     member this.Close (cancellationToken: CancellationToken) : FIO<unit, WsError> =
         this.Close(WebSocketCloseStatus.NormalClosure, "Normal closure", cancellationToken)
 
-    /// Closes the connection normally, using the fiber's cancellation token.
+    /// Closes this connection normally, using the fiber's cancellation token.
     member this.Close () : FIO<unit, WsError> =
         fio {
             let! cancellationToken = FIO.cancellationToken ()
             return! this.Close cancellationToken
         }
 
-    /// Closes the outgoing side of the connection with the given status, bounded by the send timeout.
+    /// Closes the outgoing side of this connection with the given status, bounded by the send timeout.
     member _.CloseOutput (closeStatus: WebSocketCloseStatus, statusDescription: string, cancellationToken: CancellationToken) : FIO<unit, WsError> =
         boundedBySendTimeout cancellationToken "Close output operation" <| fun effectiveToken ->
             fio {
@@ -532,19 +532,19 @@ type WebSocket
                 return! closeOp.Ensuring finalizer
             }
 
-    /// Closes the outgoing side of the connection with the given status, using the fiber's cancellation token.
+    /// Closes the outgoing side of this connection with the given status, using the fiber's cancellation token.
     member this.CloseOutput (closeStatus: WebSocketCloseStatus, statusDescription: string) : FIO<unit, WsError> =
         fio {
             let! cancellationToken = FIO.cancellationToken ()
             return! this.CloseOutput(closeStatus, statusDescription, cancellationToken)
         }
 
-    /// Closes the outgoing side of the connection normally.
+    /// Closes the outgoing side of this connection normally.
     member this.CloseOutput () : FIO<unit, WsError> =
         this.CloseOutput(WebSocketCloseStatus.NormalClosure, "Normal closure")
 
-    /// Aborts the connection without a closing handshake: every later operation fails with <c>Closed</c>. A connection
-    /// a server accepted is closed for its peer only once it is disposed.
+    /// <summary>Aborts this connection without a closing handshake: every later operation fails with <c>Closed</c>. A connection
+    /// a server accepted is closed for its peer only once it is disposed.</summary>
     member _.Abort () : FIO<unit, WsError> =
         fio {
             do! attempt <| fun () -> socket.Abort()

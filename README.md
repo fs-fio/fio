@@ -1,17 +1,11 @@
-<div align="center">
-  <a href="https://github.com/fs-fio/fio/">
-    <img src="https://raw.githubusercontent.com/fs-fio/fio/main/assets/logo.png" width="auto" height="250" alt="FIO">
-  </a>
+[![FIO](https://raw.githubusercontent.com/fs-fio/fio/main/assets/logo-readme.png)](https://github.com/fs-fio/fio)
 
-  <p><strong>🪻 A Type-Safe, Purely Functional Effect System for F#</strong></p>
+**🪻 A Type-Safe, Purely Functional Effect System for F#**
 
-  <p>
-    <a href="https://www.nuget.org/packages/FSharp.FIO"><img src="https://img.shields.io/nuget/v/FSharp.FIO.svg?logo=nuget&label=nuget" alt="NuGet"></a>
-    <a href="https://github.com/fs-fio/fio/actions/workflows/test.yml"><img src="https://github.com/fs-fio/fio/actions/workflows/test.yml/badge.svg" alt="Run Tests"></a>
-    <a href="https://github.com/fs-fio/fio/blob/main/LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
-    <img src="https://img.shields.io/badge/.NET-10-512BD4.svg?logo=dotnet" alt=".NET 10">
-  </p>
-</div>
+[![NuGet](https://img.shields.io/nuget/v/FSharp.FIO.svg?logo=nuget&label=nuget)](https://www.nuget.org/packages/FSharp.FIO)
+[![Run Tests](https://github.com/fs-fio/fio/actions/workflows/test.yml/badge.svg)](https://github.com/fs-fio/fio/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/fs-fio/fio/blob/main/LICENSE.md)
+![.NET 10](https://img.shields.io/badge/.NET-10-512BD4.svg?logo=dotnet)
 
 ---
 
@@ -34,6 +28,9 @@ The API takes its cues from [ZIO](https://zio.dev).
 ```bash
 dotnet add package FSharp.FIO --prerelease
 ```
+
+FSharp.FIO needs FSharp.Core 10.1.401 or newer: an F# project on an older FSharp.Core (one it pins, or the
+implicit one of an older SDK) builds with only a downgrade warning (NU1605) and then fails at run time.
 
 ## Quick Start
 
@@ -99,7 +96,7 @@ The methods on `FIO<'A, 'E>` cover most control flow; reach for one before writi
 | Ignore success and failure alike | `.Ignore()` |
 | Recover from failure | `.CatchAll handler`, `.CatchSome handler`, `.OrElse other`, `.OrElseSucceed value`, `.OrElseFail error` |
 | Continue on either outcome | `.FoldFIO onError onSuccess` |
-| Look without changing | `.Tap`, `.TapError`, `.TapBoth`, `.Debug()` |
+| Look without changing | `.Tap`, `.TapError`, `.TapBoth onSuccess onError`, `.Debug()` |
 | Sequence | `.FlatMap`, `.Zip`, `.ZipRight`, `.ZipLeft`, or `fio { }` |
 | Run concurrently | `.ZipPar` (`<&>`), `FIO.forEachPar`, `.Race` (first to succeed), `.RaceFirst` (first to settle) |
 | Wait or bound time | `FIO.sleep`, `.Delay`, `.Timeout`, `.TimeoutFail`, `.Timed()` |
@@ -156,14 +153,15 @@ full sliding one. `Read` suspends until a message arrives. A capacity below 1 th
 - **Fibers** — green threads for scalable concurrency
 - **Channels** — typed message passing between fibers: unbounded, bounded, dropping or sliding
 - **Resource safety** — `acquireReleaseWith` and uninterruptible regions, as in ZIO
-- **Structured concurrency** — fail-fast `ZipPar`, `Race`, and `forEachPar` that interrupt losers automatically
+- **Structured concurrency** — fail-fast `ZipPar` and `forEachPar`, plus `Race` (first to succeed) and `RaceFirst` (first to settle), all of which interrupt losers automatically
 - **Composition** — `fio { }` CE, operators (`>>=`, `<&>`, `<|>`), combinators
 - **Refs** — `Ref<'A>`, an atomic reference cell shared between fibers (with `FIO.DSL` open it shadows FSharp.Core's `Ref<'T>` annotation; `'T ref` is unaffected)
 - **Console** — lines and keys as effects; `tryReadLine` yields `None` at end of input
 
 ## Runtimes
 
-Effects are interpreted by a runtime. Pick one explicitly, or use `DefaultRuntime`.
+Effects are interpreted by a runtime. Pick one explicitly — `DirectRuntime` (`open FIO.Runtime.Direct`) or
+`WorkStealingRuntime` (`open FIO.Runtime.WorkStealing`) — or use `DefaultRuntime` (`open FIO.Runtime.Default`).
 
 | Runtime | Notes |
 |---------|-------|
@@ -172,7 +170,7 @@ Effects are interpreted by a runtime. Pick one explicitly, or use `DefaultRuntim
 
 `DefaultRuntime = WorkStealingRuntime` — `FIOApp` uses it unless you `override _.runtime`.
 
-A runtime is `IDisposable`. `Dispose()` interrupts every fiber still running on it — roots started
+A runtime is `IDisposable` (`use runtime = new DefaultRuntime()`). Disposing it interrupts every fiber still running on it — roots started
 with `Run`, and daemons — waits up to 10 seconds for their finalizers, then stops its workers;
 `Shutdown timeout` does the same with your own bound. A fiber still unwinding when the time is up is
 abandoned: on `WorkStealingRuntime` it runs no further step once its current slice of steps ends (a

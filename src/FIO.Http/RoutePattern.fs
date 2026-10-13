@@ -68,7 +68,7 @@ module RoutePath =
     let prefix (segments: string list) : RoutePath =
         Prefix segments
 
-    /// Parses a path string into a route path, treating `:name` segments as parameters.
+    /// <summary>Parses a path string into a route path, treating <c>:name</c> segments as parameters.</summary>
     let parse (path: string) : RoutePath =
         let segments =
             path.Split([| '/' |], StringSplitOptions.RemoveEmptyEntries) |> Array.toList
@@ -186,7 +186,7 @@ module RoutePattern =
 [<RequireQualifiedAccess>]
 module Route =
 
-    /// Parses a `METHOD /path` route string into a route pattern.
+    /// <summary>Parses a <c>METHOD /path</c> route string into a route pattern.</summary>
     let fromString (routeStr: string) : RoutePattern =
         let parts = routeStr.Split([| ' ' |], StringSplitOptions.RemoveEmptyEntries)
         match parts with

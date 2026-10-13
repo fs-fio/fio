@@ -27,8 +27,7 @@ type WebSocketConfig =
 [<RequireQualifiedAccess>]
 module WebSocketConfig =
 
-    /// The default configuration: a 4 KB receive buffer, a 1 MB message limit, a 30 s send timeout, no receive timeout, a 10 s
-    /// shutdown, no connection limit.
+    /// The default configuration: 4 KB receive buffer, 1 MB message limit, 30 s send timeout, no receive timeout, 10 s shutdown.
     let defaultConfig : WebSocketConfig =
         {
             ReceiveBufferSize = 4096

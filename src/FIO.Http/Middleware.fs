@@ -191,10 +191,10 @@ module Middleware =
 
 module MiddlewareOperators =
 
-    /// Applies a middleware to a route collection. Operator form of <c>Middleware.apply</c>.
+    /// <summary>Applies a middleware to a route collection. Operator form of <c>Middleware.apply</c>.</summary>
     let (@@) (routes: Routes<'E>) (middleware: Middleware<'E>) : Routes<'E> =
         Middleware.apply middleware routes
 
-    /// Composes two middlewares. Operator form of <c>Middleware.compose</c>.
+    /// <summary>Composes two middlewares. Operator form of <c>Middleware.compose</c>.</summary>
     let (+++) (middleware: Middleware<'E>) (middleware': Middleware<'E>) : Middleware<'E> =
         Middleware.compose middleware middleware'

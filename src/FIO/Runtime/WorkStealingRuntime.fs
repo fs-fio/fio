@@ -298,8 +298,6 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
     let workerCount = config.EvaluationWorkers
     let scheduler = Scheduler(workerCount)
 
-
-
     let workers =
         List.init workerCount (fun i ->
             new Worker
@@ -315,6 +313,7 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
         workers |> List.iter (fun w -> (w :> IDisposable).Dispose())
         scheduler.Dispose()
 
+    /// The runtime's name, "WorkStealingRuntime".
     override _.Name : string =
         "WorkStealingRuntime"
 
@@ -521,7 +520,12 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
         this.Track fiber.Context
 
         let workItem =
-            WorkItemPool.Rent(effect.UpcastBoth(), fiber.Context, ContStackPool.Rent())
+            {
+                Effect = effect.UpcastBoth()
+                FiberContext = fiber.Context
+                ContStack = Stack<Cont> ContStackDefaultCapacity
+                InterruptionSuppressed = 0
+            }
 
         scheduler.GlobalQueue.WriteAsync workItem |> ignore
         scheduler.SignalWork()

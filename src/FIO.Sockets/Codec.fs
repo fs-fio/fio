@@ -80,7 +80,7 @@ module Codec =
     /// A JSON codec using default serializer options.
     let json<'A> : SocketCodec<'A> = jsonWithOptions<'A> JsonSerializerOptions.Default
 
-    /// A newline-terminated JSON codec, optionally using the given serializer options.
+    /// Creates a newline-terminated JSON codec, optionally using the given serializer options.
     let jsonLine<'A> options : SocketCodec<'A> =
         let opts = defaultArg options JsonSerializerOptions.Default
         {

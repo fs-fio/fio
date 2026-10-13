@@ -8,7 +8,6 @@ open BenchmarkDotNet.Attributes
 [<RequireQualifiedAccess>]
 module internal Fibonacci =
 
-    // Computes Fibonacci sequentially (used below the parallel threshold).
     let rec private fibSequence n =
         if n < 2 then n
         else fibSequence (n - 1) + fibSequence (n - 2)

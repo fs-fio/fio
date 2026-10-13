@@ -27,5 +27,6 @@ type InterruptionCause =
 /// carries it; do not throw it or fail with it yourself, because an error of this type is read as an interruption.
 exception FiberInterruptedException of fiberId: Guid * cause: InterruptionCause * message: string with
 
+    /// The fiber's id, the cause and the message, as one line.
     override this.Message =
         $"Fiber {this.fiberId} interrupted. Cause: {this.cause}. Message: {this.message}"

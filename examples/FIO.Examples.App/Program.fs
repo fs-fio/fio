@@ -369,7 +369,6 @@ type HighlyConcurrentApp() =
                 <&&> receiver chan fiberCount fiberCount
         }
 
-// Computes the nth Fibonacci number iteratively.
 let fib n =
     let mutable a = 0L
     let mutable b = 1L
@@ -513,7 +512,6 @@ type CustomExitCodeApp() =
         | AppInterrupted _ ->
             130
         | AppFatalError _ ->
-            // A custom code for the demo; the default mapExitCode uses 1, as for a failure.
             2
 
     override _.effect =

@@ -241,7 +241,7 @@ let tests =
 
                     testCase "firstSuccessOf - only evaluates effects up to the first success"
                     <| fun () ->
-                        let runtime = new WorkStealingRuntime() :> FIORuntime
+                        use runtime = new WorkStealingRuntime(testConfig) :> FIORuntime
                         let mutable evaluated = 0
                         let bump effect =
                             FIO.suspend (fun () ->

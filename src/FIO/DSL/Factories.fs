@@ -85,8 +85,7 @@ module FIO =
         cancellationToken().FlatMap <| fun cancellationToken ->
             awaitTask (Async.StartAsTask(async, cancellationToken = cancellationToken)) onError
 
-    /// Creates an effect that starts a non-generic task on the current fiber and awaits it on a new one, mapping any
-    /// exception to a typed error.
+    /// Creates an effect that starts a non-generic task on the current fiber and awaits it on a new one, mapping any exception via onError.
     let inline forkUnitTask<'E, 'E1> (taskFactory: unit -> Task) (onError: exn -> 'E) : FIO<Fiber<unit, 'E>, 'E1> =
         suspend <| fun () ->
             let task =
@@ -94,8 +93,7 @@ module FIO =
                 with ex -> Task.FromException ex
             (awaitUnitTask task onError).Fork()
 
-    /// Creates an effect that starts a task on the current fiber and awaits it on a new one, mapping any exception to a
-    /// typed error.
+    /// Creates an effect that starts a task on the current fiber and awaits it on a new one, mapping any exception via onError.
     let inline forkTask<'A, 'E, 'E1> (taskFactory: unit -> Task<'A>) (onError: exn -> 'E) : FIO<Fiber<'A, 'E>, 'E1> =
         suspend <| fun () ->
             let task =
@@ -103,7 +101,8 @@ module FIO =
                 with ex -> Task.FromException<'A> ex
             (awaitTask task onError).Fork()
 
-    /// Creates an effect from a callback-based asynchronous operation, completed by invoking the registered callback.
+    /// Creates an effect from a callback-based asynchronous operation, completed by invoking the registered callback;
+    /// an exception from register goes through onError.
     let inline async<'A, 'E> (register: (Result<'A, 'E> -> unit) -> unit) (onError: exn -> 'E) : FIO<'A, 'E> =
         cancellationToken().FlatMap <| fun cancellationToken ->
             let resultSource = TaskCompletionSource<Result<'A, 'E>>()
@@ -134,7 +133,7 @@ module FIO =
         cancellationToken().FlatMap <| fun _ ->
             awaitUnitTask (Task.Run(fun () -> ())) Rethrow<_>.Instance
 
-    /// An effect that never completes.
+    /// Creates an effect that never completes.
     let never<'A, 'E> () : FIO<'A, 'E> =
         suspend <| fun () -> (Channel<'A>()).Read()
 
@@ -150,11 +149,11 @@ module FIO =
         else
             JoinAllFailFast fiberContexts
 
-    /// Returns an effect that runs the given effect uninterruptibly: an interruption takes effect once it ends.
+    /// Creates an effect that runs the given effect uninterruptibly: an interruption takes effect once it ends.
     let uninterruptible<'A, 'E> (effect: FIO<'A, 'E>) : FIO<'A, 'E> =
         WithSuppression(raiseSuppression, fun _ -> effect)
 
-    /// Returns an effect that runs the given function's effect uninterruptibly, passing it a restorer for the parts that should stay interruptible.
+    /// Creates an effect that runs the given function's effect uninterruptibly, passing it a restorer for the parts that should stay interruptible.
     let uninterruptibleMask<'A, 'E> (body: InterruptibilityRestorer -> FIO<'A, 'E>) : FIO<'A, 'E> =
         WithSuppression(raiseSuppression, fun level -> body (InterruptibilityRestorer level))
 

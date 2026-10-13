@@ -20,7 +20,7 @@ type AppResult<'A, 'E> =
     /// The application crashed: an unexpected exception, a defect in the effect, an invalid argument, or resource exhaustion.
     | AppFatalError of ex: exn
 
-/// Base class for a FIO application. Override `effect`; optionally override the rest.
+/// <summary>Base class for a FIO application. Override <c>effect</c>; optionally override the rest.</summary>
 [<AbstractClass>]
 type FIOApp<'A, 'E>() as this =
 
@@ -84,11 +84,11 @@ type FIOApp<'A, 'E>() as this =
     /// The effect this application runs. Override this.
     abstract member effect: FIO<'A, 'E>
 
-    /// The runtime used to run the effect, disposed when the application ends. Defaults to the recommended runtime.
+    /// The runtime used to run the effect, disposed when this application ends. Defaults to the recommended runtime.
     abstract member runtime: FIORuntime
     default _.runtime : FIORuntime = new DefaultRuntime()
 
-    /// An effect run with the application's settled outcome, after the effect's finalizers and before onShutdown;
+    /// An effect run with this application's settled outcome, after the effect's finalizers and before onShutdown;
     /// no-op by default.
     abstract member onOutcome: AppResult<'A, 'E> -> FIO<unit, 'E>
     default _.onOutcome _ : FIO<unit, 'E> = FIO.unit ()
@@ -108,7 +108,7 @@ type FIOApp<'A, 'E>() as this =
     abstract member onShutdownTimeout: TimeSpan
     default _.onShutdownTimeout : TimeSpan = TimeSpan.FromSeconds 10.0
 
-    /// Maps the application's outcome to a process exit code: 0 on success, 1 on a failure or a fatal error (as in
+    /// Maps this application's outcome to a process exit code: 0 on success, 1 on a failure or a fatal error (as in
     /// ZIO), 130 when interrupted. If it throws, the exit code is 1.
     abstract member mapExitCode: AppResult<'A, 'E> -> int
     default _.mapExitCode outcome : int =
@@ -157,7 +157,7 @@ type FIOApp<'A, 'E>() as this =
             do! this.RunHookAsync runtime "shutdown" shutdownTimeout (fun () -> this.onShutdown ())
         }
 
-    /// Runs the application asynchronously and returns its process exit code.
+    /// Runs this application asynchronously and returns its process exit code.
     member this.RunAsync () : Task<int> =
         let outcomeTimeout = this.onOutcomeTimeout
         let shutdownTimeout = this.onShutdownTimeout
@@ -277,6 +277,6 @@ type FIOApp<'A, 'E>() as this =
                     | _ -> ()
         }
 
-    /// Runs the application and returns its process exit code.
+    /// Runs this application and returns its process exit code.
     member this.Run () : int =
         this.RunAsync().GetAwaiter().GetResult()

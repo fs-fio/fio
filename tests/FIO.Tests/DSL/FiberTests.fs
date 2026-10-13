@@ -321,8 +321,8 @@ let fiberTests =
 
                         match result with
                         | Succeeded r -> Expect.equal r value "Should return Succeeded if already completed"
-                        | Interrupted _ -> () // Also acceptable — interrupt may arrive first
-                        | Failed _ -> failtest "Should not get Failed"
+                        | Interrupted _ -> ()
+                        | Failed _ -> failtest "Should not get Failed, only Succeeded or, when the interrupt arrives first, Interrupted"
                 ]
 
             testList
@@ -792,7 +792,7 @@ let fiberTests =
 
                     testCase "SetOnTerminal - fires exactly once even on post-terminal install"
                     <| fun () ->
-                        let runtime = new DirectRuntime()
+                        use runtime = new DirectRuntime()
                         let firstCount = ref 0
                         let secondCount = ref 0
 
@@ -813,7 +813,7 @@ let fiberTests =
 
                     testCase "SetOnTerminal - second install after pre-terminal install does not refire"
                     <| fun () ->
-                        let runtime = new DirectRuntime()
+                        use runtime = new DirectRuntime()
                         let firstCount = ref 0
                         let secondCount = ref 0
 

@@ -88,7 +88,6 @@ let private runAppBesideCancelingHandler () =
     Console.CancelKeyPress.Add(fun args -> args.Cancel <- true)
     runApp (SignalApp true)
 
-// .NET runs SIGTERM handlers newest first, so registering after RunAsync makes the app's handler run last and decide.
 let private runAppBesideCancelingSigtermHandler () =
     let running = (SignalApp true).RunAsync()
     use _registration = PosixSignalRegistration.Create(PosixSignal.SIGTERM, fun context -> context.Cancel <- true)

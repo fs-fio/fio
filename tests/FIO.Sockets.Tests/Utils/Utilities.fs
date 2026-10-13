@@ -17,14 +17,13 @@ let testConfig = { WorkerConfig.Default with EvaluationWorkers = 2 }
 
 module FsCheckProperties =
 
+    // One pair for every property: FsCheck asks for the generator once per property and never disposes it.
+    let private propertyRuntimes =
+        lazy [ new DirectRuntime() :> FIORuntime; new WorkStealingRuntime(testConfig) :> FIORuntime ]
+
     type Generators =
         static member Runtime() =
-            Gen.oneof
-                [
-                    Gen.constant (new DirectRuntime() :> FIORuntime)
-                    Gen.constant (new WorkStealingRuntime(testConfig) :> FIORuntime)
-                ]
-            |> Arb.fromGen
+            Gen.elements propertyRuntimes.Value |> Arb.fromGen
 
     let fsCheckConfig =
         { FsCheckConfig.defaultConfig with

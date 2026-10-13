@@ -67,6 +67,7 @@ let tests =
                     testCase "forEach - stack-safe over 10000 items"
                     <| fun () ->
                         for runtime in allRuntimes () do
+                            use _ = runtime
                             let xs = [ 1 .. 10000 ]
                             let effect = FIO.forEach xs FIO.succeed
 
@@ -121,6 +122,7 @@ let tests =
                     testCase "forEachDiscard - stack-safe over 10000 items"
                     <| fun () ->
                         for runtime in allRuntimes () do
+                            use _ = runtime
                             let xs = [ 1 .. 10000 ]
                             let effect = FIO.forEachDiscard xs (fun _ -> FIO.unit ())
 
@@ -162,6 +164,7 @@ let tests =
                     testCase "forEachPar - fails with one of the errors and interrupts peers"
                     <| fun () ->
                         for runtime in allRuntimes () do
+                            use _ = runtime
                             let mutable peerCompleted = 0
                             let started = new ManualResetEventSlim(false)
                             let failureItems = 5
@@ -192,6 +195,7 @@ let tests =
                     testCase "forEachPar - fails fast even when an earlier peer never terminates"
                     <| fun () ->
                         for runtime in allRuntimes () do
+                            use _ = runtime
                             let sentinel = -1
                             let effect =
                                 (FIO.forEachPar [ 0; 1 ] (fun i ->

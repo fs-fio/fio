@@ -14,7 +14,6 @@ module internal BoundedBuffer =
         | Put of item: int * ackChannel: Channel<unit>
         | Get of reply: Channel<int>
 
-    // Splits a total item count as evenly as possible across the given parts.
     let private distribute total parts =
         let baseCount = total / parts
         let remainder = total % parts

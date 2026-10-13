@@ -872,7 +872,7 @@ let appTests =
                         child.Signal "TERM"
                         let exited = child.WaitForExit(TimeSpan.FromSeconds 3.0)
 
-                        Expect.isNone exited "The app must not overrule a handler that cancelled the second SIGTERM")
+                        Expect.isNone exited "The app must not overrule a handler that cancelled the second SIGTERM (.NET runs SIGTERM handlers newest first, so the app's, registered first, runs last)")
 
                     FsCheckProperties.stressTestCase "Run - an app whose runtime is shut down under it always ends, 200 times in a row" (fun () ->
                         let outcomes =

@@ -6,7 +6,8 @@ Usage:
                                  [--output report.md] [--time-threshold 10] [--alloc-threshold 5]
 
 Both directories are searched recursively for `*Benchmark-report.csv` files; benchmarks present
-in only one directory are skipped (with a note). Rows are matched on (Method, params, runtime).
+in only one directory are skipped (with a note). Rows are matched on (Method, params, runtime), with
+the runtime label compared exactly; rows present in only one directory are listed at the end.
 
 Unlike plot.py this script is stdlib-only (no pandas/plotly), so it runs without the plotting
 venv; the CSV parsing both share lives in bench_common.py.
@@ -92,6 +93,13 @@ def fmt_delta(pct: float) -> str:
     return f"{pct:+.1f}%" if pct == pct else "n/a"
 
 
+def split_keys(a_rows: dict, b_rows: dict) -> tuple[list, list, list]:
+    """Keys in both (in A's order), keys only in A, keys only in B."""
+    return ([k for k in a_rows if k in b_rows],
+            [k for k in a_rows if k not in b_rows],
+            [k for k in b_rows if k not in a_rows])
+
+
 def compare(dir_a: Path, dir_b: Path, label_a: str, label_b: str,
             time_threshold: float, alloc_threshold: float) -> str:
     reports_a, reports_b = find_reports(dir_a), find_reports(dir_b)
@@ -107,10 +115,13 @@ def compare(dir_a: Path, dir_b: Path, label_a: str, label_b: str,
         "",
     ]
     time_regr = time_win = alloc_regr = alloc_win = compared = 0
+    unmatched = []
 
     for name in common:
         a_rows, b_rows = load_results(reports_a[name]), load_results(reports_b[name])
-        keys = [k for k in a_rows if k in b_rows]
+        keys, keys_only_a, keys_only_b = split_keys(a_rows, b_rows)
+        unmatched += [(name, label_a, a_rows[k]) for k in keys_only_a]
+        unmatched += [(name, label_b, b_rows[k]) for k in keys_only_b]
         if not keys:
             continue
         lines += [f"## {name}", "",
@@ -136,6 +147,14 @@ def compare(dir_a: Path, dir_b: Path, label_a: str, label_b: str,
     for skipped, where in ((only_a, label_a), (only_b, label_b)):
         if skipped:
             summary += f" Skipped (only in {where}): {', '.join(skipped)}."
+    if unmatched:
+        summary += f" Unmatched rows: {len(unmatched)} (listed at the end)."
+        lines += ["## Unmatched rows", "",
+                  "Rows present in only one directory, for example a runtime label that differs between them.", "",
+                  "| Benchmark | Only in | Params | Runtime |",
+                  "|---|---|---|---|"]
+        lines += [f"| {name} | {where} | {row['params']} | {row['runtime']} |" for name, where, row in unmatched]
+        lines.append("")
     lines.insert(4, summary)
     return "\n".join(lines)
 
@@ -152,6 +171,7 @@ def self_test() -> int:
     assert not RUNTIME_PATTERN.match(".NET 10.0")
     assert delta(100.0, 90.0) == -10.0
     assert flag(11.0, 10.0) == " 🔴" and flag(-11.0, 10.0) == " 🟢" and flag(5.0, 10.0) == ""
+    assert split_keys({1: 0, 2: 0}, {2: 0, 3: 0}) == ([2], [1], [3])
     print("self-test: OK")
     return 0
 

@@ -26,7 +26,7 @@ let workerInfrastructureTests =
                             "WorkStealingRuntime", (fun config -> new WorkStealingRuntime(config) :> FIORuntime)
                         ] do
                         for field, config, shown in invalid ->
-                            testCase $"{runtimeName}, {field}" (fun () ->
+                            testCase $"{runtimeName} - rejects {field}" (fun () ->
                                 let thrown =
                                     try
                                         use _runtime = make config

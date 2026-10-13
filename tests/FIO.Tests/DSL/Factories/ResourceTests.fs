@@ -290,7 +290,7 @@ let tests =
                                 ] ->
                                 testCase name (fun () ->
                                     let runtime = make ()
-                                    let control = new DirectRuntime()
+                                    use control = new DirectRuntime()
                                     let parked = new ManualResetEventSlim false
                                     let blocking = new ManualResetEventSlim false
                                     let unblock = new ManualResetEventSlim false

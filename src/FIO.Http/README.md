@@ -84,7 +84,8 @@ written as strings (`"id": "1"`) are accepted. `HttpHandler.jsonBodyWith` takes 
 
 The server pipeline is typed as `Routes<exn>`, so a handler is `HttpRequest -> FIO<HttpResponse, exn>`
 and a handler that fails, or throws, becomes a `500` and is logged on standard error (without the
-query string); a handler that interrupts itself is answered `503`. To model failures precisely *inside* a handler, use the
+query string); a handler that interrupts itself is answered `503`, except that an `InvalidArgument` or
+`ResourceExhaustion` interruption (from `RepeatN 0`, say) is a logged `500`. To model failures precisely *inside* a handler, use the
 `HttpError` union — `InvalidRoute`, `ParsingFailed`, `HandlerFailed`, `MiddlewareFailed`,
 `ServerFailed`, `BodyReadFailed`, `JsonFailed`, `TimeoutError`, `GeneralError` — and map back to
 `exn` at the edge:

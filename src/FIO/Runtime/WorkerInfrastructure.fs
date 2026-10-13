@@ -25,6 +25,7 @@ type FIOWorkerRuntime internal (config: WorkerConfig) =
     member _.WorkerConfig : WorkerConfig =
         config
 
+    /// This runtime's worker configuration, as EWC and EWS labels.
     override _.ConfigString : string =
         describe config
 

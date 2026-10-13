@@ -53,7 +53,6 @@ let private stateOnceAborted (client: WebSocket) =
         return state
     }
 
-// The message arrives while the worker is held and the fiber is interrupted before it resumes: read, never handed over.
 let private stateAfterReadForInterruptedFiber (runtime: FIORuntime) =
     use peerRuntime = new WorkStealingRuntime(testConfig)
     let send = Tasks.TaskCompletionSource()
@@ -81,7 +80,6 @@ let private stateAfterReadForInterruptedFiber (runtime: FIORuntime) =
     finally
         runWithTimeout peerRuntime (WebSocketServer.close listener)
 
-// The listener runs its authentication selector as it takes a request: the moment after which the interrupt must land.
 let private answeredAfterAcceptInterrupted (runtime: FIORuntime) =
     use otherRuntime = new WorkStealingRuntime(testConfig)
     let port, listener = runWithTimeout runtime (startTestListener ())
@@ -112,7 +110,6 @@ let private answeredAfterAcceptInterrupted (runtime: FIORuntime) =
     finally
         runWithTimeout otherRuntime (WebSocketServer.close listener)
 
-// Leaves the request the loop awaits where a Stop() that throws midway leaves it: never completed.
 let private strandPendingRequest (listener: Net.HttpListener) =
     let waiters =
         typeof<Net.HttpListener>.GetField("_asyncWaitQueue", Reflection.BindingFlags.NonPublic ||| Reflection.BindingFlags.Instance).GetValue listener
@@ -450,7 +447,7 @@ let cancellationTests =
 
                 runWithTimeout runtime (fiber.InterruptNow())
 
-                Expect.isTrue (unwound.Task.Wait(TimeSpan.FromSeconds 15.0)) "A request the listener's stop strands must not hold the shutdown forever"
+                Expect.isTrue (unwound.Task.Wait(TimeSpan.FromSeconds 15.0)) "A request left never completed, as a Stop() that throws midway leaves it, must not hold the shutdown forever"
                 listener.Close())
 
             testAllRuntimes "ReceiveMessage - an explicit pre-cancelled token short-circuits the receive" (fun runtime ->
@@ -838,11 +835,11 @@ let cancellationTests =
             testSingleWorkerRuntime "ReceiveMessage - a message read for a fiber interrupted before it was handed over aborts the connection" (fun runtime ->
                 let state = stateAfterReadForInterruptedFiber runtime
 
-                Expect.equal state Net.WebSockets.WebSocketState.Aborted "The message nobody received is lost, so the connection must not go on")
+                Expect.equal state Net.WebSockets.WebSocketState.Aborted "The message, read while the worker was held for a fiber interrupted before it resumed, is lost, so the connection must not go on")
 
             testSingleWorkerRuntime "accept - a request that arrived before the accept was interrupted is still answered" (fun runtime ->
                 let wasTaken, connecting = answeredAfterAcceptInterrupted runtime
 
-                Expect.isTrue wasTaken "The listener should take the request"
+                Expect.isTrue wasTaken "The listener should take the request (its authentication selector runs as it does) before the interrupt lands"
                 Expect.equal connecting TaskStatus.RanToCompletion "A request the accept had already taken must still get its 101")
         ]
