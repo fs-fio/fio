@@ -192,8 +192,6 @@ type DirectRuntime() =
                                             onErrorComplete
                                             (OutcomeInterrupted (interruptionFor currentFiberContext "Fiber was interrupted while blocked on a fiber join."))
                             | HandleAwaitTask(task, onError) ->
-                                // Classified by the exception, as settledTaskEffect classifies the task: keeping the task
-                                // across the await would grow every fiber's boxed state machine.
                                 try
                                     let! value = awaitedTask task state.InterruptionSuppressed currentFiberContext
                                     processOutcome
