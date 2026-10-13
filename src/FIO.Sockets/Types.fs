@@ -11,10 +11,6 @@ type SocketError =
     | ConnectionFailed of host: string * port: int * exn
     /// The connection was closed.
     | ConnectionClosed of string
-    /// Sending data failed. Reserved: a failed write is currently reported as GeneralError.
-    | SendFailed of exn
-    /// Receiving data failed. Reserved: a failed read is currently reported as GeneralError.
-    | ReceiveFailed of exn
     /// The operation timed out.
     | TimeoutError of string
     /// A line or frame from the peer exceeded the size limit passed to the receive.
@@ -25,10 +21,6 @@ type SocketError =
     | BindFailed of address: string * port: int * exn
     /// Accepting an incoming connection failed.
     | AcceptFailed of exn
-    /// The connection pool ran out of available connections. Reserved: connection pooling is not implemented yet.
-    | PoolExhausted of maxSize: int
-    /// The connection pool is closed. Reserved: connection pooling is not implemented yet.
-    | PoolClosed
     /// Encoding or decoding a value failed.
     | CodecError of string * exn
     /// An otherwise-unclassified error.
@@ -40,10 +32,6 @@ type SocketError =
             $"Failed to connect to {host}:{port}: {ex.Message}"
         | ConnectionClosed msg ->
             $"Connection closed: {msg}"
-        | SendFailed ex ->
-            $"Send failed: {ex.Message}"
-        | ReceiveFailed ex ->
-            $"Receive failed: {ex.Message}"
         | TimeoutError msg ->
             $"Timeout: {msg}"
         | BufferOverflow(requested, available) ->
@@ -54,10 +42,6 @@ type SocketError =
             $"Failed to bind to {addr}:{port}: {ex.Message}"
         | AcceptFailed ex ->
             $"Accept failed: {ex.Message}"
-        | PoolExhausted maxSize ->
-            $"Pool exhausted: maximum {maxSize} connections"
-        | PoolClosed ->
-            "Pool is closed"
         | CodecError(msg, ex) ->
             $"Codec error: {msg} - {ex.Message}"
         | GeneralError ex ->
@@ -75,17 +59,13 @@ module SocketError =
         match error with
         | GeneralError ex -> ex
         | ConnectionFailed(_, _, ex)
-        | SendFailed ex
-        | ReceiveFailed ex
         | BindFailed(_, _, ex)
         | AcceptFailed ex
         | CodecError(_, ex) -> Exception(error.ToString(), ex)
         | ConnectionClosed _
         | TimeoutError _
         | BufferOverflow _
-        | InvalidState _
-        | PoolExhausted _
-        | PoolClosed -> Exception(error.ToString())
+        | InvalidState _ -> Exception(error.ToString())
 
 /// Configuration for a client socket connection.
 type SocketConfig =
@@ -240,73 +220,6 @@ module ServerSocketConfig =
     /// Sets the address family on a configuration.
     let withAddressFamily (family: Sockets.AddressFamily) (config: ServerSocketConfig) : ServerSocketConfig =
         { config with AddressFamily = family }
-
-/// Configuration for a pool of client socket connections. Reserved: connection pooling is not implemented yet.
-type SocketPoolConfig =
-    {
-        /// The configuration used for each pooled connection.
-        SocketConfig: SocketConfig
-        /// The minimum number of connections kept in the pool.
-        MinPoolSize: int
-        /// The maximum number of connections allowed in the pool.
-        MaxPoolSize: int
-        /// The maximum lifetime of a pooled connection, in seconds.
-        ConnectionLifetime: int
-        /// Whether to validate a connection when it is acquired.
-        ValidateOnAcquire: bool
-    }
-
-[<RequireQualifiedAccess>]
-module SocketPoolConfig =
-
-    /// Creates a pool configuration from a socket configuration, using default pool sizing.
-    let create (socketConfig: SocketConfig) : FIO<SocketPoolConfig, SocketError> =
-        FIO.succeed
-            {
-                SocketConfig = socketConfig
-                MinPoolSize = 0
-                MaxPoolSize = 10
-                ConnectionLifetime = 300
-                ValidateOnAcquire = true
-            }
-
-    /// Sets the minimum pool size, validating it against the maximum.
-    let withMinPoolSize (size: int) (config: SocketPoolConfig) : FIO<SocketPoolConfig, SocketError> =
-        fio {
-            if size < 0 then
-                return! FIO.fail (InvalidState("MinPoolSize >= 0", $"{size}"))
-
-            if size > config.MaxPoolSize then
-                return!
-                    FIO.fail (InvalidState(
-                    $"MinPoolSize ({size}) <= MaxPoolSize ({config.MaxPoolSize})",
-                    "MinPoolSize > MaxPoolSize"))
-
-            return { config with MinPoolSize = size }
-        }
-
-    /// Sets the maximum pool size, validating it against the minimum.
-    let withMaxPoolSize (size: int) (config: SocketPoolConfig) : FIO<SocketPoolConfig, SocketError> =
-        fio {
-            if size <= 0 then
-                return! FIO.fail (InvalidState("MaxPoolSize > 0", $"{size}"))
-
-            if size < config.MinPoolSize then
-                return!
-                    FIO.fail (InvalidState(
-                    $"MaxPoolSize ({size}) >= MinPoolSize ({config.MinPoolSize})",
-                    "MaxPoolSize < MinPoolSize"))
-
-            return { config with MaxPoolSize = size }
-        }
-
-    /// Sets the maximum lifetime of a pooled connection.
-    let withConnectionLifetime (lifetime: int) (config: SocketPoolConfig) : SocketPoolConfig =
-        { config with ConnectionLifetime = lifetime }
-
-    /// Sets whether connections are validated on acquisition.
-    let withValidateOnAcquire (validate: bool) (config: SocketPoolConfig) : SocketPoolConfig =
-        { config with ValidateOnAcquire = validate }
 
 /// An open TCP server socket.
 type ServerSocket =

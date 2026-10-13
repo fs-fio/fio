@@ -12,9 +12,6 @@ open Expecto
 open System
 open System.Threading
 
-let private stressTestAllRuntimes name (f: FIORuntime -> unit) =
-    testList name [ for rt in allRuntimes () -> stressTestCase (rt.GetType().Name) (fun () -> f rt) ]
-
 [<Tests>]
 let tests =
     testList

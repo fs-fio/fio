@@ -14,6 +14,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  FIO_RUN_STRESS: "1"
+
 jobs:
   build:
     strategy:
@@ -23,9 +26,6 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     timeout-minutes: 30
-
-    env:
-      FIO_RUN_STRESS: "1"
 
     steps:
       - name: Checkout code
@@ -40,7 +40,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj', 'Directory.Packages.props', 'global.json') }}
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj', 'Directory.Build.props', 'Directory.Packages.props', 'global.json') }}
           restore-keys: |
             ${{ runner.os }}-nuget-
 
@@ -77,9 +77,6 @@ jobs:
 
     timeout-minutes: 30
 
-    env:
-      FIO_RUN_STRESS: "1"
-
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -93,7 +90,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj', 'Directory.Packages.props', 'global.json') }}
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj', 'Directory.Build.props', 'Directory.Packages.props', 'global.json') }}
           restore-keys: |
             ${{ runner.os }}-nuget-
 

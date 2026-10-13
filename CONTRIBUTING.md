@@ -36,10 +36,10 @@ bash scripts/stress-test.sh 50   # build Release and run the whole suite 50 time
 ## Project layout
 
 - `src/` — the four packages: `FIO` (core), `FIO.Http`, `FIO.Sockets`, `FIO.WebSockets`
-- `tests/` — one test project per package (Expecto + FsCheck)
+- `tests/` — one test project per package (Expecto; FsCheck in all but the HTTP tests)
 - `benchmarks/` — BenchmarkDotNet suite
 - `examples/` — runnable example apps
-- `docs/` — design and project documentation
+- `docs/` — the comment style guide (`COMMENT_STYLE.md`)
 
 ## Coding conventions
 

@@ -244,7 +244,7 @@ let private testUnix name (body: unit -> unit) =
         body ())
 
 let private runSignalled (scenario: string) (signal: string) =
-    use child = new ChildProcess(scenario)
+    use child = new ChildProcess([ scenario ])
     Expect.isTrue (child.WaitForLine "ready" (TimeSpan.FromSeconds 60.0)) $"The child app should start; output: {child.Output}"
     child.Signal signal
     let exitCode = child.WaitForExit(TimeSpan.FromSeconds 20.0)
@@ -819,7 +819,7 @@ let appTests =
                         Expect.sequenceEqual output [ "finalized"; "outcome:Interrupted"; "shutdown" ] "Finalizers must run before the hooks")
 
                     testUnix "Run - a second SIGTERM while a finalizer hangs terminates the process" (fun () ->
-                        use child = new ChildProcess("app-hanging-finalizer")
+                        use child = new ChildProcess([ "app-hanging-finalizer" ])
 
                         Expect.isTrue (child.WaitForLine "ready" (TimeSpan.FromSeconds 60.0)) $"The child app should start; output: {child.Output}"
 
@@ -833,7 +833,7 @@ let appTests =
                         Expect.isFalse (child.Output |> List.contains "shutdown") "The hooks must not run once the process is terminated")
 
                     testUnix "Run - a second Ctrl+C (SIGINT) while a finalizer hangs terminates the process" (fun () ->
-                        use child = new ChildProcess "app-hanging-finalizer"
+                        use child = new ChildProcess([ "app-hanging-finalizer" ])
 
                         Expect.isTrue (child.WaitForLine "ready" (TimeSpan.FromSeconds 60.0)) $"The child app should start; output: {child.Output}"
 
@@ -847,7 +847,7 @@ let appTests =
                         Expect.isFalse (child.Output |> List.contains "shutdown") "The hooks must not run once the process is terminated")
 
                     testUnix "Run - leaves a second Ctrl+C to another handler that cancels it" (fun () ->
-                        use child = new ChildProcess "app-beside-canceling-handler"
+                        use child = new ChildProcess([ "app-beside-canceling-handler" ])
 
                         Expect.isTrue (child.WaitForLine "ready" (TimeSpan.FromSeconds 60.0)) $"The child app should start; output: {child.Output}"
 
@@ -861,7 +861,7 @@ let appTests =
                         Expect.isNone exited "The app must not overrule a handler that cancelled the second Ctrl+C")
 
                     testUnix "Run - leaves a second SIGTERM to another handler that cancels it" (fun () ->
-                        use child = new ChildProcess "app-beside-canceling-sigterm-handler"
+                        use child = new ChildProcess([ "app-beside-canceling-sigterm-handler" ])
 
                         Expect.isTrue (child.WaitForLine "ready" (TimeSpan.FromSeconds 60.0)) $"The child app should start; output: {child.Output}"
 
@@ -893,7 +893,7 @@ let appTests =
                         Expect.allEqual outcomes (Some 130) "Every app should end as interrupted")
 
                     testUnix "Run - a SIGTERM while the runtime is being created interrupts the effect and exits with 130" (fun () ->
-                        use child = new ChildProcess "app-slow-runtime"
+                        use child = new ChildProcess([ "app-slow-runtime" ])
 
                         Expect.isTrue (child.WaitForLine "creating-runtime" (TimeSpan.FromSeconds 60.0)) $"The child app should start creating its runtime; output: {child.Output}"
 

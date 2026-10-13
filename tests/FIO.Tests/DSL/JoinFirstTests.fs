@@ -10,11 +10,6 @@ open Expecto
 
 open System
 
-let private stressTestAllRuntimes name (func: FIORuntime -> unit) =
-    testList name
-        [ for rt in allRuntimes () ->
-            stressTestCase (rt.GetType().Name) (fun () -> func rt) ]
-
 [<Tests>]
 let joinFirstTests =
     testList

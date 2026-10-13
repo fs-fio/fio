@@ -8,7 +8,7 @@ open System.Threading
 open System.Threading.Tasks
 
 /// A runtime with no scheduler of its own: each fiber is a .NET task on the thread pool and a blocked fiber awaits.
-/// Handy for tests and as the baseline the other runtimes are measured against.
+/// Handy for tests and as the baseline WorkStealingRuntime is measured against.
 type DirectRuntime() =
     inherit FIORuntime()
 

@@ -9,8 +9,6 @@ type WebSocketConfig =
     {
         /// The receive buffer size, in bytes.
         ReceiveBufferSize: int
-        /// The send buffer size, in bytes. Reserved: no operation uses it yet.
-        SendBufferSize: int
         /// The maximum message size, in bytes.
         MaxMessageSize: int64
         /// The send timeout, in milliseconds, counted from the call; 0 or less waits indefinitely. A send that times out
@@ -29,12 +27,11 @@ type WebSocketConfig =
 [<RequireQualifiedAccess>]
 module WebSocketConfig =
 
-    /// The default configuration: 4 KB buffers, a 1 MB message limit, a 30 s send timeout, no receive timeout, a 10 s
+    /// The default configuration: a 4 KB receive buffer, a 1 MB message limit, a 30 s send timeout, no receive timeout, a 10 s
     /// shutdown, no connection limit.
     let defaultConfig : WebSocketConfig =
         {
             ReceiveBufferSize = 4096
-            SendBufferSize = 4096
             MaxMessageSize = 1_048_576L
             SendTimeout = 30_000
             ReceiveTimeout = 0
@@ -45,10 +42,6 @@ module WebSocketConfig =
     /// Sets the receive buffer size on a configuration.
     let withReceiveBufferSize (size: int) (config: WebSocketConfig) : WebSocketConfig =
         { config with ReceiveBufferSize = size }
-
-    /// Sets the send buffer size on a configuration.
-    let withSendBufferSize (size: int) (config: WebSocketConfig) : WebSocketConfig =
-        { config with SendBufferSize = size }
 
     /// Sets the maximum message size on a configuration.
     let withMaxMessageSize (size: int64) (config: WebSocketConfig) : WebSocketConfig =

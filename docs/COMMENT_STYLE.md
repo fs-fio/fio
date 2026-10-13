@@ -323,9 +323,8 @@ let fio = FIOBuilder()
   destructive default. Never a third: if it does not fit in two, it belongs in
   the README.
 - **`//` on internals:** one line; two at most (§7).
-- **`<param>`:** avoid it — fold any needed clarification into the summary. If you do
-  use one, you must document *every* parameter (param-completeness, §3), so it's all
-  or none.
+- **`<param>`:** avoid it — fold any needed clarification into the summary; if you
+  do use one, it is all or none (§3).
 - **`<returns>` / `<typeparam>`:** only when they add information the name doesn't
   already convey.
 - **`<example>`:** only when correct composition is non-obvious.
@@ -364,27 +363,10 @@ keep. Then:
 
 ## For AI agents & contributors
 
-When you touch the public API, follow these rules:
+Everything above applies. Two rules are easy to miss:
 
-1. **Add/update a `///` summary on any public member you add or change**, in the
-   verb-first "this effect" voice above. Keep it to one line unless more is
-   genuinely needed.
-2. **Never document internal or private items**, and never document the
-   `FIOBuilder` methods. If it isn't callable from a referencing package, leave
-   it bare.
-3. **Never restate the signature.** Prefer a summary with no `<param>` tags; if a
-   parameter needs explaining, work it into the summary. Adding one `<param>` forces
-   documenting all of them (§3).
-4. **Keep comments in sync with behaviour.** If you change what an effect does,
+1. **Keep comments in sync with behaviour.** If you change what an effect does,
    update its summary in the same change.
-5. **Keep the XML well-formed.** Rephrase types out of prose ("an effect"), or
-   escape (`FIO&lt;'A,'E&gt;`, `&amp;`). Cross-reference with `<c>Name</c>`, not
-   `<see cref>`. `dotnet build` must stay green.
-6. **Don't bulk-add `///` API docs to internals, tests, or examples**, and don't
-   "tidy" by adding comments the existing code deliberately omits. Tests carry no
-   comments; examples one line per app and example function; benchmarks one line
-   per class and per workload actor (§2). Internals: `//` only for an invisible
-   why, one line, two at most (§7). Before finishing, run the two checks in §2.
-7. **Explain in the commit message, not the code.** A fix that needed a paragraph
-   to justify gets that paragraph in its commit; the code gets one line naming the
-   constraint.
+2. **Don't "tidy" by adding comments the existing code deliberately omits**, and
+   don't bulk-add `///` docs to internals, tests, or examples. Before finishing, run
+   the two checks in §2.

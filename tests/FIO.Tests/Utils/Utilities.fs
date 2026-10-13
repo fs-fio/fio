@@ -66,6 +66,9 @@ module FsCheckProperties =
     let stressTestCase name f =
         if stressEnabled then testCase name f else ptestCase name f
 
+    let stressTestAllRuntimes name (f: FIORuntime -> unit) =
+        if stressEnabled then testAllRuntimes name f else ptestCase name ignore
+
     let fsCheckConfig =
         { FsCheckConfig.defaultConfig with
             maxTest = 100

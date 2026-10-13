@@ -15,21 +15,11 @@ open System.Collections.Concurrent
 
 open Expecto
 
-// Direct runs fibers on the thread pool; only the worker runtimes have a worker that a test can hold.
-let private testSingleWorkerRuntimes name (test: FIORuntime -> unit) =
-    let config = { testConfig with EvaluationWorkers = 1 }
-
-    testList
-        name
-        [
-            for runtimeName, make in
-                [
-                    "WorkStealingRuntime", (fun () -> new WorkStealingRuntime(config) :> FIORuntime)
-                ] ->
-                testCase runtimeName (fun () ->
-                    use runtime = make ()
-                    test runtime)
-        ]
+// Direct runs fibers on the thread pool; only WorkStealingRuntime has a worker that a test can hold.
+let private testSingleWorkerRuntime name (test: FIORuntime -> unit) =
+    testCase name (fun () ->
+        use runtime = new WorkStealingRuntime { testConfig with EvaluationWorkers = 1 }
+        test runtime)
 
 // Occupies the runtime's only worker until the returned event is set, so a fiber that resumes waits in its queue.
 let private holdWorker (runtime: FIORuntime) =
@@ -845,12 +835,12 @@ let cancellationTests =
                     finally
                         Console.SetError original))
 
-            testSingleWorkerRuntimes "ReceiveMessage - a message read for a fiber interrupted before it was handed over aborts the connection" (fun runtime ->
+            testSingleWorkerRuntime "ReceiveMessage - a message read for a fiber interrupted before it was handed over aborts the connection" (fun runtime ->
                 let state = stateAfterReadForInterruptedFiber runtime
 
                 Expect.equal state Net.WebSockets.WebSocketState.Aborted "The message nobody received is lost, so the connection must not go on")
 
-            testSingleWorkerRuntimes "accept - a request that arrived before the accept was interrupted is still answered" (fun runtime ->
+            testSingleWorkerRuntime "accept - a request that arrived before the accept was interrupted is still answered" (fun runtime ->
                 let wasTaken, connecting = answeredAfterAcceptInterrupted runtime
 
                 Expect.isTrue wasTaken "The listener should take the request"

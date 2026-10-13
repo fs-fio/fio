@@ -10,52 +10,18 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from bench_common import (BYTE_UNITS, JOB_CHARACTERISTIC_COLS, RUNTIME_PATTERN, TIME_UNITS,
+                          extract_benchmark_name, parse_scalar)
 
-TIME_UNITS = {
-    "ns": 1e-9,
-    "us": 1e-6,
-    "μs": 1e-6,
-    "µs": 1e-6,
-    "ms": 1e-3,
-    "s": 1.0,
-    "m": 60.0,
-}
-BYTE_UNITS = {
-    "B": 1.0,
-    "KB": 1024.0,
-    "MB": 1024.0 ** 2,
-    "GB": 1024.0 ** 3,
-}
-RUNTIME_PATTERN = re.compile(r"^(Direct|Polling|Signaling|WorkStealing)(-\d+-\d+(-\d+)?)?$")
 LOG_SCALE_THRESHOLD = 10.0
 
 
-def parse_time(value: str) -> tuple[float, str] | None:
-    parts = str(value).strip().split()
-    if len(parts) < 2 or parts[1] not in TIME_UNITS:
-        return None
-    try:
-        return float(parts[0].replace(",", "")), parts[1]
-    except ValueError:
-        return None
-
-
 def normalize_to_ms(value: str) -> float:
-    parsed = parse_time(value)
-    if parsed is None:
-        return float("nan")
-    num, unit = parsed
-    return num * TIME_UNITS[unit] * 1000
+    return parse_scalar(value, TIME_UNITS) * 1000
 
 
 def normalize_to_bytes(value: str) -> float:
-    parts = str(value).strip().split()
-    if len(parts) < 2 or parts[1] not in BYTE_UNITS:
-        return float("nan")
-    try:
-        return float(parts[0].replace(",", "")) * BYTE_UNITS[parts[1]]
-    except ValueError:
-        return float("nan")
+    return parse_scalar(value, BYTE_UNITS)
 
 
 def find_fio_runtime_col(df: pd.DataFrame) -> str:
@@ -67,19 +33,6 @@ def find_fio_runtime_col(df: pd.DataFrame) -> str:
     raise ValueError("Could not find FIO runtime column in CSV")
 
 
-JOB_CHARACTERISTIC_COLS = {
-    "AnalyzeLaunchVariance", "EvaluateOverhead", "MaxAbsoluteError", "MaxRelativeError",
-    "MinInvokeCount", "MinIterationTime", "OutlierMode", "Affinity", "EnvironmentVariables",
-    "Jit", "LargeAddressAware", "Platform", "PowerPlanMode", "Runtime", "AllowVeryLargeObjects",
-    "Concurrent", "CpuGroups", "Force", "HeapAffinitizeMask", "HeapCount", "NoAffinitize",
-    "RetainVm", "Server", "Arguments", "BuildConfiguration", "Clock", "EngineFactory",
-    "NuGetReferences", "Toolchain", "IsMutator", "InvocationCount", "IterationCount",
-    "IterationTime", "LaunchCount", "MaxIterationCount", "MaxWarmupIterationCount",
-    "MemoryRandomization", "MinIterationCount", "MinWarmupIterationCount", "RunStrategy",
-    "UnrollFactor", "WarmupCount",
-}
-
-
 def find_param_cols(df: pd.DataFrame, runtime_col: str) -> list[str]:
     cols = list(df.columns)
     rt_idx = cols.index(runtime_col)
@@ -88,6 +41,7 @@ def find_param_cols(df: pd.DataFrame, runtime_col: str) -> list[str]:
     for col in cols[:rt_idx]:
         if col in ("Method", "Job"):
             continue
+        # pandas renames a repeated header (the second `Runtime`) to `Runtime.1`.
         base = col.split(".")[0]
         if base in JOB_CHARACTERISTIC_COLS:
             continue
@@ -95,10 +49,9 @@ def find_param_cols(df: pd.DataFrame, runtime_col: str) -> list[str]:
     return params
 
 
-def extract_benchmark_name(filename: str) -> str:
-    """FIO.Benchmarks.Benchmarks.ForkBenchmark-report.csv -> Fork."""
-    match = re.search(r"\.(\w+?)Benchmark-report", filename)
-    return match.group(1) if match else filename.replace("-report.csv", "")
+def param_key(params: str) -> tuple:
+    ints = re.findall(r"\d+", params)
+    return tuple(int(x) for x in ints) if ints else (0,)
 
 
 def runtime_sort_key(rt: str) -> tuple[int, str]:
@@ -192,10 +145,7 @@ def plot_benchmark(csv_path: Path, output_dir: Path, image_formats: list[str] | 
     param_label = " / ".join(param_cols) if param_cols else "Configuration"
     bench_name = extract_benchmark_name(csv_path.name)
     runtimes = sorted(df[runtime_col].unique(), key=runtime_sort_key)
-    params_sorted = sorted(
-        df["Params"].unique(),
-        key=lambda p: tuple(int(x) for x in re.findall(r"\d+", p)) if re.findall(r"\d+", p) else (0,),
-    )
+    params_sorted = sorted(df["Params"].unique(), key=param_key)
 
     fig = make_subplots(
         rows=3, cols=1,
@@ -275,10 +225,6 @@ def build_summary_frame(csv_paths: list[Path]) -> pd.DataFrame:
         if not param_cols:
             largest_param = df["Params"].iloc[0]
         else:
-            def param_key(p: str) -> tuple:
-                ints = re.findall(r"\d+", p)
-                return tuple(int(x) for x in ints) if ints else (0,)
-
             largest_param = max(df["Params"].unique(), key=param_key)
 
         subset = df[df["Params"] == largest_param]
@@ -415,8 +361,8 @@ def self_test() -> None:
     assert normalize_to_ms("3.850 ms") == 3.850
     assert abs(normalize_to_ms("1,111.87 ms") - 1111.87) < 1e-6
 
-    # Runtime-column detection must recognise the current runtime names (Direct, Polling, Signaling,
-    # WorkStealing) — regression guard for the formatted path.
+    # Runtime-column detection must recognise the known runtime names, current and historical
+    # (Direct, Polling, Signaling, WorkStealing) — regression guard for the formatted path.
     runtime_frame = pd.DataFrame({
         "RoundCount": [10000, 10000, 10000, 10000],
         "Runtime": ["Direct", "Polling-4-200-1", "Signaling-4-200-1", "WorkStealing-4-200-1"],

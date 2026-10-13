@@ -1,15 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
-        <IsPackable>false</IsPackable>
-        <IsTestProject>true</IsTestProject>
         <GenerateProgramFile>false</GenerateProgramFile>
     </PropertyGroup>
 
     <ItemGroup>
         <!-- Utils -->
         <Compile Include="Utils/Utilities.fs" />
+        <Compile Include="../Shared/ChildProcessRunner.fs" Link="Utils/ChildProcessRunner.fs" />
         <Compile Include="Utils/ChildProcess.fs" />
 
         <!-- DSL -->
@@ -43,10 +41,12 @@
         <!-- Lib -->
         <Compile Include="Lib/ConsoleTests.fs" />
 
-        <!-- Framework -->
+        <!-- Runtime -->
         <Compile Include="Runtime/WorkerInfrastructureTests.fs" />
         <Compile Include="Runtime/ConformanceTests.fs" />
         <Compile Include="Runtime/InterpreterSizeTests.fs" />
+
+        <!-- Framework -->
         <Compile Include="Framework/AppTests.fs" />
 
         <Compile Include="Program.fs" />

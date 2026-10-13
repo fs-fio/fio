@@ -1,24 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
         <OutputType>Exe</OutputType>
     </PropertyGroup>
 
     <ItemGroup>
         <Compile Include="RuntimeParam.fs" />
-        <Compile Include="Effects\Bang.fs" />
-        <Compile Include="Effects\Big.fs" />
-        <Compile Include="Effects\BoundedBuffer.fs" />
-        <Compile Include="Effects\Chameneos.fs" />
-        <Compile Include="Effects\Counting.fs" />
-        <Compile Include="Effects\Fibonacci.fs" />
-        <Compile Include="Effects\Fork.fs" />
-        <Compile Include="Effects\Philosophers.fs" />
-        <Compile Include="Effects\Pingpong.fs" />
-        <Compile Include="Effects\Threadring.fs" />
-        <Compile Include="Effects\Trapezoidal.fs" />
-        <Compile Include="Effects\ZipRace.fs" />
+        <Compile Include="Benchmarks\FIOBenchmark.fs" />
         <Compile Include="Benchmarks\BangBenchmark.fs" />
         <Compile Include="Benchmarks\BigBenchmark.fs" />
         <Compile Include="Benchmarks\BoundedBufferBenchmark.fs" />

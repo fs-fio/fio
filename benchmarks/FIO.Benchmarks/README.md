@@ -58,8 +58,8 @@ dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Fork*" -
 # Short run
 dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Fork*" --job Short
 
-# Export Markdown tables
-dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Fork*" --exporters GitHub
+# Also export JSON (CSV, GitHub-markdown and HTML reports are written by default)
+dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Fork*" --exporters json
 ```
 
 The full run (`--filter "*"`) executes all 12 benchmarks × all parameter combinations × 2 runtimes × 30 iterations. This produces a comprehensive performance profile across the Direct and WorkStealing runtimes.
@@ -86,24 +86,8 @@ Runtime spec format: `Direct` | `WorkStealing-{EWC}-{EWS}`
 
 | Param | Meaning | Recommended |
 |-------|---------|-------------|
-| **EWC** | Evaluation worker count (fiber schedulers) | `CPU cores - 2` (reserves headroom for the OS/BDN harness) |
-| **EWS** | Evaluation steps per work item before rescheduling | `100`–`300` (default: `200`) |
-
-**Tuning guidance:**
-- **EWC** — Set to `nproc - 2` to leave headroom for the OS/BDN harness. More workers than available cores causes contention; fewer underutilizes the machine.
-- **EWS** — Higher values reduce scheduling overhead but increase tail latency. `200` is a good balance. Use `100` for latency-sensitive workloads, `300`+ for throughput-heavy ones.
-
-**Quick reference by machine:**
-
-| Cores | Recommended spec |
-|:-----:|-----------------|
-| 4 | `WorkStealing-2-200` |
-| 8 | `WorkStealing-6-200` |
-| 10 | `WorkStealing-8-200` |
-| 14 | `WorkStealing-12-200` |
-| 16 | `WorkStealing-14-200` |
-| 32 | `WorkStealing-30-200` |
-| 64 | `WorkStealing-62-200` |
+| **EWC** | Evaluation worker count (fiber schedulers) | `CPU cores - 2`, leaving headroom for the OS and the BDN harness; more workers than cores contend, fewer leave cores idle |
+| **EWS** | Evaluation steps per work item before rescheduling | `100`–`300` (default: `200`); higher cuts scheduling overhead but raises tail latency |
 
 ### Benchmark Parameters
 
@@ -144,7 +128,7 @@ FIO_BENCH_RUNTIMES="WorkStealing-12-200" FIO_BENCH_FORK_ACTORS="5000,25000" \
 ## Interpreting results
 
 - **Runtime ranking is not a size crossover.** A full 112-case sweep (all 12 workloads × every
-  parameter combination × all four runtimes, 30 measured iterations, M4 Max / .NET 10.0.400, measured September 2026, before 0.5.0-beta) gives
+  parameter combination × the four runtimes the suite had then, 30 measured iterations, M4 Max / .NET 10.0.400, measured September 2026, before 0.5.0-beta) gives
   these geometric-mean speedups against `Direct` — above 1.00× is faster than `Direct`:
 
   | Runtime | smallest params | largest params | overall | faster than `Direct` in |
@@ -154,14 +138,12 @@ FIO_BENCH_RUNTIMES="WorkStealing-12-200" FIO_BENCH_FORK_ACTORS="5000,25000" \
   | `WorkStealing-12-200-1` | 1.18× | 1.26× | **1.20×** | 23 / 28 cases |
 
   `WorkStealing` already beats `Direct` at smoke-test sizes and extends its lead at scale, so there is
-  no size threshold below which it should be discounted. `Polling` and `Signaling` are net *slower*
-  than `Direct` at both ends and essentially flat in between — they do not "win at scale", and
-  restricting the comparison to large parameter sizes will not show them in a better light. Their
-  worst case is **Threadring** (`Polling` 0.16×, `Signaling` 0.33×): a ring hands off strictly
-  sequentially, so there is one runnable fiber at a time and no parallelism to offset the park/wake
-  cost. Both remain useful as comparison runtimes; neither is a recommendation.
+  no size threshold below which it should be discounted. The since-removed `Polling` and `Signaling`
+  were net *slower* than `Direct` at every size, worst on **Threadring** (0.16× and 0.33×): a ring
+  hands off strictly sequentially, so there is one runnable fiber at a time and no parallelism to
+  offset the park/wake cost.
 - **Direct + huge fork counts:** a large `FIO_BENCH_FORK_ACTORS` (e.g. `50000`) spawns one .NET task
-  per actor under `Direct`. Measured (September 2026, before 0.5.0-beta), this is *not* a handicap — at 50 000 fibers `Direct` is both the
+  per actor under `Direct`. Measured (September 2026, before 0.5.0-beta, with the since-removed runtimes), this is *not* a handicap — at 50 000 fibers `Direct` is both the
   fastest and the lightest runtime in the set:
 
   | Fibers | `Direct` | `Polling` | `Signaling` | `WorkStealing` |
@@ -178,8 +160,9 @@ FIO_BENCH_RUNTIMES="WorkStealing-12-200" FIO_BENCH_FORK_ACTORS="5000,25000" \
   includes per-message boxing as well as scheduling allocations; **Big**, **Chameneos**, **Counting** and
   **Philosophers** send reference-typed messages, which do not box, and **Fibonacci**, **Fork**, **Trapezoidal**
   and **ZipRace** use no channels.
-- **Reading the `Allocated` column for fiber runtimes:** `Polling`, `Signaling`, and `WorkStealing` keep worker
-  threads alive continuously, and those workers perform small scheduler-housekeeping allocations
+- **Reading the `Allocated` column for fiber runtimes:** worker-based runtimes — `WorkStealing` today; the
+  since-removed `Polling` and `Signaling` in older stored results — keep worker threads alive continuously,
+  and those workers perform small scheduler-housekeeping allocations
   proportional to *wall-clock time*, not to the workload. For short iterations this inflates the per-op
   `Allocated` number. The Job is configured with `MinIterationTime = 100ms` to dilute this noise, but
   treat the absolute byte counts on the fiber runtimes as an **upper bound**. The relative ordering

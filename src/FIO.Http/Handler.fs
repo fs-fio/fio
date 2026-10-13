@@ -27,10 +27,6 @@ module HttpHandler =
     let fromFunc (func: HttpRequest -> HttpResponse) : HttpHandler<exn> =
         fun request -> FIO.attempt (fun () -> func request) id
 
-    /// Creates a handler from a request-to-effect function.
-    let fromFuncFIO (func: HttpRequest -> FIO<HttpResponse, 'E>) : HttpHandler<'E> =
-        func
-
     /// A handler that returns 200 OK.
     let ok<'E> : HttpHandler<'E> =
         succeed Response.ok

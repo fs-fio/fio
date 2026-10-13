@@ -55,22 +55,7 @@ let main args =
         else buildConfig ()
 
     let summaries =
-        BenchmarkSwitcher
-            .FromTypes(
-                [|
-                    typeof<BangBenchmark>
-                    typeof<BigBenchmark>
-                    typeof<BoundedBufferBenchmark>
-                    typeof<ChameneosBenchmark>
-                    typeof<CountingBenchmark>
-                    typeof<FibonacciBenchmark>
-                    typeof<ForkBenchmark>
-                    typeof<PhilosophersBenchmark>
-                    typeof<PingpongBenchmark>
-                    typeof<ThreadringBenchmark>
-                    typeof<TrapezoidalBenchmark>
-                    typeof<ZipRaceBenchmark>
-                |]).Run(args, config)
+        BenchmarkSwitcher.FromAssembly(typeof<FIOBenchmark>.Assembly).Run(args, config)
 
     if summaries
        |> Seq.exists (fun summary ->

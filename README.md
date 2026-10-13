@@ -175,7 +175,7 @@ Effects are interpreted by a runtime. Pick one explicitly, or use `DefaultRuntim
 A runtime is `IDisposable`. `Dispose()` interrupts every fiber still running on it — roots started
 with `Run`, and daemons — waits up to 10 seconds for their finalizers, then stops its workers;
 `Shutdown timeout` does the same with your own bound. A fiber still unwinding when the time is up is
-abandoned: on the worker runtimes it runs no further step once its current slice of steps ends (a
+abandoned: on `WorkStealingRuntime` it runs no further step once its current slice of steps ends (a
 step that is running your code runs to its end), while on `DirectRuntime`, which has no workers to
 stop, it goes on unwinding after `Shutdown` returns. A root or daemon that had finished
 and only waited for its children gets its result; a fiber deeper in the tree in that state does not.
@@ -184,9 +184,9 @@ and only waited for its children gets its result; a fiber deeper in the tree in 
 
 ## Benchmarks
 
-Twelve concurrency workloads (Pingpong, Threadring, Chameneos, Philosophers, …) run against every
-runtime, reporting execution time and allocations. Pingpong is tracked per commit on the
-[**live benchmark dashboard**](https://fs-fio.github.io/fio/dev/bench/); the full suite,
+Eleven concurrency workloads (Pingpong, Threadring, Chameneos, Philosophers, …) and a combinator
+microbenchmark run against every runtime, reporting execution time and allocations. Pingpong is tracked
+per commit on the [**live benchmark dashboard**](https://fs-fio.github.io/fio/dev/bench/); the full suite,
 its parameters, and the A/B comparison protocol are documented in
 [`benchmarks/FIO.Benchmarks/README.md`](https://github.com/fs-fio/fio/blob/main/benchmarks/FIO.Benchmarks/README.md).
 

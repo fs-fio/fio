@@ -11,7 +11,7 @@ module SocketExtensions =
         /// Sends a value as JSON over this socket, optionally using the given serializer options.
         member this.SendJson<'A> (value: 'A, ?options) : FIO<unit, SocketError> =
             fio {
-                let opts = defaultArg options (JsonSerializerOptions())
+                let opts = defaultArg options JsonSerializerOptions.Default
                 let codec = Codec.jsonWithOptions<'A> opts
                 do! this.Send(codec, value)
             }
@@ -19,7 +19,7 @@ module SocketExtensions =
         /// Receives a JSON value from this socket, optionally using the given serializer options.
         member this.ReceiveJson<'A> (maxBytes: int, ?options) : FIO<'A, SocketError> =
             fio {
-                let opts = defaultArg options (JsonSerializerOptions())
+                let opts = defaultArg options JsonSerializerOptions.Default
                 let codec = Codec.jsonWithOptions<'A> opts
                 return! this.Receive(codec, maxBytes)
             }

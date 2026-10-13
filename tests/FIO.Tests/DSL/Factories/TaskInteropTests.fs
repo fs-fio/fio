@@ -93,30 +93,27 @@ let tests =
                             "FIO.awaitTask should propagate exception"
 
                     testCase "awaitTask - a throwing onError resumed on a worker thread surfaces the task error instead of crashing the process" (fun () ->
-                        let workerRuntimes: FIORuntime list =
-                            [ new WorkStealingRuntime() ]
+                        use runtime = new WorkStealingRuntime()
+                        let faulting: Task<int> =
+                            task {
+                                do! Task.Delay 5
+                                return raise (Exception "task boom")
+                            }
+                        let throwingOnError: exn -> exn = fun _ -> raise (Exception "onError threw")
+                        let effect = FIO.awaitTask faulting throwingOnError
 
-                        for runtime in workerRuntimes do
-                            let faulting: Task<int> =
-                                task {
-                                    do! Task.Delay 5
-                                    return raise (Exception "task boom")
-                                }
-                            let throwingOnError: exn -> exn = fun _ -> raise (Exception "onError threw")
-                            let effect = FIO.awaitTask faulting throwingOnError
+                        let result = runtime.Run(effect).UnsafeResult()
 
-                            let result = runtime.Run(effect).UnsafeResult()
-
-                            match result with
-                            | Interrupted ex ->
-                                match ex.cause with
-                                | Defect defect ->
-                                    Expect.stringContains
-                                        defect.Message
-                                        "task boom"
-                                        $"{runtime.GetType().Name}: throwing onError must not crash; the raw task error should surface as the defect"
-                                | other -> failtest $"{runtime.GetType().Name}: expected a Defect cause but got {other}"
-                            | other -> failtest $"{runtime.GetType().Name}: expected Interrupted but got {other}")
+                        match result with
+                        | Interrupted ex ->
+                            match ex.cause with
+                            | Defect defect ->
+                                Expect.stringContains
+                                    defect.Message
+                                    "task boom"
+                                    $"{runtime.GetType().Name}: throwing onError must not crash; the raw task error should surface as the defect"
+                            | other -> failtest $"{runtime.GetType().Name}: expected a Defect cause but got {other}"
+                        | other -> failtest $"{runtime.GetType().Name}: expected Interrupted but got {other}")
 
                     testPropertyWithConfig fsCheckConfig "awaitAsync - returns async result"
                     <| fun (runtime: FIORuntime, value: int) ->

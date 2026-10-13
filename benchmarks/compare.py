@@ -9,7 +9,7 @@ Both directories are searched recursively for `*Benchmark-report.csv` files; ben
 in only one directory are skipped (with a note). Rows are matched on (Method, params, runtime).
 
 Unlike plot.py this script is stdlib-only (no pandas/plotly), so it runs without the plotting
-venv. Unit tables and column detection mirror plot.py — keep them in sync.
+venv; the CSV parsing both share lives in bench_common.py.
 
 Interpreting deltas: allocated bytes are deterministic and comparable across sessions; wall time
 drifts with machine conditions, so only compare times from runs taken in the same session
@@ -18,53 +18,11 @@ drifts with machine conditions, so only compare times from runs taken in the sam
 
 import argparse
 import csv
-import re
 import sys
 from pathlib import Path
 
-TIME_UNITS = {
-    "ns": 1e-9,
-    "us": 1e-6,
-    "μs": 1e-6,
-    "µs": 1e-6,
-    "ms": 1e-3,
-    "s": 1.0,
-    "m": 60.0,
-}
-BYTE_UNITS = {
-    "B": 1.0,
-    "KB": 1024.0,
-    "MB": 1024.0 ** 2,
-    "GB": 1024.0 ** 3,
-}
-RUNTIME_PATTERN = re.compile(r"^(Direct|Polling|Signaling|WorkStealing)(-\d+-\d+(-\d+)?)?$")
-
-JOB_CHARACTERISTIC_COLS = {
-    "AnalyzeLaunchVariance", "EvaluateOverhead", "MaxAbsoluteError", "MaxRelativeError",
-    "MinInvokeCount", "MinIterationTime", "OutlierMode", "Affinity", "EnvironmentVariables",
-    "Jit", "LargeAddressAware", "Platform", "PowerPlanMode", "Runtime", "AllowVeryLargeObjects",
-    "Concurrent", "CpuGroups", "Force", "HeapAffinitizeMask", "HeapCount", "NoAffinitize",
-    "RetainVm", "Server", "Arguments", "BuildConfiguration", "Clock", "EngineFactory",
-    "NuGetReferences", "Toolchain", "IsMutator", "InvocationCount", "IterationCount",
-    "IterationTime", "LaunchCount", "MaxIterationCount", "MaxWarmupIterationCount",
-    "MemoryRandomization", "MinIterationCount", "MinWarmupIterationCount", "RunStrategy",
-    "UnrollFactor", "WarmupCount",
-}
-
-
-def parse_scalar(value: str, units: dict[str, float]) -> float:
-    parts = str(value).strip().split()
-    if len(parts) < 2 or parts[1] not in units:
-        return float("nan")
-    try:
-        return float(parts[0].replace(",", "")) * units[parts[1]]
-    except ValueError:
-        return float("nan")
-
-
-def extract_benchmark_name(filename: str) -> str:
-    match = re.search(r"\.(\w+?)Benchmark-report", filename)
-    return match.group(1) if match else filename
+from bench_common import (BYTE_UNITS, JOB_CHARACTERISTIC_COLS, RUNTIME_PATTERN, TIME_UNITS,
+                          extract_benchmark_name, parse_scalar)
 
 
 def load_results(csv_path: Path) -> dict[tuple, dict]:
@@ -95,7 +53,7 @@ def load_results(csv_path: Path) -> dict[tuple, dict]:
         i for i in range(mean_idx)
         if i != runtime_idx
         and header[i] not in ("Method", "Job")
-        and header[i].split(".")[0] not in JOB_CHARACTERISTIC_COLS
+        and header[i] not in JOB_CHARACTERISTIC_COLS
     ]
 
     results = {}

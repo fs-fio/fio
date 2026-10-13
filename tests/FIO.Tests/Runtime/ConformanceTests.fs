@@ -45,11 +45,6 @@ let private cpuAddedByInterruptedWait (runtime: FIORuntime) (wait: FIO<unit, str
     Thread.Sleep 300
     lowestCpuSecondsOf 3 - ambient
 
-let private workerRuntimes : (string * (unit -> FIORuntime)) list =
-    [
-        "WorkStealingRuntime", (fun () -> new WorkStealingRuntime(testConfig) :> FIORuntime)
-    ]
-
 let private expectDefect (runtime: FIORuntime) (label: string) (effect: FIO<int, string>) =
     let name = runtime.GetType().Name
 
@@ -498,30 +493,25 @@ let conformanceTests =
                         fiber.UnsafeResult() |> ignore
 
                     testSequenced (
-                        testList
-                            "Channel - a writer parked on a full channel inside a finalizer does not burn CPU"
-                            [
-                                for runtimeName, make in workerRuntimes ->
-                                    stressTestCase runtimeName (fun () ->
-                                        use runtime = make ()
-                                        let channel = Channel<int>.Bounded 1
-                                        let started = new ManualResetEventSlim(false)
-                                        runtime.Run(channel.Write 1: FIO<int, string>).UnsafeResult() |> ignore
-                                        let effect: FIO<unit, string> =
-                                            (FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never ()))
-                                                .Ensuring(channel.Write(2).Unit())
+                        stressTestCase "Channel - a writer parked on a full channel inside a finalizer does not burn CPU" (fun () ->
+                            use runtime = new WorkStealingRuntime(testConfig)
+                            let channel = Channel<int>.Bounded 1
+                            let started = new ManualResetEventSlim(false)
+                            runtime.Run(channel.Write 1: FIO<int, string>).UnsafeResult() |> ignore
+                            let effect: FIO<unit, string> =
+                                (FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never ()))
+                                    .Ensuring(channel.Write(2).Unit())
 
-                                        let ambient = lowestCpuSecondsOf 3
-                                        let fiber = runtime.Run effect
-                                        let running = started.Wait(TimeSpan.FromSeconds 5.0)
-                                        runtime.Run(fiber.InterruptNow(): FIO<unit, string>).UnsafeResult() |> ignore
-                                        Thread.Sleep 300
-                                        let added = lowestCpuSecondsOf 3 - ambient
-                                        runtime.Run(channel.Read(): FIO<int, string>).UnsafeResult() |> ignore
+                            let ambient = lowestCpuSecondsOf 3
+                            let fiber = runtime.Run effect
+                            let running = started.Wait(TimeSpan.FromSeconds 5.0)
+                            runtime.Run(fiber.InterruptNow(): FIO<unit, string>).UnsafeResult() |> ignore
+                            Thread.Sleep 300
+                            let added = lowestCpuSecondsOf 3 - ambient
+                            runtime.Run(channel.Read(): FIO<int, string>).UnsafeResult() |> ignore
 
-                                        Expect.isTrue running "The fiber should start"
-                                        Expect.isLessThan added 0.4 $"A writer that waits in a finalizer must not spin on its fiber's cancelled token (added {added:F2} CPU-seconds per 0.4 s)")
-                            ])
+                            Expect.isTrue running "The fiber should start"
+                            Expect.isLessThan added 0.4 $"A writer that waits in a finalizer must not spin on its fiber's cancelled token (added {added:F2} CPU-seconds per 0.4 s)"))
 
                     testAllRuntimes "Run - several fibers started at once all complete"
                     <| fun runtime ->
@@ -634,45 +624,43 @@ let conformanceTests =
             testList
                 "Workers after shutdown"
                 [
-                    for runtimeName, make in workerRuntimes ->
-                        testCase $"Shutdown - a fiber abandoned at the timeout runs no further step.{runtimeName}" (fun () ->
-                            let runtime = make ()
-                            let gate = TaskCompletionSource()
-                            let parked = new ManualResetEventSlim false
-                            let steps = ref 0
-                            let abandoned: FIO<unit, string> =
-                                FIO.uninterruptible (
-                                    FIO.succeedWith(fun () -> parked.Set())
-                                        .FlatMap(fun () -> FIO.awaitUnitTask gate.Task (fun ex -> ex.Message))
-                                        .FlatMap(fun () -> FIO.succeedWith (fun () -> Interlocked.Increment steps |> ignore)))
-                            Thread.Sleep 100
-                            runtime.Run abandoned |> ignore
-                            let waiting = parked.Wait(TimeSpan.FromSeconds 5.0)
-                            Thread.Sleep 50
+                    testCase "Shutdown - a fiber abandoned at the timeout runs no further step" (fun () ->
+                        let runtime = new WorkStealingRuntime(testConfig)
+                        let gate = TaskCompletionSource()
+                        let parked = new ManualResetEventSlim false
+                        let steps = ref 0
+                        let abandoned: FIO<unit, string> =
+                            FIO.uninterruptible (
+                                FIO.succeedWith(fun () -> parked.Set())
+                                    .FlatMap(fun () -> FIO.awaitUnitTask gate.Task (fun ex -> ex.Message))
+                                    .FlatMap(fun () -> FIO.succeedWith (fun () -> Interlocked.Increment steps |> ignore)))
+                        Thread.Sleep 100
+                        runtime.Run abandoned |> ignore
+                        let waiting = parked.Wait(TimeSpan.FromSeconds 5.0)
+                        Thread.Sleep 50
 
-                            runtime.Shutdown(TimeSpan.FromMilliseconds 50.0)
-                            gate.SetResult()
-                            Thread.Sleep 300
+                        runtime.Shutdown(TimeSpan.FromMilliseconds 50.0)
+                        gate.SetResult()
+                        Thread.Sleep 300
 
-                            Expect.isTrue waiting "The fiber should reach its await"
-                            Expect.equal steps.Value 0 "A worker that was stopped should not pick up the abandoned fiber again")
+                        Expect.isTrue waiting "The fiber should reach its await"
+                        Expect.equal steps.Value 0 "A worker that was stopped should not pick up the abandoned fiber again")
 
-                    for runtimeName, make in workerRuntimes ->
-                        testCase $"Shutdown - a fiber still running steps leaves its stopped worker.{runtimeName}" (fun () ->
-                            let runtime = make ()
-                            let steps = ref 0L
-                            let rec spin () : FIO<unit, string> =
-                                FIO.succeedWith(fun () -> Interlocked.Increment steps |> ignore).FlatMap(fun () -> spin ())
-                            runtime.Run(FIO.uninterruptible (spin ())) |> ignore
-                            let running = SpinWait.SpinUntil((fun () -> Interlocked.Read &steps.contents > 1_000L), 5_000)
+                    testCase "Shutdown - a fiber still running steps leaves its stopped worker" (fun () ->
+                        let runtime = new WorkStealingRuntime(testConfig)
+                        let steps = ref 0L
+                        let rec spin () : FIO<unit, string> =
+                            FIO.succeedWith(fun () -> Interlocked.Increment steps |> ignore).FlatMap(fun () -> spin ())
+                        runtime.Run(FIO.uninterruptible (spin ())) |> ignore
+                        let running = SpinWait.SpinUntil((fun () -> Interlocked.Read &steps.contents > 1_000L), 5_000)
 
-                            runtime.Shutdown(TimeSpan.FromMilliseconds 100.0)
-                            let atShutdown = Interlocked.Read &steps.contents
-                            Thread.Sleep 500
-                            let later = Interlocked.Read &steps.contents
+                        runtime.Shutdown(TimeSpan.FromMilliseconds 100.0)
+                        let atShutdown = Interlocked.Read &steps.contents
+                        Thread.Sleep 500
+                        let later = Interlocked.Read &steps.contents
 
-                            Expect.isTrue running "The fiber should be running"
-                            Expect.isLessThanOrEqual (later - atShutdown) (int64 (testConfig.EvaluationWorkers * testConfig.EvaluationSteps / 2)) "Only the slice running at shutdown, and at most one more per worker, may finish")
+                        Expect.isTrue running "The fiber should be running"
+                        Expect.isLessThanOrEqual (later - atShutdown) (int64 (testConfig.EvaluationWorkers * testConfig.EvaluationSteps / 2)) "Only the slice running at shutdown, and at most one more per worker, may finish")
                 ]
 
             testList

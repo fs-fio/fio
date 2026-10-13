@@ -726,7 +726,7 @@ let fiberTests =
                         [
                             for name, scenario in [ "parked on a task", "dispose-parked-on-task"; "parked on a full channel", "dispose-parked-writer" ] ->
                                 testCase name (fun () ->
-                                    use child = new ChildProcess.ChildProcess(scenario)
+                                    use child = new ChildProcess.ChildProcess([ scenario ])
 
                                     let exitCode = child.WaitForExit(TimeSpan.FromSeconds 60.0)
 

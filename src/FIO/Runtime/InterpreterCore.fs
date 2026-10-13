@@ -72,8 +72,8 @@ let unwindFinalizers (state: byref<InterpreterState>) =
             state.Effect <- effect
         | _ -> unwinding <- false
 
-// Out of line: processOutcome is inlined into every runtime's loop, and with these rarer arms inline the Polling
-// and Signaling loops crossed the JIT's basic-block limit and ran unoptimized. Returns true when an effect is set.
+// Out of line: processOutcome is inlined into every runtime's loop, and with these rarer arms inline a loop can
+// cross the JIT's basic-block limit and run unoptimized. Returns true when an effect is set.
 [<MethodImpl(MethodImplOptions.NoInlining)>]
 let processRegionCont (state: byref<InterpreterState>) (cont: Cont) (outcome: byref<Outcome>) =
     match cont with
