@@ -28,6 +28,12 @@ let waitForFlag (flag: bool ref) =
         Thread.Sleep 1
     flag.Value
 
+let waitUntil (condition: unit -> bool) =
+    let deadline = DateTime.UtcNow.AddSeconds 5.0
+    while not (condition ()) && DateTime.UtcNow < deadline do
+        Thread.Sleep 1
+    condition ()
+
 let private disposeRuntime (runtime: FIORuntime) =
     match box runtime with
     | :? IDisposable as disposable -> disposable.Dispose()

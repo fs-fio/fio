@@ -322,7 +322,8 @@ module Extensions =
                 (fun value -> onSuccess (value :?> 'A)),
                 (fun error -> onError (error :?> 'E)))
 
-        /// Returns an effect that runs the matching finalizing effect for this effect's success or error.
+        /// Returns an effect that continues with the matching handler for this effect's success or error; unlike
+        /// OnExit's finalizer, neither runs on interruption.
         member inline this.OnDone (onError: 'E -> FIO<unit, 'E>) (onSuccess: 'A -> FIO<unit, 'E>) : FIO<unit, 'E> =
             this.Result().FlatMap <| function
                 | Ok value -> onSuccess value

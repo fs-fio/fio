@@ -179,6 +179,27 @@ module FIO =
 
                 OnFinalize(used, finalizer))
 
+    /// Acquires a resource, uses it, and releases it as acquireReleaseWith does, handing release the outcome of use:
+    /// success, failure, or interruption and its cause, so release can commit or roll back.
+    let acquireReleaseExitWith<'A, 'A1, 'E>
+        (acquire: FIO<'A1, 'E>)
+        (release: 'A1 -> FiberResult<'A, 'E> -> FIO<unit, 'E>)
+        (useResource: 'A1 -> FIO<'A, 'E>)
+        : FIO<'A, 'E> =
+        AcquireRelease(
+            acquire.UpcastResult(),
+            fun resource ->
+                let resource = resource :?> 'A1
+                let finalizer = release resource
+
+                let used =
+                    try
+                        useResource resource
+                    with ex ->
+                        Interrupt(Defect ex, ex.Message)
+
+                used.OnExit finalizer)
+
     /// Runs the given effect for each item in sequence, collecting the results into a list.
     let inline forEach<'A, 'A1, 'E> (items: seq<'A1>) (func: 'A1 -> FIO<'A, 'E>) : FIO<'A list, 'E> =
         suspend <| fun () ->
@@ -258,6 +279,34 @@ module FIO =
     /// Runs the given effect for each item concurrently, discarding the results.
     let inline forEachParDiscard<'A, 'A1, 'E> (items: seq<'A1>) (func: 'A1 -> FIO<'A, 'E>) : FIO<unit, 'E> =
         (forEachPar items func).Map(fun _ -> ())
+
+    /// Runs the given effect for each item concurrently, at most parallelism at a time, collecting the results into a
+    /// list; a parallelism below 1 interrupts the fiber.
+    let forEachParN<'A, 'A1, 'E> (parallelism: int) (items: seq<'A1>) (func: 'A1 -> FIO<'A, 'E>) : FIO<'A list, 'E> =
+        if parallelism < 1 then
+            interrupt (InvalidArgument("parallelism", "must be >= 1")) "Invalid argument: parallelism must be >= 1"
+        else
+            suspend <| fun () ->
+                let arr = Seq.toArray items
+
+                if arr.Length = 0 then
+                    succeed []
+                else
+                    let results = Array.zeroCreate<'A> arr.Length
+                    let next = ref -1
+
+                    let rec work () : FIO<unit, 'E> =
+                        suspend <| fun () ->
+                            let index = Interlocked.Increment &next.contents
+
+                            if index >= arr.Length then
+                                unit ()
+                            else
+                                (func arr[index]).FlatMap <| fun value ->
+                                    results[index] <- value
+                                    work ()
+
+                    (forEachPar (Array.create (min parallelism arr.Length) ()) work).Map(fun _ -> List.ofArray results)
 
     /// Runs the given effects in sequence, collecting their results into a list.
     let inline collectAll<'A, 'E> (effects: seq<FIO<'A, 'E>>) : FIO<'A list, 'E> =

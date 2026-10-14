@@ -75,6 +75,24 @@ let unwindFinalizers (state: byref<InterpreterState>) =
 // Out of line: processOutcome is inlined into every runtime's loop, and with these rarer arms inline a loop can
 // cross the JIT's basic-block limit and run unoptimized. Returns true when an effect is set.
 [<MethodImpl(MethodImplOptions.NoInlining)>]
+let runExitFinalizer (state: byref<InterpreterState>) (finalizer: FIO<obj, obj>) (saved: PostFinalizerSaved) level =
+    state.ContStack.Push(PostFinalizerCont(saved, level))
+
+    match finalizer with
+    | ChainBoth(_, handler, _) ->
+        match box handler with
+        | :? ExitHandler as handler ->
+            state.Effect <-
+                try
+                    handler.Invoke(box saved)
+                with ex ->
+                    Interrupt(Defect ex, ex.Message)
+        | _ ->
+            state.Effect <- finalizer
+    | _ ->
+        state.Effect <- finalizer
+
+[<MethodImpl(MethodImplOptions.NoInlining)>]
 let processRegionCont (state: byref<InterpreterState>) (cont: Cont) (outcome: byref<Outcome>) =
     match cont with
     | RestoreSuppressionCont level ->
@@ -94,8 +112,13 @@ let processRegionCont (state: byref<InterpreterState>) (cont: Cont) (outcome: by
             | OutcomeFailed error -> PostFinalizerFailed error
             | OutcomeInterrupted error -> PostFinalizerInterrupted error
 
-        state.ContStack.Push(PostFinalizerCont(saved, level))
-        state.Effect <- finalizer
+        match finalizer with
+        | ChainBoth _ ->
+            runExitFinalizer &state finalizer saved level
+        | _ ->
+            state.ContStack.Push(PostFinalizerCont(saved, level))
+            state.Effect <- finalizer
+
         true
     | PostFinalizerCont(saved, level) ->
         state.InterruptionSuppressed <- level

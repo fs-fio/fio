@@ -591,6 +591,13 @@ and [<Sealed; AllowNullLiteral>] Channel<'A> private
     member this.Read<'E> () : FIO<'A, 'E> =
         ReadChan this
 
+    /// Returns an effect that reads the next message if this channel holds one, yielding None instead of suspending.
+    member _.TryRead<'E> () : FIO<'A option, 'E> =
+        Action((fun () ->
+            let mutable message = Unchecked.defaultof<obj>
+            if valueQueue.TryRead &message then Some(message :?> 'A) else None),
+            Rethrow<_>.Instance)
+
     member internal _.BlockingWorkItemCount =
         blockingSlot.Count
 
@@ -619,6 +626,11 @@ and [<Sealed; AllowNullLiteral>] Channel<'A> private
 
     member internal _.Upcast () =
         initIfNull &upcastChannel (fun () -> Channel<obj>(id, valueQueue, blockingSlot, mode))
+
+// OnExit's finalizer is a ChainBoth whose handlers are an ExitHandler, which processRegionCont hands the outcome. A new
+// case would change the inlined interpreter loops, and a static marker would give this file a static initializer.
+and [<AbstractClass>] internal ExitHandler() =
+    inherit FSharpFunc<obj, FIO<obj, obj>>()
 
 /// A lazy, type-safe description of an effect that, when run, either succeeds with a value or fails with a typed error.
 and FIO<'A, 'E> =
@@ -655,6 +667,22 @@ and FIO<'A, 'E> =
     /// A finalizer that fails replaces a success with its failure, but not an earlier failure or interruption.
     member this.Ensuring (finalizer: FIO<unit, 'E>) : FIO<'A, 'E> =
         OnFinalize(this, finalizer.UpcastBoth())
+
+    /// Returns an effect that runs the given finalizer after this effect with its outcome: success, failure, or
+    /// interruption and its cause. Like Ensuring, it runs uninterruptibly, and its failure replaces only a success.
+    member this.OnExit (finalizer: FiberResult<'A, 'E> -> FIO<unit, 'E>) : FIO<'A, 'E> =
+        let handler : obj -> FIO<obj, obj> =
+            unbox (box { new ExitHandler() with
+                override _.Invoke saved =
+                    let outcome =
+                        match saved :?> PostFinalizerSaved with
+                        | PostFinalizerSucceeded value -> Succeeded(value :?> 'A)
+                        | PostFinalizerFailed error -> Failed(error :?> 'E)
+                        | PostFinalizerInterrupted error -> Interrupted(error :?> FiberInterruptedException)
+
+                    (finalizer outcome).UpcastBoth() })
+
+        OnFinalize(this, ChainBoth(FiberCancellationToken, handler, handler))
 
     /// Returns an effect that runs this effect on a new fiber scoped to this one, which interrupts and awaits it when it
     /// finishes, and interrupts it at once when interrupted unless it was forked uninterruptibly. See ForkDaemon.

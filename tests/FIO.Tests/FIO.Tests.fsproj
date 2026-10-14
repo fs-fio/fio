@@ -14,6 +14,8 @@
         <Compile Include="DSL/CETests.fs" />
         <Compile Include="DSL/ChannelTests.fs" />
         <Compile Include="DSL/RefTests.fs" />
+        <Compile Include="DSL/PromiseTests.fs" />
+        <Compile Include="DSL/SemaphoreTests.fs" />
         <Compile Include="DSL/Extensions/MappingTests.fs" />
         <Compile Include="DSL/Extensions/PredicateTests.fs" />
         <Compile Include="DSL/Extensions/ObservationTests.fs" />

@@ -311,6 +311,99 @@ let fioTests =
                 ]
 
             testList
+                "OnExit"
+                [
+                    testPropertyWithConfig fsCheckConfig "OnExit - hands the finalizer the success value"
+                    <| fun (runtime: FIORuntime, value: int) ->
+                        let seen = ref None
+                        let effect : FIO<int, string> = FIO.succeed(value).OnExit(fun outcome -> FIO.succeedWith (fun () -> seen.Value <- Some outcome))
+
+                        let result = runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.equal result value "OnExit should keep the success value"
+                        Expect.equal seen.Value (Some(Succeeded value)) "The finalizer should see the success"
+
+                    testPropertyWithConfig fsCheckConfig "OnExit - hands the finalizer the typed error"
+                    <| fun (runtime: FIORuntime, error: string) ->
+                        let seen = ref None
+                        let effect : FIO<int, string> = FIO.fail(error).OnExit(fun outcome -> FIO.succeedWith (fun () -> seen.Value <- Some outcome))
+
+                        let result = runtime.Run(effect).UnsafeError()
+
+                        Expect.equal result error "OnExit should keep the error"
+                        Expect.equal seen.Value (Some(Failed error)) "The finalizer should see the typed error"
+
+                    testAllRuntimes "OnExit - hands the finalizer the interruption and its cause" (fun runtime ->
+                        let seen = ref None
+                        let effect : FIO<unit, string> =
+                            fio {
+                                let! fiber = FIO.never<unit, string>().OnExit(fun outcome -> FIO.succeedWith (fun () -> seen.Value <- Some outcome)).Fork()
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
+                                do! fiber.Interrupt (ResourceExhaustion "out of slots") "stopped"
+                            }
+
+                        runtime.Run(effect).UnsafeSuccess()
+
+                        match seen.Value with
+                        | Some(Interrupted ex) ->
+                            Expect.equal ex.cause (ResourceExhaustion "out of slots") "The finalizer should see the interruption's cause"
+                            Expect.equal ex.message "stopped" "The finalizer should see the interruption's message"
+                        | other -> failtest $"Expected the finalizer to see the interruption but got %A{other}")
+
+                    testAllRuntimes "OnExit - hands the finalizer a Defect when the effect throws" (fun runtime ->
+                        let thrown = InvalidOperationException "effect threw"
+                        let seen = ref None
+                        let effect : FIO<FiberResult<unit, string>, string> =
+                            fio {
+                                let! fiber = FIO.suspend(fun () -> raise thrown).OnExit(fun outcome -> FIO.succeedWith (fun () -> seen.Value <- Some outcome)).Fork()
+                                return! fiber.Await()
+                            }
+
+                        runtime.Run(effect).UnsafeSuccess() |> ignore
+
+                        match seen.Value with
+                        | Some(Interrupted ex) ->
+                            match ex.cause with
+                            | Defect inner -> Expect.isTrue (obj.ReferenceEquals(inner, thrown)) "The finalizer should see the thrown exception itself"
+                            | cause -> failtest $"Expected a Defect but got %A{cause}"
+                        | other -> failtest $"Expected the finalizer to see a defect but got %A{other}")
+
+                    testAllRuntimes "OnExit - a failing finalizer replaces a success, not a failure" (fun runtime ->
+                        let afterSuccess : FIO<int, string> = FIO.succeed(1).OnExit(fun _ -> FIO.fail "finalizer failed")
+                        let afterFailure : FIO<int, string> = FIO.fail("effect failed").OnExit(fun _ -> FIO.fail "finalizer failed")
+
+                        let fromSuccess = runtime.Run(afterSuccess).UnsafeError()
+
+                        Expect.equal fromSuccess "finalizer failed" "A failing finalizer should replace a success"
+
+                        let fromFailure = runtime.Run(afterFailure).UnsafeError()
+
+                        Expect.equal fromFailure "effect failed" "A failing finalizer should not replace an earlier failure")
+
+                    testAllRuntimes "OnExit - calls the finalizer only when the effect runs" (fun runtime ->
+                        let calls = ref 0
+                        let effect : FIO<int, string> =
+                            FIO.succeed(1).OnExit(fun _ ->
+                                calls.Value <- calls.Value + 1
+                                FIO.unit ())
+                        let callsWhenBuilt = calls.Value
+
+                        runtime.Run(effect).UnsafeSuccess() |> ignore
+
+                        Expect.equal callsWhenBuilt 0 "Building the effect should not call the finalizer"
+                        Expect.equal calls.Value 1 "Running it should call the finalizer once")
+
+                    testAllRuntimes "OnExit - nested finalizers run innermost first and see the same outcome" (fun runtime ->
+                        let seen = Collections.Generic.List<string * FiberResult<int, string>>()
+                        let record label = fun outcome -> FIO.succeedWith (fun () -> seen.Add((label, outcome)))
+                        let effect : FIO<int, string> = FIO.succeed(7).OnExit(record "inner").OnExit(record "outer")
+
+                        runtime.Run(effect).UnsafeSuccess() |> ignore
+
+                        Expect.equal (List.ofSeq seen) [ "inner", Succeeded 7; "outer", Succeeded 7 ] "The inner finalizer should run first, both with the effect's outcome")
+                ]
+
+            testList
                 "Fork"
                 [
                     testPropertyWithConfig fsCheckConfig "Fork - returns a fiber that completes with success value"
@@ -492,6 +585,25 @@ let fioTests =
                             runtime.Run(joined).UnsafeSuccess()
 
                         Expect.equal result 0 "Deep Ensuring chain should yield the seed value"
+
+                    testAllRuntimes "Stack safety - deep left-chained OnExit via Fork"
+                    <| fun (runtime: FIORuntime) ->
+                        let depth = 10000
+                        let calls = ref 0
+                        let mutable effect = FIO.succeed 0
+                        for _ in 1..depth do
+                            effect <- effect.OnExit(fun _ -> FIO.succeedWith (fun () -> calls.Value <- calls.Value + 1))
+                        let joined =
+                            fio {
+                                let! fiber = effect.Fork()
+                                return! fiber.Join()
+                            }
+
+                        let result =
+                            runtime.Run(joined).UnsafeSuccess()
+
+                        Expect.equal result 0 "Deep OnExit chain should yield the seed value"
+                        Expect.equal calls.Value depth "Every finalizer in the chain should run once"
 
                     testAllRuntimes "Stack safety - deep left-chained MapBoth via Fork"
                     <| fun (runtime: FIORuntime) ->

@@ -11,6 +11,7 @@ open Expecto
 
 open System
 open System.Collections.Generic
+open System.Collections.Concurrent
 
 [<Tests>]
 let channelTests =
@@ -530,6 +531,121 @@ let channelTests =
                             |> Array.map _.Name
 
                         Expect.isEmpty untyped "A member whose parameter was inferred as obj accepts messages of any type"
+                ]
+
+            testList
+                "TryRead"
+                [
+                    testAllRuntimes "TryRead - an empty channel yields None without suspending" (fun runtime ->
+                        let chan = Channel<int>()
+
+                        let result = runtime.Run(chan.TryRead() : FIO<int option, exn>) |> resultWithin (TimeSpan.FromSeconds 5.0)
+
+                        match result with
+                        | Some(Succeeded None) -> ()
+                        | other -> failtest $"Expected an immediate None but got %A{other}")
+
+                    testPropertyWithConfig fsCheckConfig "TryRead - takes buffered messages in order"
+                    <| fun (runtime: FIORuntime, values: int list) ->
+                        let chan = Channel<int>()
+                        let effect : FIO<int option list * int option, exn> =
+                            fio {
+                                do! FIO.forEachDiscard values (fun value -> chan.Write value)
+                                let! taken = FIO.collectAll [ for _ in values -> chan.TryRead() ]
+                                let! rest = chan.TryRead()
+                                return taken, rest
+                            }
+
+                        let taken, rest = runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.equal taken (values |> List.map Some) "TryRead should take the messages in the order they were written"
+                        Expect.isNone rest "Nothing should be left once every message was taken"
+
+                    testAllRuntimes "TryRead - frees room for a writer waiting on a full bounded channel" (fun runtime ->
+                        let chan = Channel<int>.Bounded 1
+                        let writing = ref false
+                        let effect : FIO<int option * int, exn> =
+                            fio {
+                                do! chan.Write(1).Unit()
+
+                                let! writer =
+                                    (FIO.succeedWith(fun () -> writing.Value <- true).FlatMap(fun () -> chan.Write(2).Unit())).Fork()
+
+                                do! FIO.succeedWith (fun () -> waitForFlag writing |> ignore)
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
+                                let! first = chan.TryRead()
+                                do! writer.Join()
+                                let! second = chan.Read()
+                                return first, second
+                            }
+
+                        let first, second = runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.equal first (Some 1) "TryRead should take the buffered message"
+                        Expect.equal second 2 "The waiting writer should complete once TryRead made room")
+
+                    testAllRuntimes "TryRead - a message is taken once, by the parked reader or by TryRead" (fun runtime ->
+                        let chan = Channel<int>()
+                        let effect : FIO<int list, exn> =
+                            fio {
+                                let! reader = chan.Read().Fork()
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
+                                do! chan.Write(1).Unit()
+                                do! chan.Write(2).Unit()
+                                let! polled = chan.TryRead()
+                                let! read = reader.Join()
+                                let! leftover = chan.TryRead()
+                                return List.choose id [ polled; Some read; leftover ]
+                            }
+
+                        let taken = runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.equal (List.sort taken) [ 1; 2 ] "Each message should be taken exactly once, and the parked reader should still get one")
+
+                    stressTestAllRuntimes "Stress - TryRead pollers beside parked readers take every message exactly once" (fun runtime ->
+                        let messageCount = 50_000
+                        let pill = -1
+                        let chan = Channel<int>()
+                        let taken = ConcurrentBag<int>()
+                        let rec reader () : FIO<unit, exn> =
+                            chan.Read().FlatMap(fun message ->
+                                if message = pill then
+                                    FIO.unit ()
+                                else
+                                    taken.Add message
+                                    reader ())
+                        let rec poller (remaining: int) : FIO<unit, exn> =
+                            if remaining = 0 then
+                                FIO.unit ()
+                            else
+                                chan.TryRead().FlatMap(fun polled ->
+                                    match polled with
+                                    | Some message ->
+                                        taken.Add message
+                                        poller (remaining - 1)
+                                    | None ->
+                                        FIO.yieldNow().FlatMap(fun () -> poller (remaining - 1)))
+                        let effect =
+                            fio {
+                                let! readers = FIO.collectAll [ for _ in 1..3 -> reader().Fork() ]
+                                let! pollers = FIO.collectAll [ for _ in 1..3 -> (poller 20_000).Fork() ]
+                                do! FIO.forEachDiscard [ 0 .. messageCount - 1 ] (fun message -> chan.Write message)
+
+                                for fiber in pollers do
+                                    do! fiber.Join()
+
+                                do! FIO.forEachDiscard readers (fun _ -> chan.Write pill)
+
+                                for fiber in readers do
+                                    do! fiber.Join()
+                            }
+
+                        let result = runtime.Run(effect.TimeoutFail (exn "timed out") (TimeSpan.FromSeconds 60.0)).UnsafeResult()
+
+                        match result with
+                        | Succeeded () -> ()
+                        | other -> failtest $"Expected every reader and poller to finish but got %A{other}"
+                        Expect.equal (taken |> Seq.sort |> List.ofSeq) [ 0 .. messageCount - 1 ] "Every message should be taken exactly once")
                 ]
 
             testList

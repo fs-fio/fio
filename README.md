@@ -98,10 +98,10 @@ The methods on `FIO<'A, 'E>` cover most control flow; reach for one before writi
 | Continue on either outcome | `.FoldFIO onError onSuccess` |
 | Look without changing | `.Tap`, `.TapError`, `.TapBoth onSuccess onError`, `.Debug()` |
 | Sequence | `.FlatMap`, `.Zip`, `.ZipRight`, `.ZipLeft`, or `fio { }` |
-| Run concurrently | `.ZipPar` (`<&>`), `FIO.forEachPar`, `.Race` (first to succeed), `.RaceFirst` (first to settle) |
+| Run concurrently | `.ZipPar` (`<&>`), `FIO.forEachPar`, `FIO.forEachParN n` (at most `n` at a time), `.Race` (first to succeed), `.RaceFirst` (first to settle) |
 | Wait or bound time | `FIO.sleep`, `.Delay`, `.Timeout`, `.TimeoutFail`, `.Timed()` |
 | Retry or repeat | `.Retry`, `.RetryWhile`, `.Eventually()`, `.RepeatN`, `.RepeatUntil`, `.Forever()` |
-| Clean up | `.Ensuring finalizer`, `FIO.acquireReleaseWith` |
+| Clean up | `.Ensuring finalizer`, `.OnExit finalizer` (told how the effect ended), `FIO.acquireReleaseWith`, `FIO.acquireReleaseExitWith` |
 | Shield from interruption | `.Uninterruptible()`, `FIO.uninterruptibleMask` |
 
 As in ZIO, `FoldFIO` and `TapBoth` hand `onError` only this effect's failure; a failure raised by
@@ -132,6 +132,23 @@ fiber exits instead of being interrupted with it. Use a restorer only in the bod
 in a finalizer it would make the cleanup interruptible again. A finalizer that fails replaces a
 success with its failure, but never an earlier failure or interruption.
 
+When the cleanup depends on how the effect ended, `.OnExit` and `FIO.acquireReleaseExitWith` hand the
+finalizer the outcome as a `FiberResult`: `Succeeded`, `Failed`, or `Interrupted` with its cause.
+
+```fsharp
+// Keep the file only if writing it succeeded; delete a partial one on a failure or an interruption.
+let writeReport (path: string) (lines: string list) =
+    FIO.acquireReleaseExitWith
+        (FIO.attempt (fun () -> new StreamWriter(path)) id)
+        (fun writer outcome ->
+            FIO.attempt (fun () ->
+                writer.Dispose()
+                match outcome with
+                | Succeeded _ -> ()
+                | Failed _ | Interrupted _ -> File.Delete path) id)
+        (fun writer -> FIO.forEachDiscard lines (fun line -> FIO.attempt (fun () -> writer.WriteLine line) id))
+```
+
 ## Channels
 
 `Channel<'A>()` is unbounded. For back-pressure or a drop policy, use ZIO's queue family:
@@ -145,17 +162,40 @@ success with its failure, but never an earlier failure or interruption.
 `Write` yields its message (use `.Write(message).Unit()` to discard it), also when a full dropping
 channel dropped it; on a full bounded channel it suspends. `TryWrite` never suspends and yields
 whether the message was written — `false` from a full bounded or dropping channel, `true` from a
-full sliding one. `Read` suspends until a message arrives. A capacity below 1 throws.
+full sliding one. `Read` suspends until a message arrives; `TryRead` never suspends, yielding the next
+message as `Some`, or `None` from an empty channel. A capacity below 1 throws.
+
+## Promises and semaphores
+
+`Promise<'A, 'E>()` is completed once — `Succeed` or `Fail`, each yielding whether this call completed
+it — and `Await` suspends any number of fibers until then: a readiness signal, or a reply slot.
+
+```fsharp
+type Command = GetBalance of reply: Promise<int, exn>
+
+let balance (inbox: Channel<Command>) =
+    fio {
+        let reply = Promise<int, exn>()
+        do! inbox.Write(GetBalance reply).Unit()
+        return! reply.Await()
+    }
+```
+
+`Semaphore n` bounds how many effects run at once: `WithPermit effect` waits for a permit (interruptibly,
+unless the caller is not), runs the effect, and gives the permit back however it ends. To run many
+items at most `n` at a time, `FIO.forEachParN n items f` does the same on just `n` fibers.
+`System.Threading` has a `Semaphore` too: when it is opened after `FIO.DSL`, write `FIO.DSL.Semaphore`.
 
 ## Features
 
 - **Effects** — lazy, composable `FIO<'A, 'E>` with typed errors
 - **Fibers** — green threads for scalable concurrency
 - **Channels** — typed message passing between fibers: unbounded, bounded, dropping or sliding
-- **Resource safety** — `acquireReleaseWith` and uninterruptible regions, as in ZIO
-- **Structured concurrency** — fail-fast `ZipPar` and `forEachPar`, plus `Race` (first to succeed) and `RaceFirst` (first to settle), all of which interrupt losers automatically
+- **Resource safety** — `acquireReleaseWith`, outcome-aware `OnExit`/`acquireReleaseExitWith`, and uninterruptible regions, as in ZIO
+- **Structured concurrency** — fail-fast `ZipPar`, `forEachPar` and `forEachParN`, plus `Race` (first to succeed) and `RaceFirst` (first to settle), all of which interrupt losers automatically
 - **Composition** — `fio { }` CE, operators (`>>=`, `<&>`, `<|>`), combinators
 - **Refs** — `Ref<'A>`, an atomic reference cell shared between fibers (with `FIO.DSL` open it shadows FSharp.Core's `Ref<'T>` annotation; `'T ref` is unaffected)
+- **Promises & semaphores** — `Promise<'A, 'E>`, completed once and awaited by many, and `Semaphore`, which bounds how many effects run at once
 - **Console** — lines and keys as effects; `tryReadLine` yields `None` at end of input
 
 ## Runtimes

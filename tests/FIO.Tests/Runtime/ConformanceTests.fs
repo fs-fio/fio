@@ -105,6 +105,17 @@ let conformanceTests =
                     testAllRuntimes "Defect - throwing uninterruptibleMask body"
                     <| fun runtime ->
                         expectDefect runtime "uninterruptibleMask" (FIO.uninterruptibleMask (fun _ -> failwith "body threw"))
+
+                    testAllRuntimes "Defect - throwing OnExit finalizer function"
+                    <| fun runtime ->
+                        expectDefect runtime "OnExit" (FIO.succeed(1).OnExit(fun _ -> failwith "finalizer threw"))
+
+                    testAllRuntimes "Defect - throwing release function in acquireReleaseExitWith"
+                    <| fun runtime ->
+                        expectDefect
+                            runtime
+                            "acquireReleaseExitWith release"
+                            (FIO.acquireReleaseExitWith (FIO.succeed 1) (fun (_: int) _ -> failwith "release threw") (fun n -> FIO.succeed n))
                 ]
 
             testList
@@ -129,6 +140,20 @@ let conformanceTests =
                         match result with
                         | Succeeded value -> Expect.equal value 42 "The success value must survive intact"
                         | other -> failtest $"{runtime.GetType().Name}: expected Succeeded but got {other}"
+
+                    testAllRuntimes "Typed error - OnExit hands its finalizer the typed error intact"
+                    <| fun runtime ->
+                        let seen = ref None
+                        let effect: FIO<int, string> = FIO.fail("typed failure").OnExit(fun outcome -> FIO.succeedWith (fun () -> seen.Value <- Some outcome))
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        match result with
+                        | Failed error -> Expect.equal error "typed failure" "The typed error must survive intact"
+                        | other -> failtest $"{runtime.GetType().Name}: expected Failed but got {other}"
+                        match seen.Value with
+                        | Some(Failed error) -> Expect.equal error "typed failure" "The finalizer must see the typed error intact"
+                        | other -> failtest $"{runtime.GetType().Name}: expected the finalizer to see Failed but got {other}"
                 ]
 
             testList
