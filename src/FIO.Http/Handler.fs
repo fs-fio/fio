@@ -27,10 +27,6 @@ module HttpHandler =
     let fromFunc (func: HttpRequest -> HttpResponse) : HttpHandler<exn> =
         fun request -> FIO.attempt (fun () -> func request) id
 
-    /// Creates a handler from a request-to-effect function.
-    let fromFuncFIO (func: HttpRequest -> FIO<HttpResponse, 'E>) : HttpHandler<'E> =
-        func
-
     /// A handler that returns 200 OK.
     let ok<'E> : HttpHandler<'E> =
         succeed Response.ok
@@ -183,8 +179,8 @@ module HttpHandler =
             else
                 falseHandler request
 
-    /// Parses the request body as JSON into the given type, with the given options or else
-    /// <c>KestrelBridge.defaultJsonOptions</c> (names bind in any casing, and numbers may be written as strings).
+    /// <summary>Parses the request body as JSON into the given type, with the given options or else
+    /// <c>KestrelBridge.defaultJsonOptions</c> (names bind in any casing, and numbers may be written as strings).</summary>
     let parseJsonBody<'A> (options: JsonSerializerOptions option) : HttpRequest -> FIO<'A, exn> =
         fun request ->
             FIO.attempt (fun () ->
@@ -197,8 +193,8 @@ module HttpHandler =
                 result)
                 id
 
-    /// Creates a handler that parses the JSON request body with <c>KestrelBridge.defaultJsonOptions</c> and passes it
-    /// to the given function.
+    /// <summary>Creates a handler that parses the JSON request body with <c>KestrelBridge.defaultJsonOptions</c> and passes
+    /// it to the given function; a body that does not parse fails the handler through onError.</summary>
     let jsonBody<'A, 'E> (func: 'A -> FIO<HttpResponse, 'E>) (onError: exn -> 'E) : HttpHandler<'E> =
         fun request ->
             fio {
@@ -206,7 +202,8 @@ module HttpHandler =
                 return! func body
             }
 
-    /// Creates a handler that parses the JSON request body with the given options and passes it to the given function.
+    /// Creates a handler that parses the JSON request body with the given options and passes it to the given function; a
+    /// body that does not parse fails the handler through onError.
     let jsonBodyWith<'A, 'E>
         (options: JsonSerializerOptions)
         (func: 'A -> FIO<HttpResponse, 'E>)
@@ -219,14 +216,14 @@ module HttpHandler =
 
 module HttpHandlerOperators =
 
-    /// Maps a handler's response. Operator form of <c>HttpHandler.map</c>.
+    /// <summary>Maps a handler's response. Operator form of <c>HttpHandler.map</c>.</summary>
     let (<!>) func handler =
         HttpHandler.map func handler
 
-    /// Chains a handler into a response-dependent handler. Operator form of <c>HttpHandler.bind</c>.
+    /// <summary>Chains a handler into a response-dependent handler. Operator form of <c>HttpHandler.bind</c>.</summary>
     let (>>=) handler func =
         HttpHandler.bind func handler
 
-    /// Falls back to another handler on failure. Operator form of <c>HttpHandler.orElse</c>.
+    /// <summary>Falls back to another handler on failure. Operator form of <c>HttpHandler.orElse</c>.</summary>
     let (<|>) handler handler' =
         HttpHandler.orElse handler' handler

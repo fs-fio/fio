@@ -68,7 +68,7 @@ module RoutePath =
     let prefix (segments: string list) : RoutePath =
         Prefix segments
 
-    /// Parses a path string into a route path, treating `:name` segments as parameters.
+    /// <summary>Parses a path string into a route path, treating <c>:name</c> segments as parameters.</summary>
     let parse (path: string) : RoutePath =
         let segments =
             path.Split([| '/' |], StringSplitOptions.RemoveEmptyEntries) |> Array.toList
@@ -186,7 +186,7 @@ module RoutePattern =
 [<RequireQualifiedAccess>]
 module Route =
 
-    /// Parses a `METHOD /path` route string into a route pattern.
+    /// <summary>Parses a <c>METHOD /path</c> route string into a route pattern.</summary>
     let fromString (routeStr: string) : RoutePattern =
         let parts = routeStr.Split([| ' ' |], StringSplitOptions.RemoveEmptyEntries)
         match parts with
@@ -225,37 +225,3 @@ module Route =
     /// Creates an OPTIONS route pattern from a path string.
     let options (path: string) : RoutePattern =
         RoutePattern.options (RoutePath.fromString path)
-
-module RouteOperators =
-
-    /// Creates a route pattern from a method and a path string.
-    let (=>) (method: HttpMethod) (path: string) =
-        RoutePattern.create method (RoutePath.fromString path)
-
-    /// Creates a GET route pattern from a path string.
-    let get path : RoutePattern =
-        Route.get path
-
-    /// Creates a POST route pattern from a path string.
-    let post path : RoutePattern =
-        Route.post path
-
-    /// Creates a PUT route pattern from a path string.
-    let put path : RoutePattern =
-        Route.put path
-
-    /// Creates a DELETE route pattern from a path string.
-    let delete path : RoutePattern =
-        Route.delete path
-
-    /// Creates a PATCH route pattern from a path string.
-    let patch path : RoutePattern =
-        Route.patch path
-
-    /// Creates a HEAD route pattern from a path string.
-    let head path : RoutePattern =
-        Route.head path
-
-    /// Creates an OPTIONS route pattern from a path string.
-    let options path : RoutePattern =
-        Route.options path

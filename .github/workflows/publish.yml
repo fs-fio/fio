@@ -31,7 +31,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj', 'Directory.Packages.props', 'global.json') }}
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj', 'Directory.Build.props', 'Directory.Packages.props', 'global.json') }}
           restore-keys: |
             ${{ runner.os }}-nuget-
 
@@ -75,8 +75,6 @@ jobs:
           if [[ "$version" == *-* ]]; then prerelease=true; fi
 
           {
-            echo "mode=$mode"
-            echo "version=$version"
             echo "prerelease=$prerelease"
             echo "projects=$projects"
             echo "pack_arg=$pack_arg"

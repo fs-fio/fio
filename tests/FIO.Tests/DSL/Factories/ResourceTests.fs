@@ -6,8 +6,6 @@ open FIO.Tests.Utilities.FsCheckProperties
 open FIO.DSL
 open FIO.Runtime
 open FIO.Runtime.Direct
-open FIO.Runtime.Polling
-open FIO.Runtime.Signaling
 open FIO.Runtime.WorkStealing
 
 open Expecto
@@ -288,13 +286,11 @@ let tests =
 
                             for name, make in
                                 [
-                                    "PollingRuntime", (fun () -> new PollingRuntime(oneWorker) :> FIORuntime)
-                                    "SignalingRuntime", (fun () -> new SignalingRuntime(oneWorker) :> FIORuntime)
                                     "WorkStealingRuntime", (fun () -> new WorkStealingRuntime(oneWorker) :> FIORuntime)
                                 ] ->
                                 testCase name (fun () ->
                                     let runtime = make ()
-                                    let control = new DirectRuntime()
+                                    use control = new DirectRuntime()
                                     let parked = new ManualResetEventSlim false
                                     let blocking = new ManualResetEventSlim false
                                     let unblock = new ManualResetEventSlim false
@@ -334,5 +330,158 @@ let tests =
                                         | :? IDisposable as disposable -> disposable.Dispose()
                                         | _ -> ())
                         ]
+                ]
+
+            testList
+                "Outcome-aware resource management"
+                [
+                    testPropertyWithConfig fsCheckConfig "acquireReleaseExitWith - releases with Succeeded on success"
+                    <| fun (runtime: FIORuntime, value: int) ->
+                        let seen = ref None
+                        let effect : FIO<int, string> =
+                            FIO.acquireReleaseExitWith
+                                (FIO.succeed "resource")
+                                (fun _ outcome -> FIO.succeedWith (fun () -> seen.Value <- Some outcome))
+                                (fun _ -> FIO.succeed value)
+
+                        let result = runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.equal result value "Should return the use result"
+                        Expect.equal seen.Value (Some(Succeeded value)) "Release should see the success of use"
+
+                    testPropertyWithConfig fsCheckConfig "acquireReleaseExitWith - releases with Failed on use failure"
+                    <| fun (runtime: FIORuntime, error: string) ->
+                        let seen = ref None
+                        let effect : FIO<int, string> =
+                            FIO.acquireReleaseExitWith
+                                (FIO.succeed "resource")
+                                (fun _ outcome -> FIO.succeedWith (fun () -> seen.Value <- Some outcome))
+                                (fun _ -> FIO.fail error)
+
+                        let result = runtime.Run(effect).UnsafeError()
+
+                        Expect.equal result error "Should return the use error"
+                        Expect.equal seen.Value (Some(Failed error)) "Release should see the failure of use"
+
+                    testPropertyWithConfig fsCheckConfig "acquireReleaseExitWith - does not run release when acquire fails"
+                    <| fun (runtime: FIORuntime, error: string) ->
+                        let released = ref false
+                        let effect : FIO<int, string> =
+                            FIO.acquireReleaseExitWith
+                                (FIO.fail error)
+                                (fun _ _ -> FIO.succeedWith (fun () -> released.Value <- true))
+                                (fun (_: string) -> FIO.succeed 42)
+
+                        let result = runtime.Run(effect).UnsafeError()
+
+                        Expect.equal result error "Should return the acquire error"
+                        Expect.isFalse released.Value "Release should not run when acquire fails"
+
+                    testAllRuntimes "acquireReleaseExitWith - releases with Interrupted and its cause when use is interrupted" (fun runtime ->
+                        let using = new ManualResetEventSlim false
+                        let seen = ref None
+                        let effect : FIO<unit, string> =
+                            FIO.acquireReleaseExitWith
+                                (FIO.succeed "resource")
+                                (fun _ outcome -> FIO.succeedWith (fun () -> seen.Value <- Some outcome))
+                                (fun _ -> FIO.succeedWith(fun () -> using.Set()).FlatMap(fun () -> FIO.never ()))
+
+                        let fiber = runtime.Run effect
+
+                        Expect.isTrue (using.Wait(TimeSpan.FromSeconds 5.0)) "Use should start"
+
+                        runtime.Run(fiber.Interrupt (ResourceExhaustion "pool closed") "stopping" : FIO<unit, string>).Task().Wait()
+
+                        Expect.isTrue (waitUntil (fun () -> seen.Value.IsSome)) "Release should run when use is interrupted"
+                        match seen.Value with
+                        | Some(Interrupted ex) -> Expect.equal ex.cause (ResourceExhaustion "pool closed") "Release should see the interruption's cause"
+                        | other -> failtest $"Expected Interrupted but got %A{other}")
+
+                    testAllRuntimes "acquireReleaseExitWith - a use function that throws releases with a Defect" (fun runtime ->
+                        let thrown = InvalidOperationException "use threw"
+                        let seen = ref None
+                        let effect : FIO<unit, string> =
+                            FIO.acquireReleaseExitWith
+                                (FIO.succeed "resource")
+                                (fun _ outcome -> FIO.succeedWith (fun () -> seen.Value <- Some outcome))
+                                (fun _ -> raise thrown)
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        match result with
+                        | Interrupted _ -> ()
+                        | other -> failtest $"Expected Interrupted but got %A{other}"
+                        Expect.isTrue (waitUntil (fun () -> seen.Value.IsSome)) "Release should run when use throws"
+                        match seen.Value with
+                        | Some(Interrupted ex) ->
+                            match ex.cause with
+                            | Defect defect -> Expect.isTrue (obj.ReferenceEquals(defect, thrown)) "Release should see the thrown exception as the defect"
+                            | cause -> failtest $"Expected a Defect but got %A{cause}"
+                        | other -> failtest $"Expected Interrupted but got %A{other}")
+
+                    testAllRuntimes "acquireReleaseExitWith - releases with Interrupted what a multi-step acquire created after an interrupt" (fun runtime ->
+                        let started = new ManualResetEventSlim false
+                        let proceed = new ManualResetEventSlim false
+                        let seen = ref None
+                        let used = ref false
+                        let acquire =
+                            (FIO.attempt (fun () ->
+                                started.Set()
+                                proceed.Wait()
+                                "resource") id).Map id
+                        let release = fun _ outcome -> FIO.succeedWith (fun () -> seen.Value <- Some outcome)
+                        let useResource = fun _ -> FIO.succeedWith (fun () -> used.Value <- true)
+
+                        let fiber = runtime.Run(FIO.acquireReleaseExitWith acquire release useResource)
+
+                        Expect.isTrue (started.Wait(TimeSpan.FromSeconds 5.0)) "Acquire should start"
+
+                        runtime.Run(fiber.InterruptNow()).Task().Wait()
+                        proceed.Set()
+
+                        Expect.isTrue (waitUntil (fun () -> seen.Value.IsSome)) "Release should run for a resource that acquire created"
+                        match seen.Value with
+                        | Some(Interrupted _) -> ()
+                        | other -> failtest $"Expected release to see the interruption but got %A{other}"
+                        Expect.isFalse used.Value "Use should not run once the fiber was interrupted during acquire")
+
+                    testAllRuntimes "acquireReleaseExitWith - acquire and release run uninterruptibly, use at the caller's level" (fun runtime ->
+                        let cancellable () = FIO.cancellationToken<exn>().Map(fun token -> token.CanBeCanceled)
+                        let inRelease = ref true
+                        let effect =
+                            FIO.acquireReleaseExitWith
+                                (cancellable ())
+                                (fun _ _ -> cancellable().Map(fun canBeCanceled -> inRelease.Value <- canBeCanceled))
+                                (fun inAcquire -> cancellable().Map(fun inUse -> inAcquire, inUse))
+
+                        let inAcquire, inUse = runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.isFalse inAcquire "Acquire should run uninterruptibly"
+                        Expect.isTrue inUse "Use should run at the caller's interruptible level"
+                        Expect.isFalse inRelease.Value "Release should run uninterruptibly")
+
+                    testAllRuntimes "acquireReleaseExitWith - a failing release replaces a success, not a failure" (fun runtime ->
+                        let failingRelease = fun () (_: FiberResult<int, string>) -> FIO.fail "release failed"
+                        let afterSuccess = FIO.acquireReleaseExitWith (FIO.succeed ()) failingRelease (fun () -> FIO.succeed 1)
+                        let afterFailure = FIO.acquireReleaseExitWith (FIO.succeed ()) failingRelease (fun () -> FIO.fail "use failed")
+
+                        let fromSuccess = runtime.Run(afterSuccess).UnsafeError()
+
+                        Expect.equal fromSuccess "release failed" "A failing release should replace a success"
+
+                        let fromFailure = runtime.Run(afterFailure).UnsafeError()
+
+                        Expect.equal fromFailure "use failed" "A failing release should not replace the failure of use")
+
+                    testAllRuntimes "acquireReleaseExitWith - each release sees the outcome of its own use" (fun runtime ->
+                        let seen = Collections.Generic.List<string * FiberResult<int, string>>()
+                        let record label = fun () outcome -> FIO.succeedWith (fun () -> seen.Add((label, outcome)))
+                        let inner = FIO.acquireReleaseExitWith (FIO.succeed ()) (record "inner") (fun () -> FIO.fail "inner failed")
+                        let effect = FIO.acquireReleaseExitWith (FIO.succeed ()) (record "outer") (fun () -> inner.CatchAll(fun _ -> FIO.succeed 7))
+
+                        let result = runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.equal result 7 "The outer use should recover"
+                        Expect.equal (List.ofSeq seen) [ "inner", Failed "inner failed"; "outer", Succeeded 7 ] "Each release should see its own use's outcome, innermost first")
                 ]
         ]

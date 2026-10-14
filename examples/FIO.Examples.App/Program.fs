@@ -369,7 +369,6 @@ type HighlyConcurrentApp() =
                 <&&> receiver chan fiberCount fiberCount
         }
 
-// Computes the nth Fibonacci number iteratively.
 let fib n =
     let mutable a = 0L
     let mutable b = 1L
@@ -464,7 +463,6 @@ type CustomRuntimeApp() =
         new WorkStealingRuntime {
             EvaluationWorkers = Environment.ProcessorCount * 2
             EvaluationSteps = 500
-            BlockingWorkers = 2
         }
 
     override _.effect =
@@ -472,7 +470,6 @@ type CustomRuntimeApp() =
             do! Console.printLine "Running with custom WorkStealingRuntime configuration:" id
             do! Console.printLine $" - Evaluation Workers: %d{Environment.ProcessorCount * 2}" id
             do! Console.printLine " - Evaluation Steps: 500" id
-            do! Console.printLine " - Blocking Workers: 2" id
         }
 
 // Ctrl+C releases the resource through its acquireReleaseWith finalizer; onShutdown only says goodbye.
@@ -515,7 +512,6 @@ type CustomExitCodeApp() =
         | AppInterrupted _ ->
             130
         | AppFatalError _ ->
-            // A custom code for the demo; the default mapExitCode uses 1, as for a failure.
             2
 
     override _.effect =
@@ -550,25 +546,42 @@ type RaceTimeoutApp() =
             | None -> do! Console.printLine "Timed out after 200ms (as expected)" id
         }
 
-// Safely acquires and releases a file resource with acquireReleaseWith.
+// Writes temp files with acquireReleaseExitWith: release keeps a file whose writing succeeded and deletes the rest.
 type ResourceApp() =
     inherit FIOApp<unit, exn>()
 
-    override _.effect =
-        FIO.acquireReleaseWith
-            (FIO.attempt (fun () -> new StreamWriter(Path.GetTempFileName())) id)
-            (fun writer ->
+    let writeTempFile (text: string) (rejectAfterWriting: bool) =
+        FIO.acquireReleaseExitWith
+            (FIO.attempt (fun () ->
+                let path = Path.GetTempFileName()
+                path, new StreamWriter(path)) id)
+            (fun (path, writer) outcome ->
                 fio {
                     do! FIO.attempt (fun () -> writer.Dispose()) id
-                    do! Console.printLine "Resource released (writer disposed)." id
+
+                    match outcome with
+                    | Succeeded _ ->
+                        do! Console.printLine $"Committed: kept {path}" id
+                    | Failed _
+                    | Interrupted _ ->
+                        do! FIO.attempt (fun () -> File.Delete path) id
+                        do! Console.printLine $"Rolled back: deleted {path}" id
                 })
-            (fun writer ->
+            (fun (_, writer) ->
                 fio {
-                    do! FIO.attempt (fun () -> writer.WriteLine "Hello from FIO!") id
-                    do! Console.printLine "Acquired resource and wrote to a temp file." id
+                    do! FIO.attempt (fun () -> writer.WriteLine text) id
+
+                    if rejectAfterWriting then
+                        return! FIO.fail (IOException "The write was rejected")
                 })
 
-// Squares a list of numbers in parallel with forEachPar.
+    override _.effect =
+        fio {
+            do! writeTempFile "Hello from FIO!" false
+            do! (writeTempFile "This write is rejected" true).CatchAll(fun ex -> Console.printLine $"Write failed: {ex.Message}" id)
+        }
+
+// Squares a list of numbers in parallel with forEachPar, then at most three at a time with forEachParN.
 type ParallelMapApp() =
     inherit FIOApp<unit, exn>()
 
@@ -580,16 +593,19 @@ type ParallelMapApp() =
                     return n * n
                 }
 
-            let! results = FIO.forEachPar [ 1..8 ] work
-            do! Console.printLine $"Squares (computed in parallel): %A{results}" id
+            let! elapsed, results = (FIO.forEachPar [ 1..8 ] work).Timed()
+            do! Console.printLine $"Squares, all at once: %A{results} in %.0f{elapsed.TotalMilliseconds} ms" id
+
+            let! elapsed, results = (FIO.forEachParN 3 [ 1..8 ] work).Timed()
+            do! Console.printLine $"Squares, three at a time: %A{results} in %.0f{elapsed.TotalMilliseconds} ms" id
         }
 
 type AccountMessage =
     | Deposit of int
     | Withdraw of int
-    | Balance of Channel<int>
+    | Balance of Promise<int, exn>
 
-// A bank-account actor that keeps its state in a recursive loop over an inbox channel.
+// A bank-account actor that keeps its state in a recursive loop over an inbox channel and replies through a Promise.
 type StatefulActorApp() =
     inherit FIOApp<unit, exn>()
 
@@ -598,20 +614,20 @@ type StatefulActorApp() =
             inbox.Read().FlatMap(function
             | Deposit amount -> loop (balance + amount)
             | Withdraw amount -> loop (balance - amount)
-            | Balance reply -> reply.Write(balance).Unit().FlatMap(fun () -> loop balance))
+            | Balance reply -> reply.Succeed(balance).Unit().FlatMap(fun () -> loop balance))
         loop 0
 
     override _.effect =
         fio {
             let inbox = Channel<AccountMessage>()
-            let reply = Channel<int>()
+            let reply = Promise<int, exn>()
             let! actor = (account inbox).Fork()
 
             do! inbox.Write(Deposit 100).Unit()
             do! inbox.Write(Withdraw 30).Unit()
             do! inbox.Write(Balance reply).Unit()
 
-            let! balance = reply.Read()
+            let! balance = reply.Await()
             do! Console.printLine $"Account balance: {balance}" id
             do! actor.Interrupt ExplicitInterrupt "done"
         }
@@ -633,6 +649,26 @@ type SharedCounterApp() =
             let! previous = counter.Modify(fun n -> $"reset from {n}", 0)
             let! now = counter.Get()
             do! Console.printLine $"{previous}; counter is now {now}" id
+        }
+
+// Two jobs share one disk through a Semaphore with a single permit, so their writes never interleave.
+type SemaphoreApp() =
+    inherit FIOApp<unit, exn>()
+
+    override _.effect =
+        fio {
+            let disk = Semaphore 1
+
+            let job (name: string) =
+                FIO.forEachDiscard [ 1..3 ] (fun block ->
+                    disk.WithPermit(
+                        fio {
+                            do! Console.printLine $"{name}: writing block {block}..." id
+                            do! FIO.sleep (TimeSpan.FromMilliseconds 100.0)
+                            do! Console.printLine $"{name}: block {block} written" id
+                        }))
+
+            do! job "Backup" <&&> job "Report"
         }
 
 // Fetches a URL with HttpClient as an effect, bounded by a timeout.
@@ -676,6 +712,7 @@ let examples =
         nameof ParallelMapApp, fun () -> ParallelMapApp().Run()
         nameof StatefulActorApp, fun () -> StatefulActorApp().Run()
         nameof SharedCounterApp, fun () -> SharedCounterApp().Run()
+        nameof SemaphoreApp, fun () -> SemaphoreApp().Run()
         nameof HttpClientApp, fun () -> HttpClientApp().Run()
     ]
 

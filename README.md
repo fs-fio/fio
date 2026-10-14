@@ -1,17 +1,11 @@
-<div align="center">
-  <a href="https://github.com/fs-fio/fio/">
-    <img src="https://raw.githubusercontent.com/fs-fio/fio/main/assets/logo.png" width="auto" height="250" alt="FIO">
-  </a>
+[![FIO](https://raw.githubusercontent.com/fs-fio/fio/main/assets/logo-readme.png)](https://github.com/fs-fio/fio)
 
-  <p><strong>🪻 A Type-Safe, Purely Functional Effect System for F#</strong></p>
+**🪻 A Type-Safe, Purely Functional Effect System for F#**
 
-  <p>
-    <a href="https://www.nuget.org/packages/FSharp.FIO"><img src="https://img.shields.io/nuget/v/FSharp.FIO.svg?logo=nuget&label=nuget" alt="NuGet"></a>
-    <a href="https://github.com/fs-fio/fio/actions/workflows/test.yml"><img src="https://github.com/fs-fio/fio/actions/workflows/test.yml/badge.svg" alt="Run Tests"></a>
-    <a href="https://github.com/fs-fio/fio/blob/main/LICENSE.md"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"></a>
-    <img src="https://img.shields.io/badge/.NET-10-512BD4.svg?logo=dotnet" alt=".NET 10">
-  </p>
-</div>
+[![NuGet](https://img.shields.io/nuget/v/FSharp.FIO.svg?logo=nuget&label=nuget)](https://www.nuget.org/packages/FSharp.FIO)
+[![Run Tests](https://github.com/fs-fio/fio/actions/workflows/test.yml/badge.svg)](https://github.com/fs-fio/fio/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/fs-fio/fio/blob/main/LICENSE.md)
+![.NET 10](https://img.shields.io/badge/.NET-10-512BD4.svg?logo=dotnet)
 
 ---
 
@@ -34,6 +28,9 @@ The API takes its cues from [ZIO](https://zio.dev).
 ```bash
 dotnet add package FSharp.FIO --prerelease
 ```
+
+FSharp.FIO needs FSharp.Core 10.1.401 or newer: an F# project on an older FSharp.Core (one it pins, or the
+implicit one of an older SDK) builds with only a downgrade warning (NU1605) and then fails at run time.
 
 ## Quick Start
 
@@ -99,12 +96,12 @@ The methods on `FIO<'A, 'E>` cover most control flow; reach for one before writi
 | Ignore success and failure alike | `.Ignore()` |
 | Recover from failure | `.CatchAll handler`, `.CatchSome handler`, `.OrElse other`, `.OrElseSucceed value`, `.OrElseFail error` |
 | Continue on either outcome | `.FoldFIO onError onSuccess` |
-| Look without changing | `.Tap`, `.TapError`, `.TapBoth`, `.Debug()` |
+| Look without changing | `.Tap`, `.TapError`, `.TapBoth onSuccess onError`, `.Debug()` |
 | Sequence | `.FlatMap`, `.Zip`, `.ZipRight`, `.ZipLeft`, or `fio { }` |
-| Run concurrently | `.ZipPar` (`<&>`), `FIO.forEachPar`, `.Race` (first to succeed), `.RaceFirst` (first to settle) |
+| Run concurrently | `.ZipPar` (`<&>`), `FIO.forEachPar`, `FIO.forEachParN n` (at most `n` at a time), `.Race` (first to succeed), `.RaceFirst` (first to settle) |
 | Wait or bound time | `FIO.sleep`, `.Delay`, `.Timeout`, `.TimeoutFail`, `.Timed()` |
 | Retry or repeat | `.Retry`, `.RetryWhile`, `.Eventually()`, `.RepeatN`, `.RepeatUntil`, `.Forever()` |
-| Clean up | `.Ensuring finalizer`, `FIO.acquireReleaseWith` |
+| Clean up | `.Ensuring finalizer`, `.OnExit finalizer` (told how the effect ended), `FIO.acquireReleaseWith`, `FIO.acquireReleaseExitWith` |
 | Shield from interruption | `.Uninterruptible()`, `FIO.uninterruptibleMask` |
 
 As in ZIO, `FoldFIO` and `TapBoth` hand `onError` only this effect's failure; a failure raised by
@@ -135,6 +132,23 @@ fiber exits instead of being interrupted with it. Use a restorer only in the bod
 in a finalizer it would make the cleanup interruptible again. A finalizer that fails replaces a
 success with its failure, but never an earlier failure or interruption.
 
+When the cleanup depends on how the effect ended, `.OnExit` and `FIO.acquireReleaseExitWith` hand the
+finalizer the outcome as a `FiberResult`: `Succeeded`, `Failed`, or `Interrupted` with its cause.
+
+```fsharp
+// Keep the file only if writing it succeeded; delete a partial one on a failure or an interruption.
+let writeReport (path: string) (lines: string list) =
+    FIO.acquireReleaseExitWith
+        (FIO.attempt (fun () -> new StreamWriter(path)) id)
+        (fun writer outcome ->
+            FIO.attempt (fun () ->
+                writer.Dispose()
+                match outcome with
+                | Succeeded _ -> ()
+                | Failed _ | Interrupted _ -> File.Delete path) id)
+        (fun writer -> FIO.forEachDiscard lines (fun line -> FIO.attempt (fun () -> writer.WriteLine line) id))
+```
+
 ## Channels
 
 `Channel<'A>()` is unbounded. For back-pressure or a drop policy, use ZIO's queue family:
@@ -148,36 +162,58 @@ success with its failure, but never an earlier failure or interruption.
 `Write` yields its message (use `.Write(message).Unit()` to discard it), also when a full dropping
 channel dropped it; on a full bounded channel it suspends. `TryWrite` never suspends and yields
 whether the message was written — `false` from a full bounded or dropping channel, `true` from a
-full sliding one. `Read` suspends until a message arrives. A capacity below 1 throws.
+full sliding one. `Read` suspends until a message arrives; `TryRead` never suspends, yielding the next
+message as `Some`, or `None` from an empty channel. A capacity below 1 throws.
+
+## Promises and semaphores
+
+`Promise<'A, 'E>()` is completed once — `Succeed` or `Fail`, each yielding whether this call completed
+it — and `Await` suspends any number of fibers until then: a readiness signal, or a reply slot.
+
+```fsharp
+type Command = GetBalance of reply: Promise<int, exn>
+
+let balance (inbox: Channel<Command>) =
+    fio {
+        let reply = Promise<int, exn>()
+        do! inbox.Write(GetBalance reply).Unit()
+        return! reply.Await()
+    }
+```
+
+`Semaphore n` bounds how many effects run at once: `WithPermit effect` waits for a permit (interruptibly,
+unless the caller is not), runs the effect, and gives the permit back however it ends. To run many
+items at most `n` at a time, `FIO.forEachParN n items f` does the same on just `n` fibers.
+`System.Threading` has a `Semaphore` too: when it is opened after `FIO.DSL`, write `FIO.DSL.Semaphore`.
 
 ## Features
 
 - **Effects** — lazy, composable `FIO<'A, 'E>` with typed errors
 - **Fibers** — green threads for scalable concurrency
 - **Channels** — typed message passing between fibers: unbounded, bounded, dropping or sliding
-- **Resource safety** — `acquireReleaseWith` and uninterruptible regions, as in ZIO
-- **Structured concurrency** — fail-fast `ZipPar`, `Race`, and `forEachPar` that interrupt losers automatically
+- **Resource safety** — `acquireReleaseWith`, outcome-aware `OnExit`/`acquireReleaseExitWith`, and uninterruptible regions, as in ZIO
+- **Structured concurrency** — fail-fast `ZipPar`, `forEachPar` and `forEachParN`, plus `Race` (first to succeed) and `RaceFirst` (first to settle), all of which interrupt losers automatically
 - **Composition** — `fio { }` CE, operators (`>>=`, `<&>`, `<|>`), combinators
 - **Refs** — `Ref<'A>`, an atomic reference cell shared between fibers (with `FIO.DSL` open it shadows FSharp.Core's `Ref<'T>` annotation; `'T ref` is unaffected)
+- **Promises & semaphores** — `Promise<'A, 'E>`, completed once and awaited by many, and `Semaphore`, which bounds how many effects run at once
 - **Console** — lines and keys as effects; `tryReadLine` yields `None` at end of input
 
 ## Runtimes
 
-Effects are interpreted by a runtime. Pick one explicitly, or use `DefaultRuntime`.
+Effects are interpreted by a runtime. Pick one explicitly — `DirectRuntime` (`open FIO.Runtime.Direct`) or
+`WorkStealingRuntime` (`open FIO.Runtime.WorkStealing`) — or use `DefaultRuntime` (`open FIO.Runtime.Default`).
 
 | Runtime | Notes |
 |---------|-------|
 | `DirectRuntime` | Multi-threaded via the .NET thread pool — one task per fiber, no scheduler of its own. Handy for tests and as a baseline. |
-| `PollingRuntime` | Multi-threaded, linear-time handling of blocked fibers (polling). |
-| `SignalingRuntime` | Multi-threaded, event-driven handling of blocked fibers. |
 | `WorkStealingRuntime` | Multi-threaded, work-stealing scheduler. **The default.** |
 
 `DefaultRuntime = WorkStealingRuntime` — `FIOApp` uses it unless you `override _.runtime`.
 
-A runtime is `IDisposable`. `Dispose()` interrupts every fiber still running on it — roots started
+A runtime is `IDisposable` (`use runtime = new DefaultRuntime()`). Disposing it interrupts every fiber still running on it — roots started
 with `Run`, and daemons — waits up to 10 seconds for their finalizers, then stops its workers;
 `Shutdown timeout` does the same with your own bound. A fiber still unwinding when the time is up is
-abandoned: on the worker runtimes it runs no further step once its current slice of steps ends (a
+abandoned: on `WorkStealingRuntime` it runs no further step once its current slice of steps ends (a
 step that is running your code runs to its end), while on `DirectRuntime`, which has no workers to
 stop, it goes on unwinding after `Shutdown` returns. A root or daemon that had finished
 and only waited for its children gets its result; a fiber deeper in the tree in that state does not.
@@ -186,9 +222,9 @@ and only waited for its children gets its result; a fiber deeper in the tree in 
 
 ## Benchmarks
 
-Twelve concurrency workloads (Pingpong, Threadring, Chameneos, Philosophers, …) run against every
-runtime, reporting execution time and allocations. Pingpong is tracked per commit on the
-[**live benchmark dashboard**](https://fs-fio.github.io/fio/dev/bench/); the full suite,
+Eleven concurrency workloads (Pingpong, Threadring, Chameneos, Philosophers, …) and a combinator
+microbenchmark run against every runtime, reporting execution time and allocations. Pingpong is tracked
+per commit on the [**live benchmark dashboard**](https://fs-fio.github.io/fio/dev/bench/); the full suite,
 its parameters, and the A/B comparison protocol are documented in
 [`benchmarks/FIO.Benchmarks/README.md`](https://github.com/fs-fio/fio/blob/main/benchmarks/FIO.Benchmarks/README.md).
 

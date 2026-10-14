@@ -72,17 +72,12 @@ module Codec =
                     FIO.fail (CodecError "Cannot decode close frame as JSON")
         }
 
-    let private defaultJsonOptions =
-        let options = JsonSerializerOptions()
-        options.MakeReadOnly true
-        options
-
     /// A JSON codec using default serializer options.
-    let json<'A> : WebSocketCodec<'A> = jsonWithOptions<'A> defaultJsonOptions
+    let json<'A> : WebSocketCodec<'A> = jsonWithOptions<'A> JsonSerializerOptions.Default
 
-    /// A newline-terminated JSON codec, optionally using the given serializer options.
+    /// Creates a newline-terminated JSON codec, optionally using the given serializer options.
     let jsonLine<'A> (options: JsonSerializerOptions option) : WebSocketCodec<'A> =
-        let opts = defaultArg options (JsonSerializerOptions())
+        let opts = defaultArg options JsonSerializerOptions.Default
         {
             Encode = fun value ->
                 FIO.attempt

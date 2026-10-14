@@ -1,14 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
-        <IsPackable>false</IsPackable>
-        <IsTestProject>true</IsTestProject>
         <GenerateProgramFile>false</GenerateProgramFile>
     </PropertyGroup>
 
     <ItemGroup>
         <Compile Include="Utils/Utilities.fs" />
+        <Compile Include="../Shared/ChildProcessRunner.fs" Link="Utils/ChildProcessRunner.fs" />
         <Compile Include="Utils/ChildProcess.fs" />
         <Compile Include="TypesTests.fs" />
         <Compile Include="ResponseTests.fs" />
@@ -22,12 +20,7 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\..\src\FIO\FIO.fsproj" />
         <ProjectReference Include="..\..\src\FIO.Http\FIO.Http.fsproj" />
-    </ItemGroup>
-
-    <ItemGroup>
-        <FrameworkReference Include="Microsoft.AspNetCore.App" />
     </ItemGroup>
 
     <ItemGroup>
@@ -37,8 +30,6 @@
         </PackageReference>
         <PackageReference Include="Microsoft.NET.Test.Sdk" />
         <PackageReference Include="Expecto" />
-        <PackageReference Include="Expecto.FsCheck" />
-        <PackageReference Include="FsCheck" />
         <PackageReference Include="YoloDev.Expecto.TestSdk" />
     </ItemGroup>
 

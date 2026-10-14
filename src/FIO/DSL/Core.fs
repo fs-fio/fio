@@ -58,22 +58,12 @@ and [<Sealed>] internal BlockingWaiter(workItem: WorkItem) =
     member _.SetRegistration (value: CancellationTokenRegistration) =
         registration <- value
 
-    member _.Disarm () =
-        claimed <- 2
-
-    member _.Arm () =
-        Interlocked.CompareExchange(&claimed, 0, 2) |> ignore
-
     member _.TryClaim () =
         if tryClaim &claimed then
             registration.Dispose()
             true
         else
             false
-
-and internal BlockingItem =
-    | BlockingChannel of channel: Channel<obj> * waitingWorkItem: WorkItem
-    | BlockingFiber of fiberContext: FiberContext * waitingWorkItem: WorkItem
 
 /// The outcome of running a fiber to completion: success, failure, or interruption.
 and FiberResult<'A, 'E> =
@@ -107,9 +97,6 @@ and [<Sealed; AllowNullLiteral>] internal MailboxQueue<'A> private (channel: Cha
 
     member internal _.WaitToWriteAsync (cancellationToken: CancellationToken) =
         writer.WaitToWriteAsync cancellationToken
-
-    member internal _.ReadAsync () =
-        reader.ReadAsync()
 
     member internal _.TryRead (value: byref<'A>) =
         reader.TryRead &value
@@ -435,18 +422,19 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
     member _.CancellationToken : CancellationToken =
         fiberContext.CancellationToken
 
+    static member inline private ClassifyResult (result: Result<obj, obj>) : FiberResult<'A, 'E> =
+        match result with
+        | Ok value -> Succeeded(value :?> 'A)
+        | Error error ->
+            match error with
+            | :? FiberInterruptedException as ex -> Interrupted ex
+            | _ -> Failed(error :?> 'E)
+
     /// Returns a task that completes with this fiber's result, for interop with task-based code.
     member _.Task () : Task<FiberResult<'A, 'E>> =
         task {
-            match! fiberContext.Task with
-            | Ok value ->
-                return Succeeded(value :?> 'A)
-            | Error error ->
-                match error with
-                | :? FiberInterruptedException as ex ->
-                    return Interrupted ex
-                | _ ->
-                    return Failed(error :?> 'E)
+            let! result = fiberContext.Task
+            return Fiber<'A, 'E>.ClassifyResult result
         }
 
     /// Returns an effect that waits for this fiber to complete and yields its success value.
@@ -480,15 +468,7 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
             if not (fiberContext.IsTerminal()) then
                 None
             else
-                match fiberContext.Task.Result with
-                | Ok value ->
-                    Some(Succeeded(value :?> 'A))
-                | Error error ->
-                    match error with
-                    | :? FiberInterruptedException as ex ->
-                        Some(Interrupted ex)
-                    | _ ->
-                        Some(Failed(error :?> 'E))),
+                Some(Fiber<'A, 'E>.ClassifyResult fiberContext.Task.Result)),
             Rethrow<_>.Instance)
 
     /// Returns an effect that waits for this fiber and continues with the matching handler for success, failure, or interruption.
@@ -611,15 +591,12 @@ and [<Sealed; AllowNullLiteral>] Channel<'A> private
     member this.Read<'E> () : FIO<'A, 'E> =
         ReadChan this
 
-    member internal _.ReadAsync () =
-        let valueTask = valueQueue.ReadAsync()
-        if valueTask.IsCompletedSuccessfully then
-            ValueTask<'A>(valueTask.Result :?> 'A)
-        else
-            ValueTask<'A>(task {
-                let! value = valueTask
-                return value :?> 'A
-            })
+    /// Returns an effect that reads the next message if this channel holds one, yielding None instead of suspending.
+    member _.TryRead<'E> () : FIO<'A option, 'E> =
+        Action((fun () ->
+            let mutable message = Unchecked.defaultof<obj>
+            if valueQueue.TryRead &message then Some(message :?> 'A) else None),
+            Rethrow<_>.Instance)
 
     member internal _.BlockingWorkItemCount =
         blockingSlot.Count
@@ -649,6 +626,11 @@ and [<Sealed; AllowNullLiteral>] Channel<'A> private
 
     member internal _.Upcast () =
         initIfNull &upcastChannel (fun () -> Channel<obj>(id, valueQueue, blockingSlot, mode))
+
+// OnExit's finalizer is a ChainBoth whose handlers are an ExitHandler, which processRegionCont hands the outcome. A new
+// case would change the inlined interpreter loops, and a static marker would give this file a static initializer.
+and [<AbstractClass>] internal ExitHandler() =
+    inherit FSharpFunc<obj, FIO<obj, obj>>()
 
 /// A lazy, type-safe description of an effect that, when run, either succeeds with a value or fails with a typed error.
 and FIO<'A, 'E> =
@@ -685,6 +667,22 @@ and FIO<'A, 'E> =
     /// A finalizer that fails replaces a success with its failure, but not an earlier failure or interruption.
     member this.Ensuring (finalizer: FIO<unit, 'E>) : FIO<'A, 'E> =
         OnFinalize(this, finalizer.UpcastBoth())
+
+    /// Returns an effect that runs the given finalizer after this effect with its outcome: success, failure, or
+    /// interruption and its cause. Like Ensuring, it runs uninterruptibly, and its failure replaces only a success.
+    member this.OnExit (finalizer: FiberResult<'A, 'E> -> FIO<unit, 'E>) : FIO<'A, 'E> =
+        let handler : obj -> FIO<obj, obj> =
+            unbox (box { new ExitHandler() with
+                override _.Invoke saved =
+                    let outcome =
+                        match saved :?> PostFinalizerSaved with
+                        | PostFinalizerSucceeded value -> Succeeded(value :?> 'A)
+                        | PostFinalizerFailed error -> Failed(error :?> 'E)
+                        | PostFinalizerInterrupted error -> Interrupted(error :?> FiberInterruptedException)
+
+                    (finalizer outcome).UpcastBoth() })
+
+        OnFinalize(this, ChainBoth(FiberCancellationToken, handler, handler))
 
     /// Returns an effect that runs this effect on a new fiber scoped to this one, which interrupts and awaits it when it
     /// finishes, and interrupts it at once when interrupted unless it was forked uninterruptibly. See ForkDaemon.

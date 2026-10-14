@@ -2,42 +2,27 @@ namespace FIO.Benchmarks.Benchmarks
 
 open FIO.DSL
 open FIO.Benchmarks
-open FIO.Benchmarks.Effects
 
 open BenchmarkDotNet.Attributes
 
-open System
+[<RequireQualifiedAccess>]
+module internal Fork =
+
+    // Builds the Fork workload: forks the given number of no-op fibers in parallel.
+    let effect actorCount : FIO<unit, exn> =
+        FIO.forEachParDiscard (seq { 1..actorCount }) (fun _ -> FIO.unit ())
 
 // Measures raw fiber fork/join throughput with no work per fiber.
 [<MemoryDiagnoser>]
 [<RankColumn>]
 type ForkBenchmark() =
-    let mutable runtime = Unchecked.defaultof<_>
-    let mutable effect = Unchecked.defaultof<_>
+    inherit FIOBenchmark()
 
     member _.ActorCounts =
         RuntimeParam.intParams "FIO_BENCH_FORK_ACTORS" [| 1_000; 10_000; 50_000 |]
 
-    member _.Runtimes =
-        RuntimeParam.runtimes ()
-
     [<ParamsSource("ActorCounts")>]
     member val ActorCount = 0 with get, set
 
-    [<ParamsSource("Runtimes")>]
-    member val Runtime = "" with get, set
-
-    [<GlobalSetup>]
-    member this.Setup () =
-        runtime <- RuntimeParam.create this.Runtime
-        effect <- Fork.effect this.ActorCount
-
-    [<GlobalCleanup>]
-    member _.Cleanup () =
-        match box runtime with
-        | :? IDisposable as d -> d.Dispose()
-        | _ -> ()
-
-    [<Benchmark>]
-    member _.Run () =
-        RuntimeParam.run runtime effect
+    override this.CreateEffect () =
+        Fork.effect this.ActorCount

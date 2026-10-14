@@ -85,8 +85,7 @@ module FIO =
         cancellationToken().FlatMap <| fun cancellationToken ->
             awaitTask (Async.StartAsTask(async, cancellationToken = cancellationToken)) onError
 
-    /// Creates an effect that starts a non-generic task on the current fiber and awaits it on a new one, mapping any
-    /// exception to a typed error.
+    /// Creates an effect that starts a non-generic task on the current fiber and awaits it on a new one, mapping any exception via onError.
     let inline forkUnitTask<'E, 'E1> (taskFactory: unit -> Task) (onError: exn -> 'E) : FIO<Fiber<unit, 'E>, 'E1> =
         suspend <| fun () ->
             let task =
@@ -94,8 +93,7 @@ module FIO =
                 with ex -> Task.FromException ex
             (awaitUnitTask task onError).Fork()
 
-    /// Creates an effect that starts a task on the current fiber and awaits it on a new one, mapping any exception to a
-    /// typed error.
+    /// Creates an effect that starts a task on the current fiber and awaits it on a new one, mapping any exception via onError.
     let inline forkTask<'A, 'E, 'E1> (taskFactory: unit -> Task<'A>) (onError: exn -> 'E) : FIO<Fiber<'A, 'E>, 'E1> =
         suspend <| fun () ->
             let task =
@@ -103,7 +101,8 @@ module FIO =
                 with ex -> Task.FromException<'A> ex
             (awaitTask task onError).Fork()
 
-    /// Creates an effect from a callback-based asynchronous operation, completed by invoking the registered callback.
+    /// Creates an effect from a callback-based asynchronous operation, completed by invoking the registered callback;
+    /// an exception from register goes through onError.
     let inline async<'A, 'E> (register: (Result<'A, 'E> -> unit) -> unit) (onError: exn -> 'E) : FIO<'A, 'E> =
         cancellationToken().FlatMap <| fun cancellationToken ->
             let resultSource = TaskCompletionSource<Result<'A, 'E>>()
@@ -134,7 +133,7 @@ module FIO =
         cancellationToken().FlatMap <| fun _ ->
             awaitUnitTask (Task.Run(fun () -> ())) Rethrow<_>.Instance
 
-    /// An effect that never completes.
+    /// Creates an effect that never completes.
     let never<'A, 'E> () : FIO<'A, 'E> =
         suspend <| fun () -> (Channel<'A>()).Read()
 
@@ -150,11 +149,11 @@ module FIO =
         else
             JoinAllFailFast fiberContexts
 
-    /// Returns an effect that runs the given effect uninterruptibly: an interruption takes effect once it ends.
+    /// Creates an effect that runs the given effect uninterruptibly: an interruption takes effect once it ends.
     let uninterruptible<'A, 'E> (effect: FIO<'A, 'E>) : FIO<'A, 'E> =
         WithSuppression(raiseSuppression, fun _ -> effect)
 
-    /// Returns an effect that runs the given function's effect uninterruptibly, passing it a restorer for the parts that should stay interruptible.
+    /// Creates an effect that runs the given function's effect uninterruptibly, passing it a restorer for the parts that should stay interruptible.
     let uninterruptibleMask<'A, 'E> (body: InterruptibilityRestorer -> FIO<'A, 'E>) : FIO<'A, 'E> =
         WithSuppression(raiseSuppression, fun level -> body (InterruptibilityRestorer level))
 
@@ -179,6 +178,27 @@ module FIO =
                         Interrupt(Defect ex, ex.Message)
 
                 OnFinalize(used, finalizer))
+
+    /// Acquires a resource, uses it, and releases it as acquireReleaseWith does, handing release the outcome of use:
+    /// success, failure, or interruption and its cause, so release can commit or roll back.
+    let acquireReleaseExitWith<'A, 'A1, 'E>
+        (acquire: FIO<'A1, 'E>)
+        (release: 'A1 -> FiberResult<'A, 'E> -> FIO<unit, 'E>)
+        (useResource: 'A1 -> FIO<'A, 'E>)
+        : FIO<'A, 'E> =
+        AcquireRelease(
+            acquire.UpcastResult(),
+            fun resource ->
+                let resource = resource :?> 'A1
+                let finalizer = release resource
+
+                let used =
+                    try
+                        useResource resource
+                    with ex ->
+                        Interrupt(Defect ex, ex.Message)
+
+                used.OnExit finalizer)
 
     /// Runs the given effect for each item in sequence, collecting the results into a list.
     let inline forEach<'A, 'A1, 'E> (items: seq<'A1>) (func: 'A1 -> FIO<'A, 'E>) : FIO<'A list, 'E> =
@@ -259,6 +279,34 @@ module FIO =
     /// Runs the given effect for each item concurrently, discarding the results.
     let inline forEachParDiscard<'A, 'A1, 'E> (items: seq<'A1>) (func: 'A1 -> FIO<'A, 'E>) : FIO<unit, 'E> =
         (forEachPar items func).Map(fun _ -> ())
+
+    /// Runs the given effect for each item concurrently, at most parallelism at a time, collecting the results into a
+    /// list; a parallelism below 1 interrupts the fiber.
+    let forEachParN<'A, 'A1, 'E> (parallelism: int) (items: seq<'A1>) (func: 'A1 -> FIO<'A, 'E>) : FIO<'A list, 'E> =
+        if parallelism < 1 then
+            interrupt (InvalidArgument("parallelism", "must be >= 1")) "Invalid argument: parallelism must be >= 1"
+        else
+            suspend <| fun () ->
+                let arr = Seq.toArray items
+
+                if arr.Length = 0 then
+                    succeed []
+                else
+                    let results = Array.zeroCreate<'A> arr.Length
+                    let next = ref -1
+
+                    let rec work () : FIO<unit, 'E> =
+                        suspend <| fun () ->
+                            let index = Interlocked.Increment &next.contents
+
+                            if index >= arr.Length then
+                                unit ()
+                            else
+                                (func arr[index]).FlatMap <| fun value ->
+                                    results[index] <- value
+                                    work ()
+
+                    (forEachPar (Array.create (min parallelism arr.Length) ()) work).Map(fun _ -> List.ofArray results)
 
     /// Runs the given effects in sequence, collecting their results into a list.
     let inline collectAll<'A, 'E> (effects: seq<FIO<'A, 'E>>) : FIO<'A list, 'E> =
