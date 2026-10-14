@@ -161,6 +161,7 @@ let tests =
                         | other -> failtest $"Expected the interruption to take effect at the region's end, got {other}")
 
                     testAllRuntimes "OnExit - runs the finalizer uninterruptibly" (fun runtime ->
+                        let started = new ManualResetEventSlim false
                         let cancellable = ref true
                         let finished = ref false
                         let finalizer (_: FiberResult<unit, exn>) : FIO<unit, exn> =
@@ -170,17 +171,14 @@ let tests =
                                 do! FIO.sleep (TimeSpan.FromMilliseconds 100.0)
                                 finished.Value <- true
                             }
-                        let effect : FIO<unit, exn> =
-                            fio {
-                                let! fiber = FIO.never<unit, exn>().OnExit(finalizer).Fork()
-                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
-                                do! fiber.InterruptNow()
-                            }
+                        let fiber = runtime.Run(FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never<unit, exn> ()).OnExit(finalizer))
 
-                        runtime.Run(effect).UnsafeSuccess()
+                        Expect.isTrue (started.Wait(TimeSpan.FromSeconds 5.0)) "The fiber should start"
 
-                        Expect.isFalse cancellable.Value "The finalizer should get a token that never cancels"
-                        Expect.isTrue finished.Value "The finalizer should sleep to its end although its fiber was interrupted")
+                        runtime.Run(fiber.InterruptNow()).Task().Wait()
+
+                        Expect.isTrue (waitForFlag finished) "The finalizer should sleep to its end although its fiber was interrupted"
+                        Expect.isFalse cancellable.Value "The finalizer should get a token that never cancels")
 
                     testAllRuntimes "Uninterruptible - the member form defers interruption too" (fun runtime ->
                         let entered = new ManualResetEventSlim false

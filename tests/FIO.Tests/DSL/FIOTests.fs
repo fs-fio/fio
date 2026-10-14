@@ -334,16 +334,16 @@ let fioTests =
                         Expect.equal seen.Value (Some(Failed error)) "The finalizer should see the typed error"
 
                     testAllRuntimes "OnExit - hands the finalizer the interruption and its cause" (fun runtime ->
+                        let started = new ManualResetEventSlim false
                         let seen = ref None
-                        let effect : FIO<unit, string> =
-                            fio {
-                                let! fiber = FIO.never<unit, string>().OnExit(fun outcome -> FIO.succeedWith (fun () -> seen.Value <- Some outcome)).Fork()
-                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
-                                do! fiber.Interrupt (ResourceExhaustion "out of slots") "stopped"
-                            }
+                        let record outcome = FIO.succeedWith (fun () -> seen.Value <- Some outcome)
+                        let fiber = runtime.Run(FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never<unit, string> ()).OnExit(record))
 
-                        runtime.Run(effect).UnsafeSuccess()
+                        Expect.isTrue (started.Wait(TimeSpan.FromSeconds 5.0)) "The fiber should start"
 
+                        runtime.Run(fiber.Interrupt (ResourceExhaustion "out of slots") "stopped" : FIO<unit, string>).Task().Wait()
+
+                        Expect.isTrue (waitUntil (fun () -> seen.Value.IsSome)) "The finalizer should run"
                         match seen.Value with
                         | Some(Interrupted ex) ->
                             Expect.equal ex.cause (ResourceExhaustion "out of slots") "The finalizer should see the interruption's cause"

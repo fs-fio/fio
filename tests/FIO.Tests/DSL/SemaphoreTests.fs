@@ -125,12 +125,13 @@ let semaphoreTests =
 
                     testAllRuntimes "WithPermit - an interrupted waiter takes no permit" (fun runtime ->
                         let semaphore = Semaphore 1
+                        let holding = Promise<unit, string>()
                         let release = Promise<unit, string>()
                         let ran = ref false
                         let effect : FIO<FiberResult<unit, string> * bool, string> =
                             fio {
-                                let! holder = semaphore.WithPermit(release.Await()).Fork()
-                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
+                                let! holder = semaphore.WithPermit(holding.Succeed(()).Unit().FlatMap(fun () -> release.Await())).Fork()
+                                do! holding.Await()
                                 let! waiter = semaphore.WithPermit(FIO.succeedWith (fun () -> ran.Value <- true)).Fork()
                                 do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                                 let! waited = waiter.InterruptAwaitNow()
@@ -151,13 +152,18 @@ let semaphoreTests =
 
                     testAllRuntimes "WithPermit - an uninterruptible waiter keeps waiting through an interruption" (fun runtime ->
                         let semaphore = Semaphore 1
+                        let holding = Promise<unit, string>()
+                        let entered = Promise<unit, string>()
                         let release = Promise<unit, string>()
                         let ran = ref false
+                        let shielded : FIO<unit, string> =
+                            FIO.uninterruptible (entered.Succeed(()).Unit().FlatMap(fun () -> semaphore.WithPermit(FIO.succeedWith (fun () -> ran.Value <- true))))
                         let effect : FIO<unit, string> =
                             fio {
-                                let! holder = semaphore.WithPermit(release.Await()).Fork()
-                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
-                                let! waiter = (FIO.uninterruptible (semaphore.WithPermit(FIO.succeedWith (fun () -> ran.Value <- true)))).Fork()
+                                let! holder = semaphore.WithPermit(holding.Succeed(()).Unit().FlatMap(fun () -> release.Await())).Fork()
+                                do! holding.Await()
+                                let! waiter = shielded.Fork()
+                                do! entered.Await()
                                 do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                                 do! waiter.InterruptNow()
                                 do! release.Succeed(()).Unit()

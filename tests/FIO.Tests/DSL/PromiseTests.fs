@@ -165,11 +165,14 @@ let promiseTests =
 
                     testAllRuntimes "Await - an uninterruptible awaiter waits through an interruption" (fun runtime ->
                         let promise = Promise<int, string>()
+                        let entered = Promise<unit, string>()
                         let received = ref false
-                        let receive = promise.Await().FlatMap(fun value -> FIO.succeedWith (fun () -> received.Value <- (value = 9)))
+                        let receive =
+                            entered.Succeed(()).Unit().FlatMap(fun () -> promise.Await()).FlatMap(fun value -> FIO.succeedWith (fun () -> received.Value <- (value = 9)))
                         let effect : FIO<unit, string> =
                             fio {
                                 let! awaiter = (FIO.uninterruptible receive).Fork()
+                                do! entered.Await()
                                 do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
                                 do! awaiter.InterruptNow()
                                 do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
