@@ -2,10 +2,11 @@ namespace FIO.DSL
 
 open System
 open System.Threading
+open System.Buffers.Binary
 open System.Threading.Tasks
 open System.Threading.Channels
 open System.Collections.Generic
-open System.Collections.Concurrent
+open System.Runtime.InteropServices
 open System.Runtime.CompilerServices
 open System.Runtime.ExceptionServices
 
@@ -37,6 +38,7 @@ and [<Struct>] internal Cont =
     | PostFinalizerCont of saved: PostFinalizerSaved * level: int
     | RestoreSuppressionCont of level: int
     | AcquiredCont of successCont: (obj -> FIO<obj, obj>) * level: int
+    | MappedCont of finalizer: FIO<obj, obj>
 
 and internal WorkItem =
     {
@@ -126,7 +128,11 @@ and private FiberContextState =
     | Interrupted = 2
 
 and [<Sealed; AllowNullLiteral>] internal FiberContext() =
-    let id = Guid.NewGuid()
+    [<VolatileField>]
+    let mutable idHigh = 0L
+
+    let mutable idLow = 0L
+
     let mutable state = int FiberContextState.Running
 
     [<VolatileField>]
@@ -138,7 +144,7 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
     let cancelSource = new CancellationTokenSource()
 
     [<VolatileField>]
-    let mutable registrations = null
+    let mutable registration: IDisposable = null
 
     [<VolatileField>]
     let mutable childScope = null
@@ -186,8 +192,40 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
     [<VolatileField>]
     let mutable onUnwoundCallback = null
 
-    member internal _.Id =
-        id
+    static member inline private Split (guid: Guid) : struct (int64 * int64) =
+        let mutable guid = guid
+        let bytes = MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(&guid, 1))
+        struct (BinaryPrimitives.ReadInt64LittleEndian(bytes.Slice(0, 8)), BinaryPrimitives.ReadInt64LittleEndian(bytes.Slice(8, 8)))
+
+    static member inline private Compose (low: int64, high: int64) : Guid =
+        let mutable guid = Guid.Empty
+        let bytes = MemoryMarshal.AsBytes(MemoryMarshal.CreateSpan(&guid, 1))
+        BinaryPrimitives.WriteInt64LittleEndian(bytes.Slice(0, 8), low)
+        BinaryPrimitives.WriteInt64LittleEndian(bytes.Slice(8, 8), high)
+        guid
+
+    // A v4 Guid has its version nibble in byte 7 and its variant bits in byte 8, so 0 means "unset" in each half.
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
+    member private _.CreateId () : Guid =
+        let fresh = Guid.NewGuid()
+        let struct (low, high) = FiberContext.Split fresh
+
+        if Interlocked.CompareExchange(&idLow, low, 0L) = 0L then
+            Volatile.Write(&idHigh, high)
+            fresh
+        else
+            let mutable spinner = SpinWait()
+            while Volatile.Read &idHigh = 0L do
+                spinner.SpinOnce()
+
+            FiberContext.Compose(Volatile.Read &idLow, Volatile.Read &idHigh)
+
+    member internal this.Id : Guid =
+        let high = Volatile.Read &idHigh
+        if high <> 0L then
+            FiberContext.Compose(Volatile.Read &idLow, high)
+        else
+            this.CreateId()
 
     member internal _.Task =
         resultSource.Task
@@ -235,19 +273,18 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
         parent <- newParent
         newParent.RegisterChild()
 
+    member internal _.Parent =
+        Volatile.Read &parent
+
     member private _.CancelChildScope () =
         cancelScope (Volatile.Read &childScope)
 
-    member internal this.AddRegistration (registration: IDisposable) =
-        let bag = initIfNull &registrations (fun () -> ConcurrentBag<IDisposable>())
-        bag.Add registration
+    member internal this.AddRegistration (value: IDisposable) =
+        if not (isNull (Interlocked.CompareExchange(&registration, value, null))) then
+            raise (InvalidOperationException "A fiber context accepts exactly one scope registration.")
+
         if this.IsTerminal() then
-            let mutable victim = Unchecked.defaultof<_>
-            while bag.TryTake &victim do
-                try
-                    victim.Dispose()
-                with :? ObjectDisposedException ->
-                    ()
+            this.DisposeRegistrations()
 
     member internal _.IsCompleted () =
         Volatile.Read &state = int FiberContextState.Completed
@@ -323,7 +360,7 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
         let message = defaultArg message "Fiber was interrupted."
         if Volatile.Read &completing = 0
            && tryTransition &state (int FiberContextState.Running) (int FiberContextState.Interrupted) then
-            let interruptError = Error(FiberInterruptedException(id, cause, message) :> obj)
+            let interruptError = Error(FiberInterruptedException(this.Id, cause, message) :> obj)
             resultSource.TrySetResult interruptError |> ignore
 
             try
@@ -357,14 +394,13 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
         initIfNull &blockingWorkItemQueue (fun () -> MailboxQueue<BlockingWaiter>())
 
     member private _.DisposeRegistrations () =
-        let bag = Volatile.Read &registrations
-        if not (isNull bag) then
-            let mutable registration = Unchecked.defaultof<_>
-            while bag.TryTake &registration do
-                try
-                    registration.Dispose()
-                with :? ObjectDisposedException ->
-                    ()
+        match Interlocked.Exchange(&registration, null) with
+        | null -> ()
+        | victim ->
+            try
+                victim.Dispose()
+            with :? ObjectDisposedException ->
+                ()
 
     member private _.ReleaseIfRequested () =
         if Volatile.Read &disposed = 2 && Interlocked.CompareExchange(&disposed, 1, 2) = 2 then
@@ -451,7 +487,11 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
 
     /// Returns an effect that waits for this fiber and yields its full result (success, failure, or interruption).
     member this.Await<'E2> () : FIO<FiberResult<'A, 'E>, 'E2> =
-        AwaitTask(boxTask (this.Task()), Rethrow<_>.Instance)
+        let task = fiberContext.Task
+        if task.IsCompletedSuccessfully then
+            AwaitTask(Task.FromResult(box (Fiber<'A, 'E>.ClassifyResult task.Result)), Rethrow<_>.Instance)
+        else
+            AwaitTask(boxTask (this.Task()), Rethrow<_>.Instance)
 
     /// Returns an effect that interrupts this fiber, then waits for and yields its result.
     member this.InterruptAwait<'E2> (cause: InterruptionCause) (message: string) : FIO<FiberResult<'A, 'E>, 'E2> =
@@ -654,6 +694,7 @@ and FIO<'A, 'E> =
     | Suspend of thunk: (unit -> FIO<'A, 'E>)
     | WithSuppression of update: (int -> int) * body: (int -> FIO<'A, 'E>)
     | AcquireRelease of acquire: FIO<obj, 'E> * onAcquired: (obj -> FIO<'A, 'E>)
+    | Mapped of mapEffect: FIO<obj, obj> * mapper: (obj -> 'A)
 
     /// Returns an effect that passes this effect's success value into the given function.
     member this.FlatMap<'A1> (cont: 'A -> FIO<'A1, 'E>) : FIO<'A1, 'E> =
@@ -687,24 +728,26 @@ and FIO<'A, 'E> =
     /// Returns an effect that runs this effect on a new fiber scoped to this one, which interrupts and awaits it when it
     /// finishes, and interrupts it at once when interrupted unless it was forked uninterruptibly. See ForkDaemon.
     member this.Fork<'E1> () : FIO<Fiber<'A, 'E>, 'E1> =
+        let erased = this.UpcastBoth()
         Suspend(fun () ->
             let fiber = new Fiber<'A, 'E>()
-            ForkEffect(this.UpcastBoth(), fiber, fiber.Context, false))
+            ForkEffect(erased, fiber, fiber.Context, false))
 
     /// Returns an effect that runs this effect on a new unscoped fiber, yielding its handle: it is neither interrupted
     /// nor awaited when this fiber finishes, so its lifetime and finalizers are the caller's to manage.
     member this.ForkDaemon<'E1> () : FIO<Fiber<'A, 'E>, 'E1> =
+        let erased = this.UpcastBoth()
         Suspend(fun () ->
             let fiber = new Fiber<'A, 'E>()
-            ForkEffect(this.UpcastBoth(), fiber, fiber.Context, true))
+            ForkEffect(erased, fiber, fiber.Context, true))
 
     /// Returns an effect that applies the given function to this effect's success value.
     member this.Map<'A1> (mapper: 'A -> 'A1) : FIO<'A1, 'E> =
-        this.FlatMap <| fun value -> Success (mapper value)
+        Mapped(this.UpcastBoth(), fun value -> mapper (value :?> 'A))
 
     /// Returns an effect that applies the given function to this effect's error.
     member this.MapError<'E1> (mapper: 'E -> 'E1) : FIO<'A, 'E1> =
-        this.CatchAll <| fun error -> Failure (mapper error)
+        ChainError(this.UpcastError(), fun error -> Failure(mapper (error :?> 'E)))
 
     /// Returns an effect that maps this effect's success value and error with the two given functions.
     member this.MapBoth<'A1, 'E1> (successMapper: 'A -> 'A1) (errorMapper: 'E -> 'E1) : FIO<'A1, 'E1> =
@@ -863,6 +906,8 @@ and FIO<'A, 'E> =
             WithSuppression(update, fun level -> (body level).UpcastResult())
         | AcquireRelease(acquire, onAcquired) ->
             AcquireRelease(acquire, fun resource -> (onAcquired resource).UpcastResult())
+        | Mapped(effect, mapper) ->
+            Mapped(effect, fun value -> mapper value :> obj)
 
     member internal this.UpcastError () : FIO<'A, obj> =
         match this with
@@ -873,7 +918,8 @@ and FIO<'A, 'E> =
         | Interrupt(cause, message) ->
             Interrupt(cause, message)
         | Action(func, onError) ->
-            Action(func, boxOnError onError)
+            let erasedOnError = if obj.ReferenceEquals(onError, Rethrow<'E>.Instance) then Rethrow<obj>.Instance else boxOnError onError
+            Action(func, erasedOnError)
         | WriteChan(message, channel, reportAccepted) ->
             WriteChan(message, channel, reportAccepted)
         | ReadChan channel ->
@@ -887,7 +933,8 @@ and FIO<'A, 'E> =
         | JoinAllFailFast fiberContexts ->
             JoinAllFailFast fiberContexts
         | AwaitTask(task, onError) ->
-            AwaitTask(task, boxOnError onError)
+            let erasedOnError = if obj.ReferenceEquals(onError, Rethrow<'E>.Instance) then Rethrow<obj>.Instance else boxOnError onError
+            AwaitTask(task, erasedOnError)
         | ChainSuccess(effect, cont) ->
             FIO.flattenChainSuccess
                 (fun effect' -> effect'.UpcastError())
@@ -913,6 +960,8 @@ and FIO<'A, 'E> =
             WithSuppression(update, fun level -> (body level).UpcastError())
         | AcquireRelease(acquire, onAcquired) ->
             AcquireRelease(acquire.UpcastError(), fun resource -> (onAcquired resource).UpcastError())
+        | Mapped(effect, mapper) ->
+            Mapped(effect, mapper)
 
     member internal this.UpcastBoth () : FIO<obj, obj> =
         match this with
@@ -923,7 +972,8 @@ and FIO<'A, 'E> =
         | Interrupt(cause, message) ->
             Interrupt(cause, message)
         | Action(func, onError) ->
-            Action(boxFunc func, boxOnError onError)
+            let erasedOnError = if obj.ReferenceEquals(onError, Rethrow<'E>.Instance) then Rethrow<obj>.Instance else boxOnError onError
+            Action(boxFunc func, erasedOnError)
         | WriteChan(message, channel, reportAccepted) ->
             WriteChan(message, channel, reportAccepted)
         | ReadChan channel ->
@@ -937,7 +987,8 @@ and FIO<'A, 'E> =
         | JoinAllFailFast fiberContexts ->
             JoinAllFailFast fiberContexts
         | AwaitTask(task, onError) ->
-            AwaitTask(task, boxOnError onError)
+            let erasedOnError = if obj.ReferenceEquals(onError, Rethrow<'E>.Instance) then Rethrow<obj>.Instance else boxOnError onError
+            AwaitTask(task, erasedOnError)
         | ChainSuccess(effect, cont) ->
             FIO.flattenChainSuccess
                 (fun effect' -> effect'.UpcastError())
@@ -967,3 +1018,11 @@ and FIO<'A, 'E> =
             WithSuppression(update, fun level -> (body level).UpcastBoth())
         | AcquireRelease(acquire, onAcquired) ->
             AcquireRelease(acquire.UpcastError(), fun resource -> (onAcquired resource).UpcastBoth())
+        | Mapped(effect, mapper) ->
+            Mapped(effect, fun value -> mapper value :> obj)
+
+and [<Sealed; AbstractClass>] internal NullSuccess<'A, 'E> private () =
+    static member val Instance : FIO<'A, 'E> = Success Unchecked.defaultof<'A>
+
+type internal UnitMapper<'E> private () =
+    static member val Instance : obj -> unit = fun _ -> ()

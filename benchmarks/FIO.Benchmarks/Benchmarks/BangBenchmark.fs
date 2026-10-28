@@ -32,7 +32,7 @@ module internal Bang =
         [ for _ in 1..actorCount -> { Channel = receivingActorChannel } ]
 
     // Builds the Bang workload: many senders flooding a single receiver in parallel.
-    let effect actorCount roundCount : FIO<unit, exn> =
+    let effect actorCount roundCount =
         fio {
             let receivingActor = { Channel = Channel<int>() }
             let sendingActors = createSendingActors receivingActor.Channel actorCount

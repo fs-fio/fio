@@ -35,7 +35,7 @@ module internal Pingpong =
         }
 
     // Builds the Pingpong workload: two fibers exchanging messages over channels.
-    let effect roundCount : FIO<unit, exn> =
+    let effect roundCount =
         fio {
             let startChannel = Channel<int>()
             let pingSendChannel = Channel<int>()

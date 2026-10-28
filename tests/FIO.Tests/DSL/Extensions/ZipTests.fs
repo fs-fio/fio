@@ -72,6 +72,22 @@ let tests =
             testList
                 "Sequential composition (Zip)"
                 [
+                    testAllRuntimes "ZipRight - runs both effects left to right and keeps the second value" (fun runtime ->
+                        let log = ResizeArray<string>()
+                        let first: FIO<int, string> =
+                            FIO.succeedWith (fun () ->
+                                log.Add "first"
+                                1)
+                        let second: FIO<string, string> =
+                            FIO.succeedWith (fun () ->
+                                log.Add "second"
+                                "two")
+
+                        let result = runtime.Run(first.ZipRight second).UnsafeSuccess()
+
+                        Expect.equal result "two" "ZipRight should keep the second value"
+                        Expect.equal (List.ofSeq log) [ "first"; "second" ] "ZipRight should run the effects left to right")
+
                     testPropertyWithConfig fsCheckConfig "Zip - combines two success values into tuple"
                     <| fun (runtime: FIORuntime, res1: int, res2: string) ->
                         let eff1 = FIO.succeed res1

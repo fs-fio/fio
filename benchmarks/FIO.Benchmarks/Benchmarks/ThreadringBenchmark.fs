@@ -43,7 +43,7 @@ module internal Threadring =
             })
 
     // Builds the Threadring workload: a token passed around a ring of actors.
-    let effect actorCount roundCount : FIO<unit, exn> =
+    let effect actorCount roundCount =
         fio {
             let channels = [ for _ in 1..actorCount -> Channel<int>() ]
             let actors = createActors channels

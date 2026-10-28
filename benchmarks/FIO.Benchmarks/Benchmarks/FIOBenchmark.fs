@@ -11,7 +11,9 @@ open System
 // Shared runtime parameter, setup, cleanup and measured Run; each benchmark keeps its own class, which reports key on.
 [<AbstractClass>]
 type FIOBenchmark() =
+
     let mutable runtime = Unchecked.defaultof<FIORuntime>
+
     let mutable effect = Unchecked.defaultof<FIO<unit, exn>>
 
     member _.Runtimes = RuntimeParam.runtimes ()

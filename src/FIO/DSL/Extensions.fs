@@ -15,12 +15,12 @@ module Extensions =
                     mapper value) onError
 
         /// Returns an effect that discards this effect's success value, yielding unit.
-        member inline this.Unit () : FIO<unit, 'E> =
-            this.Map <| fun _ -> ()
+        member this.Unit () : FIO<unit, 'E> =
+            Mapped(this.UpcastBoth(), UnitMapper<'E>.Instance)
 
         /// Returns an effect that replaces this effect's success value with the given value.
-        member inline this.As<'A1> (value: 'A1) : FIO<'A1, 'E> =
-            this.Map <| fun _ -> value
+        member this.As<'A1> (value: 'A1) : FIO<'A1, 'E> =
+            Mapped(this.UpcastBoth(), fun _ -> value)
 
         /// Returns an effect that wraps this effect's success value in Choice1Of2.
         member inline this.AsLeft<'A1> () : FIO<Choice<'A, 'A1>, 'E> =
@@ -226,8 +226,8 @@ module Extensions =
                     error, error'
 
         /// Returns an effect that runs this effect then the given effect, keeping only the second value.
-        member inline this.ZipRight<'A1> (effect: FIO<'A1, 'E>) : FIO<'A1, 'E> =
-            this.FlatMap <| fun _ -> effect
+        member this.ZipRight<'A1> (effect: FIO<'A1, 'E>) : FIO<'A1, 'E> =
+            ChainSuccess(this.UpcastResult(), fun _ -> effect)
 
         /// Returns an effect that runs this effect then the given effect, keeping only the first value.
         member inline this.ZipLeft<'A1> (effect: FIO<'A1, 'E>) : FIO<'A, 'E> =

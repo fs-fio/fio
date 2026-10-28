@@ -26,6 +26,22 @@ let ceTests =
             testList
                 "Bind"
                 [
+                    testAllRuntimes "succeedWith - a throwing thunk becomes a Defect through an upcast" (fun runtime ->
+                        let effect: FIO<int, string> =
+                            fio {
+                                let! value = FIO.succeedWith (fun () -> failwith "thunk throws")
+                                return value + 1
+                            }
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        match result with
+                        | Interrupted ex ->
+                            match ex.cause with
+                            | Defect defect -> Expect.equal defect.Message "thunk throws" "The thrown exception should become the defect"
+                            | other -> failtest $"Expected a Defect cause but got {other}"
+                        | other -> failtest $"Expected Interrupted but got {other}")
+
                     testPropertyWithConfig fsCheckConfig "Bind - let! binds effectect result to variable"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect =
@@ -210,6 +226,13 @@ let ceTests =
             testList
                 "Zero"
                 [
+                    testAllRuntimes "FIO.unit - succeeds with unit" (fun runtime ->
+                        let effect: FIO<unit, string> = FIO.unit ()
+
+                        let result = runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.equal result () "FIO.unit should succeed with unit")
+
                     testAllRuntimes "Zero - empty fio block returns unit" (fun runtime ->
                         let effect = fio { () }
 
@@ -607,6 +630,28 @@ let ceTests =
             testList
                 "For"
                 [
+                    testAllRuntimes "For - iterates a 10,000-item sequence in order and disposes the enumerator" (fun runtime ->
+                        let seen = ResizeArray<int>()
+                        let mutable disposed = false
+                        let items =
+                            seq {
+                                try
+                                    yield! seq { 1..10000 }
+                                finally
+                                    disposed <- true
+                            }
+                        let effect: FIO<unit, string> =
+                            fio {
+                                for item in items do
+                                    do! FIO.succeedWith (fun () -> seen.Add item)
+                            }
+
+                        let result = runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.equal result () "The loop should complete"
+                        Expect.equal (List.ofSeq seen) [ 1..10000 ] "Every item should be seen in order"
+                        Expect.isTrue disposed "The enumerator should be disposed after the loop")
+
                     testAllRuntimes "For - iterates over sequence" (fun runtime ->
                         let mutable counter = 0
                         let effect =

@@ -80,7 +80,7 @@ module internal Chameneos =
         loop initialColor
 
     // Builds the Chameneos-Redux workload: creatures rendezvousing at a shared mall.
-    let effect creatureCount meetingCount : FIO<unit, exn> =
+    let effect creatureCount meetingCount =
         fio {
             let mallChannel = Channel<Request>()
             let colors = [| Red; Yellow; Blue |]

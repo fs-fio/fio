@@ -29,7 +29,7 @@ The API takes its cues from [ZIO](https://zio.dev).
 dotnet add package FSharp.FIO --prerelease
 ```
 
-FSharp.FIO needs FSharp.Core 10.1.401 or newer: an F# project on an older FSharp.Core (one it pins, or the
+FSharp.FIO needs FSharp.Core 10.1.402 or newer: an F# project on an older FSharp.Core (one it pins, or the
 implicit one of an older SDK) builds with only a downgrade warning (NU1605) and then fails at run time.
 
 ## Quick Start

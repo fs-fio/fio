@@ -167,6 +167,20 @@ let processRegionCont (state: byref<InterpreterState>) (cont: Cont) (outcome: by
                 outcome <- interruptedOnRegionExit state.FiberContext outcome
 
             false
+    | MappedCont node ->
+        match outcome with
+        | OutcomeSucceeded value ->
+            match node with
+            | Mapped(_, mapper) ->
+                try
+                    outcome <- OutcomeSucceeded(mapper value)
+                    false
+                with ex ->
+                    state.Effect <- Interrupt(Defect ex, ex.Message)
+                    true
+            | _ -> false
+        | OutcomeFailed _
+        | OutcomeInterrupted _ -> false
     | ChainCont _ -> false
 
 let inline processOutcome
@@ -322,6 +336,10 @@ let inline handleSharedCase
         state.InterruptionSuppressed <- outer + 1
         state.Effect <- acquire
         ValueNone
+    | Mapped(effect, _) as node ->
+        state.ContStack.Push(MappedCont node)
+        state.Effect <- effect
+        ValueNone
     | WriteChan(message, channel, reportAccepted) ->
         ValueSome(HandleWriteChan(message, channel, reportAccepted))
     | ReadChan channel ->
@@ -337,27 +355,33 @@ let inline handleSharedCase
     | AwaitTask(task, onError) ->
         ValueSome(HandleAwaitTask(task, onError))
 
+// Generic so that this file gains no module-level static initializer. Interrupting a child interrupts its own
+// children from inside this callback, one level of stack each.
+type internal ForkScopeCallback<'Marker> private () =
+    static member val OnClosed: Action<obj> =
+        Action<obj>(fun state ->
+            let child = state :?> FiberContext
+            let parentId = child.Parent.Id
+            if RuntimeHelpers.TryEnsureSufficientExecutionStack() then
+                child.Interrupt(ParentInterrupted parentId, "Parent fiber scope closed.")
+            else
+                ThreadPool.UnsafeQueueUserWorkItem(
+                    WaitCallback(fun _ ->
+                        try
+                            child.Interrupt(ParentInterrupted parentId, "Parent fiber scope closed.")
+                        with _ ->
+                            ()),
+                    null)
+                |> ignore)
+
 let inline attachFork (parentContext: FiberContext) (childContext: FiberContext) (daemon: bool) (uninterruptible: bool) =
     if not daemon then
         let scope =
             if uninterruptible then parentContext.ProtectedChildScopeToken else parentContext.ChildScopeToken
 
-        // Interrupting a child interrupts its own children from inside this callback, one level of stack each.
-        let registration =
-            scope.Register(fun () ->
-                if RuntimeHelpers.TryEnsureSufficientExecutionStack() then
-                    childContext.Interrupt(ParentInterrupted parentContext.Id, "Parent fiber scope closed.")
-                else
-                    ThreadPool.UnsafeQueueUserWorkItem(
-                        WaitCallback(fun _ ->
-                            try
-                                childContext.Interrupt(ParentInterrupted parentContext.Id, "Parent fiber scope closed.")
-                            with _ ->
-                                ()),
-                        null)
-                    |> ignore)
-        childContext.AddRegistration registration
         childContext.AttachTo parentContext
+        let registration = scope.Register(ForkScopeCallback<FiberContext>.OnClosed, box childContext)
+        childContext.AddRegistration registration
 
 let inline defectError (fiberContext: FiberContext) (ex: exn) =
     FiberInterruptedException(fiberContext.Id, Defect ex, ex.Message) :> obj

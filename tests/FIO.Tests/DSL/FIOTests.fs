@@ -622,6 +622,18 @@ let fioTests =
 
                         Expect.equal result depth $"Deep MapBoth chain should yield {depth}"
 
+                    testAllRuntimes "Stack safety - deep left-chained Map"
+                    <| fun (runtime: FIORuntime) ->
+                        let depth = 10000
+                        let mutable effect : FIO<int, string> = FIO.succeed 0
+                        for _ in 1..depth do
+                            effect <- effect.Map(fun n -> n + 1)
+
+                        let result =
+                            runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.equal result depth $"Deep Map chain should yield {depth}"
+
                     testAllRuntimesSequenced "Stack safety - interrupting the root of a 10,000-deep chain of nested forks"
                     <| fun (runtime: FIORuntime) ->
                         let leafStarted = new Threading.ManualResetEventSlim(false)

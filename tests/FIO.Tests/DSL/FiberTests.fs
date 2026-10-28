@@ -6,6 +6,7 @@ open FIO.Tests.Utilities.FsCheckProperties
 open FIO.DSL
 open FIO.Runtime
 open FIO.Runtime.Direct
+open FIO.Runtime.InterpreterCore
 
 open Expecto
 
@@ -218,8 +219,43 @@ let fiberTests =
                 ]
 
             testList
+                "Fiber - Fork"
+                [
+                    testAllRuntimes "Fork - a Fork effect built once runs many times, each yielding a fresh fiber" (fun runtime ->
+                        let forkEffect: FIO<Fiber<int, string>, string> = (FIO.succeed 7: FIO<int, string>).Fork()
+                        let effect =
+                            fio {
+                                let! fiber = forkEffect
+                                let! value = fiber.Join()
+                                return fiber.Id, value
+                            }
+
+                        let results = [ for _ in 1..3 -> runtime.Run(effect).UnsafeSuccess() ]
+
+                        Expect.equal (results |> List.map fst |> List.distinct |> List.length) 3 "Each run should fork a fresh fiber"
+                        Expect.equal (results |> List.map snd) [ 7; 7; 7 ] "Each fresh fiber should complete with the value")
+                ]
+
+            testList
                 "Fiber - Await"
                 [
+                    testAllRuntimes "Await - on a completed fiber yields Succeeded, Failed or Interrupted" (fun runtime ->
+                        let succeeded = runtime.Run(FIO.succeed 1: FIO<int, string>)
+                        let failed = runtime.Run(FIO.fail "boom": FIO<int, string>)
+                        let interrupted = runtime.Run(FIO.interruptNow (): FIO<int, string>)
+                        succeeded.UnsafeResult() |> ignore
+                        failed.UnsafeResult() |> ignore
+                        interrupted.UnsafeResult() |> ignore
+
+                        let awaited =
+                            [ for fiber in [ succeeded; failed; interrupted ] ->
+                                  runtime.Run(fiber.Await(): FIO<FiberResult<int, string>, string>).UnsafeSuccess() ]
+
+                        match awaited with
+                        | [ Succeeded 1; Failed "boom"; Interrupted ex ] ->
+                            Expect.equal ex.cause ExplicitInterrupt "Await should classify a completed fiber's interruption"
+                        | other -> failtest $"Expected Succeeded, Failed and Interrupted but got {other}")
+
                     testPropertyWithConfig fsCheckConfig "Await - returns Succeeded for a successful fiber"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect =
@@ -869,5 +905,144 @@ let fiberTests =
 
                         Expect.isNone thrown "Completing should not throw a scope callback's exception"
                         Expect.isTrue (protectedChild.IsTerminal()) "The protected scope should still be cancelled"
+                ]
+
+            testList
+                "Fiber - Id (lazy)"
+                [
+                    testAllRuntimes "Fiber.Id - is the same on every read and from another thread" (fun runtime ->
+                        let fiber = runtime.Run(FIO.succeed 42)
+                        let _ = fiber.UnsafeSuccess()
+
+                        let first = fiber.Id
+                        let second = fiber.Id
+                        let fromOtherThread = Task.Run(fun () -> fiber.Id).Result
+
+                        Expect.equal second first "A second read should yield the same id"
+                        Expect.equal fromOtherThread first "A read from another thread should yield the same id")
+
+                    testAllRuntimes "Fiber.Id - is unique across 1,000 forked fibers" (fun runtime ->
+                        let effect: FIO<Guid list, string> =
+                            fio {
+                                let! fibers = FIO.collectAll [ for _ in 1..1000 -> FIO.succeed<int, string>(0).Fork() ]
+                                return [ for fiber in fibers -> fiber.Id ]
+                            }
+
+                        let ids = runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.equal (ids |> List.distinct |> List.length) 1000 "Every forked fiber should have its own id")
+
+                    testAllRuntimes "Fiber.Id - is the parent id carried by a ParentInterrupted cause" (fun runtime ->
+                        let effect: FIO<Fiber<unit, string>, string> =
+                            fio {
+                                let! child = FIO.never<unit, string>().Fork()
+                                return child
+                            }
+                        let parent = runtime.Run effect
+                        let child = parent.UnsafeSuccess()
+
+                        let result = child.UnsafeResult()
+
+                        match result with
+                        | Interrupted ex ->
+                            match ex.cause with
+                            | ParentInterrupted parentId -> Expect.equal parentId parent.Id "The cause should carry the parent's id"
+                            | other -> failtest $"Expected ParentInterrupted, got {other}"
+                        | other -> failtest $"Expected Interrupted, got {other}")
+
+                    testAllRuntimes "Fiber.ToString - renders the same value as Fiber.Id" (fun runtime ->
+                        let fiber = runtime.Run(FIO.succeed 42)
+                        let _ = fiber.UnsafeSuccess()
+
+                        let rendered = fiber.ToString()
+
+                        Expect.equal rendered (fiber.Id.ToString()) "ToString should render the fiber's id")
+                ]
+
+            testList
+                "Fork - scope registration"
+                [
+                    testAllRuntimes "Fork - a child forked after its parent was interrupted is interrupted at once" (fun runtime ->
+                        let forked = new ManualResetEventSlim(false)
+                        let parentEffect =
+                            fio {
+                                let! _ = FIO.never<unit, string>().Fork()
+                                do! FIO.succeedWith (fun () -> forked.Set())
+                                return! FIO.never<unit, string> ()
+                            }
+                        let parent = runtime.Run parentEffect
+                        Expect.isTrue (forked.Wait(TimeSpan.FromSeconds 5.0)) "The parent should fork its first child"
+                        let interruption = runtime.Run(parent.InterruptNow()).UnsafeResult()
+                        let child = new FiberContext()
+
+                        child.AttachTo parent.Context
+                        let registration = parent.Context.ChildScopeToken.Register(ForkScopeCallback<FiberContext>.OnClosed, box child)
+                        child.AddRegistration registration
+
+                        Expect.equal interruption (Succeeded()) "Interrupting the parent should succeed"
+                        Expect.isTrue (child.IsTerminal()) "The child should be interrupted the moment it is attached"
+                        match child.Task.Result with
+                        | Error(:? FiberInterruptedException as ex) ->
+                            match ex.cause with
+                            | ParentInterrupted parentId -> Expect.equal parentId parent.Id "The cause should carry the parent's id"
+                            | other -> failtest $"Expected ParentInterrupted, got {other}"
+                        | other -> failtest $"Expected an interruption, got {other}")
+
+                    testAllRuntimes "Fork - 10,000 children of one parent are all interrupted when the parent is interrupted" (fun runtime ->
+                        let children = ResizeArray<Fiber<unit, string>>()
+                        let forked = new ManualResetEventSlim(false)
+                        let parentEffect =
+                            fio {
+                                let! fibers = FIO.collectAll [ for _ in 1..10000 -> FIO.never<unit, string>().Fork() ]
+                                do! FIO.succeedWith (fun () ->
+                                        children.AddRange fibers
+                                        forked.Set())
+                                return! FIO.never<unit, string> ()
+                            }
+                        let parent = runtime.Run parentEffect
+                        Expect.isTrue (forked.Wait(TimeSpan.FromSeconds 30.0)) "The parent should fork its children"
+
+                        let interruption = runtime.Run(parent.InterruptNow()).UnsafeResult()
+                        let results = [ for child in children -> child.UnsafeResult() ]
+
+                        Expect.equal interruption (Succeeded()) "Interrupting the parent should succeed"
+                        Expect.equal results.Length 10000 "Every child should have been forked"
+                        Expect.all results (function Interrupted _ -> true | _ -> false) "Every child should be interrupted")
+
+                    testAllRuntimes "Fork - interrupting a parent whose child has already finished completes without error" (fun runtime ->
+                        let childDone = new ManualResetEventSlim(false)
+                        let parentEffect =
+                            fio {
+                                let! child = FIO.succeed<int, string>(1).Fork()
+                                let! _ = child.Join()
+                                do! FIO.succeedWith (fun () -> childDone.Set())
+                                return! FIO.never<unit, string> ()
+                            }
+                        let parent = runtime.Run parentEffect
+                        Expect.isTrue (childDone.Wait(TimeSpan.FromSeconds 5.0)) "The child should have finished"
+
+                        let interruption = runtime.Run(parent.InterruptNow()).UnsafeResult()
+                        let result = parent.UnsafeResult()
+
+                        Expect.equal interruption (Succeeded()) "Interrupting the parent should succeed"
+                        match result with
+                        | Interrupted _ -> ()
+                        | other -> failtest $"Expected Interrupted, got {other}")
+
+                    testAllRuntimes "Fork - a child parked on a channel runs its finalizer when the parent scope closes" (fun runtime ->
+                        let finalized = new ManualResetEventSlim(false)
+                        let channel = Channel<int>()
+                        let parentEffect =
+                            fio {
+                                let! _ = (channel.Read<string>().Ensuring(FIO.succeedWith (fun () -> finalized.Set()))).Fork()
+                                return 42
+                            }
+
+                        let result = runtime.Run(parentEffect).UnsafeResult()
+
+                        match result with
+                        | Succeeded 42 -> ()
+                        | other -> failtest $"Expected Succeeded 42, got {other}"
+                        Expect.isTrue (finalized.Wait(TimeSpan.FromSeconds 5.0)) "The parked child should run its finalizer when the parent scope closes")
                 ]
         ]

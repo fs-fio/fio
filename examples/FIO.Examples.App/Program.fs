@@ -224,27 +224,27 @@ type AppError =
 type ErrorHandlingApp() =
     inherit FIOApp<string * char, AppError>()
 
-    let readFromDatabase: FIO<string, bool> =
+    let readFromDatabase : FIO<string, bool> =
         fio {
             let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> true)
             if rand = 0 then return "data"
             else return! FIO.fail false
         }
 
-    let awaitWebservice: FIO<char, int> =
+    let awaitWebservice : FIO<char, int> =
         fio {
             let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> -1)
             if rand = 1 then return 'S'
             else return! FIO.fail 404
         }
 
-    let databaseResult: FIO<string, AppError> =
+    let databaseResult : FIO<string, AppError> =
         fio {
             return! readFromDatabase
                 .CatchAll(fun error -> FIO.fail (DbError error))
         }
 
-    let webserviceResult: FIO<char, AppError> =
+    let webserviceResult : FIO<char, AppError> =
         fio {
             return! awaitWebservice
                 .CatchAll(fun error -> FIO.fail (WebServiceError error))
@@ -260,21 +260,21 @@ type ErrorHandlingApp() =
 type ErrorHandlingWithRetryApp() =
     inherit FIOApp<string * char, AppError>()
 
-    let readFromDatabase: FIO<string, bool> =
+    let readFromDatabase : FIO<string, bool> =
         fio {
             let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> true)
             if rand = 0 then return "data"
             else return! FIO.fail false
         }
 
-    let awaitWebservice: FIO<char, int> =
+    let awaitWebservice : FIO<char, int> =
         fio {
             let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> -1)
             if rand = 1 then return 'S'
             else return! FIO.fail 404
         }
 
-    let databaseResult: FIO<string, AppError> =
+    let databaseResult : FIO<string, AppError> =
         fio {
             let onEachRetry (error, retry, maxRetries) =
                 (Console.printLine $"Database read failed with error: %A{error}. Retry attempt %d{retry} of %d{maxRetries}..." id)
@@ -284,7 +284,7 @@ type ErrorHandlingWithRetryApp() =
                 .CatchAll(fun error -> FIO.fail (DbError error))
         }
 
-    let webserviceResult: FIO<char, AppError> =
+    let webserviceResult : FIO<char, AppError> =
         fio {
             let onEachRetry (error, retry, maxRetries) =
                 (Console.printLine $"Webservice read failed with error: %A{error}. Retry attempt %d{retry} of %d{maxRetries}..." id)
@@ -304,7 +304,7 @@ type ErrorHandlingWithRetryApp() =
 type AsyncErrorHandlingApp() =
     inherit FIOApp<string * int, AppError>()
 
-    let databaseReadTask: Async<string> =
+    let databaseReadTask : Async<string> =
         async {
             do printfn $"Reading from database..."
 
@@ -314,7 +314,7 @@ type AsyncErrorHandlingApp() =
                 return raise (Exception "Database error!")
         }
 
-    let webserviceAwaitTask: Async<int> =
+    let webserviceAwaitTask : Async<int> =
         async {
             do printfn $"Awaiting webservice..."
 
@@ -324,11 +324,11 @@ type AsyncErrorHandlingApp() =
                 return raise (Exception "Webservice error!")
         }
 
-    let databaseResult: FIO<string, AppError> =
+    let databaseResult : FIO<string, AppError> =
         (FIO.awaitAsync databaseReadTask id)
             .CatchAll(fun ex -> FIO.fail (GeneralError ex.Message))
 
-    let webserviceResult: FIO<int, AppError> =
+    let webserviceResult : FIO<int, AppError> =
         (FIO.awaitAsync webserviceAwaitTask id)
             .CatchAll(fun ex -> FIO.fail (GeneralError ex.Message))
 

@@ -76,7 +76,7 @@ module internal Philosophers =
         }
 
     // Builds the dining-philosophers workload coordinated through one arbitrator.
-    let effect philosopherCount roundCount : FIO<unit, exn> =
+    let effect philosopherCount roundCount =
         fio {
             let arbChannel = Channel<ArbMessage>()
             let totalRounds = philosopherCount * roundCount

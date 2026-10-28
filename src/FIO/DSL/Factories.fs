@@ -20,7 +20,7 @@ module FIO =
 
     /// Creates an effect that succeeds with unit.
     let unit<'E> () : FIO<unit, 'E> =
-        Success()
+        NullSuccess<unit, 'E>.Instance
 
     /// Creates an effect that always succeeds with the given value.
     let succeed<'A, 'E> (value: 'A) : FIO<'A, 'E> =

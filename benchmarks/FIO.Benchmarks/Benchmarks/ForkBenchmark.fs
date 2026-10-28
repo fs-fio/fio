@@ -9,7 +9,7 @@ open BenchmarkDotNet.Attributes
 module internal Fork =
 
     // Builds the Fork workload: forks the given number of no-op fibers in parallel.
-    let effect actorCount : FIO<unit, exn> =
+    let effect actorCount =
         FIO.forEachParDiscard (seq { 1..actorCount }) (fun _ -> FIO.unit ())
 
 // Measures raw fiber fork/join throughput with no work per fiber.

@@ -33,7 +33,7 @@ module CE =
             effect
 
         member inline _.Zero<'E> () : FIO<unit, 'E> =
-            FIO.succeed ()
+            FIO.unit ()
 
         member inline _.Combine<'A, 'A1, 'E> (effect: FIO<'A, 'E>, effect': FIO<'A1, 'E>) : FIO<'A1, 'E> =
             effect.ZipRight effect'
@@ -61,8 +61,7 @@ module CE =
 
                 let rec loop () =
                     if enumerator.MoveNext() then
-                        body(enumerator.Current).FlatMap <| fun _ ->
-                            loop ()
+                        body(enumerator.Current).FlatMap loop
                     else
                         FIO.unit ()
 
