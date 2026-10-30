@@ -58,10 +58,23 @@ module WebSocketServer =
     let startDefault (url: string) : FIO<HttpListener, WsError> =
         start url
 
-    /// Stops a listener, which also drops the connections it accepted, suppressing errors.
-    let close (listener: HttpListener) : FIO<unit, WsError> =
+    let private stop (listener: HttpListener) : FIO<unit, WsError> =
         (FIO.attempt
             (fun () -> listener.Stop())
+            WsError.fromException
+        ).CatchAll(logAndSuppress "websocket listener close")
+
+    /// Stops and releases a listener, which also drops the connections it accepted, suppressing errors; closing it again
+    /// does nothing.
+    let close (listener: HttpListener) : FIO<unit, WsError> =
+        (FIO.attempt
+            (fun () ->
+                try
+                    listener.Stop()
+                    // Abort after Stop releases what Stop keeps (http.sys's session on Windows) without Close re-binding the port.
+                    listener.Abort()
+                with :? ObjectDisposedException ->
+                    ())
             WsError.fromException
         ).CatchAll(logAndSuppress "websocket listener close")
 
@@ -72,11 +85,6 @@ module WebSocketServer =
             WsError.fromException
         ).CatchAll(logAndSuppress "websocket listener abort")
 
-    let private dispose (listener: HttpListener) =
-        (FIO.attempt
-            (fun () -> listener.Close())
-            WsError.fromException
-        ).CatchAll(logAndSuppress "websocket listener disposal")
 
     let private upgrade (listenerCtx: HttpListenerContext) (config: WebSocketConfig) (subProtocol: string option) =
         fio {
@@ -336,7 +344,7 @@ module WebSocketServer =
                     do! FIO.forEachDiscard unfinished (fun connection -> connection.Handler.Value.InterruptNow())
                     do! FIO.forEachDiscard unfinished endConnection
                     do! FIO.awaitUnitTask (Task.WhenAll finished) WsError.fromException
-                    do! close listener
+                    do! stop listener
                     // Stopping the listener fails the request the refusal awaits, unless the stop throws midway and strands
                     // it; nothing else would interrupt the refusal, so it gets a moment to finish and is then interrupted.
                     let! _ = FIO.awaitTask (Task.WhenAny(refusal.Task() :> Task, Task.Delay 1_000)) WsError.fromException
@@ -350,7 +358,7 @@ module WebSocketServer =
     let serve (url: string) (config: WebSocketConfig) (handler: WebSocket -> FIO<unit, WsError>) : FIO<unit, WsError> =
         FIO.acquireReleaseWith
             (start url)
-            (fun listener -> (close listener).FlatMap(fun () -> dispose listener))
+            close
             (fun listener -> acceptLoop listener config handler)
 
     /// Serves a request/response protocol with the given codecs, one request and one reply per connection.

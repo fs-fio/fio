@@ -18,7 +18,6 @@ let private defaultIterationCount = 30
 let private summaryStyle =
     SummaryStyle.Default.WithMaxParameterColumnWidth 40
 
-// Parses an integer env var with a minimum, falling back to a default.
 let private parseCount (name: string) (minValue: int) (defaultValue: int) =
     match Environment.GetEnvironmentVariable name with
     | null
@@ -28,7 +27,6 @@ let private parseCount (name: string) (minValue: int) (defaultValue: int) =
         | true, n when n >= minValue -> n
         | _ -> raise (ArgumentException $"Invalid {name}: '{value}' (expected an integer >= {minValue})")
 
-// Builds the BenchmarkDotNet config, honoring warmup and iteration env overrides.
 let private buildConfig () =
     let warmupCount = parseCount "FIO_BENCH_WARMUP" 0 defaultWarmupCount
     let iterationCount = parseCount "FIO_BENCH_ITERATIONS" 1 defaultIterationCount
@@ -44,7 +42,6 @@ let private buildConfig () =
 
     ManualConfig.Create(DefaultConfig.Instance).AddJob(job).WithSummaryStyle summaryStyle
 
-// Runs the benchmark switcher, using a CLI --job config when one is supplied.
 [<EntryPoint>]
 let main args =
     let hasCliJob =
@@ -55,22 +52,7 @@ let main args =
         else buildConfig ()
 
     let summaries =
-        BenchmarkSwitcher
-            .FromTypes(
-                [|
-                    typeof<BangBenchmark>
-                    typeof<BigBenchmark>
-                    typeof<BoundedBufferBenchmark>
-                    typeof<ChameneosBenchmark>
-                    typeof<CountingBenchmark>
-                    typeof<FibonacciBenchmark>
-                    typeof<ForkBenchmark>
-                    typeof<PhilosophersBenchmark>
-                    typeof<PingpongBenchmark>
-                    typeof<ThreadringBenchmark>
-                    typeof<TrapezoidalBenchmark>
-                    typeof<ZipRaceBenchmark>
-                |]).Run(args, config)
+        BenchmarkSwitcher.FromAssembly(typeof<FIOBenchmark>.Assembly).Run(args, config)
 
     if summaries
        |> Seq.exists (fun summary ->

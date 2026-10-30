@@ -237,15 +237,15 @@ module RouteBuilder =
 
 module RoutesOperators =
 
-    /// Combines two route collections. Operator form of <c>Routes.combine</c>.
+    /// <summary>Combines two route collections. Operator form of <c>Routes.combine</c>.</summary>
     let (++) (routes: Routes<'E>) (routes': Routes<'E>) : Routes<'E> =
         Routes.combine routes routes'
 
-    /// Pairs a pattern with a handler. Operator form of <c>Routes.route</c>.
+    /// <summary>Pairs a pattern with a handler. Operator form of <c>Routes.route</c>.</summary>
     let (=>) (pattern: RoutePattern) (handler: HttpHandler<'E>) =
         Routes.route pattern handler
 
-    /// Pairs a pattern with a parameter-aware handler. Operator form of <c>Routes.single</c>.
+    /// <summary>Pairs a pattern with a parameter-aware handler. Operator form of <c>Routes.single</c>.</summary>
     let (==>) (pattern: RoutePattern) (handler: obj list -> HttpHandler<'E>) =
         Routes.single pattern handler
 

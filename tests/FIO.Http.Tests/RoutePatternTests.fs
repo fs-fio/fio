@@ -274,18 +274,4 @@ let routePatternTests =
                         Expect.equal up.Method HttpMethod.PUT "PUT"
                         Expect.equal dp.Method HttpMethod.DELETE "DELETE"
                 ]
-
-            testList
-                "RouteOperators"
-                [
-
-                    testCase "( => ) - creates a route pattern from a method and a path"
-                    <| fun () ->
-                        let req = HttpRequest.create HttpMethod.GET "/api"
-
-                        let pattern = RouteOperators.(=>) HttpMethod.GET "/api"
-
-                        Expect.equal pattern.Method HttpMethod.GET "GET"
-                        Expect.isSome (RoutePattern.tryMatch pattern req) "Match"
-                ]
         ]

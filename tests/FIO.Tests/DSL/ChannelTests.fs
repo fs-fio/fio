@@ -5,14 +5,13 @@ open FIO.Tests.Utilities.FsCheckProperties
 
 open FIO.DSL
 open FIO.Runtime
-open FIO.Runtime.Polling
-open FIO.Runtime.Signaling
 open FIO.Runtime.WorkStealing
 
 open Expecto
 
 open System
 open System.Collections.Generic
+open System.Collections.Concurrent
 
 [<Tests>]
 let channelTests =
@@ -511,173 +510,6 @@ let channelTests =
 
                             if not (task.Wait(TimeSpan.FromSeconds 120.0)) then
                                 failwith "Deadlock detected: signal-protocol lost-wakeup race regressed"
-
-                        stressTestCase "Stress - bounded-buffer pattern at high iteration count (Polling-BWC=1)"
-                        <| fun () ->
-                            let producerCount = 4
-                            let consumerCount = 4
-                            let capacity = 10
-                            let itemsPerProducer = 100_000
-                            let totalItems = producerCount * itemsPerProducer
-                            use runtime =
-                                new PollingRuntime
-                                    { EvaluationWorkers = 12
-                                      EvaluationSteps = 200
-                                      BlockingWorkers = 1 }
-                            let effect =
-                                fio {
-                                    let hub = Channel<Choice<int * Channel<unit>, Channel<int>>>()
-                                    let items = Queue<int>()
-                                    let waitingProducers = Queue<int * Channel<unit>>()
-                                    let waitingConsumers = Queue<Channel<int>>()
-                                    let mutable delivered = 0
-
-                                    let bufferActor =
-                                        let rec loop () =
-                                            fio {
-                                                if delivered < totalItems then
-                                                    match! hub.Read() with
-                                                    | Choice1Of2 (item, ack) ->
-                                                        if waitingConsumers.Count > 0 then
-                                                            let reply = waitingConsumers.Dequeue()
-                                                            delivered <- delivered + 1
-                                                            do! reply.Write(item).Unit()
-                                                            do! ack.Write(()).Unit()
-                                                        elif items.Count < capacity then
-                                                            items.Enqueue item
-                                                            do! ack.Write(()).Unit()
-                                                        else
-                                                            waitingProducers.Enqueue(item, ack)
-                                                    | Choice2Of2 reply ->
-                                                        if items.Count > 0 then
-                                                            let item = items.Dequeue()
-                                                            delivered <- delivered + 1
-                                                            do! reply.Write(item).Unit()
-                                                            if waitingProducers.Count > 0 then
-                                                                let parkedItem, parkedAck = waitingProducers.Dequeue()
-                                                                items.Enqueue parkedItem
-                                                                do! parkedAck.Write(()).Unit()
-                                                        else
-                                                            waitingConsumers.Enqueue reply
-                                                    return! loop ()
-                                            }
-                                        loop ()
-
-                                    let producer =
-                                        fio {
-                                            let ack = Channel<unit>()
-                                            for i in 1..itemsPerProducer do
-                                                do! hub.Write(Choice1Of2(i, ack)).Unit()
-                                                do! ack.Read().Unit()
-                                        }
-
-                                    let consumerCounts =
-                                        [ for index in 0 .. consumerCount - 1 ->
-                                            let baseCount = totalItems / consumerCount
-                                            let remainder = totalItems % consumerCount
-                                            if index < remainder then baseCount + 1 else baseCount ]
-
-                                    let consumer count =
-                                        fio {
-                                            let reply = Channel<int>()
-                                            for _ in 1..count do
-                                                do! hub.Write(Choice2Of2 reply).Unit()
-                                                do! reply.Read().Unit()
-                                        }
-
-                                    let producers = [ for _ in 1..producerCount -> producer ]
-                                    let consumers = [ for c in consumerCounts -> consumer c ]
-                                    do! FIO.collectAllParDiscard (bufferActor :: (producers @ consumers))
-                                }
-
-                            let task = runtime.Run(effect).Task()
-
-                            if not (task.Wait(TimeSpan.FromSeconds 120.0)) then
-                                failwith "PollingRuntime BWC=1 hung on bounded-buffer pattern"
-
-                        stressTestCase "Stress - bounded-buffer pattern at high iteration count (Signaling lost-wakeup regression)"
-                        <| fun () ->
-                            let producerCount = 4
-                            let consumerCount = 4
-                            let capacity = 10
-                            let itemsPerProducer = 100_000
-                            let totalItems = producerCount * itemsPerProducer
-                            let buildEffect () =
-                                fio {
-                                    let hub = Channel<Choice<int * Channel<unit>, Channel<int>>>()
-                                    let items = Queue<int>()
-                                    let waitingProducers = Queue<int * Channel<unit>>()
-                                    let waitingConsumers = Queue<Channel<int>>()
-                                    let mutable delivered = 0
-
-                                    let bufferActor =
-                                        let rec loop () =
-                                            fio {
-                                                if delivered < totalItems then
-                                                    match! hub.Read() with
-                                                    | Choice1Of2 (item, ack) ->
-                                                        if waitingConsumers.Count > 0 then
-                                                            let reply = waitingConsumers.Dequeue()
-                                                            delivered <- delivered + 1
-                                                            do! reply.Write(item).Unit()
-                                                            do! ack.Write(()).Unit()
-                                                        elif items.Count < capacity then
-                                                            items.Enqueue item
-                                                            do! ack.Write(()).Unit()
-                                                        else
-                                                            waitingProducers.Enqueue(item, ack)
-                                                    | Choice2Of2 reply ->
-                                                        if items.Count > 0 then
-                                                            let item = items.Dequeue()
-                                                            delivered <- delivered + 1
-                                                            do! reply.Write(item).Unit()
-                                                            if waitingProducers.Count > 0 then
-                                                                let parkedItem, parkedAck = waitingProducers.Dequeue()
-                                                                items.Enqueue parkedItem
-                                                                do! parkedAck.Write(()).Unit()
-                                                        else
-                                                            waitingConsumers.Enqueue reply
-                                                    return! loop ()
-                                            }
-                                        loop ()
-
-                                    let producer =
-                                        fio {
-                                            let ack = Channel<unit>()
-                                            for i in 1..itemsPerProducer do
-                                                do! hub.Write(Choice1Of2(i, ack)).Unit()
-                                                do! ack.Read().Unit()
-                                        }
-
-                                    let consumerCounts =
-                                        [ for index in 0 .. consumerCount - 1 ->
-                                            let baseCount = totalItems / consumerCount
-                                            let remainder = totalItems % consumerCount
-                                            if index < remainder then baseCount + 1 else baseCount ]
-
-                                    let consumer count =
-                                        fio {
-                                            let reply = Channel<int>()
-                                            for _ in 1..count do
-                                                do! hub.Write(Choice2Of2 reply).Unit()
-                                                do! reply.Read().Unit()
-                                        }
-
-                                    let producers = [ for _ in 1..producerCount -> producer ]
-                                    let consumers = [ for c in consumerCounts -> consumer c ]
-                                    do! FIO.collectAllParDiscard (bufferActor :: (producers @ consumers))
-                                }
-                            use runtime =
-                                new SignalingRuntime
-                                    { EvaluationWorkers = 12
-                                      EvaluationSteps = 200
-                                      BlockingWorkers = 1 }
-
-                            for iteration in 1..10 do
-                                let task = runtime.Run(buildEffect ()).Task()
-
-                                if not (task.Wait(TimeSpan.FromSeconds 120.0)) then
-                                    failwith $"SignalingRuntime hung on bounded-buffer pattern (iteration {iteration}): lost-wakeup race regressed"
                     ])
 
             testList
@@ -699,6 +531,121 @@ let channelTests =
                             |> Array.map _.Name
 
                         Expect.isEmpty untyped "A member whose parameter was inferred as obj accepts messages of any type"
+                ]
+
+            testList
+                "TryRead"
+                [
+                    testAllRuntimes "TryRead - an empty channel yields None without suspending" (fun runtime ->
+                        let chan = Channel<int>()
+
+                        let result = runtime.Run(chan.TryRead() : FIO<int option, exn>) |> resultWithin (TimeSpan.FromSeconds 5.0)
+
+                        match result with
+                        | Some(Succeeded None) -> ()
+                        | other -> failtest $"Expected an immediate None but got %A{other}")
+
+                    testPropertyWithConfig fsCheckConfig "TryRead - takes buffered messages in order"
+                    <| fun (runtime: FIORuntime, values: int list) ->
+                        let chan = Channel<int>()
+                        let effect : FIO<int option list * int option, exn> =
+                            fio {
+                                do! FIO.forEachDiscard values (fun value -> chan.Write value)
+                                let! taken = FIO.collectAll [ for _ in values -> chan.TryRead() ]
+                                let! rest = chan.TryRead()
+                                return taken, rest
+                            }
+
+                        let taken, rest = runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.equal taken (values |> List.map Some) "TryRead should take the messages in the order they were written"
+                        Expect.isNone rest "Nothing should be left once every message was taken"
+
+                    testAllRuntimes "TryRead - frees room for a writer waiting on a full bounded channel" (fun runtime ->
+                        let chan = Channel<int>.Bounded 1
+                        let writing = ref false
+                        let effect : FIO<int option * int, exn> =
+                            fio {
+                                do! chan.Write(1).Unit()
+
+                                let! writer =
+                                    (FIO.succeedWith(fun () -> writing.Value <- true).FlatMap(fun () -> chan.Write(2).Unit())).Fork()
+
+                                do! FIO.succeedWith (fun () -> waitForFlag writing |> ignore)
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
+                                let! first = chan.TryRead()
+                                do! writer.Join()
+                                let! second = chan.Read()
+                                return first, second
+                            }
+
+                        let first, second = runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.equal first (Some 1) "TryRead should take the buffered message"
+                        Expect.equal second 2 "The waiting writer should complete once TryRead made room")
+
+                    testAllRuntimes "TryRead - a message is taken once, by the parked reader or by TryRead" (fun runtime ->
+                        let chan = Channel<int>()
+                        let effect : FIO<int list, exn> =
+                            fio {
+                                let! reader = chan.Read().Fork()
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
+                                do! chan.Write(1).Unit()
+                                do! chan.Write(2).Unit()
+                                let! polled = chan.TryRead()
+                                let! read = reader.Join()
+                                let! leftover = chan.TryRead()
+                                return List.choose id [ polled; Some read; leftover ]
+                            }
+
+                        let taken = runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.equal (List.sort taken) [ 1; 2 ] "Each message should be taken exactly once, and the parked reader should still get one")
+
+                    stressTestAllRuntimes "Stress - TryRead pollers beside parked readers take every message exactly once" (fun runtime ->
+                        let messageCount = 50_000
+                        let pill = -1
+                        let chan = Channel<int>()
+                        let taken = ConcurrentBag<int>()
+                        let rec reader () : FIO<unit, exn> =
+                            chan.Read().FlatMap(fun message ->
+                                if message = pill then
+                                    FIO.unit ()
+                                else
+                                    taken.Add message
+                                    reader ())
+                        let rec poller (remaining: int) : FIO<unit, exn> =
+                            if remaining = 0 then
+                                FIO.unit ()
+                            else
+                                chan.TryRead().FlatMap(fun polled ->
+                                    match polled with
+                                    | Some message ->
+                                        taken.Add message
+                                        poller (remaining - 1)
+                                    | None ->
+                                        FIO.yieldNow().FlatMap(fun () -> poller (remaining - 1)))
+                        let effect =
+                            fio {
+                                let! readers = FIO.collectAll [ for _ in 1..3 -> reader().Fork() ]
+                                let! pollers = FIO.collectAll [ for _ in 1..3 -> (poller 20_000).Fork() ]
+                                do! FIO.forEachDiscard [ 0 .. messageCount - 1 ] (fun message -> chan.Write message)
+
+                                for fiber in pollers do
+                                    do! fiber.Join()
+
+                                do! FIO.forEachDiscard readers (fun _ -> chan.Write pill)
+
+                                for fiber in readers do
+                                    do! fiber.Join()
+                            }
+
+                        let result = runtime.Run(effect.TimeoutFail (exn "timed out") (TimeSpan.FromSeconds 60.0)).UnsafeResult()
+
+                        match result with
+                        | Succeeded () -> ()
+                        | other -> failtest $"Expected every reader and poller to finish but got %A{other}"
+                        Expect.equal (taken |> Seq.sort |> List.ofSeq) [ 0 .. messageCount - 1 ] "Every message should be taken exactly once")
                 ]
 
             testList

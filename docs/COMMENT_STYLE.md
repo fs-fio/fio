@@ -22,7 +22,9 @@ see [For AI agents & contributors](#for-ai-agents--contributors).
 1. **One line.** A single `///` summary is the default. If you need a paragraph,
    you're probably explaining the implementation — stop.
 2. **Lead with a verb, present tense, third person.** "Creates…", "Returns…",
-   "Runs…", "Maps…", "Races…". Not "This function will create…".
+   "Runs…", "Maps…", "Races…". Not "This function will create…". This is for
+   functions and members that do something; types, properties and DU cases take a
+   noun phrase ("The outcome of running a fiber…", "The effect this application runs.").
 3. **Describe the effect, not the signature.** The types are already on the
    member. Say what running it *does*, not what it returns structurally.
 4. **"this effect" voice for members.** On instance members, refer to the
@@ -44,7 +46,7 @@ see [For AI agents & contributors](#for-ai-agents--contributors).
   `SocketClient.connect`, `Codec.json`, `Routes.route`).
 - Public members on public types (`FIO.Map`, `Fiber.Join`, `Channel.Read`).
 - Public types: DUs, records, classes, and type aliases (`HttpHandler<'E>`).
-- Public DU cases and record fields (one short line each).
+- Public DU cases and record fields (one short line each; a second only for a caveat, §6).
 - The abstract members of `FIOApp` that a user overrides (`effect`, `runtime`,
   `onOutcome`, `onOutcomeTimeout`, `onShutdown`, `onShutdownTimeout`, `mapExitCode`).
 - Infix operators.
@@ -52,9 +54,9 @@ see [For AI agents & contributors](#for-ai-agents--contributors).
 
 **Do not document:**
 
-- Anything `internal` or `private` — the `FIO<_,_>` DU cases, `FiberContext`,
+- Anything `internal` or `private` — the `FIO<_,_>` node classes and `NodeOps`, `FiberContext`,
   `WorkItem`, the pools, and all runtime internals.
-- The `FIOBuilder` computation-expression *methods* (`Bind`, `Return`, `Delay`,
+- The computation-expression builders (`FIOBuilder`, `RouteCollector`) and their *methods* (`Bind`, `Return`, `Delay`,
   …). They're infrastructure the user never calls by name. Document the `fio`
   value instead.
 - Test, benchmark, and example projects — they ship no XML docs, and their `//`
@@ -63,7 +65,7 @@ see [For AI agents & contributors](#for-ai-agents--contributors).
   message; a shared helper may carry one line when its *why* is invisible);
   **examples carry one line per app and per example function**, nothing on the
   helpers inside; **benchmarks carry one line per benchmark class and per
-  workload actor or builder**, nothing on `[<Params>]` properties, setup, cleanup
+  workload actor or builder**, nothing on `[<ParamsSource>]` properties, setup, cleanup
   or `Run`.
 - `System.Object` overrides (`ToString`, `Finalize`, `Equals`, `GetHashCode`) —
   conventional, left bare uniformly.
@@ -79,8 +81,9 @@ IntelliSense for members no consumer can call. The check is mechanical:
 
 ```bash
 # after a Release build — every name listed here is a leak
-grep -o '<member name="[MPTF]:[^("]*' src/FIO/bin/Release/net10.0/FIO.xml \
-  | grep -E "FiberContext|InterpreterCore|WorkItem|ContStack"
+for p in FIO FIO.Sockets FIO.WebSockets FIO.Http; do
+  grep -o '<member name="[MPTF]:[^("]*' src/$p/bin/Release/net10.0/$p.xml; done \
+  | grep -E "FiberContext|InterpreterCore|WorkItem|ContStack|Scheduler|StdinReader|JoinAllLatch|RequestTracker"
 ```
 
 Use an inline `//` for these instead: the explanation is usually worth keeping, it is
@@ -102,29 +105,41 @@ for d in src tests examples benchmarks; do
 
 - A bare `///` first line **is** the `<summary>` — you don't need to write the
   tag. Use explicit tags only when you add more than a summary.
+- **A bare comment is plain text.** When a comment does not open with a tag, the
+  compiler wraps it in `<summary>` and XML-escapes it, so any markup inside it
+  (`<c>…</c>`, `&lt;`) reaches the `.xml` file and the tooltip as literal text.
+  Tags and entities take effect only in a comment that opens with a tag
+  (`/// <summary>…`). So a comment that uses markup opens with `<summary>` and stays one
+  line (two with a caveat): `/// <summary>… Operator form of <c>FlatMap</c>.</summary>`.
+  Markdown backticks are plain text in every form. Check what ships in
+  `src/<Project>/bin/Release/net10.0/<Project>.xml`.
 - Tags, in order of usefulness: `<summary>`, `<param name="…">`,
   `<typeparam name="…">`, `<returns>`, `<c>` (inline code), `<example>` /
   `<code>`, `<see cref="…">`, `<remarks>` (rare).
 - **Type parameters drop the apostrophe.** F#'s `'A` is referenced as
   `<typeparam name="A">` — *not* `name="'A"`.
 - **Cross-reference with `<c>FlatMap</c>`, not `<see cref>`.** A `cref` that
-  doesn't resolve is a malformed-doc warning waiting to happen (see below). Plain
-  `<c>` inline code is always safe.
+  doesn't resolve is a malformed-doc warning waiting to happen (see below). `<c>`
+  never warns, but it renders as code only in a comment that opens with a tag, so a
+  comment that uses it opens with `<summary>`; in a bare comment it ships as the literal
+  text `<c>FlatMap</c>`.
 
 ### The angle-bracket rule (important)
 
-Doc comments must be **well-formed XML**. FIO's central type is written
-`FIO<'A,'E>`, and a raw `<` starts a tag the XML parser won't understand. Two
-ways out, in order of preference:
+A doc comment that opens with a tag must be **well-formed XML**. FIO's central
+type is written `FIO<'A,'E>`, and a raw `<` there starts a tag the XML parser
+won't understand. (A bare comment is escaped for you, so its `<` cannot break the
+XML — and an entity in it is escaped a second time.) Two ways out, in order of
+preference:
 
 1. **Rephrase.** Say "an effect", "a fiber", "a new fiber" instead of writing the
    type. This is almost always cleaner and is the house style.
-2. **Escape.** If you must name the type in prose, write `FIO&lt;'A,'E&gt;`.
-   Escape `&` as `&amp;` too.
+2. **Escape** — in a comment that opens with a tag. If you must name the type in
+   prose, write `FIO&lt;'A,'E&gt;`. Escape `&` as `&amp;` too.
 
 ```fsharp
 // ✗ malformed XML — '<' opens a tag
-/// Returns a FIO<Fiber<'A,'E>,'E1> that runs this effect concurrently.
+/// <summary>Returns a FIO<Fiber<'A,'E>,'E1> that runs this effect concurrently.</summary>
 
 // ✓ rephrased (house style)
 /// Returns an effect that runs this effect on a new fiber.
@@ -134,7 +149,8 @@ ways out, in order of preference:
 
 The F# "invalid XML doc" check (warning **3390**) is **off by default**, so a
 malformed comment would otherwise fail silently. It is enabled on each of the four
-library projects so the build validates every comment:
+library projects so the build validates every comment that opens with a tag (a bare
+comment is escaped and cannot be malformed):
 
 ```xml
 <!-- in the library .fsproj PropertyGroup -->
@@ -188,7 +204,7 @@ member this.Map<'A1> (mapper: 'A -> 'A1) : FIO<'A1, 'E> = ...
 /// Returns an effect that passes this effect's success value into the given function.
 member this.FlatMap<'A1> (cont: 'A -> FIO<'A1, 'E>) : FIO<'A1, 'E> = ...
 
-/// Returns an effect that runs this effect on a new fiber, yielding its handle.
+/// Returns an effect that runs this effect on a new fiber scoped to this one, yielding its handle.
 member this.Fork<'E1> () : FIO<Fiber<'A, 'E>, 'E1> = ...
 
 /// Returns an effect that recovers from this effect's error with the given handler.
@@ -200,17 +216,16 @@ member this.Ensuring (finalizer: FIO<unit, 'E>) : FIO<'A, 'E> = ...
 
 ### Operator
 
-Document the behaviour in one line and point to the named method with `<c>`.
+Document the behaviour in one line and point to the named method with `<c>`, in a comment that opens with `<summary>`.
 
 ```fsharp
-/// Sequentially composes two effects, passing the first's success value into the
-/// function. Operator form of <c>FlatMap</c>.
+/// <summary>Passes the first effect's success value into the function. Operator form of <c>FlatMap</c>.</summary>
 let inline (>>=) ...
 
-/// Runs two effects concurrently and pairs their success values. Operator form of <c>ZipPar</c>.
+/// <summary>Runs two effects concurrently and pairs their values. Operator form of <c>ZipPar</c>.</summary>
 let inline (<&>) ...
 
-/// Returns the first effect, or the second if the first fails. Operator form of <c>OrElse</c>.
+/// <summary>Returns the first effect, or the second if the first fails. Operator form of <c>OrElse</c>.</summary>
 let inline (<|>) ...
 ```
 
@@ -265,7 +280,7 @@ type Fiber<'A, 'E> = ...
     /// Returns an effect that interrupts this fiber with the given cause and message.
     member _.Interrupt (cause: InterruptionCause) (message: string) : FIO<unit, 'E> = ...
 
-/// Base class for a FIO application. Override `effect`; optionally override the rest.
+/// <summary>Base class for a FIO application. Override <c>effect</c>; optionally override the rest.</summary>
 type FIOApp<'A, 'E>() =
     /// The effect this application runs. Override this.
     abstract member effect : FIO<'A, 'E>
@@ -291,7 +306,8 @@ type HttpHandler<'E> = HttpRequest -> FIO<HttpResponse, 'E>
 - The computation expression: document the `fio` value, not the builder methods.
 
 ```fsharp
-/// Builds effects with `let!`, `and!` (which runs its effects concurrently), `do!`, `return`, `for`, `while`, `use`, and `try/with`/`try/finally`.
+/// <summary>Builds effects with <c>let!</c>, <c>do!</c>, <c>return</c>, <c>for</c>, <c>while</c>, <c>use</c>,
+/// <c>try/with</c> and <c>try/finally</c>, and <c>and!</c>, which runs its effects concurrently.</summary>
 let fio = FIOBuilder()
 ```
 
@@ -302,10 +318,8 @@ let fio = FIOBuilder()
 | Use | For |
 |-----|-----|
 | `Creates an effect that …` | factory functions (`succeed`, `fail`, `attempt`) |
-| `Returns an effect that …` | combinators on an existing effect (`Map`, `CatchAll`) |
-| `Runs …` / `Runs this effect …` | execution / forking |
-| `Maps …` | value/error transformations |
-| `Races …` / `Retries …` / `Folds …` | the matching combinator |
+| `Returns an effect that …` | combinators on an existing effect (`Map`, `CatchAll`, `Race`, `Retry`, `Fold`) |
+| `Runs two effects …` | the zip operators, sequential and concurrent (`<*>`, `<*`, `<&>`, `&>`); other operators follow §4 |
 
 **Avoid:**
 
@@ -323,9 +337,8 @@ let fio = FIOBuilder()
   destructive default. Never a third: if it does not fit in two, it belongs in
   the README.
 - **`//` on internals:** one line; two at most (§7).
-- **`<param>`:** avoid it — fold any needed clarification into the summary. If you do
-  use one, you must document *every* parameter (param-completeness, §3), so it's all
-  or none.
+- **`<param>`:** avoid it — fold any needed clarification into the summary; if you
+  do use one, it is all or none (§3).
 - **`<returns>` / `<typeparam>`:** only when they add information the name doesn't
   already convey.
 - **`<example>`:** only when correct composition is non-obvious.
@@ -351,7 +364,7 @@ keep. Then:
 - **No commented-out code**, and no `TODO` without an issue number.
 
 ```fsharp
-// ✗ four lines that narrate
+// ✗ three lines that narrate
 // A receive the fiber gave up on, through an interruption or a caller's token that is not the fiber's, still
 // reads into the rented array and holds the lock, so the clean-up waits for it instead of handing the array
 // to the next renter under a pending read.
@@ -364,27 +377,10 @@ keep. Then:
 
 ## For AI agents & contributors
 
-When you touch the public API, follow these rules:
+Everything above applies. Two rules are easy to miss:
 
-1. **Add/update a `///` summary on any public member you add or change**, in the
-   verb-first "this effect" voice above. Keep it to one line unless more is
-   genuinely needed.
-2. **Never document internal or private items**, and never document the
-   `FIOBuilder` methods. If it isn't callable from a referencing package, leave
-   it bare.
-3. **Never restate the signature.** Prefer a summary with no `<param>` tags; if a
-   parameter needs explaining, work it into the summary. Adding one `<param>` forces
-   documenting all of them (§3).
-4. **Keep comments in sync with behaviour.** If you change what an effect does,
+1. **Keep comments in sync with behaviour.** If you change what an effect does,
    update its summary in the same change.
-5. **Keep the XML well-formed.** Rephrase types out of prose ("an effect"), or
-   escape (`FIO&lt;'A,'E&gt;`, `&amp;`). Cross-reference with `<c>Name</c>`, not
-   `<see cref>`. `dotnet build` must stay green.
-6. **Don't bulk-add `///` API docs to internals, tests, or examples**, and don't
-   "tidy" by adding comments the existing code deliberately omits. Tests carry no
-   comments; examples one line per app and example function; benchmarks one line
-   per class and per workload actor (§2). Internals: `//` only for an invisible
-   why, one line, two at most (§7). Before finishing, run the two checks in §2.
-7. **Explain in the commit message, not the code.** A fix that needed a paragraph
-   to justify gets that paragraph in its commit; the code gets one line naming the
-   constraint.
+2. **Don't "tidy" by adding comments the existing code deliberately omits**, and
+   don't bulk-add `///` docs to internals, tests, or examples. Before finishing, run
+   the two checks in §2.

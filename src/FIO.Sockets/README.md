@@ -59,10 +59,10 @@ accepted connection for you; `acceptLoop` leaves the server socket to its caller
 Operations fail with a typed `SocketError` — `ConnectionFailed`, `ConnectionClosed`, `TimeoutError`,
 `BufferOverflow`, `InvalidState`, `BindFailed`, `AcceptFailed`, `CodecError`, `GeneralError` — with
 `SocketError.fromException` / `SocketError.toException` to bridge raw exceptions. A failed read or
-write surfaces as `GeneralError` with the underlying exception; `SendFailed` and `ReceiveFailed` are
-not produced by any current operation. `InvalidState` also covers argument validation (an empty host,
-a port out of range, a non-positive buffer size); `BufferOverflow` is raised when a line (a JSON line
-included) or frame exceeds the limit you passed (16 MB for a frame when `ReceiveFramed` is given none).
+write surfaces as `GeneralError` with the underlying exception. `InvalidState` is argument
+validation (an empty host, a port out of range, a non-positive buffer size); `BufferOverflow` is
+raised when a line (a JSON line included) or frame exceeds the limit you passed (16 MB for a frame
+when `ReceiveFramed` is given none).
 
 ## Receiving
 
@@ -110,7 +110,7 @@ let exchange (socket: Socket) (order: Order) =
 
 `SendFramed` and `ReceiveFramed` send each message as one frame behind a 4-byte big-endian length, so a
 peer written in another language has to frame its messages the same way. Protobuf's own
-`writeDelimitedTo` uses a varint length instead and does not match.
+`WriteDelimitedTo` uses a varint length instead and does not match.
 
 The socket's own `SendJson`/`ReceiveJson` and `SendJsonLine`/`ReceiveJsonLine` use `Codec.json` and
 `Codec.jsonLine` with the serializer's default options (property names as declared, matched
@@ -129,9 +129,9 @@ loop's ordinary children: interrupting the loop interrupts them at once, alongsi
 Closing is graceful by default: data still queued is sent before the connection ends.
 `SocketConfig.withLinger true 0` opts into an immediate reset instead. Interrupting `serve` or
 `acceptLoop` is the clean way to stop a server; closing its server socket underneath ends the loop with
-`AcceptFailed`, and `accept` on a closed server socket fails the same way. The options of an
-`AcceptedSocketConfig` — Nagle, buffer sizes, timeouts — apply to every accepted socket; a connection
-they cannot be applied to is closed and the loop goes on. A handler that fails or throws is reported
+`AcceptFailed`, and `accept` on a closed server socket fails the same way. The socket options set with
+`ServerSocketConfig.withAcceptedConfig` — Nagle, buffer sizes, timeouts — apply to every accepted
+socket; a connection they cannot be applied to is closed and the loop goes on. A handler that fails or throws is reported
 on standard error, and so is a failing listener, which the loop retries with a growing pause.
 
 `accept` closes a connection it accepted just as its fiber was interrupted, since nothing could take
@@ -139,8 +139,7 @@ the socket over, except in a narrow race; `serve` and `acceptLoop` close every c
 
 ## Pooling
 
-Connection pooling is not implemented yet: `SocketPoolConfig` and the `PoolExhausted` / `PoolClosed`
-error cases are reserved for it and are not produced by any current operation.
+Connection pooling is not implemented yet; it may come in a later release.
 
 ## Links
 

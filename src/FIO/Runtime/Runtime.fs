@@ -15,8 +15,6 @@ module internal WorkerRuntimeDefaults =
 
     let EvaluationWorkerSteps = 200
 
-    let BlockingWorkerCount = 1
-
     let ComputeEvaluationWorkerCount () =
         let availableWorkers = Environment.ProcessorCount - ProcessorReserve
 
@@ -56,48 +54,7 @@ type internal ContStackPool private () =
             stack.Clear()
             pool.Push stack
 
-type internal WorkItemPool private () =
-    static let MaxPoolSize = 512
-
-    [<ThreadStatic; DefaultValue>]
-    static val mutable private pool: Stack<WorkItem>
-
-    static member inline Rent (effect: FIO<obj, obj>, fiberContext: FiberContext, contStack: Stack<Cont>) =
-        let mutable pool = WorkItemPool.pool
-        if isNull pool then
-            pool <- Stack<WorkItem>()
-            WorkItemPool.pool <- pool
-
-        if pool.Count > 0 then
-            let workItem = pool.Pop()
-            workItem.Effect <- effect
-            workItem.FiberContext <- fiberContext
-            workItem.ContStack <- contStack
-            workItem.InterruptionSuppressed <- 0
-            workItem
-        else
-            {
-                Effect = effect
-                FiberContext = fiberContext
-                ContStack = contStack
-                InterruptionSuppressed = 0
-            }
-
-    static member inline Return (workItem: WorkItem) =
-        let mutable pool = WorkItemPool.pool
-
-        if isNull pool then
-            pool <- Stack<WorkItem>()
-            WorkItemPool.pool <- pool
-
-        if pool.Count < MaxPoolSize then
-            workItem.Effect <- Unchecked.defaultof<_>
-            workItem.FiberContext <- Unchecked.defaultof<_>
-            workItem.ContStack <- Unchecked.defaultof<_>
-            workItem.InterruptionSuppressed <- 0
-            pool.Push workItem
-
-type internal WorkStealingDeque(initialCapacity: int) =
+type internal LockedWorkDeque(initialCapacity: int) =
     let mutable items = Array.zeroCreate initialCapacity
 
     let mutable mask = initialCapacity - 1
@@ -211,10 +168,10 @@ type FIORuntime internal () =
             if awaited && trackedCount () = 0 then
                 unwound.TrySetResult() |> ignore)
 
-    /// The runtime's name.
+    /// This runtime's name.
     abstract member Name: string
 
-    /// A display string describing the runtime's configuration; a runtime without one gives its name.
+    /// A display string describing this runtime's configuration; a runtime without one gives its name.
     abstract member ConfigString: string
 
     default this.ConfigString : string =
@@ -223,15 +180,6 @@ type FIORuntime internal () =
     /// Schedules the given effect on a new fiber and returns its handle at once; it never waits for, interrupts, or
     /// discards a fiber already running, so call it as often as you like.
     abstract member Run<'A, 'E> : FIO<'A, 'E> -> Fiber<'A, 'E>
-
-    /// Returns a filesystem-safe form of this runtime's display string (its name and configuration).
-    member this.ToFileString () : string =
-        this.ToString()
-            .ToLowerInvariant()
-            .Replace("(", "")
-            .Replace(")", "")
-            .Replace(":", "")
-            .Replace(' ', '-')
 
     override this.ToString () : string =
         this.ConfigString
@@ -266,7 +214,7 @@ type FIORuntime internal () =
         trackedCount ()
 
     /// Interrupts every fiber still running, waits up to the given time for them to unwind, then stops the workers and
-    /// abandons what is left; a later call waits for the first. Do not call it from one of the runtime's fibers.
+    /// abandons what is left; a later call waits for the first. Do not call it from one of this runtime's fibers.
     member this.Shutdown (timeout: TimeSpan) : unit =
         validateTimeout (nameof timeout) timeout
 
@@ -304,9 +252,6 @@ type WorkerConfig =
         EvaluationWorkers: int
         /// Number of evaluation steps a work item runs before being rescheduled.
         EvaluationSteps: int
-        /// Number of workers that handle blocking operations; only PollingRuntime has them, but every worker runtime
-        /// requires a positive value.
-        BlockingWorkers: int
     }
 
     /// The default configuration, sized to the current machine.
@@ -314,5 +259,4 @@ type WorkerConfig =
         {
             EvaluationWorkers = WorkerRuntimeDefaults.ComputeEvaluationWorkerCount()
             EvaluationSteps = WorkerRuntimeDefaults.EvaluationWorkerSteps
-            BlockingWorkers = WorkerRuntimeDefaults.BlockingWorkerCount
         }

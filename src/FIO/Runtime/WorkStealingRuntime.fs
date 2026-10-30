@@ -40,7 +40,7 @@ type internal Scheduler(workerCount: int) =
 
     let runNext: WorkItem[] = Array.zeroCreate workerCount
 
-    let deques = Array.init workerCount (fun _ -> WorkStealingDeque(DequeCapacity))
+    let deques = Array.init workerCount (fun _ -> LockedWorkDeque DequeCapacity)
 
     let tick = Array.zeroCreate workerCount
 
@@ -186,7 +186,7 @@ type internal Scheduler(workerCount: int) =
             stack.Clear()
             pool.Push stack
 
-    member _.RentWorkItem (workerId: int, effect: FIO<obj, obj>, fiberContext: FiberContext, contStack: Stack<Cont>) =
+    member _.RentWorkItem (workerId: int, effect: FIOBase, fiberContext: FiberContext, contStack: Stack<Cont>) =
         let pool = workItemPools.[workerId]
         if pool.Count > 0 then
             let workItem = pool.Pop()
@@ -298,8 +298,6 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
     let workerCount = config.EvaluationWorkers
     let scheduler = Scheduler(workerCount)
 
-
-
     let workers =
         List.init workerCount (fun i ->
             new Worker
@@ -315,6 +313,7 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
         workers |> List.iter (fun w -> (w :> IDisposable).Dispose())
         scheduler.Dispose()
 
+    /// The runtime's name, "WorkStealingRuntime".
     override _.Name : string =
         "WorkStealingRuntime"
 
@@ -475,7 +474,7 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                                             scheduler.GlobalQueue.WriteAsync wi |> ignore
                                             scheduler.SignalWork())
                                     state.Completed <- true
-                            | HandleAwaitTask(awaited, onError) ->
+                            | HandleAwaitTask(awaited, node) ->
                                 let waited = awaitedTask awaited state.InterruptionSuppressed currentFiberContext
 
                                 if waited.IsCompletedSuccessfully then
@@ -490,7 +489,7 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                                         currentFiberContext
                                         state.ContStack
                                         state.InterruptionSuppressed
-                                        onError
+                                        node
                                         (fun workItem ->
                                             scheduler.GlobalQueue.WriteAsync workItem |> ignore
                                             scheduler.SignalWork())
@@ -521,7 +520,12 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
         this.Track fiber.Context
 
         let workItem =
-            WorkItemPool.Rent(effect.UpcastBoth(), fiber.Context, ContStackPool.Rent())
+            {
+                Effect = effect :> FIOBase
+                FiberContext = fiber.Context
+                ContStack = Stack<Cont> ContStackDefaultCapacity
+                InterruptionSuppressed = 0
+            }
 
         scheduler.GlobalQueue.WriteAsync workItem |> ignore
         scheduler.SignalWork()

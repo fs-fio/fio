@@ -11,7 +11,7 @@ type InterruptibilityRestorer internal (level: int) =
 
     /// Returns an effect that runs the given effect with the interruptibility in force outside the region.
     member _.Restore<'A, 'E> (effect: FIO<'A, 'E>) : FIO<'A, 'E> =
-        WithSuppression((fun _ -> level), fun _ -> effect)
+        SuppressionNode<'A, 'E>((fun _ -> level), fun _ -> effect)
 
 [<RequireQualifiedAccess>]
 module FIO =
@@ -20,19 +20,19 @@ module FIO =
 
     /// Creates an effect that succeeds with unit.
     let unit<'E> () : FIO<unit, 'E> =
-        Success()
+        NullSuccess<unit, 'E>.Instance
 
     /// Creates an effect that always succeeds with the given value.
     let succeed<'A, 'E> (value: 'A) : FIO<'A, 'E> =
-        Success value
+        SuccessNode<'A, 'E> value
 
     /// Creates an effect that always fails with the given error.
     let fail<'A, 'E> (error: 'E) : FIO<'A, 'E> =
-        Failure error
+        FailureNode<'A, 'E> error
 
     /// Creates an effect that interrupts the current fiber with the given cause and message.
     let interrupt<'A, 'E> (cause: InterruptionCause) (message: string) : FIO<'A, 'E> =
-        Interrupt(cause, message)
+        InterruptNode<'A, 'E>(cause, message)
 
     /// Creates an effect that interrupts the current fiber with an explicit-interrupt cause.
     let inline interruptNow<'A, 'E> () : FIO<'A, 'E> =
@@ -40,11 +40,11 @@ module FIO =
 
     /// Creates an effect that runs a side-effecting function, mapping any thrown exception to a typed error via onError.
     let attempt<'A, 'E> (func: unit -> 'A) (onError: exn -> 'E) : FIO<'A, 'E> =
-        FIO.Action(func, onError)
+        ActionNode<'A, 'E>(func, onError)
 
     /// Creates an effect that succeeds with the result of the given function, which must not throw; a throw is a defect, not a typed error.
     let succeedWith<'A, 'E> (func: unit -> 'A) : FIO<'A, 'E> =
-        FIO.Action(func, Rethrow<_>.Instance)
+        ActionNode<'A, 'E>(func, Rethrow<_>.Instance)
 
     /// Creates an effect that succeeds or fails according to the given Result.
     let inline fromResult<'A, 'E> : Result<'A, 'E> -> FIO<'A, 'E> = function
@@ -65,28 +65,27 @@ module FIO =
 
     /// Defers construction of an effect until it is run.
     let suspend<'A, 'E> (effect: unit -> FIO<'A, 'E>) : FIO<'A, 'E> =
-        Suspend effect
+        SuspendNode<'A, 'E> effect
 
     /// Creates an effect that yields the current fiber's cancellation token; inside an uninterruptible region, a
     /// finalizer for instance, the token never cancels, so cleanup started there runs to completion.
     let cancellationToken<'E> () : FIO<CancellationToken, 'E> =
-        FiberCancellationToken
+        CancellationTokenNode<'E>.Instance
 
     /// Creates an effect that awaits a non-generic task, mapping any exception to a typed error.
     let awaitUnitTask<'E> (task: Task) (onError: exn -> 'E) : FIO<unit, 'E> =
-        AwaitTask(boxVoidTask task, onError)
+        AwaitTaskNode<unit, 'E>(boxVoidTask task, onError)
 
     /// Creates an effect that awaits a task and yields its result, mapping any exception to a typed error.
     let awaitTask<'A, 'E> (task: Task<'A>) (onError: exn -> 'E) : FIO<'A, 'E> =
-        AwaitTask(boxTask task, onError)
+        AwaitTaskNode<'A, 'E>(boxTask task, onError)
 
     /// Creates an effect that runs an F# async and yields its result, mapping any exception to a typed error.
     let inline awaitAsync<'A, 'E> (async: Async<'A>) (onError: exn -> 'E) : FIO<'A, 'E> =
         cancellationToken().FlatMap <| fun cancellationToken ->
             awaitTask (Async.StartAsTask(async, cancellationToken = cancellationToken)) onError
 
-    /// Creates an effect that starts a non-generic task on the current fiber and awaits it on a new one, mapping any
-    /// exception to a typed error.
+    /// Creates an effect that starts a non-generic task on the current fiber and awaits it on a new one, mapping any exception via onError.
     let inline forkUnitTask<'E, 'E1> (taskFactory: unit -> Task) (onError: exn -> 'E) : FIO<Fiber<unit, 'E>, 'E1> =
         suspend <| fun () ->
             let task =
@@ -94,8 +93,7 @@ module FIO =
                 with ex -> Task.FromException ex
             (awaitUnitTask task onError).Fork()
 
-    /// Creates an effect that starts a task on the current fiber and awaits it on a new one, mapping any exception to a
-    /// typed error.
+    /// Creates an effect that starts a task on the current fiber and awaits it on a new one, mapping any exception via onError.
     let inline forkTask<'A, 'E, 'E1> (taskFactory: unit -> Task<'A>) (onError: exn -> 'E) : FIO<Fiber<'A, 'E>, 'E1> =
         suspend <| fun () ->
             let task =
@@ -103,7 +101,8 @@ module FIO =
                 with ex -> Task.FromException<'A> ex
             (awaitTask task onError).Fork()
 
-    /// Creates an effect from a callback-based asynchronous operation, completed by invoking the registered callback.
+    /// Creates an effect from a callback-based asynchronous operation, completed by invoking the registered callback;
+    /// an exception from register goes through onError.
     let inline async<'A, 'E> (register: (Result<'A, 'E> -> unit) -> unit) (onError: exn -> 'E) : FIO<'A, 'E> =
         cancellationToken().FlatMap <| fun cancellationToken ->
             let resultSource = TaskCompletionSource<Result<'A, 'E>>()
@@ -134,7 +133,7 @@ module FIO =
         cancellationToken().FlatMap <| fun _ ->
             awaitUnitTask (Task.Run(fun () -> ())) Rethrow<_>.Instance
 
-    /// An effect that never completes.
+    /// Creates an effect that never completes.
     let never<'A, 'E> () : FIO<'A, 'E> =
         suspend <| fun () -> (Channel<'A>()).Read()
 
@@ -142,21 +141,21 @@ module FIO =
         if List.isEmpty fiberContexts then
             interrupt (InvalidArgument("fiberContexts", "list must not be empty")) "Cannot join the first of an empty list of fibers"
         else
-            JoinFirst fiberContexts
+            JoinFirstNode<'E> fiberContexts
 
     let internal joinAllFailFast<'E> (fiberContexts: FiberContext[]) : FIO<int voption, 'E> =
         if Array.isEmpty fiberContexts then
             succeed ValueNone
         else
-            JoinAllFailFast fiberContexts
+            JoinAllFailFastNode<'E> fiberContexts
 
-    /// Returns an effect that runs the given effect uninterruptibly: an interruption takes effect once it ends.
+    /// Creates an effect that runs the given effect uninterruptibly: an interruption takes effect once it ends.
     let uninterruptible<'A, 'E> (effect: FIO<'A, 'E>) : FIO<'A, 'E> =
-        WithSuppression(raiseSuppression, fun _ -> effect)
+        SuppressionNode<'A, 'E>(raiseSuppression, fun _ -> effect)
 
-    /// Returns an effect that runs the given function's effect uninterruptibly, passing it a restorer for the parts that should stay interruptible.
+    /// Creates an effect that runs the given function's effect uninterruptibly, passing it a restorer for the parts that should stay interruptible.
     let uninterruptibleMask<'A, 'E> (body: InterruptibilityRestorer -> FIO<'A, 'E>) : FIO<'A, 'E> =
-        WithSuppression(raiseSuppression, fun level -> body (InterruptibilityRestorer level))
+        SuppressionNode<'A, 'E>(raiseSuppression, fun level -> body (InterruptibilityRestorer level))
 
     /// Acquires a resource, uses it, and releases it on success, failure or interruption; acquire and release run
     /// uninterruptibly. The release function is called as soon as the resource exists, before the use function.
@@ -165,20 +164,52 @@ module FIO =
         (release: 'A1 -> FIO<unit, 'E>)
         (useResource: 'A1 -> FIO<'A, 'E>)
         : FIO<'A, 'E> =
-        // The finalizer is built before useResource is called, so a useResource that throws still has it run.
-        AcquireRelease(
-            acquire.UpcastResult(),
+        // The finalizer is built before useResource is called, so a useResource that throws or returns null still has it run.
+        AcquireReleaseNode<'A, 'A1, 'E>(
+            acquire,
             fun resource ->
-                let resource = resource :?> 'A1
-                let finalizer = (release resource).UpcastBoth()
+                let finalizer = release resource
+
+                if obj.ReferenceEquals(finalizer, null) then
+                    raiseNullEffect ()
 
                 let used =
                     try
-                        useResource resource
-                    with ex ->
-                        Interrupt(Defect ex, ex.Message)
+                        let used = useResource resource
 
-                OnFinalize(used, finalizer))
+                        if obj.ReferenceEquals(used, null) then
+                            raiseNullEffect ()
+
+                        used
+                    with ex ->
+                        interrupt (Defect ex) ex.Message
+
+                FinalizeNode<'A, 'E>(used, finalizer))
+
+    /// Acquires a resource, uses it, and releases it as acquireReleaseWith does, handing release the outcome of use:
+    /// success, failure, or interruption and its cause, so release can commit or roll back.
+    let acquireReleaseExitWith<'A, 'A1, 'E>
+        (acquire: FIO<'A1, 'E>)
+        (release: 'A1 -> FiberResult<'A, 'E> -> FIO<unit, 'E>)
+        (useResource: 'A1 -> FIO<'A, 'E>)
+        : FIO<'A, 'E> =
+        AcquireReleaseNode<'A, 'A1, 'E>(
+            acquire,
+            fun resource ->
+                let finalizer = release resource
+
+                let used =
+                    try
+                        let used = useResource resource
+
+                        if obj.ReferenceEquals(used, null) then
+                            raiseNullEffect ()
+
+                        used
+                    with ex ->
+                        interrupt (Defect ex) ex.Message
+
+                used.OnExit finalizer)
 
     /// Runs the given effect for each item in sequence, collecting the results into a list.
     let inline forEach<'A, 'A1, 'E> (items: seq<'A1>) (func: 'A1 -> FIO<'A, 'E>) : FIO<'A list, 'E> =
@@ -259,6 +290,34 @@ module FIO =
     /// Runs the given effect for each item concurrently, discarding the results.
     let inline forEachParDiscard<'A, 'A1, 'E> (items: seq<'A1>) (func: 'A1 -> FIO<'A, 'E>) : FIO<unit, 'E> =
         (forEachPar items func).Map(fun _ -> ())
+
+    /// Runs the given effect for each item concurrently, at most parallelism at a time, collecting the results into a
+    /// list; a parallelism below 1 interrupts the fiber.
+    let forEachParN<'A, 'A1, 'E> (parallelism: int) (items: seq<'A1>) (func: 'A1 -> FIO<'A, 'E>) : FIO<'A list, 'E> =
+        if parallelism < 1 then
+            interrupt (InvalidArgument("parallelism", "must be >= 1")) "Invalid argument: parallelism must be >= 1"
+        else
+            suspend <| fun () ->
+                let arr = Seq.toArray items
+
+                if arr.Length = 0 then
+                    succeed []
+                else
+                    let results = Array.zeroCreate<'A> arr.Length
+                    let next = ref -1
+
+                    let rec work () : FIO<unit, 'E> =
+                        suspend <| fun () ->
+                            let index = Interlocked.Increment &next.contents
+
+                            if index >= arr.Length then
+                                unit ()
+                            else
+                                (func arr[index]).FlatMap <| fun value ->
+                                    results[index] <- value
+                                    work ()
+
+                    (forEachPar (Array.create (min parallelism arr.Length) ()) work).Map(fun _ -> List.ofArray results)
 
     /// Runs the given effects in sequence, collecting their results into a list.
     let inline collectAll<'A, 'E> (effects: seq<FIO<'A, 'E>>) : FIO<'A list, 'E> =

@@ -85,7 +85,7 @@ let tests =
 
                     testCase "TimeoutTo - timeout fires returns default value"
                     <| fun () ->
-                        let runtime = new WorkStealingRuntime() :> FIORuntime
+                        use runtime = new WorkStealingRuntime(testConfig) :> FIORuntime
                         let defaultValue = -1
                         let effect =
                             (FIO.sleep (TimeSpan.FromSeconds 5.0)).FlatMap(fun () -> FIO.succeed 0)

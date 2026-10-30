@@ -14,7 +14,6 @@ open System.Diagnostics
 
 open Expecto
 
-// One after another, so a pause after each dropped connection adds up; asynchronous, so no runtime thread is held.
 let private connectEachAndAwaitEnd (connections: int) (port: int) =
     task {
         let clock = Stopwatch.StartNew()
@@ -599,7 +598,7 @@ let serverSocketTests =
                         let reports = logged.Split('\n') |> Array.filter (fun line -> line.Contains "accept loop iteration") |> Array.length
 
                         Expect.equal endedCleanly connections "Every dropped connection should be closed, so its client reads the end of the stream"
-                        Expect.isLessThan droppedIn (2L * handledIn + 1_000L) $"Dropping a connection must not pause the accept loop: dropping took {droppedIn} ms, handling {handledIn} ms"
+                        Expect.isLessThan droppedIn (2L * handledIn + 1_000L) $"Dropping a connection must not pause the accept loop (clients connect one after another, without holding a runtime thread, so any pause adds up): dropping took {droppedIn} ms, handling {handledIn} ms"
                         Expect.equal reports (1 + connections / 40) "A streak of failures should be reported by its first and every fortieth")
 
                     testAllRuntimes "acceptLoop - reports a handler's failure and a handler's crash on standard error" (fun runtime ->

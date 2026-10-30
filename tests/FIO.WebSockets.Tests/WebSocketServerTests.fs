@@ -56,6 +56,37 @@ let webSocketServerTests =
                             }
 
                         runtime.Run(effect).UnsafeSuccess())
+
+                    testAllRuntimes "close - disposes the listener" (fun runtime ->
+                        let effect =
+                            fio {
+                                let! _, listener = startTestListener ()
+                                do! WebSocketServer.close listener
+                                return listener
+                            }
+
+                        let listener = runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.throwsT<ObjectDisposedException> (fun () -> listener.Prefixes |> ignore) "A closed listener should be disposed")
+
+                    testSequenced (
+                        testAllRuntimes "close - closing twice stays quiet" (fun runtime ->
+                            let originalErr = Console.Error
+                            use captured = new IO.StringWriter()
+                            Console.SetError captured
+                            let effect =
+                                fio {
+                                    let! _, listener = startTestListener ()
+                                    do! WebSocketServer.close listener
+                                    do! WebSocketServer.close listener
+                                }
+
+                            try
+                                runtime.Run(effect).UnsafeSuccess()
+                            finally
+                                Console.SetError originalErr
+
+                            Expect.equal (captured.ToString()) "" "Closing a closed listener must not log to stderr"))
                 ]
 
             testList

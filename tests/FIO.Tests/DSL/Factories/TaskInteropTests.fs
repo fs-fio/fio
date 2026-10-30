@@ -5,8 +5,6 @@ open FIO.Tests.Utilities.FsCheckProperties
 
 open FIO.DSL
 open FIO.Runtime
-open FIO.Runtime.Polling
-open FIO.Runtime.Signaling
 open FIO.Runtime.WorkStealing
 
 open Expecto
@@ -95,32 +93,27 @@ let tests =
                             "FIO.awaitTask should propagate exception"
 
                     testCase "awaitTask - a throwing onError resumed on a worker thread surfaces the task error instead of crashing the process" (fun () ->
-                        let workerRuntimes: FIORuntime list =
-                            [ new PollingRuntime()
-                              new SignalingRuntime()
-                              new WorkStealingRuntime() ]
+                        use runtime = new WorkStealingRuntime()
+                        let faulting: Task<int> =
+                            task {
+                                do! Task.Delay 5
+                                return raise (Exception "task boom")
+                            }
+                        let throwingOnError: exn -> exn = fun _ -> raise (Exception "onError threw")
+                        let effect = FIO.awaitTask faulting throwingOnError
 
-                        for runtime in workerRuntimes do
-                            let faulting: Task<int> =
-                                task {
-                                    do! Task.Delay 5
-                                    return raise (Exception "task boom")
-                                }
-                            let throwingOnError: exn -> exn = fun _ -> raise (Exception "onError threw")
-                            let effect = FIO.awaitTask faulting throwingOnError
+                        let result = runtime.Run(effect).UnsafeResult()
 
-                            let result = runtime.Run(effect).UnsafeResult()
-
-                            match result with
-                            | Interrupted ex ->
-                                match ex.cause with
-                                | Defect defect ->
-                                    Expect.stringContains
-                                        defect.Message
-                                        "task boom"
-                                        $"{runtime.GetType().Name}: throwing onError must not crash; the raw task error should surface as the defect"
-                                | other -> failtest $"{runtime.GetType().Name}: expected a Defect cause but got {other}"
-                            | other -> failtest $"{runtime.GetType().Name}: expected Interrupted but got {other}")
+                        match result with
+                        | Interrupted ex ->
+                            match ex.cause with
+                            | Defect defect ->
+                                Expect.stringContains
+                                    defect.Message
+                                    "task boom"
+                                    $"{runtime.GetType().Name}: throwing onError must not crash; the raw task error should surface as the defect"
+                            | other -> failtest $"{runtime.GetType().Name}: expected a Defect cause but got {other}"
+                        | other -> failtest $"{runtime.GetType().Name}: expected Interrupted but got {other}")
 
                     testPropertyWithConfig fsCheckConfig "awaitAsync - returns async result"
                     <| fun (runtime: FIORuntime, value: int) ->
@@ -385,7 +378,7 @@ let tests =
 
                     testCase "async - delayed callback completes correctly"
                     <| fun () ->
-                        let runtime = new WorkStealingRuntime() :> FIORuntime
+                        use runtime = new WorkStealingRuntime(testConfig) :> FIORuntime
                         let effect =
                             FIO.async (fun cb ->
                                 let _ = Task.Run(fun () ->
@@ -400,7 +393,7 @@ let tests =
 
                     testCase "async - subsequent callback invocations are ignored"
                     <| fun () ->
-                        let runtime = new WorkStealingRuntime() :> FIORuntime
+                        use runtime = new WorkStealingRuntime(testConfig) :> FIORuntime
                         let effect =
                             FIO.async (fun cb ->
                                 cb (Ok 1)

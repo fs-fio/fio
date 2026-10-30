@@ -6,10 +6,11 @@ Usage:
                                  [--output report.md] [--time-threshold 10] [--alloc-threshold 5]
 
 Both directories are searched recursively for `*Benchmark-report.csv` files; benchmarks present
-in only one directory are skipped (with a note). Rows are matched on (Method, params, runtime).
+in only one directory are skipped (with a note). Rows are matched on (Method, params, runtime), with
+the runtime label compared exactly; rows present in only one directory are listed at the end.
 
 Unlike plot.py this script is stdlib-only (no pandas/plotly), so it runs without the plotting
-venv. Unit tables and column detection mirror plot.py — keep them in sync.
+venv; the CSV parsing both share lives in bench_common.py.
 
 Interpreting deltas: allocated bytes are deterministic and comparable across sessions; wall time
 drifts with machine conditions, so only compare times from runs taken in the same session
@@ -18,53 +19,11 @@ drifts with machine conditions, so only compare times from runs taken in the sam
 
 import argparse
 import csv
-import re
 import sys
 from pathlib import Path
 
-TIME_UNITS = {
-    "ns": 1e-9,
-    "us": 1e-6,
-    "μs": 1e-6,
-    "µs": 1e-6,
-    "ms": 1e-3,
-    "s": 1.0,
-    "m": 60.0,
-}
-BYTE_UNITS = {
-    "B": 1.0,
-    "KB": 1024.0,
-    "MB": 1024.0 ** 2,
-    "GB": 1024.0 ** 3,
-}
-RUNTIME_PATTERN = re.compile(r"^(Direct|Polling|Signaling|WorkStealing)(-\d+-\d+-\d+)?$")
-
-JOB_CHARACTERISTIC_COLS = {
-    "AnalyzeLaunchVariance", "EvaluateOverhead", "MaxAbsoluteError", "MaxRelativeError",
-    "MinInvokeCount", "MinIterationTime", "OutlierMode", "Affinity", "EnvironmentVariables",
-    "Jit", "LargeAddressAware", "Platform", "PowerPlanMode", "Runtime", "AllowVeryLargeObjects",
-    "Concurrent", "CpuGroups", "Force", "HeapAffinitizeMask", "HeapCount", "NoAffinitize",
-    "RetainVm", "Server", "Arguments", "BuildConfiguration", "Clock", "EngineFactory",
-    "NuGetReferences", "Toolchain", "IsMutator", "InvocationCount", "IterationCount",
-    "IterationTime", "LaunchCount", "MaxIterationCount", "MaxWarmupIterationCount",
-    "MemoryRandomization", "MinIterationCount", "MinWarmupIterationCount", "RunStrategy",
-    "UnrollFactor", "WarmupCount",
-}
-
-
-def parse_scalar(value: str, units: dict[str, float]) -> float:
-    parts = str(value).strip().split()
-    if len(parts) < 2 or parts[1] not in units:
-        return float("nan")
-    try:
-        return float(parts[0].replace(",", "")) * units[parts[1]]
-    except ValueError:
-        return float("nan")
-
-
-def extract_benchmark_name(filename: str) -> str:
-    match = re.search(r"\.(\w+?)Benchmark-report", filename)
-    return match.group(1) if match else filename
+from bench_common import (BYTE_UNITS, JOB_CHARACTERISTIC_COLS, RUNTIME_PATTERN, TIME_UNITS,
+                          extract_benchmark_name, parse_scalar)
 
 
 def load_results(csv_path: Path) -> dict[tuple, dict]:
@@ -95,7 +54,7 @@ def load_results(csv_path: Path) -> dict[tuple, dict]:
         i for i in range(mean_idx)
         if i != runtime_idx
         and header[i] not in ("Method", "Job")
-        and header[i].split(".")[0] not in JOB_CHARACTERISTIC_COLS
+        and header[i] not in JOB_CHARACTERISTIC_COLS
     ]
 
     results = {}
@@ -134,6 +93,13 @@ def fmt_delta(pct: float) -> str:
     return f"{pct:+.1f}%" if pct == pct else "n/a"
 
 
+def split_keys(a_rows: dict, b_rows: dict) -> tuple[list, list, list]:
+    """Keys in both (in A's order), keys only in A, keys only in B."""
+    return ([k for k in a_rows if k in b_rows],
+            [k for k in a_rows if k not in b_rows],
+            [k for k in b_rows if k not in a_rows])
+
+
 def compare(dir_a: Path, dir_b: Path, label_a: str, label_b: str,
             time_threshold: float, alloc_threshold: float) -> str:
     reports_a, reports_b = find_reports(dir_a), find_reports(dir_b)
@@ -149,10 +115,13 @@ def compare(dir_a: Path, dir_b: Path, label_a: str, label_b: str,
         "",
     ]
     time_regr = time_win = alloc_regr = alloc_win = compared = 0
+    unmatched = []
 
     for name in common:
         a_rows, b_rows = load_results(reports_a[name]), load_results(reports_b[name])
-        keys = [k for k in a_rows if k in b_rows]
+        keys, keys_only_a, keys_only_b = split_keys(a_rows, b_rows)
+        unmatched += [(name, label_a, a_rows[k]) for k in keys_only_a]
+        unmatched += [(name, label_b, b_rows[k]) for k in keys_only_b]
         if not keys:
             continue
         lines += [f"## {name}", "",
@@ -178,6 +147,14 @@ def compare(dir_a: Path, dir_b: Path, label_a: str, label_b: str,
     for skipped, where in ((only_a, label_a), (only_b, label_b)):
         if skipped:
             summary += f" Skipped (only in {where}): {', '.join(skipped)}."
+    if unmatched:
+        summary += f" Unmatched rows: {len(unmatched)} (listed at the end)."
+        lines += ["## Unmatched rows", "",
+                  "Rows present in only one directory, for example a runtime label that differs between them.", "",
+                  "| Benchmark | Only in | Params | Runtime |",
+                  "|---|---|---|---|"]
+        lines += [f"| {name} | {where} | {row['params']} | {row['runtime']} |" for name, where, row in unmatched]
+        lines.append("")
     lines.insert(4, summary)
     return "\n".join(lines)
 
@@ -189,10 +166,12 @@ def self_test() -> int:
     assert parse_scalar("NA", BYTE_UNITS) != parse_scalar("NA", BYTE_UNITS)  # NaN
     assert extract_benchmark_name("FIO.Benchmarks.Benchmarks.ForkBenchmark-report.csv") == "Fork"
     assert RUNTIME_PATTERN.match("WorkStealing-12-200-1")
+    assert RUNTIME_PATTERN.match("WorkStealing-12-200")
     assert RUNTIME_PATTERN.match("Direct")
     assert not RUNTIME_PATTERN.match(".NET 10.0")
     assert delta(100.0, 90.0) == -10.0
     assert flag(11.0, 10.0) == " 🔴" and flag(-11.0, 10.0) == " 🟢" and flag(5.0, 10.0) == ""
+    assert split_keys({1: 0, 2: 0}, {2: 0, 3: 0}) == ([2], [1], [3])
     print("self-test: OK")
     return 0
 
