@@ -191,7 +191,7 @@ type DirectRuntime() =
                                             onSuccessComplete
                                             onErrorComplete
                                             (OutcomeInterrupted (interruptionFor currentFiberContext "Fiber was interrupted while blocked on a fiber join."))
-                            | HandleAwaitTask(task, onError) ->
+                            | HandleAwaitTask(task, node) ->
                                 try
                                     let! value = awaitedTask task state.InterruptionSuppressed currentFiberContext
                                     processOutcome
@@ -213,7 +213,7 @@ type DirectRuntime() =
                                         &state
                                         onSuccessComplete
                                         onErrorComplete
-                                        (awaitTaskFailureOutcome currentFiberContext onError ex)
+                                        (awaitTaskFailureOutcome currentFiberContext node ex)
                 return result.Value
             finally
                 ContStackPool.Return state.ContStack
@@ -221,7 +221,7 @@ type DirectRuntime() =
 
     // The only call to InterpretAsync from outside itself. A fork is a concurrent hand-off, so it
     // can never be a tail call; keeping it here is what lets [<TailCall>] guard InterpretAsync.
-    member private this.RunFiber (effect: FIO<obj, obj>) (fiberContext: FiberContext) =
+    member private this.RunFiber (effect: FIOBase) (fiberContext: FiberContext) =
         task {
             try
                 let! value = this.InterpretAsync effect fiberContext
@@ -235,5 +235,5 @@ type DirectRuntime() =
     override this.Run<'A, 'E> (effect: FIO<'A, 'E>) : Fiber<'A, 'E> =
         let fiber = new Fiber<'A, 'E>()
         this.Track fiber.Context
-        Task.Run(fun () -> this.RunFiber (effect.UpcastBoth()) fiber.Context :> Task) |> ignore
+        Task.Run(fun () -> this.RunFiber (effect :> FIOBase) fiber.Context :> Task) |> ignore
         fiber

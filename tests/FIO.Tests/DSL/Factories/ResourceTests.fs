@@ -157,6 +157,35 @@ let tests =
                         | other -> failtest $"Expected Interrupted but got {other}"
                         Expect.isTrue (waitForFlag released) "Release should run when use throws")
 
+                    testCase "acquireReleaseWith - a null acquire throws when the effect is built" (fun () ->
+                        let acquire = Unchecked.defaultof<FIO<string, string>>
+
+                        Expect.throwsT<NullReferenceException>
+                            (fun () -> FIO.acquireReleaseWith acquire (fun _ -> FIO.unit ()) FIO.succeed |> ignore)
+                            "A null acquire should be rejected where the effect is built")
+
+                    testAllRuntimes "acquireReleaseWith - a release that returns null dies with a Defect and still runs an enclosing finalizer" (fun runtime ->
+                        let finalized = ref 0
+                        let uses = ref 0
+                        let useResource resource =
+                            uses.Value <- uses.Value + 1
+                            FIO.succeed resource
+                        let effect : FIO<string, string> =
+                            (FIO.acquireReleaseWith (FIO.succeed "resource") (fun _ -> Unchecked.defaultof<FIO<unit, string>>) useResource)
+                                .Ensuring(FIO.succeedWith (fun () -> finalized.Value <- finalized.Value + 1))
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        Expect.isTrue (waitUntil (fun () -> finalized.Value > 0)) "The enclosing finalizer should run"
+                        Expect.equal finalized.Value 1 "The enclosing finalizer should run once"
+                        Expect.equal uses.Value 0 "Use should not be called once release returned null"
+                        match result with
+                        | Interrupted ex ->
+                            match ex.cause with
+                            | Defect _ -> ()
+                            | other -> failtest $"Expected a Defect cause but got {other}"
+                        | other -> failtest $"Expected Interrupted but got {other}")
+
                     testAllRuntimes "acquireReleaseWith - an acquire that fails after an interrupt ends interrupted, without release" (fun runtime ->
                         let started = new ManualResetEventSlim false
                         let proceed = new ManualResetEventSlim false
@@ -483,5 +512,48 @@ let tests =
 
                         Expect.equal result 7 "The outer use should recover"
                         Expect.equal (List.ofSeq seen) [ "inner", Failed "inner failed"; "outer", Succeeded 7 ] "Each release should see its own use's outcome, innermost first")
+
+                    testCase "acquireReleaseExitWith - a null acquire throws when the effect is built" (fun () ->
+                        let acquire = Unchecked.defaultof<FIO<string, string>>
+
+                        Expect.throwsT<NullReferenceException>
+                            (fun () -> FIO.acquireReleaseExitWith acquire (fun _ _ -> FIO.unit ()) FIO.succeed |> ignore)
+                            "A null acquire should be rejected where the effect is built")
+
+                    testAllRuntimes "acquireReleaseWith - a use that returns null dies with a Defect and still runs release" (fun runtime ->
+                        let released = ref false
+                        let effect : FIO<int, string> =
+                            FIO.acquireReleaseWith
+                                (FIO.succeed "resource")
+                                (fun _ -> FIO.succeedWith (fun () -> released.Value <- true))
+                                (fun _ -> Unchecked.defaultof<FIO<int, string>>)
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        Expect.isTrue (waitForFlag released) "Release should run when use returns null"
+                        match result with
+                        | Interrupted ex ->
+                            match ex.cause with
+                            | Defect _ -> ()
+                            | other -> failtest $"Expected a Defect cause but got {other}"
+                        | other -> failtest $"Expected Interrupted but got {other}")
+
+                    testAllRuntimes "acquireReleaseExitWith - a use that returns null dies with a Defect and hands release the interruption" (fun runtime ->
+                        let seen = ref None
+                        let effect : FIO<int, string> =
+                            FIO.acquireReleaseExitWith
+                                (FIO.succeed "resource")
+                                (fun _ outcome -> FIO.succeedWith (fun () -> seen.Value <- Some outcome))
+                                (fun _ -> Unchecked.defaultof<FIO<int, string>>)
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        Expect.isTrue (waitUntil (fun () -> seen.Value.IsSome)) "Release should run when use returns null"
+                        match result, seen.Value with
+                        | Interrupted ex, Some(Interrupted seenEx) ->
+                            match ex.cause, seenEx.cause with
+                            | Defect _, Defect _ -> ()
+                            | other -> failtest $"Expected Defect causes but got %A{other}"
+                        | other -> failtest $"Expected an interrupted fiber whose release saw the interruption but got %A{other}")
                 ]
         ]

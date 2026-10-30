@@ -19,7 +19,7 @@ type Promise<'A, 'E>() =
 
     /// Returns an effect that waits for this promise, succeeding with its value or failing with its error.
     member _.Await () : FIO<'A, 'E> =
-        (AwaitTask(completion.Task, Rethrow<_>.Instance) : FIO<obj, 'E>).FlatMap(fun outcome ->
+        AwaitTaskNode<obj, 'E>(completion.Task, Rethrow<_>.Instance).FlatMap(fun outcome ->
             FIO.fromResult (outcome :?> Result<'A, 'E>))
 
     /// Returns an effect that yields this promise's outcome if it has been completed, or None if it has not.

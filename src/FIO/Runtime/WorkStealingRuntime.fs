@@ -186,7 +186,7 @@ type internal Scheduler(workerCount: int) =
             stack.Clear()
             pool.Push stack
 
-    member _.RentWorkItem (workerId: int, effect: FIO<obj, obj>, fiberContext: FiberContext, contStack: Stack<Cont>) =
+    member _.RentWorkItem (workerId: int, effect: FIOBase, fiberContext: FiberContext, contStack: Stack<Cont>) =
         let pool = workItemPools.[workerId]
         if pool.Count > 0 then
             let workItem = pool.Pop()
@@ -474,7 +474,7 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                                             scheduler.GlobalQueue.WriteAsync wi |> ignore
                                             scheduler.SignalWork())
                                     state.Completed <- true
-                            | HandleAwaitTask(awaited, onError) ->
+                            | HandleAwaitTask(awaited, node) ->
                                 let waited = awaitedTask awaited state.InterruptionSuppressed currentFiberContext
 
                                 if waited.IsCompletedSuccessfully then
@@ -489,7 +489,7 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
                                         currentFiberContext
                                         state.ContStack
                                         state.InterruptionSuppressed
-                                        onError
+                                        node
                                         (fun workItem ->
                                             scheduler.GlobalQueue.WriteAsync workItem |> ignore
                                             scheduler.SignalWork())
@@ -521,7 +521,7 @@ and WorkStealingRuntime(config: WorkerConfig) as this =
 
         let workItem =
             {
-                Effect = effect.UpcastBoth()
+                Effect = effect :> FIOBase
                 FiberContext = fiber.Context
                 ContStack = Stack<Cont> ContStackDefaultCapacity
                 InterruptionSuppressed = 0

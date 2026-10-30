@@ -54,7 +54,7 @@ see [For AI agents & contributors](#for-ai-agents--contributors).
 
 **Do not document:**
 
-- Anything `internal` or `private` — the `FIO<_,_>` DU cases, `FiberContext`,
+- Anything `internal` or `private` — the `FIO<_,_>` node classes and `NodeOps`, `FiberContext`,
   `WorkItem`, the pools, and all runtime internals.
 - The computation-expression builders (`FIOBuilder`, `RouteCollector`) and their *methods* (`Bind`, `Return`, `Delay`,
   …). They're infrastructure the user never calls by name. Document the `fio`

@@ -26,6 +26,47 @@ type internal ChannelMode =
     | Dropping
     | Sliding
 
+[<AutoOpen>]
+module internal NodeCasts =
+
+    let inline cast<'T when 'T : not struct> (value: obj) : 'T =
+#if DEBUG
+        value :?> 'T
+#else
+        Unsafe.As<'T> value
+#endif
+
+    // A null effect throws where it appears, so it never reaches an interpreter read that no handler covers.
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
+    let raiseNullEffect () : unit =
+        raise (NullReferenceException())
+
+[<Struct; RequireQualifiedAccess; NoEquality; NoComparison>]
+type internal NodeKind =
+    | Success
+    | Failure
+    | Interrupt
+    | FiberCancellationToken
+    | Action
+    | Bind
+    | Catch
+    | Fold
+    | Map
+    | OnFinalize
+    | OnExit
+    | Suspend
+    | WithSuppression
+    | AcquireRelease
+    | WriteChan
+    | TryWriteChan
+    | ReadChan
+    | ForkEffect
+    | ForkDaemonEffect
+    | JoinFiber
+    | JoinFirst
+    | JoinAllFailFast
+    | AwaitTask
+
 [<Struct>]
 type internal PostFinalizerSaved =
     | PostFinalizerSucceeded of value: obj
@@ -33,16 +74,16 @@ type internal PostFinalizerSaved =
     | PostFinalizerInterrupted of error: obj
 
 and [<Struct>] internal Cont =
-    | ChainCont of successCont: (obj -> FIO<obj, obj>) * failureCont: (obj -> FIO<obj, obj>)
-    | FinalizerCont of finalizer: FIO<obj, obj>
+    | ChainCont of onSuccess: FIOBase * onFailure: FIOBase
+    | FinalizerCont of node: FIOBase
     | PostFinalizerCont of saved: PostFinalizerSaved * level: int
     | RestoreSuppressionCont of level: int
-    | AcquiredCont of successCont: (obj -> FIO<obj, obj>) * level: int
-    | MappedCont of finalizer: FIO<obj, obj>
+    | AcquiredCont of node: FIOBase * level: int
+    | MappedCont of node: FIOBase
 
 and internal WorkItem =
     {
-        mutable Effect: FIO<obj, obj>
+        mutable Effect: FIOBase
         mutable FiberContext: FiberContext
         mutable ContStack: Stack<Cont>
         mutable InterruptionSuppressed: int
@@ -475,11 +516,11 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
 
     /// Returns an effect that waits for this fiber to complete and yields its success value.
     member _.Join () : FIO<'A, 'E> =
-        JoinFiber fiberContext
+        JoinFiberNode<'A, 'E>(fiberContext)
 
     /// Returns an effect that interrupts this fiber with the given cause and message.
     member _.Interrupt (cause: InterruptionCause) (message: string) : FIO<unit, 'E> =
-        Action((fun () -> fiberContext.Interrupt(cause, message)), Rethrow<_>.Instance)
+        ActionNode<unit, 'E>((fun () -> fiberContext.Interrupt(cause, message)), Rethrow<_>.Instance)
 
     /// Returns an effect that interrupts this fiber with an explicit-interrupt cause.
     member this.InterruptNow () : FIO<unit, 'E> =
@@ -489,13 +530,15 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
     member this.Await<'E2> () : FIO<FiberResult<'A, 'E>, 'E2> =
         let task = fiberContext.Task
         if task.IsCompletedSuccessfully then
-            AwaitTask(Task.FromResult(box (Fiber<'A, 'E>.ClassifyResult task.Result)), Rethrow<_>.Instance)
+            AwaitTaskNode<FiberResult<'A, 'E>, 'E2>(
+                Task.FromResult(box (Fiber<'A, 'E>.ClassifyResult task.Result)),
+                Rethrow<_>.Instance)
         else
-            AwaitTask(boxTask (this.Task()), Rethrow<_>.Instance)
+            AwaitTaskNode<FiberResult<'A, 'E>, 'E2>(boxTask (this.Task()), Rethrow<_>.Instance)
 
     /// Returns an effect that interrupts this fiber, then waits for and yields its result.
     member this.InterruptAwait<'E2> (cause: InterruptionCause) (message: string) : FIO<FiberResult<'A, 'E>, 'E2> =
-        Action((fun () -> fiberContext.Interrupt(cause, message)), Rethrow<_>.Instance)
+        ActionNode<unit, 'E2>((fun () -> fiberContext.Interrupt(cause, message)), Rethrow<_>.Instance)
             .FlatMap <| fun () -> this.Await()
 
     /// Returns an effect that interrupts this fiber with an explicit-interrupt cause, then yields its result.
@@ -504,7 +547,7 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
 
     /// Returns an effect that yields this fiber's result if it has completed, or None if it is still running.
     member _.Poll<'E2> () : FIO<FiberResult<'A, 'E> option, 'E2> =
-        Action((fun () ->
+        ActionNode<FiberResult<'A, 'E> option, 'E2>((fun () ->
             if not (fiberContext.IsTerminal()) then
                 None
             else
@@ -620,20 +663,20 @@ and [<Sealed; AllowNullLiteral>] Channel<'A> private
     /// Returns an effect that writes a message to this channel and yields it; when the channel is full it suspends
     /// (Bounded), drops the message (Dropping) or displaces the oldest one (Sliding).
     member this.Write<'E> (message: 'A) : FIO<'A, 'E> =
-        WriteChan(box message, this.Upcast(), false)
+        WriteChanNode<'A, 'E>(box message, this.Upcast(), false)
 
     /// Returns an effect that writes a message to this channel without ever suspending, yielding whether it was
     /// written: false from a full Bounded or Dropping channel, true from a full Sliding one, which displaces its oldest.
     member this.TryWrite<'E> (message: 'A) : FIO<bool, 'E> =
-        WriteChan(box message, this.Upcast(), true)
+        WriteChanNode<bool, 'E>(box message, this.Upcast(), true)
 
     /// Returns an effect that reads the next message from this channel, suspending the fiber until one is available.
     member this.Read<'E> () : FIO<'A, 'E> =
-        ReadChan this
+        ReadChanNode<'A, 'E>(this.Upcast())
 
     /// Returns an effect that reads the next message if this channel holds one, yielding None instead of suspending.
     member _.TryRead<'E> () : FIO<'A option, 'E> =
-        Action((fun () ->
+        ActionNode<'A option, 'E>((fun () ->
             let mutable message = Unchecked.defaultof<obj>
             if valueQueue.TryRead &message then Some(message :?> 'A) else None),
             Rethrow<_>.Instance)
@@ -667,362 +710,559 @@ and [<Sealed; AllowNullLiteral>] Channel<'A> private
     member internal _.Upcast () =
         initIfNull &upcastChannel (fun () -> Channel<obj>(id, valueQueue, blockingSlot, mode))
 
-// OnExit's finalizer is a ChainBoth whose handlers are an ExitHandler, which processRegionCont hands the outcome. A new
-// case would change the inlined interpreter loops, and a static marker would give this file a static initializer.
-and [<AbstractClass>] internal ExitHandler() =
-    inherit FSharpFunc<obj, FIO<obj, obj>>()
+/// The non-generic base type that every effect derives from; it has no public members.
+and [<AbstractClass; NoEquality; NoComparison>] FIOBase =
+    val internal Kind: NodeKind
+    val internal A: obj
+    val internal B: obj
+
+    internal new (kind: NodeKind, a: obj, b: obj) = { Kind = kind; A = a; B = b }
+
+    member inline internal this.Child : FIOBase =
+        cast<FIOBase> this.A
+
+    member inline internal this.Ops : NodeOps =
+        cast<NodeOps> this.B
 
 /// A lazy, type-safe description of an effect that, when run, either succeeds with a value or fails with a typed error.
-and FIO<'A, 'E> =
-    internal
-    | Success of value: 'A
-    | Failure of error: 'E
-    | Interrupt of cause: InterruptionCause * message: string
-    | Action of func: (unit -> 'A) * onError: (exn -> 'E)
-    | WriteChan of message: obj * channel: Channel<obj> * reportAccepted: bool
-    | ReadChan of channel: Channel<'A>
-    | ForkEffect of effect: FIO<obj, obj> * fiber: obj * fiberContext: FiberContext * daemon: bool
-    | JoinFiber of fiberContext: FiberContext
-    | JoinFirst of fiberContexts: FiberContext list
-    | JoinAllFailFast of fiberContexts: FiberContext[]
-    | AwaitTask of task: Task<obj> * onError: (exn -> 'E)
-    | ChainSuccess of effect: FIO<obj, 'E> * cont: (obj -> FIO<'A, 'E>)
-    | ChainError of effect: FIO<'A, obj> * cont: (obj -> FIO<'A, 'E>)
-    | ChainBoth of effect: FIO<obj, obj> * successCont: (obj -> FIO<'A, 'E>) * errorCont: (obj -> FIO<'A, 'E>)
-    | OnFinalize of effect: FIO<'A, 'E> * finalizer: FIO<obj, obj>
-    | FiberCancellationToken
-    | Suspend of thunk: (unit -> FIO<'A, 'E>)
-    | WithSuppression of update: (int -> int) * body: (int -> FIO<'A, 'E>)
-    | AcquireRelease of acquire: FIO<obj, 'E> * onAcquired: (obj -> FIO<'A, 'E>)
-    | Mapped of mapEffect: FIO<obj, obj> * mapper: (obj -> 'A)
+and [<AbstractClass; NoEquality; NoComparison>] FIO<'A, 'E> =
+    inherit FIOBase
+
+    internal new (kind: NodeKind, a: obj, b: obj) = { inherit FIOBase(kind, a, b) }
 
     /// Returns an effect that passes this effect's success value into the given function.
     member this.FlatMap<'A1> (cont: 'A -> FIO<'A1, 'E>) : FIO<'A1, 'E> =
-        ChainSuccess(this.UpcastResult(), fun value -> cont (value :?> 'A))
+        BindNode<'A, 'A1, 'E>(this, cont)
 
     /// Returns an effect that recovers from this effect's error with the given handler.
     member this.CatchAll<'E1> (onError: 'E -> FIO<'A, 'E1>) : FIO<'A, 'E1> =
-        ChainError(this.UpcastError(), fun error -> onError (error :?> 'E))
+        CatchNode<'A, 'E, 'E1>(this, onError)
 
     /// Returns an effect that runs the given finalizer after this effect on success, failure, and interruption alike.
     /// A finalizer that fails replaces a success with its failure, but not an earlier failure or interruption.
     member this.Ensuring (finalizer: FIO<unit, 'E>) : FIO<'A, 'E> =
-        OnFinalize(this, finalizer.UpcastBoth())
+        FinalizeNode<'A, 'E>(this, finalizer)
 
     /// Returns an effect that runs the given finalizer after this effect with its outcome: success, failure, or
     /// interruption and its cause. Like Ensuring, it runs uninterruptibly, and its failure replaces only a success.
     member this.OnExit (finalizer: FiberResult<'A, 'E> -> FIO<unit, 'E>) : FIO<'A, 'E> =
-        let handler : obj -> FIO<obj, obj> =
-            unbox (box { new ExitHandler() with
-                override _.Invoke saved =
-                    let outcome =
-                        match saved :?> PostFinalizerSaved with
-                        | PostFinalizerSucceeded value -> Succeeded(value :?> 'A)
-                        | PostFinalizerFailed error -> Failed(error :?> 'E)
-                        | PostFinalizerInterrupted error -> Interrupted(error :?> FiberInterruptedException)
-
-                    (finalizer outcome).UpcastBoth() })
-
-        OnFinalize(this, ChainBoth(FiberCancellationToken, handler, handler))
+        ExitNode<'A, 'E>(this, finalizer)
 
     /// Returns an effect that runs this effect on a new fiber scoped to this one, which interrupts and awaits it when it
     /// finishes, and interrupts it at once when interrupted unless it was forked uninterruptibly. See ForkDaemon.
     member this.Fork<'E1> () : FIO<Fiber<'A, 'E>, 'E1> =
-        let erased = this.UpcastBoth()
-        Suspend(fun () ->
-            let fiber = new Fiber<'A, 'E>()
-            ForkEffect(erased, fiber, fiber.Context, false))
+        SuspendNode<Fiber<'A, 'E>, 'E1>(fun () -> ForkNode<'A, 'E, 'E1>(this, new Fiber<'A, 'E>(), false))
 
     /// Returns an effect that runs this effect on a new unscoped fiber, yielding its handle: it is neither interrupted
     /// nor awaited when this fiber finishes, so its lifetime and finalizers are the caller's to manage.
     member this.ForkDaemon<'E1> () : FIO<Fiber<'A, 'E>, 'E1> =
-        let erased = this.UpcastBoth()
-        Suspend(fun () ->
-            let fiber = new Fiber<'A, 'E>()
-            ForkEffect(erased, fiber, fiber.Context, true))
+        SuspendNode<Fiber<'A, 'E>, 'E1>(fun () -> ForkNode<'A, 'E, 'E1>(this, new Fiber<'A, 'E>(), true))
 
     /// Returns an effect that applies the given function to this effect's success value.
     member this.Map<'A1> (mapper: 'A -> 'A1) : FIO<'A1, 'E> =
-        Mapped(this.UpcastBoth(), fun value -> mapper (value :?> 'A))
+        MapNode<'A, 'A1, 'E>(this, mapper)
 
     /// Returns an effect that applies the given function to this effect's error.
     member this.MapError<'E1> (mapper: 'E -> 'E1) : FIO<'A, 'E1> =
-        ChainError(this.UpcastError(), fun error -> Failure(mapper (error :?> 'E)))
+        CatchNode<'A, 'E, 'E1>(this, fun error -> FailureNode<'A, 'E1>(mapper error))
 
     /// Returns an effect that maps this effect's success value and error with the two given functions.
     member this.MapBoth<'A1, 'E1> (successMapper: 'A -> 'A1) (errorMapper: 'E -> 'E1) : FIO<'A1, 'E1> =
-        ChainBoth(
-            this.UpcastBoth(),
-            (fun value -> Success (successMapper (value :?> 'A))),
-            (fun error -> Failure (errorMapper (error :?> 'E))))
+        FoldNode<'A, 'E, 'A1, 'E1>(
+            this,
+            (fun value -> SuccessNode<'A1, 'E1>(successMapper value)),
+            (fun error -> FailureNode<'A1, 'E1>(errorMapper error)))
 
     /// Returns an effect that always succeeds, capturing this effect's outcome as a Result.
     member this.Result<'E1> () : FIO<Result<'A, 'E>, 'E1> =
-        ChainBoth(
-            this.UpcastBoth(),
-            (fun value -> Success (Ok (value :?> 'A))),
-            (fun error -> Success (Error (error :?> 'E))))
+        FoldNode<'A, 'E, Result<'A, 'E>, 'E1>(
+            this,
+            (fun value -> SuccessNode<Result<'A, 'E>, 'E1>(Ok value)),
+            (fun error -> SuccessNode<Result<'A, 'E>, 'E1>(Error error)))
 
     /// Returns an effect that always succeeds, yielding Some on success and None on failure.
     member this.Option<'E1> () : FIO<'A option, 'E1> =
-        ChainBoth(
-            this.UpcastBoth(),
-            (fun value -> Success (Some (value :?> 'A))),
-            (fun _ -> Success (None : 'A option)))
+        FoldNode<'A, 'E, 'A option, 'E1>(
+            this,
+            (fun value -> SuccessNode<'A option, 'E1>(Some value)),
+            (fun _ -> SuccessNode<'A option, 'E1>(None)))
 
     /// Returns an effect that always succeeds, capturing this effect's outcome as a Choice.
     member this.Choice<'E1> () : FIO<Choice<'A, 'E>, 'E1> =
-        ChainBoth(
-            this.UpcastBoth(),
-            (fun value -> Success (Choice1Of2 (value :?> 'A))),
-            (fun error -> Success (Choice2Of2 (error :?> 'E))))
+        FoldNode<'A, 'E, Choice<'A, 'E>, 'E1>(
+            this,
+            (fun value -> SuccessNode<Choice<'A, 'E>, 'E1>(Choice1Of2 value)),
+            (fun error -> SuccessNode<Choice<'A, 'E>, 'E1>(Choice2Of2 error)))
 
-    static member inline private flattenOnFinalize
-        (leafUpcast: FIO<'A, 'E> -> FIO<'OR, 'OE>)
-        (effect: FIO<'A, 'E>)
-        (outerFinalizer: FIO<obj, obj>) =
-        match effect with
-        | OnFinalize _ ->
-            let finalizers = ResizeArray<FIO<obj, obj>>()
-            finalizers.Add outerFinalizer
-            let mutable current = effect
-            let mutable stopped = false
+and [<AbstractClass; AllowNullLiteral>] internal NodeOps() =
 
-            while not stopped do
-                match current with
-                | OnFinalize(innerEff, innerFin) ->
-                    finalizers.Add innerFin
-                    current <- innerEff
-                | _ -> stopped <- true
+    abstract Continue: node: FIOBase * value: obj -> FIOBase
+    default _.Continue (_, _) = raise (InvalidOperationException "The node has no success continuation.")
 
-            let mutable rebuilt = leafUpcast current
-            for i = finalizers.Count - 1 downto 0 do
-                rebuilt <- OnFinalize(rebuilt, finalizers[i])
+    abstract Fail: node: FIOBase * error: obj -> FIOBase
+    default _.Fail (_, _) = raise (InvalidOperationException "The node has no failure continuation.")
 
-            rebuilt
-        | _ ->
-            OnFinalize(leafUpcast effect, outerFinalizer)
+    abstract Apply: node: FIOBase * value: obj -> obj
+    default _.Apply (_, _) = raise (InvalidOperationException "The node has no mapper.")
 
-    static member inline private flattenChainSuccess
-        (leafUpcast: FIO<obj, 'E> -> FIO<obj, 'OE>)
-        (innerContWrap: (obj -> FIO<obj, 'E>) -> (obj -> FIO<obj, 'OE>))
-        (outerContWrap: (obj -> FIO<'A, 'E>) -> (obj -> FIO<'OR, 'OE>))
-        (effect: FIO<obj, 'E>)
-        (outerCont: obj -> FIO<'A, 'E>) =
-        match effect with
-        | ChainSuccess _ ->
-            let innerConts = ResizeArray<obj -> FIO<obj, 'E>>()
-            let mutable current = effect
-            let mutable stopped = false
+    abstract Invoke: node: FIOBase -> obj
+    default _.Invoke _ = raise (InvalidOperationException "The node has no function.")
 
-            while not stopped do
-                match current with
-                | ChainSuccess(innerEff, innerCont) ->
-                    innerConts.Add innerCont
-                    current <- innerEff
-                | _ -> stopped <- true
+    abstract OnError: node: FIOBase * ex: exn -> obj
+    default _.OnError (_, _) = raise (InvalidOperationException "The node has no error mapping.")
 
-            let mutable rebuilt = leafUpcast current
-            for i = innerConts.Count - 1 downto 0 do
-                rebuilt <- ChainSuccess(rebuilt, innerContWrap innerConts[i])
+    abstract Force: node: FIOBase -> FIOBase
+    default _.Force _ = raise (InvalidOperationException "The node has no thunk.")
 
-            ChainSuccess(rebuilt, outerContWrap outerCont)
-        | _ ->
-            ChainSuccess(leafUpcast effect, outerContWrap outerCont)
+    abstract Body: node: FIOBase * level: int -> FIOBase
+    default _.Body (_, _) = raise (InvalidOperationException "The node has no body.")
 
-    static member inline private flattenChainError
-        (leafUpcast: FIO<'A, obj> -> FIO<'OR, obj>)
-        (innerContWrap: (obj -> FIO<'A, obj>) -> (obj -> FIO<'OR, obj>))
-        (outerContWrap: (obj -> FIO<'A, 'E>) -> (obj -> FIO<'OR, 'OE>))
-        (effect: FIO<'A, obj>)
-        (outerCont: obj -> FIO<'A, 'E>) =
-        match effect with
-        | ChainError _ ->
-            let innerConts = ResizeArray<obj -> FIO<'A, obj>>()
-            let mutable current = effect
-            let mutable stopped = false
+    abstract OnAcquired: node: FIOBase * value: obj -> FIOBase
+    default _.OnAcquired (_, _) = raise (InvalidOperationException "The node acquires nothing.")
 
-            while not stopped do
-                match current with
-                | ChainError(innerEff, innerCont) ->
-                    innerConts.Add innerCont
-                    current <- innerEff
-                | _ -> stopped <- true
+    abstract RunExit: node: FIOBase * saved: PostFinalizerSaved -> FIOBase
+    default _.RunExit (_, _) = raise (InvalidOperationException "The node has no exit finalizer.")
 
-            let mutable rebuilt = leafUpcast current
-            for i = innerConts.Count - 1 downto 0 do
-                rebuilt <- ChainError(rebuilt, innerContWrap innerConts[i])
+    abstract ForkTarget: node: FIOBase -> struct (obj * FiberContext)
+    default _.ForkTarget _ = raise (InvalidOperationException "The node forks nothing.")
 
-            ChainError(rebuilt, outerContWrap outerCont)
-        | _ ->
-            ChainError(leafUpcast effect, outerContWrap outerCont)
+and [<Sealed>] internal SuccessNode<'A, 'E>(value: 'A) =
+    inherit FIO<'A, 'E>(NodeKind.Success, box value, null)
 
-    member internal this.UpcastResult () : FIO<obj, 'E> =
-        match this with
-        | Success value ->
-            Success(value :> obj)
-        | Failure error ->
-            Failure error
-        | Interrupt(cause, message) ->
-            Interrupt(cause, message)
-        | Action(func, onError) ->
-            Action(boxFunc func, onError)
-        | WriteChan(message, channel, reportAccepted) ->
-            WriteChan(message, channel, reportAccepted)
-        | ReadChan channel ->
-            ReadChan(channel.Upcast())
-        | ForkEffect(effect, fiber, fiberContext, daemon) ->
-            ForkEffect(effect, fiber, fiberContext, daemon)
-        | JoinFiber fiberContext ->
-            JoinFiber fiberContext
-        | JoinFirst fiberContexts ->
-            JoinFirst fiberContexts
-        | JoinAllFailFast fiberContexts ->
-            JoinAllFailFast fiberContexts
-        | AwaitTask(task, onError) ->
-            AwaitTask(task, onError)
-        | ChainSuccess(effect, cont) ->
-            ChainSuccess(effect, fun value -> cont(value).UpcastResult())
-        | ChainError(effect, cont) ->
-            FIO.flattenChainError
-                (fun effect' -> effect'.UpcastResult())
-                (fun innerConts -> fun error -> (innerConts error).UpcastResult())
-                (fun outerConts -> fun error -> (outerConts error).UpcastResult())
-                effect cont
-        | ChainBoth(effect, successCont, errorCont) ->
-            ChainBoth(effect,
-                (fun value -> (successCont value).UpcastResult()),
-                (fun error -> (errorCont error).UpcastResult()))
-        | OnFinalize(effect, finalizer) ->
-            FIO.flattenOnFinalize
-                (fun effect' -> effect'.UpcastResult())
-                effect
-                finalizer
-        | FiberCancellationToken ->
-            FiberCancellationToken
-        | Suspend thunk ->
-            Suspend(fun () -> (thunk()).UpcastResult())
-        | WithSuppression(update, body) ->
-            WithSuppression(update, fun level -> (body level).UpcastResult())
-        | AcquireRelease(acquire, onAcquired) ->
-            AcquireRelease(acquire, fun resource -> (onAcquired resource).UpcastResult())
-        | Mapped(effect, mapper) ->
-            Mapped(effect, fun value -> mapper value :> obj)
+and [<Sealed>] internal FailureNode<'A, 'E>(error: 'E) =
+    inherit FIO<'A, 'E>(NodeKind.Failure, box error, null)
 
-    member internal this.UpcastError () : FIO<'A, obj> =
-        match this with
-        | Success value ->
-            Success value
-        | Failure error ->
-            Failure(error :> obj)
-        | Interrupt(cause, message) ->
-            Interrupt(cause, message)
-        | Action(func, onError) ->
-            let erasedOnError = if obj.ReferenceEquals(onError, Rethrow<'E>.Instance) then Rethrow<obj>.Instance else boxOnError onError
-            Action(func, erasedOnError)
-        | WriteChan(message, channel, reportAccepted) ->
-            WriteChan(message, channel, reportAccepted)
-        | ReadChan channel ->
-            ReadChan channel
-        | ForkEffect(effect, fiber, fiberContext, daemon) ->
-            ForkEffect(effect, fiber, fiberContext, daemon)
-        | JoinFiber fiberContext ->
-            JoinFiber fiberContext
-        | JoinFirst fiberContexts ->
-            JoinFirst fiberContexts
-        | JoinAllFailFast fiberContexts ->
-            JoinAllFailFast fiberContexts
-        | AwaitTask(task, onError) ->
-            let erasedOnError = if obj.ReferenceEquals(onError, Rethrow<'E>.Instance) then Rethrow<obj>.Instance else boxOnError onError
-            AwaitTask(task, erasedOnError)
-        | ChainSuccess(effect, cont) ->
-            FIO.flattenChainSuccess
-                (fun effect' -> effect'.UpcastError())
-                (fun innerConts -> fun value -> (innerConts value).UpcastError())
-                (fun outerConts -> fun value -> (outerConts value).UpcastError())
-                effect cont
-        | ChainError(effect, cont) ->
-            ChainError(effect, fun error -> cont(error).UpcastError())
-        | ChainBoth(effect, successCont, errorCont) ->
-            ChainBoth(effect,
-                (fun value -> (successCont value).UpcastError()),
-                (fun error -> (errorCont error).UpcastError()))
-        | OnFinalize(effect, finalizer) ->
-            FIO.flattenOnFinalize
-                (fun effect' -> effect'.UpcastError())
-                effect
-                finalizer
-        | FiberCancellationToken ->
-            FiberCancellationToken
-        | Suspend thunk ->
-            Suspend(fun () -> (thunk()).UpcastError())
-        | WithSuppression(update, body) ->
-            WithSuppression(update, fun level -> (body level).UpcastError())
-        | AcquireRelease(acquire, onAcquired) ->
-            AcquireRelease(acquire.UpcastError(), fun resource -> (onAcquired resource).UpcastError())
-        | Mapped(effect, mapper) ->
-            Mapped(effect, mapper)
+and [<Sealed>] internal InterruptNode<'A, 'E>(cause: InterruptionCause, message: string) =
+    inherit FIO<'A, 'E>(NodeKind.Interrupt, cause, message)
 
-    member internal this.UpcastBoth () : FIO<obj, obj> =
-        match this with
-        | Success value ->
-            Success(value :> obj)
-        | Failure error ->
-            Failure(error :> obj)
-        | Interrupt(cause, message) ->
-            Interrupt(cause, message)
-        | Action(func, onError) ->
-            let erasedOnError = if obj.ReferenceEquals(onError, Rethrow<'E>.Instance) then Rethrow<obj>.Instance else boxOnError onError
-            Action(boxFunc func, erasedOnError)
-        | WriteChan(message, channel, reportAccepted) ->
-            WriteChan(message, channel, reportAccepted)
-        | ReadChan channel ->
-            ReadChan(channel.Upcast())
-        | ForkEffect(effect, fiber, fiberContext, daemon) ->
-            ForkEffect(effect, fiber, fiberContext, daemon)
-        | JoinFiber fiberContext ->
-            JoinFiber fiberContext
-        | JoinFirst fiberContexts ->
-            JoinFirst fiberContexts
-        | JoinAllFailFast fiberContexts ->
-            JoinAllFailFast fiberContexts
-        | AwaitTask(task, onError) ->
-            let erasedOnError = if obj.ReferenceEquals(onError, Rethrow<'E>.Instance) then Rethrow<obj>.Instance else boxOnError onError
-            AwaitTask(task, erasedOnError)
-        | ChainSuccess(effect, cont) ->
-            FIO.flattenChainSuccess
-                (fun effect' -> effect'.UpcastError())
-                (fun innerConts -> fun value -> (innerConts value).UpcastError())
-                (fun outerConts -> fun value -> (outerConts value).UpcastBoth())
-                effect cont
-        | ChainError(effect, cont) ->
-            FIO.flattenChainError
-                (fun effect' -> effect'.UpcastResult())
-                (fun innerConts -> fun error -> (innerConts error).UpcastResult())
-                (fun outerConts -> fun error -> (outerConts error).UpcastBoth())
-                effect cont
-        | ChainBoth(effect, successCont, errorCont) ->
-            ChainBoth(effect,
-                (fun value -> (successCont value).UpcastBoth()),
-                (fun error -> (errorCont error).UpcastBoth()))
-        | OnFinalize(effect, finalizer) ->
-            FIO.flattenOnFinalize
-                (fun effect' -> effect'.UpcastBoth())
-                effect
-                finalizer
-        | FiberCancellationToken ->
-            FiberCancellationToken
-        | Suspend thunk ->
-            Suspend(fun () -> (thunk()).UpcastBoth())
-        | WithSuppression(update, body) ->
-            WithSuppression(update, fun level -> (body level).UpcastBoth())
-        | AcquireRelease(acquire, onAcquired) ->
-            AcquireRelease(acquire.UpcastError(), fun resource -> (onAcquired resource).UpcastBoth())
-        | Mapped(effect, mapper) ->
-            Mapped(effect, fun value -> mapper value :> obj)
+and [<Sealed>] internal CancellationTokenNode<'E> private () =
+    inherit FIO<CancellationToken, 'E>(NodeKind.FiberCancellationToken, null, null)
+
+    [<DefaultValue>]
+    static val mutable private instance: CancellationTokenNode<'E>
+
+    static member Instance =
+        let current = CancellationTokenNode<'E>.instance
+        if obj.ReferenceEquals(current, null) then
+            let created = CancellationTokenNode<'E>()
+            CancellationTokenNode<'E>.instance <- created
+            created
+        else
+            current
+
+and [<Sealed>] internal ActionNode<'A, 'E>(func: unit -> 'A, onError: exn -> 'E) =
+    inherit FIO<'A, 'E>(NodeKind.Action, func, ActionOps<'A, 'E>.Instance)
+
+    member _.OnError = onError
+
+and [<Sealed>] internal ActionOps<'A, 'E> private () =
+    inherit NodeOps()
+
+    [<DefaultValue>]
+    static val mutable private instance: ActionOps<'A, 'E>
+
+    static member Instance =
+        let current = ActionOps<'A, 'E>.instance
+        if obj.ReferenceEquals(current, null) then
+            let created = ActionOps<'A, 'E>()
+            ActionOps<'A, 'E>.instance <- created
+            created
+        else
+            current
+
+    override _.Invoke node =
+        box ((cast<unit -> 'A> node.A) ())
+
+    override _.OnError (node, ex) =
+        box ((cast<ActionNode<'A, 'E>> node).OnError ex)
+
+and [<Sealed>] internal BindNode<'A, 'B, 'E>(inner: FIO<'A, 'E>, cont: 'A -> FIO<'B, 'E>) =
+    inherit FIO<'B, 'E>(NodeKind.Bind, inner, BindOps<'A, 'B, 'E>.Instance)
+
+    do
+        if obj.ReferenceEquals(inner, null) then
+            raiseNullEffect ()
+
+    member _.Cont = cont
+
+and [<Sealed>] internal BindOps<'A, 'B, 'E> private () =
+    inherit NodeOps()
+
+    [<DefaultValue>]
+    static val mutable private instance: BindOps<'A, 'B, 'E>
+
+    static member Instance =
+        let current = BindOps<'A, 'B, 'E>.instance
+        if obj.ReferenceEquals(current, null) then
+            let created = BindOps<'A, 'B, 'E>()
+            BindOps<'A, 'B, 'E>.instance <- created
+            created
+        else
+            current
+
+    override _.Continue (node, value) =
+        let effect = (cast<BindNode<'A, 'B, 'E>> node).Cont (value :?> 'A)
+
+        if obj.ReferenceEquals(effect, null) then
+            raiseNullEffect ()
+
+        effect
+
+and [<Sealed>] internal CatchNode<'A, 'E, 'E1>(inner: FIO<'A, 'E>, handler: 'E -> FIO<'A, 'E1>) =
+    inherit FIO<'A, 'E1>(NodeKind.Catch, inner, CatchOps<'A, 'E, 'E1>.Instance)
+
+    do
+        if obj.ReferenceEquals(inner, null) then
+            raiseNullEffect ()
+
+    member _.Handler = handler
+
+and [<Sealed>] internal CatchOps<'A, 'E, 'E1> private () =
+    inherit NodeOps()
+
+    [<DefaultValue>]
+    static val mutable private instance: CatchOps<'A, 'E, 'E1>
+
+    static member Instance =
+        let current = CatchOps<'A, 'E, 'E1>.instance
+        if obj.ReferenceEquals(current, null) then
+            let created = CatchOps<'A, 'E, 'E1>()
+            CatchOps<'A, 'E, 'E1>.instance <- created
+            created
+        else
+            current
+
+    override _.Fail (node, error) =
+        let effect = (cast<CatchNode<'A, 'E, 'E1>> node).Handler (error :?> 'E)
+
+        if obj.ReferenceEquals(effect, null) then
+            raiseNullEffect ()
+
+        effect
+
+and [<Sealed>] internal FoldNode<'A, 'E, 'B, 'E1>
+    (inner: FIO<'A, 'E>, onSuccess: 'A -> FIO<'B, 'E1>, onFailure: 'E -> FIO<'B, 'E1>) =
+    inherit FIO<'B, 'E1>(NodeKind.Fold, inner, FoldOps<'A, 'E, 'B, 'E1>.Instance)
+
+    do
+        if obj.ReferenceEquals(inner, null) then
+            raiseNullEffect ()
+
+    member _.OnSuccess = onSuccess
+
+    member _.OnFailure = onFailure
+
+and [<Sealed>] internal FoldOps<'A, 'E, 'B, 'E1> private () =
+    inherit NodeOps()
+
+    [<DefaultValue>]
+    static val mutable private instance: FoldOps<'A, 'E, 'B, 'E1>
+
+    static member Instance =
+        let current = FoldOps<'A, 'E, 'B, 'E1>.instance
+        if obj.ReferenceEquals(current, null) then
+            let created = FoldOps<'A, 'E, 'B, 'E1>()
+            FoldOps<'A, 'E, 'B, 'E1>.instance <- created
+            created
+        else
+            current
+
+    override _.Continue (node, value) =
+        let effect = (cast<FoldNode<'A, 'E, 'B, 'E1>> node).OnSuccess (value :?> 'A)
+
+        if obj.ReferenceEquals(effect, null) then
+            raiseNullEffect ()
+
+        effect
+
+    override _.Fail (node, error) =
+        let effect = (cast<FoldNode<'A, 'E, 'B, 'E1>> node).OnFailure (error :?> 'E)
+
+        if obj.ReferenceEquals(effect, null) then
+            raiseNullEffect ()
+
+        effect
+
+and [<Sealed>] internal MapNode<'A, 'B, 'E>(inner: FIO<'A, 'E>, mapper: 'A -> 'B) =
+    inherit FIO<'B, 'E>(NodeKind.Map, inner, MapOps<'A, 'B, 'E>.Instance)
+
+    do
+        if obj.ReferenceEquals(inner, null) then
+            raiseNullEffect ()
+
+    member _.Mapper = mapper
+
+and [<Sealed>] internal MapOps<'A, 'B, 'E> private () =
+    inherit NodeOps()
+
+    [<DefaultValue>]
+    static val mutable private instance: MapOps<'A, 'B, 'E>
+
+    static member Instance =
+        let current = MapOps<'A, 'B, 'E>.instance
+        if obj.ReferenceEquals(current, null) then
+            let created = MapOps<'A, 'B, 'E>()
+            MapOps<'A, 'B, 'E>.instance <- created
+            created
+        else
+            current
+
+    override _.Apply (node, value) =
+        box ((cast<MapNode<'A, 'B, 'E>> node).Mapper (value :?> 'A))
+
+and [<Sealed>] internal UnitNode<'A, 'E>(inner: FIO<'A, 'E>) =
+    inherit FIO<unit, 'E>(NodeKind.Map, inner, UnitOps<'A, 'E>.Instance)
+
+    do
+        if obj.ReferenceEquals(inner, null) then
+            raiseNullEffect ()
+
+and [<Sealed>] internal UnitOps<'A, 'E> private () =
+    inherit NodeOps()
+
+    [<DefaultValue>]
+    static val mutable private instance: UnitOps<'A, 'E>
+
+    static member Instance =
+        let current = UnitOps<'A, 'E>.instance
+        if obj.ReferenceEquals(current, null) then
+            let created = UnitOps<'A, 'E>()
+            UnitOps<'A, 'E>.instance <- created
+            created
+        else
+            current
+
+    override _.Apply (_, _) =
+        box ()
+
+and [<Sealed>] internal AsNode<'A, 'B, 'E>(inner: FIO<'A, 'E>, value: 'B) =
+    inherit FIO<'B, 'E>(NodeKind.Map, inner, AsOps<'A, 'B, 'E>.Instance)
+
+    do
+        if obj.ReferenceEquals(inner, null) then
+            raiseNullEffect ()
+
+    let boxed = box value
+
+    member _.Boxed = boxed
+
+and [<Sealed>] internal AsOps<'A, 'B, 'E> private () =
+    inherit NodeOps()
+
+    [<DefaultValue>]
+    static val mutable private instance: AsOps<'A, 'B, 'E>
+
+    static member Instance =
+        let current = AsOps<'A, 'B, 'E>.instance
+        if obj.ReferenceEquals(current, null) then
+            let created = AsOps<'A, 'B, 'E>()
+            AsOps<'A, 'B, 'E>.instance <- created
+            created
+        else
+            current
+
+    override _.Apply (node, _) =
+        (cast<AsNode<'A, 'B, 'E>> node).Boxed
+
+and [<Sealed>] internal FinalizeNode<'A, 'E>(inner: FIO<'A, 'E>, finalizer: FIO<unit, 'E>) =
+    inherit FIO<'A, 'E>(NodeKind.OnFinalize, inner, finalizer)
+
+    do
+        if obj.ReferenceEquals(inner, null) || obj.ReferenceEquals(finalizer, null) then
+            raiseNullEffect ()
+
+and [<Sealed>] internal ExitNode<'A, 'E>(inner: FIO<'A, 'E>, finalizer: FiberResult<'A, 'E> -> FIO<unit, 'E>) =
+    inherit FIO<'A, 'E>(NodeKind.OnExit, inner, ExitOps<'A, 'E>.Instance)
+
+    do
+        if obj.ReferenceEquals(inner, null) then
+            raiseNullEffect ()
+
+    member _.Finalizer = finalizer
+
+and [<Sealed>] internal ExitOps<'A, 'E> private () =
+    inherit NodeOps()
+
+    [<DefaultValue>]
+    static val mutable private instance: ExitOps<'A, 'E>
+
+    static member Instance =
+        let current = ExitOps<'A, 'E>.instance
+        if obj.ReferenceEquals(current, null) then
+            let created = ExitOps<'A, 'E>()
+            ExitOps<'A, 'E>.instance <- created
+            created
+        else
+            current
+
+    override _.RunExit (node, saved) =
+        let outcome =
+            match saved with
+            | PostFinalizerSucceeded value -> Succeeded(value :?> 'A)
+            | PostFinalizerFailed error -> Failed(error :?> 'E)
+            | PostFinalizerInterrupted error -> Interrupted(error :?> FiberInterruptedException)
+
+        let effect = (cast<ExitNode<'A, 'E>> node).Finalizer outcome
+
+        if obj.ReferenceEquals(effect, null) then
+            raiseNullEffect ()
+
+        effect
+
+and [<Sealed>] internal SuspendNode<'A, 'E>(thunk: unit -> FIO<'A, 'E>) =
+    inherit FIO<'A, 'E>(NodeKind.Suspend, thunk, SuspendOps<'A, 'E>.Instance)
+
+and [<Sealed>] internal SuspendOps<'A, 'E> private () =
+    inherit NodeOps()
+
+    [<DefaultValue>]
+    static val mutable private instance: SuspendOps<'A, 'E>
+
+    static member Instance =
+        let current = SuspendOps<'A, 'E>.instance
+        if obj.ReferenceEquals(current, null) then
+            let created = SuspendOps<'A, 'E>()
+            SuspendOps<'A, 'E>.instance <- created
+            created
+        else
+            current
+
+    override _.Force node =
+        let effect = (cast<unit -> FIO<'A, 'E>> node.A) ()
+
+        if obj.ReferenceEquals(effect, null) then
+            raiseNullEffect ()
+
+        effect
+
+and [<Sealed>] internal SuppressionNode<'A, 'E>(update: int -> int, body: int -> FIO<'A, 'E>) =
+    inherit FIO<'A, 'E>(NodeKind.WithSuppression, update, SuppressionOps<'A, 'E>.Instance)
+
+    member _.Body = body
+
+and [<Sealed>] internal SuppressionOps<'A, 'E> private () =
+    inherit NodeOps()
+
+    [<DefaultValue>]
+    static val mutable private instance: SuppressionOps<'A, 'E>
+
+    static member Instance =
+        let current = SuppressionOps<'A, 'E>.instance
+        if obj.ReferenceEquals(current, null) then
+            let created = SuppressionOps<'A, 'E>()
+            SuppressionOps<'A, 'E>.instance <- created
+            created
+        else
+            current
+
+    override _.Body (node, level) =
+        let effect = (cast<SuppressionNode<'A, 'E>> node).Body level
+
+        if obj.ReferenceEquals(effect, null) then
+            raiseNullEffect ()
+
+        effect
+
+and [<Sealed>] internal AcquireReleaseNode<'A, 'A1, 'E>(acquire: FIO<'A1, 'E>, onAcquired: 'A1 -> FIO<'A, 'E>) =
+    inherit FIO<'A, 'E>(NodeKind.AcquireRelease, acquire, AcquireReleaseOps<'A, 'A1, 'E>.Instance)
+
+    do
+        if obj.ReferenceEquals(acquire, null) then
+            raiseNullEffect ()
+
+    member _.OnAcquired = onAcquired
+
+and [<Sealed>] internal AcquireReleaseOps<'A, 'A1, 'E> private () =
+    inherit NodeOps()
+
+    [<DefaultValue>]
+    static val mutable private instance: AcquireReleaseOps<'A, 'A1, 'E>
+
+    static member Instance =
+        let current = AcquireReleaseOps<'A, 'A1, 'E>.instance
+        if obj.ReferenceEquals(current, null) then
+            let created = AcquireReleaseOps<'A, 'A1, 'E>()
+            AcquireReleaseOps<'A, 'A1, 'E>.instance <- created
+            created
+        else
+            current
+
+    override _.OnAcquired (node, value) =
+        let effect = (cast<AcquireReleaseNode<'A, 'A1, 'E>> node).OnAcquired (value :?> 'A1)
+
+        if obj.ReferenceEquals(effect, null) then
+            raiseNullEffect ()
+
+        effect
+
+and [<Sealed>] internal WriteChanNode<'A, 'E>(message: obj, channel: Channel<obj>, reportAccepted: bool) =
+    inherit FIO<'A, 'E>((if reportAccepted then NodeKind.TryWriteChan else NodeKind.WriteChan), message, channel)
+
+and [<Sealed>] internal ReadChanNode<'A, 'E>(channel: Channel<obj>) =
+    inherit FIO<'A, 'E>(NodeKind.ReadChan, channel, null)
+
+and [<Sealed>] internal ForkNode<'A, 'E, 'E1>(effect: FIO<'A, 'E>, fiber: Fiber<'A, 'E>, daemon: bool) =
+    inherit FIO<Fiber<'A, 'E>, 'E1>(
+        (if daemon then NodeKind.ForkDaemonEffect else NodeKind.ForkEffect),
+        effect,
+        ForkOps<'A, 'E, 'E1>.Instance)
+
+    do
+        if obj.ReferenceEquals(effect, null) then
+            raiseNullEffect ()
+
+    member _.Fiber = fiber
+
+and [<Sealed>] internal ForkOps<'A, 'E, 'E1> private () =
+    inherit NodeOps()
+
+    [<DefaultValue>]
+    static val mutable private instance: ForkOps<'A, 'E, 'E1>
+
+    static member Instance =
+        let current = ForkOps<'A, 'E, 'E1>.instance
+        if obj.ReferenceEquals(current, null) then
+            let created = ForkOps<'A, 'E, 'E1>()
+            ForkOps<'A, 'E, 'E1>.instance <- created
+            created
+        else
+            current
+
+    override _.ForkTarget node =
+        let fiber = (cast<ForkNode<'A, 'E, 'E1>> node).Fiber
+        struct (box fiber, fiber.Context)
+
+and [<Sealed>] internal JoinFiberNode<'A, 'E>(fiberContext: FiberContext) =
+    inherit FIO<'A, 'E>(NodeKind.JoinFiber, fiberContext, null)
+
+and [<Sealed>] internal JoinFirstNode<'E>(fiberContexts: FiberContext list) =
+    inherit FIO<int, 'E>(NodeKind.JoinFirst, fiberContexts, null)
+
+and [<Sealed>] internal JoinAllFailFastNode<'E>(fiberContexts: FiberContext[]) =
+    inherit FIO<int voption, 'E>(NodeKind.JoinAllFailFast, fiberContexts, null)
+
+and [<Sealed>] internal AwaitTaskNode<'A, 'E>(task: Task<obj>, onError: exn -> 'E) =
+    inherit FIO<'A, 'E>(NodeKind.AwaitTask, task, AwaitTaskOps<'A, 'E>.Instance)
+
+    member _.OnError = onError
+
+and [<Sealed>] internal AwaitTaskOps<'A, 'E> private () =
+    inherit NodeOps()
+
+    [<DefaultValue>]
+    static val mutable private instance: AwaitTaskOps<'A, 'E>
+
+    static member Instance =
+        let current = AwaitTaskOps<'A, 'E>.instance
+        if obj.ReferenceEquals(current, null) then
+            let created = AwaitTaskOps<'A, 'E>()
+            AwaitTaskOps<'A, 'E>.instance <- created
+            created
+        else
+            current
+
+    override _.OnError (node, ex) =
+        box ((cast<AwaitTaskNode<'A, 'E>> node).OnError ex)
 
 and [<Sealed; AbstractClass>] internal NullSuccess<'A, 'E> private () =
-    static member val Instance : FIO<'A, 'E> = Success Unchecked.defaultof<'A>
-
-type internal UnitMapper<'E> private () =
-    static member val Instance : obj -> unit = fun _ -> ()
+    static member val Instance : FIO<'A, 'E> = SuccessNode<'A, 'E>(Unchecked.defaultof<'A>)

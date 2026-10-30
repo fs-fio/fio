@@ -12,6 +12,32 @@ open System
 open System.Threading
 open System.Diagnostics
 open System.Threading.Tasks
+open Microsoft.FSharp.Reflection
+
+let private kindName (node: FIOBase) =
+    (fst (FSharpValue.GetUnionFields(box node.Kind, typeof<NodeKind>, true))).Name
+
+let private allKindNames =
+    FSharpType.GetUnionCases(typeof<NodeKind>, true) |> Array.map (fun case -> case.Name) |> Set.ofArray
+
+let private nodeOps (node: FIOBase) =
+    node.B :?> NodeOps
+
+let private nodeCase (expected: string) (node: FIOBase) (holds: FIOBase -> bool) =
+    expected, node, holds
+
+let private nodePair (kind: string) (first: FIOBase) (second: FIOBase) =
+    kind, first, second
+
+// Only the Nodes tests use it, so no test running in parallel creates those cached instances first, at the same time.
+type private SlotError = SlotError of string
+
+let private throwsNullReference (build: unit -> FIOBase) =
+    try
+        build () |> ignore
+        false
+    with :? NullReferenceException ->
+        true
 
 [<Tests>]
 let fioTests =
@@ -308,6 +334,42 @@ let fioTests =
                         match result with
                         | Interrupted _ -> ()
                         | other -> failtest $"Expected Interrupted but got {other}"
+
+                    testAllRuntimes "Ensuring - runs the finalizer when the fiber is interrupted just before entering the effect"
+                    <| fun (runtime: FIORuntime) ->
+                        let self = TaskCompletionSource<Fiber<unit, string>>()
+                        let finalized = new ManualResetEventSlim false
+                        let effect =
+                            (FIO.awaitTask self.Task (fun ex -> ex.Message)).FlatMap(fun fiber ->
+                                fiber.InterruptNow().FlatMap(fun () -> FIO.unit().Ensuring(FIO.succeedWith (fun () -> finalized.Set()))))
+                        let fiber = runtime.Run effect
+                        self.SetResult fiber
+
+                        let result = fiber.UnsafeResult()
+
+                        Expect.isTrue (finalized.Wait(TimeSpan.FromSeconds 5.0)) "The finalizer should run though its effect was never entered"
+                        match result with
+                        | Interrupted _ -> ()
+                        | other -> failtest $"Expected Interrupted but got {other}"
+
+                    testAllRuntimes "Ensuring - a finalizer that is an OnExit effect hands its own finalizer the finalizer's outcome"
+                    <| fun (runtime: FIORuntime) ->
+                        let seen = ref None
+                        let finalizer : FIO<unit, string> = FIO.unit().OnExit(fun outcome -> FIO.succeedWith (fun () -> seen.Value <- Some outcome))
+                        let effect : FIO<int, string> = FIO.fail("effect failed").Ensuring finalizer
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        Expect.equal result (Failed "effect failed") "The effect's failure should survive its finalizer"
+                        Expect.equal seen.Value (Some(Succeeded ())) "The OnExit inside the finalizer should see the finalizer's success, not the effect's failure"
+
+                    testCase "Ensuring - a null finalizer throws when the effect is built"
+                    <| fun () ->
+                        let effect : FIO<int, string> = FIO.succeed 1
+
+                        Expect.throwsT<NullReferenceException>
+                            (fun () -> effect.Ensuring Unchecked.defaultof<FIO<unit, string>> |> ignore)
+                            "A null finalizer should be rejected where the effect is built"
                 ]
 
             testList
@@ -401,6 +463,24 @@ let fioTests =
                         runtime.Run(effect).UnsafeSuccess() |> ignore
 
                         Expect.equal (List.ofSeq seen) [ "inner", Succeeded 7; "outer", Succeeded 7 ] "The inner finalizer should run first, both with the effect's outcome")
+
+                    testAllRuntimes "OnExit - hands the finalizer the interruption when the fiber is interrupted just before entering the effect" (fun runtime ->
+                        let self = TaskCompletionSource<Fiber<unit, string>>()
+                        let seen = ref None
+                        let finalized = new ManualResetEventSlim false
+                        let record outcome = FIO.succeedWith (fun () -> seen.Value <- Some outcome; finalized.Set())
+                        let effect =
+                            (FIO.awaitTask self.Task (fun ex -> ex.Message)).FlatMap(fun fiber ->
+                                fiber.InterruptNow().FlatMap(fun () -> FIO.unit().OnExit record))
+                        let fiber = runtime.Run effect
+                        self.SetResult fiber
+
+                        let result = fiber.UnsafeResult()
+
+                        Expect.isTrue (finalized.Wait(TimeSpan.FromSeconds 5.0)) "The finalizer should run though its effect was never entered"
+                        match result, seen.Value with
+                        | Interrupted _, Some(Interrupted ex) -> Expect.equal ex.cause ExplicitInterrupt "The finalizer should see the interruption's cause"
+                        | other -> failtest $"Expected an interrupted fiber whose finalizer saw the interruption but got %A{other}")
                 ]
 
             testList
@@ -634,10 +714,39 @@ let fioTests =
 
                         Expect.equal result depth $"Deep Map chain should yield {depth}"
 
+                    testAllRuntimes "Stack safety - deep left-chained TapBoth and Fold via Fork"
+                    <| fun (runtime: FIORuntime) ->
+                        let depth = 10000
+                        let mutable effect : FIO<int, string> = FIO.succeed 0
+                        for _ in 1..depth do
+                            effect <- (effect.TapBoth (fun _ -> FIO.unit ()) (fun _ -> FIO.unit ())).Fold (fun _ -> -1) (fun n -> n + 1)
+                        let joined =
+                            fio {
+                                let! fiber = effect.Fork()
+                                return! fiber.Join()
+                            }
+
+                        let result =
+                            runtime.Run(joined).UnsafeSuccess()
+
+                        Expect.equal result depth $"Deep TapBoth and Fold chain should yield {depth}"
+
+                    testAllRuntimes "Stack safety - deep left-chained Unit and As"
+                    <| fun (runtime: FIORuntime) ->
+                        let depth = 10000
+                        let mutable effect : FIO<int, string> = FIO.succeed 0
+                        for i in 1..depth do
+                            effect <- effect.Unit().As i
+
+                        let result =
+                            runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.equal result depth $"Deep Unit and As chain should yield {depth}"
+
                     testAllRuntimesSequenced "Stack safety - interrupting the root of a 10,000-deep chain of nested forks"
                     <| fun (runtime: FIORuntime) ->
-                        let leafStarted = new Threading.ManualResetEventSlim(false)
-                        let leafFinalized = new Threading.ManualResetEventSlim(false)
+                        let leafStarted = new ManualResetEventSlim false
+                        let leafFinalized = new ManualResetEventSlim false
                         let rec chain (level: int) : FIO<unit, string> =
                             if level = 0 then
                                 (FIO.succeedWith(fun () -> leafStarted.Set()).FlatMap(fun () -> FIO.never ()))
@@ -655,8 +764,8 @@ let fioTests =
 
                     testAllRuntimes "Stack safety - completing a 10,000-deep chain of nested forks"
                     <| fun (runtime: FIORuntime) ->
-                        let gate = Threading.Tasks.TaskCompletionSource()
-                        let leafReached = new Threading.ManualResetEventSlim(false)
+                        let gate = TaskCompletionSource()
+                        let leafReached = new ManualResetEventSlim false
                         let rec chain (level: int) : FIO<unit, string> =
                             if level = 0 then
                                 FIO.succeedWith(fun () -> leafReached.Set()).FlatMap(fun () -> FIO.never ())
@@ -715,5 +824,104 @@ let fioTests =
                             runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result 200 "All fast-completing forks should be observed"
+                ]
+
+            testList
+                "Nodes"
+                [
+                    testCase "Nodes - every node kind holds its payload in the slots the interpreter reads"
+                    <| fun () ->
+                        let fiber = new Fiber<int, string>()
+                        let channel = Channel<int>()
+                        let inner : FIO<int, string> = FIO.succeed 1
+                        let finalizer : FIO<unit, string> = FIO.unit ()
+                        let func = fun () -> 2
+                        let thunk = fun () -> inner
+                        let contexts = [ fiber.Context ]
+                        let contextArray = [| fiber.Context |]
+                        let force (node: FIOBase) = (nodeOps node).Force node
+                        let wrapsInner (node: FIOBase) = obj.ReferenceEquals(node.A, inner) && node.B :? NodeOps
+                        let forksInner (node: FIOBase) =
+                            let struct (target, context) = (nodeOps node).ForkTarget node
+                            obj.ReferenceEquals(node.A, inner) && obj.ReferenceEquals((target :?> Fiber<int, string>).Context, context)
+                        let cases =
+                            [
+                                nodeCase "Success" (FIO.succeed<int, string> 1) (fun node -> node.A = box 1 && isNull node.B)
+                                nodeCase "Failure" (FIO.fail<int, string> "error") (fun node -> node.A = box "error" && isNull node.B)
+                                nodeCase "Interrupt" (FIO.interrupt<int, string> ExplicitInterrupt "stop") (fun node -> node.A = box ExplicitInterrupt && node.B = box "stop")
+                                nodeCase "FiberCancellationToken" (FIO.cancellationToken<SlotError> ()) (fun node -> isNull node.A && isNull node.B && obj.ReferenceEquals(node, FIO.cancellationToken<SlotError> ()))
+                                nodeCase "Action" (FIO.attempt func (fun ex -> ex.Message)) (fun node -> obj.ReferenceEquals(node.A, func) && (nodeOps node).Invoke node = box 2 && (nodeOps node).OnError(node, exn "boom") = box "boom")
+                                nodeCase "Bind" (inner.FlatMap(fun n -> FIO.succeed (n + 1))) (fun node -> wrapsInner node && (nodeOps node).Continue(node, box 1).A = box 2)
+                                nodeCase "Catch" (inner.CatchAll(fun (error: string) -> FIO.succeed error.Length)) (fun node -> wrapsInner node && (nodeOps node).Fail(node, box "ab").A = box 2)
+                                nodeCase "Fold" (inner.MapBoth (fun n -> n + 1) (fun (error: string) -> error.Length)) (fun node -> wrapsInner node && (nodeOps node).Continue(node, box 1).A = box 2 && (nodeOps node).Fail(node, box "abc").A = box 3)
+                                nodeCase "Map" (inner.Map(fun n -> n + 1)) (fun node -> wrapsInner node && (nodeOps node).Apply(node, box 1) = box 2)
+                                nodeCase "Map" (inner.Unit()) (fun node -> wrapsInner node && isNull ((nodeOps node).Apply(node, box 1)))
+                                nodeCase "Map" (inner.As "as") (fun node -> wrapsInner node && (nodeOps node).Apply(node, box 1) = box "as")
+                                nodeCase "OnFinalize" (inner.Ensuring finalizer) (fun node -> obj.ReferenceEquals(node.A, inner) && obj.ReferenceEquals(node.B, finalizer))
+                                nodeCase "OnExit" (inner.OnExit(fun _ -> finalizer)) (fun node -> wrapsInner node && obj.ReferenceEquals((nodeOps node).RunExit(node, PostFinalizerSucceeded(box 1)), finalizer))
+                                nodeCase "Suspend" (FIO.suspend thunk) (fun node -> obj.ReferenceEquals(node.A, thunk) && obj.ReferenceEquals((nodeOps node).Force node, inner))
+                                nodeCase "WithSuppression" (FIO.uninterruptible inner) (fun node -> (node.A :?> int -> int) 0 = 1 && obj.ReferenceEquals((nodeOps node).Body(node, 0), inner))
+                                nodeCase "AcquireRelease" (FIO.acquireReleaseWith inner (fun _ -> finalizer) FIO.succeed) (fun node -> wrapsInner node && obj.ReferenceEquals((nodeOps node).OnAcquired(node, box 1).B, finalizer))
+                                nodeCase "WriteChan" (channel.Write<string>(5)) (fun node -> node.A = box 5 && obj.ReferenceEquals(node.B, channel.Upcast()))
+                                nodeCase "TryWriteChan" (channel.TryWrite<string>(5)) (fun node -> node.A = box 5 && obj.ReferenceEquals(node.B, channel.Upcast()))
+                                nodeCase "ReadChan" (channel.Read<string>()) (fun node -> obj.ReferenceEquals(node.A, channel.Upcast()) && isNull node.B)
+                                nodeCase "ForkEffect" (force (inner.Fork<string>())) forksInner
+                                nodeCase "ForkDaemonEffect" (force (inner.ForkDaemon<string>())) forksInner
+                                nodeCase "JoinFiber" (fiber.Join()) (fun node -> obj.ReferenceEquals(node.A, fiber.Context) && isNull node.B)
+                                nodeCase "JoinFirst" (FIO.joinFirst<string> contexts) (fun node -> obj.ReferenceEquals(node.A, contexts) && isNull node.B)
+                                nodeCase "JoinAllFailFast" (FIO.joinAllFailFast<string> contextArray) (fun node -> obj.ReferenceEquals(node.A, contextArray) && isNull node.B)
+                                nodeCase "AwaitTask" (FIO.awaitTask (Task.FromResult 3) (fun ex -> ex.Message)) (fun node -> (node.A :?> Task<obj>).Result = box 3 && (nodeOps node).OnError(node, exn "boom") = box "boom")
+                            ]
+
+                        let readings = [ for expected, node, holds in cases -> expected, kindName node, holds node ]
+
+                        Expect.isEmpty [ for expected, kind, held in readings do if kind <> expected || not held then expected ] "These node kinds should hold their payloads in the slots the interpreter reads"
+                        Expect.equal (readings |> List.map (fun (_, kind, _) -> kind) |> Set.ofList) allKindNames "Every node kind should be built"
+
+                    testCase "Nodes - two nodes of a typed kind with the same type arguments share one ops instance"
+                    <| fun () ->
+                        let isolated : FIO<int, SlotError> = FIO.succeed 1
+                        let pairs =
+                            [
+                                nodePair "Bind" (isolated.FlatMap(fun n -> FIO.succeed (n + 1))) (isolated.FlatMap(fun n -> FIO.succeed (n + 2)))
+                                nodePair "Catch" (isolated.CatchAll<SlotError>(fun _ -> FIO.succeed 1)) (isolated.CatchAll<SlotError>(fun _ -> FIO.succeed 0))
+                                nodePair "Fold" (isolated.MapBoth (fun n -> n + 1) (fun (_: SlotError) -> 1)) (isolated.MapBoth (fun n -> n + 2) (fun (_: SlotError) -> 0))
+                                nodePair "Map" (isolated.Map(fun n -> n + 1)) (isolated.Map(fun n -> n + 2))
+                                nodePair "Map" (isolated.Unit()) (isolated.Unit())
+                                nodePair "Map" (isolated.As "as") (isolated.As "other")
+                            ]
+
+                        let unshared = [ for kind, first, second in pairs do if kindName first <> kind || not (obj.ReferenceEquals(first.B, second.B)) then kind ]
+
+                        Expect.isEmpty unshared "Two nodes of these kinds with the same type arguments should share one ops instance"
+
+                    testCase "Nodes - every builder that builds its node at once rejects a null effect where the effect is built"
+                    <| fun () ->
+                        let none : FIO<int, string> = Unchecked.defaultof<_>
+                        let other : FIO<int, string> = FIO.succeed 1
+                        let builders : (string * (unit -> FIOBase)) list =
+                            [
+                                "FlatMap", fun () -> none.FlatMap(fun n -> FIO.succeed n) :> FIOBase
+                                "CatchAll", fun () -> none.CatchAll(fun (_: string) -> FIO.succeed 0) :> FIOBase
+                                "Ensuring", fun () -> none.Ensuring(FIO.unit ()) :> FIOBase
+                                "OnExit", fun () -> none.OnExit(fun _ -> FIO.unit ()) :> FIOBase
+                                "Map", fun () -> none.Map(fun n -> n + 1) :> FIOBase
+                                "MapError", fun () -> none.MapError(fun (error: string) -> error.Length) :> FIOBase
+                                "MapBoth", fun () -> none.MapBoth (fun n -> n + 1) (fun (error: string) -> error.Length) :> FIOBase
+                                "Result", fun () -> none.Result<string>() :> FIOBase
+                                "Option", fun () -> none.Option<string>() :> FIOBase
+                                "Choice", fun () -> none.Choice<string>() :> FIOBase
+                                "Unit", fun () -> none.Unit() :> FIOBase
+                                "As", fun () -> none.As "as" :> FIOBase
+                                "TapBoth", fun () -> none.TapBoth (fun _ -> FIO.unit ()) (fun _ -> FIO.unit ()) :> FIOBase
+                                "OrElseEither", fun () -> none.OrElseEither other :> FIOBase
+                                "ZipRight", fun () -> none.ZipRight other :> FIOBase
+                                "Fold", fun () -> none.Fold<int, string> (fun _ -> 0) (fun n -> n) :> FIOBase
+                                "FoldFIO", fun () -> none.FoldFIO (fun _ -> FIO.succeed 0) (fun n -> FIO.succeed n) :> FIOBase
+                            ]
+
+                        let accepted = [ for name, build in builders do if not (throwsNullReference build) then name ]
+
+                        Expect.isEmpty accepted "These builders should reject a null effect where the effect is built"
                 ]
         ]

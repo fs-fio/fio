@@ -43,6 +43,13 @@ let tests =
                             | other -> failtest $"Expected a Defect cause but got {other}"
                         | other -> failtest $"Expected Interrupted but got {other}")
 
+                    testAllRuntimes "Map - a mapper returning null succeeds with null, as a value rather than a missing effect" (fun runtime ->
+                        let effect: FIO<string, string> = FIO.succeed(1).Map(fun (_: int) -> null)
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        Expect.equal result (Succeeded null) "A null mapped value should be the success value")
+
                     testAllRuntimes "Map - maps through a three-deep chain of Maps" (fun runtime ->
                         let effect: FIO<string, string> = FIO.succeed(1).Map((+) 1).Map((*) 3).Map(string)
 

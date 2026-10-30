@@ -10,7 +10,7 @@ open System.Runtime.CompilerServices
 
 [<Struct; NoComparison; NoEquality>]
 type InterpreterState =
-    val mutable Effect: FIO<obj, obj>
+    val mutable Effect: FIOBase
     val mutable ContStack: Stack<Cont>
     val mutable FiberContext: FiberContext
     val mutable Completed: bool
@@ -29,11 +29,11 @@ type InterpreterState =
 type RuntimeCase =
     | HandleWriteChan of message: obj * channel: Channel<obj> * reportAccepted: bool
     | HandleReadChan of channel: Channel<obj>
-    | HandleForkEffect of effect: FIO<obj, obj> * fiber: obj * fiberContext: FiberContext * daemon: bool
+    | HandleForkEffect of effect: FIOBase * fiber: obj * fiberContext: FiberContext * daemon: bool
     | HandleJoinFiber of fiberContext: FiberContext
     | HandleJoinFirst of fiberContexts: FiberContext list
     | HandleJoinAllFailFast of allFiberContexts: FiberContext[]
-    | HandleAwaitTask of task: Task<obj> * onError: (exn -> obj)
+    | HandleAwaitTask of task: Task<obj> * node: FIOBase
 
 [<Struct; NoComparison; NoEquality>]
 type internal Outcome =
@@ -50,10 +50,14 @@ let interruptionFor (fiberContext: FiberContext) (fallbackMessage: string) =
     else
         FiberInterruptedException(fiberContext.Id, ExplicitInterrupt, fallbackMessage) :> obj
 
-let interruptedEffect (fiberContext: FiberContext) (fallbackMessage: string) : FIO<obj, obj> =
+let interruptedEffect (fiberContext: FiberContext) (fallbackMessage: string) : FIOBase =
     match interruptionFor fiberContext fallbackMessage with
-    | :? FiberInterruptedException as interruption -> Interrupt(interruption.cause, interruption.message)
-    | _ -> Interrupt(ExplicitInterrupt, fallbackMessage)
+    | :? FiberInterruptedException as interruption -> InterruptNode<obj, obj>(interruption.cause, interruption.message)
+    | _ -> InterruptNode<obj, obj>(ExplicitInterrupt, fallbackMessage)
+
+[<MethodImpl(MethodImplOptions.NoInlining)>]
+let defectEffect (ex: exn) : FIOBase =
+    InterruptNode<obj, obj>(Defect ex, ex.Message)
 
 [<MethodImpl(MethodImplOptions.NoInlining)>]
 let interruptedOnRegionExit (fiberContext: FiberContext) (outcome: Outcome) =
@@ -62,35 +66,34 @@ let interruptedOnRegionExit (fiberContext: FiberContext) (outcome: Outcome) =
     | OutcomeSucceeded _
     | OutcomeFailed _ -> OutcomeInterrupted(interruptionFor fiberContext "Fiber was interrupted in an uninterruptible region.")
 
+let inline isFinalizerNode (node: FIOBase) =
+    match node.Kind with
+    | NodeKind.OnFinalize
+    | NodeKind.OnExit -> true
+    | _ -> false
+
 [<MethodImpl(MethodImplOptions.NoInlining)>]
 let unwindFinalizers (state: byref<InterpreterState>) =
     let mutable unwinding = true
     while unwinding do
-        match state.Effect with
-        | OnFinalize(effect, finalizer) ->
-            state.ContStack.Push(FinalizerCont finalizer)
-            state.Effect <- effect
-        | _ -> unwinding <- false
+        let node = state.Effect
+        if isFinalizerNode node then
+            state.ContStack.Push(FinalizerCont node)
+            state.Effect <- node.Child
+        else
+            unwinding <- false
 
 // Out of line: processOutcome is inlined into every runtime's loop, and with these rarer arms inline a loop can
 // cross the JIT's basic-block limit and run unoptimized. Returns true when an effect is set.
 [<MethodImpl(MethodImplOptions.NoInlining)>]
-let runExitFinalizer (state: byref<InterpreterState>) (finalizer: FIO<obj, obj>) (saved: PostFinalizerSaved) level =
+let runExitFinalizer (state: byref<InterpreterState>) (node: FIOBase) (saved: PostFinalizerSaved) level =
     state.ContStack.Push(PostFinalizerCont(saved, level))
 
-    match finalizer with
-    | ChainBoth(_, handler, _) ->
-        match box handler with
-        | :? ExitHandler as handler ->
-            state.Effect <-
-                try
-                    handler.Invoke(box saved)
-                with ex ->
-                    Interrupt(Defect ex, ex.Message)
-        | _ ->
-            state.Effect <- finalizer
-    | _ ->
-        state.Effect <- finalizer
+    state.Effect <-
+        try
+            node.Ops.RunExit(node, saved)
+        with ex ->
+            InterruptNode<obj, obj>(Defect ex, ex.Message)
 
 [<MethodImpl(MethodImplOptions.NoInlining)>]
 let processRegionCont (state: byref<InterpreterState>) (cont: Cont) (outcome: byref<Outcome>) =
@@ -102,7 +105,7 @@ let processRegionCont (state: byref<InterpreterState>) (cont: Cont) (outcome: by
             outcome <- interruptedOnRegionExit state.FiberContext outcome
 
         false
-    | FinalizerCont finalizer ->
+    | FinalizerCont node ->
         let level = state.InterruptionSuppressed
         state.InterruptionSuppressed <- level + 1
 
@@ -112,12 +115,12 @@ let processRegionCont (state: byref<InterpreterState>) (cont: Cont) (outcome: by
             | OutcomeFailed error -> PostFinalizerFailed error
             | OutcomeInterrupted error -> PostFinalizerInterrupted error
 
-        match finalizer with
-        | ChainBoth _ ->
-            runExitFinalizer &state finalizer saved level
+        match node.Kind with
+        | NodeKind.OnExit ->
+            runExitFinalizer &state node saved level
         | _ ->
             state.ContStack.Push(PostFinalizerCont(saved, level))
-            state.Effect <- finalizer
+            state.Effect <- cast<FIOBase> node.B
 
         true
     | PostFinalizerCont(saved, level) ->
@@ -145,16 +148,16 @@ let processRegionCont (state: byref<InterpreterState>) (cont: Cont) (outcome: by
             outcome <- interruptedOnRegionExit state.FiberContext outcome
 
         false
-    | AcquiredCont(onAcquired, level) ->
+    | AcquiredCont(node, level) ->
         state.InterruptionSuppressed <- level
 
         match outcome with
         | OutcomeSucceeded resource ->
             try
-                state.Effect <- onAcquired resource
+                state.Effect <- node.Ops.OnAcquired(node, resource)
                 unwindFinalizers &state
             with ex ->
-                state.Effect <- Interrupt(Defect ex, ex.Message)
+                state.Effect <- InterruptNode<obj, obj>(Defect ex, ex.Message)
 
             if level = 0 && state.FiberContext.CancellationToken.IsCancellationRequested then
                 outcome <- interruptedOnRegionExit state.FiberContext outcome
@@ -170,15 +173,12 @@ let processRegionCont (state: byref<InterpreterState>) (cont: Cont) (outcome: by
     | MappedCont node ->
         match outcome with
         | OutcomeSucceeded value ->
-            match node with
-            | Mapped(_, mapper) ->
-                try
-                    outcome <- OutcomeSucceeded(mapper value)
-                    false
-                with ex ->
-                    state.Effect <- Interrupt(Defect ex, ex.Message)
-                    true
-            | _ -> false
+            try
+                outcome <- OutcomeSucceeded(node.Ops.Apply(node, value))
+                false
+            with ex ->
+                state.Effect <- InterruptNode<obj, obj>(Defect ex, ex.Message)
+                true
         | OutcomeFailed _
         | OutcomeInterrupted _ -> false
     | ChainCont _ -> false
@@ -212,16 +212,16 @@ let inline processOutcome
                 match outcome with
                 | OutcomeSucceeded value when not (obj.ReferenceEquals(onSuccess, null)) ->
                     try
-                        state.Effect <- onSuccess value
+                        state.Effect <- onSuccess.Ops.Continue(onSuccess, value)
                     with ex ->
-                        state.Effect <- Interrupt(Defect ex, ex.Message)
+                        state.Effect <- defectEffect ex
 
                     loop <- false
                 | OutcomeFailed error when not (obj.ReferenceEquals(onFailure, null)) ->
                     try
-                        state.Effect <- onFailure error
+                        state.Effect <- onFailure.Ops.Fail(onFailure, error)
                     with ex ->
-                        state.Effect <- Interrupt(Defect ex, ex.Message)
+                        state.Effect <- defectEffect ex
 
                     loop <- false
                 | _ -> ()
@@ -248,14 +248,18 @@ let inline handleSharedCase
     (state: byref<InterpreterState>)
     ([<InlineIfLambda>] onSuccessComplete: obj -> unit)
     ([<InlineIfLambda>] onErrorComplete: obj -> unit) =
-    match state.Effect with
-    | Success value ->
-        processOutcome &state onSuccessComplete onErrorComplete (OutcomeSucceeded value)
+    let node = state.Effect
+
+    match node.Kind with
+    | NodeKind.Success ->
+        processOutcome &state onSuccessComplete onErrorComplete (OutcomeSucceeded node.A)
         ValueNone
-    | Failure error ->
-        processOutcome &state onSuccessComplete onErrorComplete (OutcomeFailed error)
+    | NodeKind.Failure ->
+        processOutcome &state onSuccessComplete onErrorComplete (OutcomeFailed node.A)
         ValueNone
-    | Interrupt(cause, message) ->
+    | NodeKind.Interrupt ->
+        let cause = cast<InterruptionCause> node.A
+        let message = cast<string> node.B
         state.FiberContext.Interrupt(cause, message)
         processOutcome
             &state
@@ -263,7 +267,7 @@ let inline handleSharedCase
             onErrorComplete
             (OutcomeInterrupted(FiberInterruptedException(state.FiberContext.Id, cause, message) :> obj))
         ValueNone
-    | FiberCancellationToken ->
+    | NodeKind.FiberCancellationToken ->
         let token =
             if state.InterruptionSuppressed > 0 then
                 CancellationToken.None
@@ -272,12 +276,12 @@ let inline handleSharedCase
 
         processOutcome &state onSuccessComplete onErrorComplete (OutcomeSucceeded(token :> obj))
         ValueNone
-    | Action(func, onError) ->
+    | NodeKind.Action ->
         let mutable thrown = null
         let mutable value = Unchecked.defaultof<obj>
 
         try
-            value <- func ()
+            value <- node.Ops.Invoke node
         with ex ->
             thrown <- ex
 
@@ -288,7 +292,7 @@ let inline handleSharedCase
             let mutable error = Unchecked.defaultof<obj>
 
             try
-                error <- onError thrown
+                error <- node.Ops.OnError(node, thrown)
                 mapped <- true
             with _ ->
                 ()
@@ -296,64 +300,68 @@ let inline handleSharedCase
             if mapped then
                 processOutcome &state onSuccessComplete onErrorComplete (OutcomeFailed error)
             else
-                state.Effect <- Interrupt(Defect thrown, thrown.Message)
+                state.Effect <- InterruptNode<obj, obj>(Defect thrown, thrown.Message)
         ValueNone
-    | ChainSuccess(effect, cont) ->
-        state.Effect <- effect
-        state.ContStack.Push(ChainCont(cont, Unchecked.defaultof<_>))
+    | NodeKind.Bind ->
+        state.Effect <- node.Child
+        state.ContStack.Push(ChainCont(node, Unchecked.defaultof<_>))
         ValueNone
-    | ChainError(effect, cont) ->
-        state.Effect <- effect
-        state.ContStack.Push(ChainCont(Unchecked.defaultof<_>, cont))
+    | NodeKind.Catch ->
+        state.Effect <- node.Child
+        state.ContStack.Push(ChainCont(Unchecked.defaultof<_>, node))
         ValueNone
-    | ChainBoth(effect, successCont, errorCont) ->
+    | NodeKind.Fold ->
         // One frame for both handlers: a failure of the success handler is not caught by the error handler (foldZIO).
-        state.Effect <- effect
-        state.ContStack.Push(ChainCont(successCont, errorCont))
+        state.Effect <- node.Child
+        state.ContStack.Push(ChainCont(node, node))
         ValueNone
-    | OnFinalize(effect, finalizer) ->
-        state.ContStack.Push(FinalizerCont finalizer)
-        state.Effect <- effect
+    | NodeKind.OnFinalize
+    | NodeKind.OnExit ->
+        state.ContStack.Push(FinalizerCont node)
+        state.Effect <- node.Child
         ValueNone
-    | Suspend effect ->
+    | NodeKind.Suspend ->
         try
-           state.Effect <- effect ()
+           state.Effect <- node.Ops.Force node
         with ex ->
-           state.Effect <- Interrupt(Defect ex, ex.Message)
+           state.Effect <- InterruptNode<obj, obj>(Defect ex, ex.Message)
         ValueNone
-    | WithSuppression(update, body) ->
+    | NodeKind.WithSuppression ->
         let outer = state.InterruptionSuppressed
         state.ContStack.Push(RestoreSuppressionCont outer)
         try
-            state.InterruptionSuppressed <- update outer
-            state.Effect <- body outer
+            state.InterruptionSuppressed <- cast<int -> int> node.A outer
+            state.Effect <- node.Ops.Body(node, outer)
         with ex ->
-            state.Effect <- Interrupt(Defect ex, ex.Message)
+            state.Effect <- InterruptNode<obj, obj>(Defect ex, ex.Message)
         ValueNone
-    | AcquireRelease(acquire, onAcquired) ->
+    | NodeKind.AcquireRelease ->
         let outer = state.InterruptionSuppressed
-        state.ContStack.Push(AcquiredCont(onAcquired, outer))
+        state.ContStack.Push(AcquiredCont(node, outer))
         state.InterruptionSuppressed <- outer + 1
-        state.Effect <- acquire
+        state.Effect <- node.Child
         ValueNone
-    | Mapped(effect, _) as node ->
+    | NodeKind.Map ->
         state.ContStack.Push(MappedCont node)
-        state.Effect <- effect
+        state.Effect <- node.Child
         ValueNone
-    | WriteChan(message, channel, reportAccepted) ->
-        ValueSome(HandleWriteChan(message, channel, reportAccepted))
-    | ReadChan channel ->
-        ValueSome(HandleReadChan channel)
-    | ForkEffect(effect, fiber, fiberContext, daemon) ->
-        ValueSome(HandleForkEffect(effect, fiber, fiberContext, daemon))
-    | JoinFiber fiberContext ->
-        ValueSome(HandleJoinFiber fiberContext)
-    | JoinFirst fiberContexts ->
-        ValueSome(HandleJoinFirst fiberContexts)
-    | JoinAllFailFast fiberContexts ->
-        ValueSome(HandleJoinAllFailFast fiberContexts)
-    | AwaitTask(task, onError) ->
-        ValueSome(HandleAwaitTask(task, onError))
+    | NodeKind.WriteChan
+    | NodeKind.TryWriteChan ->
+        ValueSome(HandleWriteChan(node.A, cast<Channel<obj>> node.B, node.Kind.IsTryWriteChan))
+    | NodeKind.ReadChan ->
+        ValueSome(HandleReadChan(cast<Channel<obj>> node.A))
+    | NodeKind.ForkEffect
+    | NodeKind.ForkDaemonEffect ->
+        let struct (fiber, fiberContext) = node.Ops.ForkTarget node
+        ValueSome(HandleForkEffect(node.Child, fiber, fiberContext, node.Kind.IsForkDaemonEffect))
+    | NodeKind.JoinFiber ->
+        ValueSome(HandleJoinFiber(cast<FiberContext> node.A))
+    | NodeKind.JoinFirst ->
+        ValueSome(HandleJoinFirst(cast<FiberContext list> node.A))
+    | NodeKind.JoinAllFailFast ->
+        ValueSome(HandleJoinAllFailFast(cast<FiberContext[]> node.A))
+    | NodeKind.AwaitTask ->
+        ValueSome(HandleAwaitTask(cast<Task<obj>> node.A, node))
 
 // Generic so that this file gains no module-level static initializer. Interrupting a child interrupts its own
 // children from inside this callback, one level of stack each.
@@ -407,22 +415,22 @@ let inline private failureOf (waited: Task<obj>) : exn =
         | null -> aggregate
         | inner -> inner
 
-let settledTaskEffect (waited: Task<obj>) (fiberContext: FiberContext) (suppressed: int) (onError: exn -> obj) =
+let settledTaskEffect (waited: Task<obj>) (fiberContext: FiberContext) (suppressed: int) (node: FIOBase) : FIOBase =
     if waited.IsCompletedSuccessfully then
-        Success waited.Result
+        SuccessNode<obj, obj>(waited.Result)
     elif endsByInterruption waited fiberContext suppressed then
         interruptedEffect fiberContext "Task has been cancelled."
     else
         let ex = failureOf waited
 
         try
-            Failure(onError ex)
+            FailureNode<obj, obj>(node.Ops.OnError(node, ex))
         with _ ->
-            Interrupt(Defect ex, ex.Message)
+            InterruptNode<obj, obj>(Defect ex, ex.Message)
 
-let inline awaitTaskFailureOutcome (fiberContext: FiberContext) (onError: exn -> obj) (ex: exn) =
+let inline awaitTaskFailureOutcome (fiberContext: FiberContext) (node: FIOBase) (ex: exn) =
     try
-        OutcomeFailed(onError ex)
+        OutcomeFailed(node.Ops.OnError(node, ex))
     with _ ->
         OutcomeInterrupted(defectError fiberContext ex)
 
@@ -445,7 +453,7 @@ let inline tryWriteChannel (channel: Channel<obj>) (message: obj) (reportAccepte
 // is rerun rather than completed on wake.
 let parkUntilWritable
     (channel: Channel<obj>)
-    (writeEffect: FIO<obj, obj>)
+    (writeEffect: FIOBase)
     (fiberContext: FiberContext)
     (contStack: Stack<Cont>)
     (suppressed: int)
@@ -463,7 +471,7 @@ let parkUntilWritable
                 else
                     writeEffect
             with ex ->
-                Interrupt(Defect ex, ex.Message)
+                InterruptNode<obj, obj>(Defect ex, ex.Message)
 
         try
             reschedule
@@ -483,14 +491,14 @@ let inline parkOnTask
     (fiberContext: FiberContext)
     (contStack: Stack<Cont>)
     (suppressed: int)
-    (onError: exn -> obj)
+    (node: FIOBase)
     ([<InlineIfLambda>] reschedule: WorkItem -> unit) =
     let resume () =
         let effect =
             try
-                settledTaskEffect waited fiberContext suppressed onError
+                settledTaskEffect waited fiberContext suppressed node
             with ex ->
-                Interrupt(Defect ex, ex.Message)
+                InterruptNode<obj, obj>(Defect ex, ex.Message)
 
         let resumeWorkItem =
             {

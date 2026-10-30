@@ -62,6 +62,13 @@ let private expectDefect (runtime: FIORuntime) (label: string) (effect: FIO<int,
         | other -> failtest $"{name}: {label} expected a Defect cause but got {other}"
     | other -> failtest $"{name}: {label} expected Interrupted but got {other}"
 
+let private expectUnwindingDefect (runtime: FIORuntime) (label: string) (effect: FIO<int, string>) =
+    let finalized = ref false
+
+    expectDefect runtime label (effect.Ensuring(FIO.succeedWith (fun () -> finalized.Value <- true)))
+
+    Expect.isTrue (waitForFlag finalized) $"{runtime.GetType().Name}: {label} should unwind through the finalizer around it"
+
 [<Tests>]
 let conformanceTests =
     testList
@@ -116,6 +123,38 @@ let conformanceTests =
                             runtime
                             "acquireReleaseExitWith release"
                             (FIO.acquireReleaseExitWith (FIO.succeed 1) (fun (_: int) _ -> failwith "release threw") (fun n -> FIO.succeed n))
+
+                    testAllRuntimes "Defect - FlatMap continuation returning null"
+                    <| fun runtime ->
+                        expectUnwindingDefect runtime "FlatMap" (FIO.succeed(42).FlatMap(fun (_: int) -> Unchecked.defaultof<FIO<int, string>>))
+
+                    testAllRuntimes "Defect - CatchAll handler returning null"
+                    <| fun runtime ->
+                        expectUnwindingDefect runtime "CatchAll" (FIO.fail("typed").CatchAll(fun (_: string) -> Unchecked.defaultof<FIO<int, string>>))
+
+                    testAllRuntimes "Defect - FoldFIO handler returning null"
+                    <| fun runtime ->
+                        expectUnwindingDefect runtime "FoldFIO" (FIO.succeed(42).FoldFIO (fun (_: string) -> FIO.succeed 0) (fun (_: int) -> Unchecked.defaultof<FIO<int, string>>))
+
+                    testAllRuntimes "Defect - Suspend thunk returning null"
+                    <| fun runtime ->
+                        expectUnwindingDefect runtime "Suspend" (FIO.suspend (fun () -> Unchecked.defaultof<FIO<int, string>>))
+
+                    testAllRuntimes "Defect - uninterruptibleMask body returning null"
+                    <| fun runtime ->
+                        expectUnwindingDefect runtime "uninterruptibleMask" (FIO.uninterruptibleMask (fun _ -> Unchecked.defaultof<FIO<int, string>>))
+
+                    testAllRuntimes "Defect - OnExit finalizer function returning null"
+                    <| fun runtime ->
+                        expectUnwindingDefect runtime "OnExit" (FIO.succeed(1).OnExit(fun _ -> Unchecked.defaultof<FIO<unit, string>>))
+
+                    testAllRuntimes "Defect - TapBoth success handler returning null"
+                    <| fun runtime ->
+                        expectUnwindingDefect runtime "TapBoth" (FIO.succeed(42).TapBoth (fun (_: int) -> Unchecked.defaultof<FIO<unit, string>>) (fun (_: string) -> FIO.unit ()))
+
+                    testAllRuntimes "Defect - ZipRight on a null effect returned by a FlatMap continuation"
+                    <| fun runtime ->
+                        expectUnwindingDefect runtime "ZipRight" (FIO.succeed(1).FlatMap(fun (_: int) -> Unchecked.defaultof<FIO<unit, string>>.ZipRight(FIO.succeed 2)))
                 ]
 
             testList
