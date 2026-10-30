@@ -30,7 +30,7 @@ type internal ChannelMode =
 module internal NodeCasts =
 
     let inline cast<'T when 'T : not struct> (value: obj) : 'T =
-#if DEBUG
+#if DEBUG || FIO_CHECKED_CASTS
         value :?> 'T
 #else
         Unsafe.As<'T> value
@@ -288,13 +288,23 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
         let queue = this.GetOrCreateBlockingQueue()
         queue.WriteAsync waiter
 
+    // A waiter whose reschedule throws must not strand the waiters behind it, so the first exception is rethrown only
+    // after every waiter has been tried.
     member private _.RescheduleBlockingWorkItems (reschedule: Action<WorkItem>) =
         let queue = Volatile.Read &blockingWorkItemQueue
         if not (isNull queue) then
+            let mutable failure: ExceptionDispatchInfo = null
             let mutable waiter = Unchecked.defaultof<_>
             while queue.TryRead &waiter do
                 if waiter.TryClaim() then
-                    reschedule.Invoke waiter.WorkItem
+                    try
+                        reschedule.Invoke waiter.WorkItem
+                    with ex ->
+                        if isNull failure then
+                            failure <- ExceptionDispatchInfo.Capture ex
+
+            if not (isNull failure) then
+                failure.Throw()
 
     member internal this.RescheduleOnEnd (reschedule: Action<WorkItem>) =
         Interlocked.Exchange(&rescheduleSink, reschedule) |> ignore
@@ -349,17 +359,31 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
 
         this.InvokeOnTerminal()
 
-        match if isNull reschedule then Volatile.Read &rescheduleSink else reschedule with
-        | null -> ()
-        | reschedule -> this.RescheduleBlockingWorkItems reschedule
+        // Even when resuming the waiters, or the parent's completion that runs inside this one, throws, the parent, the
+        // registry and the token sources must still learn of this end; the first exception surfaces afterwards.
+        let mutable failure: ExceptionDispatchInfo = null
 
-        match Volatile.Read &parent with
-        | null -> ()
-        | scope -> scope.OnChildUnwound()
+        try
+            match if isNull reschedule then Volatile.Read &rescheduleSink else reschedule with
+            | null -> ()
+            | reschedule -> this.RescheduleBlockingWorkItems reschedule
+        with ex ->
+            failure <- ExceptionDispatchInfo.Capture ex
+
+        try
+            match Volatile.Read &parent with
+            | null -> ()
+            | scope -> scope.OnChildUnwound()
+        with ex ->
+            if isNull failure then
+                failure <- ExceptionDispatchInfo.Capture ex
 
         Interlocked.Exchange(&published, 2) |> ignore
         this.ReleaseIfRequested()
         this.InvokeOnUnwound()
+
+        if not (isNull failure) then
+            failure.Throw()
 
     member private this.TryFinish (reschedule: Action<WorkItem>) =
         if Volatile.Read &completing = 1
@@ -377,7 +401,15 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
         if RuntimeHelpers.TryEnsureSufficientExecutionStack() then
             this.TryFinish null
         else
-            ThreadPool.UnsafeQueueUserWorkItem(WaitCallback(fun _ -> this.TryFinish null), null) |> ignore
+            // An exception on a pool thread would end the process; every completion step has run by the time one surfaces.
+            ThreadPool.UnsafeQueueUserWorkItem(
+                WaitCallback(fun _ ->
+                    try
+                        this.TryFinish null
+                    with ex ->
+                        Console.Error.WriteLine $"FIO recovered from an exception while completing a fiber: {ex}"),
+                null)
+            |> ignore
 
     member internal this.Complete value =
         this.CompleteInternal(value, null)

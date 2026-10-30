@@ -210,6 +210,12 @@ Effects are interpreted by a runtime. Pick one explicitly — `DirectRuntime` (`
 
 `DefaultRuntime = WorkStealingRuntime` — `FIOApp` uses it unless you `override _.runtime`.
 
+Both runtimes run on the .NET thread pool: `DirectRuntime` runs each fiber as a pool task, and the workers of
+`WorkStealingRuntime` resume on pool threads after waiting for work. Code that blocks pool threads (`.Result`,
+`.Wait()` or `Thread.Sleep` inside many effects at once) can therefore stall FIO. Wait without blocking
+(`FIO.sleep`, `FIO.awaitTask`), or, if blocking cannot be avoided, raise the pool's minimum with
+`ThreadPool.SetMinThreads` at startup.
+
 A runtime is `IDisposable` (`use runtime = new DefaultRuntime()`). Disposing it interrupts every fiber still running on it — roots started
 with `Run`, and daemons — waits up to 10 seconds for their finalizers, then stops its workers;
 `Shutdown timeout` does the same with your own bound. A fiber still unwinding when the time is up is

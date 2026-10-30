@@ -15,6 +15,11 @@
         <InternalsVisibleTo Include="FIO.Tests" />
     </ItemGroup>
 
+    <!-- CI's checked-casts job builds with FioCheckedCasts=true, so the node casts Release leaves unchecked are checked. -->
+    <PropertyGroup Condition="'$(FioCheckedCasts)' == 'true'">
+        <DefineConstants>$(DefineConstants);FIO_CHECKED_CASTS</DefineConstants>
+    </PropertyGroup>
+
     <ItemGroup>
         <Compile Include="DSL\Utilities.fs" />
         <Compile Include="DSL\Exceptions.fs" />

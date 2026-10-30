@@ -18,6 +18,18 @@ open System.Threading.Tasks
 let private observeCompleted (runtime: FIORuntime) (fiber: Fiber<int, string>) =
     fiber.UnsafeResult(), fiber.IsCompleted(), fiber.IsInterrupted(), runtime.Run(fiber.Join()).UnsafeResult()
 
+let private parkWaiter (context: FiberContext) =
+    let workItem: WorkItem = { Effect = Unchecked.defaultof<_>; FiberContext = context; ContStack = null; InterruptionSuppressed = 0 }
+    context.AddBlockingWorkItem(BlockingWaiter workItem) |> ignore
+    workItem
+
+let private rescheduleFailingOn (failing: WorkItem) (rescheduled: ResizeArray<WorkItem>) =
+    Action<WorkItem>(fun workItem ->
+        if obj.ReferenceEquals(workItem, failing) then
+            raise (InvalidOperationException "reschedule failed")
+
+        rescheduled.Add workItem)
+
 [<Tests>]
 let fiberTests =
     testList
@@ -905,6 +917,56 @@ let fiberTests =
 
                         Expect.isNone thrown "Completing should not throw a scope callback's exception"
                         Expect.isTrue (protectedChild.IsTerminal()) "The protected scope should still be cancelled"
+
+                    testCase "Complete - a waiter whose reschedule throws strands neither the waiters behind it nor the parent"
+                    <| fun () ->
+                        let parent = new FiberContext()
+                        let child = new FiberContext()
+                        child.AttachTo parent
+                        parent.Complete(Ok(box 0))
+                        let failing = parkWaiter child
+                        let behind = parkWaiter child
+                        let rescheduled = ResizeArray<WorkItem>()
+                        let unwound = ref false
+                        child.SetOnUnwound(Action<FiberContext>(fun _ -> unwound.Value <- true))
+
+                        let thrown =
+                            try
+                                child.CompleteAndReschedule(Ok(box 1), rescheduleFailingOn failing rescheduled) |> ignore
+                                None
+                            with ex ->
+                                Some ex
+
+                        Expect.isSome thrown "The reschedule's exception should still reach the caller"
+                        Expect.isTrue
+                            (rescheduled.Count = 1 && obj.ReferenceEquals(rescheduled.[0], behind))
+                            "The waiter behind the failing one should still be rescheduled"
+                        Expect.equal
+                            (if parent.Task.IsCompleted then Some parent.Task.Result else None)
+                            (Some(Ok(box 0)))
+                            "The parent should still learn that its child unwound, and publish"
+                        Expect.isTrue unwound.Value "The child's unwound hook should still fire"
+
+                    testCase "Interrupt - a waiter whose reschedule throws does not strand the waiters behind it"
+                    <| fun () ->
+                        let context = new FiberContext()
+                        let failing = parkWaiter context
+                        let behind = parkWaiter context
+                        let rescheduled = ResizeArray<WorkItem>()
+                        context.RescheduleOnEnd(rescheduleFailingOn failing rescheduled)
+
+                        let thrown =
+                            try
+                                context.Interrupt()
+                                None
+                            with ex ->
+                                Some ex
+
+                        Expect.isSome thrown "The reschedule's exception should still reach the caller"
+                        Expect.isTrue
+                            (rescheduled.Count = 1 && obj.ReferenceEquals(rescheduled.[0], behind))
+                            "The waiter behind the failing one should still be rescheduled"
+                        Expect.isTrue (context.IsInterrupted()) "The fiber should be interrupted"
                 ]
 
             testList
