@@ -330,7 +330,8 @@ let inline handleSharedCase
         let outer = state.InterruptionSuppressed
         state.ContStack.Push(RestoreSuppressionCont outer)
         try
-            state.InterruptionSuppressed <- cast<int -> int> node.A outer
+            // Without the parentheses, F# compiles the inline cast into a closure inside both interpreter loops.
+            state.InterruptionSuppressed <- (cast<int -> int> node.A) outer
             state.Effect <- node.Ops.Body(node, outer)
         with ex ->
             state.Effect <- InterruptNode<obj, obj>(Defect ex, ex.Message)
