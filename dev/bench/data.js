@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1791723918090,
+  "lastUpdate": 1793550657117,
   "repoUrl": "https://github.com/fs-fio/fio",
   "entries": {
     "Benchmark": [
@@ -527,6 +527,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "Pingpong - WorkStealing-2-200-1",
             "value": 81.0232025,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hey@itsdaniel.dk",
+            "name": "Daniel Larsen",
+            "username": "itsdanieldk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "eeb01164757a124454628a9b27d2555e817ea1c8",
+          "message": "Release 0.6.0-beta (#80)\n\n* Simplification\n\n* Simplification\n\n* update\n\n* Update\n\n* Update\n\n* update\n\n* Update\n\n* Update\n\n* W66\n\n* Node classes\n\n* Fail-safe completion\n\n* Fixes\n\n* Package stuff",
+          "timestamp": "2026-11-01T17:29:37+01:00",
+          "tree_id": "488b17135e903e2eff7514766f84574f6110fbd9",
+          "url": "https://github.com/fs-fio/fio/commit/eeb01164757a124454628a9b27d2555e817ea1c8"
+        },
+        "date": 1793550656636,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Pingpong - Direct",
+            "value": 110.82693325,
+            "unit": "ms"
+          },
+          {
+            "name": "Pingpong - WorkStealing-2-200",
+            "value": 77.468691,
             "unit": "ms"
           }
         ]
