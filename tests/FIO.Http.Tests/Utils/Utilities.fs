@@ -5,8 +5,6 @@ open FIO.Http
 open FIO.Runtime
 open FIO.Runtime.Direct
 open FIO.Runtime.Default
-open FIO.Runtime.Polling
-open FIO.Runtime.Signaling
 open FIO.Runtime.WorkStealing
 
 open System
@@ -61,8 +59,6 @@ type FailingStream(prefix: byte array) =
 let runtimes () =
     [
         new DirectRuntime() :> FIORuntime
-        new PollingRuntime(testConfig) :> FIORuntime
-        new SignalingRuntime(testConfig) :> FIORuntime
         new WorkStealingRuntime(testConfig) :> FIORuntime
     ]
 

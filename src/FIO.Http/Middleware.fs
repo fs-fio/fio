@@ -41,10 +41,6 @@ module Middleware =
                     return response
                 }
 
-    /// Creates a middleware that wraps each handler with the given function.
-    let wrap (wrapper: HttpHandler<'E> -> HttpHandler<'E>) : Middleware<'E> =
-        create wrapper
-
     /// Creates a middleware that adds a header to every response.
     let addHeader (name: string) (value: string) : Middleware<'E> =
         create <| fun handler ->
@@ -69,10 +65,6 @@ module Middleware =
     /// Creates a middleware that logs each request.
     let logging (logger: HttpRequest -> FIO<unit, 'E>) : Middleware<'E> =
         before logger
-
-    /// Creates a middleware that logs each request and its response.
-    let loggingFull (logger: HttpRequest -> HttpResponse -> FIO<unit, 'E>) : Middleware<'E> =
-        after logger
 
     /// Creates a middleware that assigns a request id and echoes it in an X-Request-ID header.
     let requestId (generator: unit -> string) : Middleware<'E> =
@@ -199,10 +191,10 @@ module Middleware =
 
 module MiddlewareOperators =
 
-    /// Applies a middleware to a route collection. Operator form of <c>Middleware.apply</c>.
+    /// <summary>Applies a middleware to a route collection. Operator form of <c>Middleware.apply</c>.</summary>
     let (@@) (routes: Routes<'E>) (middleware: Middleware<'E>) : Routes<'E> =
         Middleware.apply middleware routes
 
-    /// Composes two middlewares. Operator form of <c>Middleware.compose</c>.
+    /// <summary>Composes two middlewares. Operator form of <c>Middleware.compose</c>.</summary>
     let (+++) (middleware: Middleware<'E>) (middleware': Middleware<'E>) : Middleware<'E> =
         Middleware.compose middleware middleware'

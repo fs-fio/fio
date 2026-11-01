@@ -4,8 +4,6 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
-    # The FSharp.Core version is the floor every consumer must meet, so it is raised by hand, not by a bot.
     ignore:
       - dependency-name: "FSharp.Core"
     groups:
@@ -20,7 +18,6 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    open-pull-requests-limit: 5
     groups:
       actions:
         patterns:

@@ -15,12 +15,12 @@ module Extensions =
                     mapper value) onError
 
         /// Returns an effect that discards this effect's success value, yielding unit.
-        member inline this.Unit () : FIO<unit, 'E> =
-            this.Map <| fun _ -> ()
+        member this.Unit () : FIO<unit, 'E> =
+            UnitNode<'A, 'E> this
 
         /// Returns an effect that replaces this effect's success value with the given value.
-        member inline this.As<'A1> (value: 'A1) : FIO<'A1, 'E> =
-            this.Map <| fun _ -> value
+        member this.As<'A1> (value: 'A1) : FIO<'A1, 'E> =
+            AsNode<'A, 'A1, 'E>(this, value)
 
         /// Returns an effect that wraps this effect's success value in Choice1Of2.
         member inline this.AsLeft<'A1> () : FIO<Choice<'A, 'A1>, 'E> =
@@ -85,14 +85,10 @@ module Extensions =
 
         /// Returns an effect that runs a side effect on this effect's success value or error, keeping the original outcome.
         member this.TapBoth<'A1, 'A2> (onSuccess: 'A -> FIO<'A2, 'E>) (onError: 'E -> FIO<'A1, 'E>) : FIO<'A, 'E> =
-            ChainBoth(
-                this.UpcastBoth(),
-                (fun value ->
-                    let value = value :?> 'A
-                    (onSuccess value).As value),
-                (fun error ->
-                    let error = error :?> 'E
-                    (onError error).FlatMap(fun _ -> FIO.fail error)))
+            FoldNode<'A, 'E, 'A, 'E>(
+                this,
+                (fun value -> (onSuccess value).As value),
+                (fun error -> (onError error).FlatMap(fun _ -> FIO.fail error)))
 
         /// Returns an effect that prints this effect's success value, keeping the original value.
         member inline this.Debug () : FIO<'A, 'E> =
@@ -136,9 +132,9 @@ module Extensions =
 
         /// Returns an effect yielding this effect's success in Choice1Of2, or the fallback effect's success in Choice2Of2 if this effect fails.
         member this.OrElseEither<'A1, 'E1> (effect: FIO<'A1, 'E1>) : FIO<Choice<'A, 'A1>, 'E1> =
-            ChainBoth(
-                this.UpcastBoth(),
-                (fun value -> Success (Choice1Of2 (value :?> 'A))),
+            FoldNode<'A, 'E, Choice<'A, 'A1>, 'E1>(
+                this,
+                (fun value -> FIO.succeed (Choice1Of2 value)),
                 (fun _ -> effect.Map Choice2Of2))
 
         /// Returns an effect that recovers from some errors with the given handler, re-failing the rest.
@@ -226,8 +222,8 @@ module Extensions =
                     error, error'
 
         /// Returns an effect that runs this effect then the given effect, keeping only the second value.
-        member inline this.ZipRight<'A1> (effect: FIO<'A1, 'E>) : FIO<'A1, 'E> =
-            this.FlatMap <| fun _ -> effect
+        member this.ZipRight<'A1> (effect: FIO<'A1, 'E>) : FIO<'A1, 'E> =
+            BindNode<'A, 'A1, 'E>(this, fun _ -> effect)
 
         /// Returns an effect that runs this effect then the given effect, keeping only the first value.
         member inline this.ZipLeft<'A1> (effect: FIO<'A1, 'E>) : FIO<'A, 'E> =
@@ -310,19 +306,17 @@ module Extensions =
 
         /// Returns an effect that always succeeds, mapping this effect's success or error to a single value.
         member this.Fold<'A1, 'E1> (onError: 'E -> 'A1) (onSuccess: 'A -> 'A1) : FIO<'A1, 'E1> =
-            ChainBoth(
-                this.UpcastBoth(),
-                (fun value -> Success (onSuccess (value :?> 'A))),
-                (fun error -> Success (onError (error :?> 'E))))
+            FoldNode<'A, 'E, 'A1, 'E1>(
+                this,
+                (fun value -> FIO.succeed (onSuccess value)),
+                (fun error -> FIO.succeed (onError error)))
 
         /// Returns an effect that continues with the matching effectful handler for this effect's success or error.
         member this.FoldFIO<'A1> (onError: 'E -> FIO<'A1, 'E>) (onSuccess: 'A -> FIO<'A1, 'E>) : FIO<'A1, 'E> =
-            ChainBoth(
-                this.UpcastBoth(),
-                (fun value -> onSuccess (value :?> 'A)),
-                (fun error -> onError (error :?> 'E)))
+            FoldNode<'A, 'E, 'A1, 'E>(this, onSuccess, onError)
 
-        /// Returns an effect that runs the matching finalizing effect for this effect's success or error.
+        /// Returns an effect that continues with the matching handler for this effect's success or error; unlike
+        /// OnExit's finalizer, neither runs on interruption.
         member inline this.OnDone (onError: 'E -> FIO<unit, 'E>) (onSuccess: 'A -> FIO<unit, 'E>) : FIO<unit, 'E> =
             this.Result().FlatMap <| function
                 | Ok value -> onSuccess value

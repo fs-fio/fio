@@ -4,8 +4,6 @@ open FIO.DSL
 open FIO.Runtime
 open FIO.WebSockets
 open FIO.Runtime.Direct
-open FIO.Runtime.Polling
-open FIO.Runtime.Signaling
 open FIO.Runtime.WorkStealing
 
 open System
@@ -21,17 +19,14 @@ let testConfig = { WorkerConfig.Default with EvaluationWorkers = 2 }
 
 module FsCheckProperties =
 
+    // One pair for every property: FsCheck asks for the generator once per property and never disposes it.
+    let private propertyRuntimes =
+        lazy [ new DirectRuntime() :> FIORuntime; new WorkStealingRuntime(testConfig) :> FIORuntime ]
+
     type Generators =
 
         static member Runtime() =
-            Gen.oneof
-                [
-                    Gen.constant (new DirectRuntime() :> FIORuntime)
-                    Gen.constant (new PollingRuntime(testConfig) :> FIORuntime)
-                    Gen.constant (new SignalingRuntime(testConfig) :> FIORuntime)
-                    Gen.constant (new WorkStealingRuntime(testConfig) :> FIORuntime)
-                ]
-            |> Arb.fromGen
+            Gen.elements propertyRuntimes.Value |> Arb.fromGen
 
     let fsCheckConfig =
         { FsCheckConfig.defaultConfig with
@@ -45,8 +40,6 @@ type TestMessage = { Id: int; Text: string }
 let runtimes () =
     [
         new DirectRuntime() :> FIORuntime
-        new PollingRuntime(testConfig) :> FIORuntime
-        new SignalingRuntime(testConfig) :> FIORuntime
         new WorkStealingRuntime(testConfig) :> FIORuntime
     ]
 

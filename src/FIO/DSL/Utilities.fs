@@ -10,12 +10,6 @@ module internal Utilities =
     [<AutoOpen>]
     module internal Casting =
 
-        let inline boxOnError (onError: exn -> 'E) =
-            fun (ex: exn) -> onError ex :> obj
-
-        let inline boxFunc (compute: unit -> 'A) =
-            fun () -> compute () :> obj
-
         let inline private boxTaskCore (boxResult: unit -> obj) (task: Task) =
             if task.IsCompletedSuccessfully then
                 Task.FromResult <| boxResult ()

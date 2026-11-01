@@ -1,9 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
-        <IsPackable>false</IsPackable>
-        <IsTestProject>true</IsTestProject>
         <GenerateProgramFile>false</GenerateProgramFile>
         <!-- Parallel tests block pool threads while they wait, and FIO's workers run on the pool: with the default
              minimum (one thread per core) the runtimes under test stalled for seconds and missed timing budgets. -->
@@ -23,7 +20,6 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\..\src\FIO\FIO.fsproj" />
         <ProjectReference Include="..\..\src\FIO.WebSockets\FIO.WebSockets.fsproj" />
     </ItemGroup>
 

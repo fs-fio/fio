@@ -2,42 +2,29 @@ namespace FIO.Benchmarks.Benchmarks
 
 open FIO.DSL
 open FIO.Benchmarks
-open FIO.Benchmarks.Effects
 
 open BenchmarkDotNet.Attributes
 
-open System
+[<RequireQualifiedAccess>]
+module internal ZipRace =
+
+    // Builds the ZipRace workload: rounds of ZipPar and RaceFirst over trivial effects, stressing fork/settle/join cost.
+    let effect roundCount =
+        FIO.forEachDiscard (seq { 1..roundCount }) (fun round ->
+            ((FIO.succeed round).ZipPar(FIO.succeed (round + 1))).FlatMap <| fun _ ->
+                (FIO.succeed round).RaceFirst(FIO.succeed (round + 1)))
 
 // Measures the per-invocation cost of the parallel combinators (ZipPar + RaceFirst).
 [<MemoryDiagnoser>]
 [<RankColumn>]
 type ZipRaceBenchmark() =
-    let mutable runtime = Unchecked.defaultof<_>
-    let mutable effect = Unchecked.defaultof<_>
+    inherit FIOBenchmark()
 
     member _.RoundCounts =
         RuntimeParam.intParams "FIO_BENCH_ZIPRACE_ROUNDS" [| 1_000; 10_000 |]
 
-    member _.Runtimes =
-        RuntimeParam.runtimes ()
-
     [<ParamsSource("RoundCounts")>]
     member val RoundCount = 0 with get, set
 
-    [<ParamsSource("Runtimes")>]
-    member val Runtime = "" with get, set
-
-    [<GlobalSetup>]
-    member this.Setup () =
-        runtime <- RuntimeParam.create this.Runtime
-        effect <- ZipRace.effect this.RoundCount
-
-    [<GlobalCleanup>]
-    member _.Cleanup () =
-        match box runtime with
-        | :? IDisposable as d -> d.Dispose()
-        | _ -> ()
-
-    [<Benchmark>]
-    member _.Run () =
-        RuntimeParam.run runtime effect
+    override this.CreateEffect () =
+        ZipRace.effect this.RoundCount

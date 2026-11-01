@@ -5,8 +5,6 @@ open System.Threading
 
 open FIO.Runtime
 open FIO.Runtime.Direct
-open FIO.Runtime.Polling
-open FIO.Runtime.Signaling
 open FIO.Runtime.WorkStealing
 
 open Expecto
@@ -17,8 +15,6 @@ let testConfig = { WorkerConfig.Default with EvaluationWorkers = 2 }
 let allRuntimes () =
     [
         new DirectRuntime() :> FIORuntime
-        new PollingRuntime(testConfig) :> FIORuntime
-        new SignalingRuntime(testConfig) :> FIORuntime
         new WorkStealingRuntime(testConfig) :> FIORuntime
     ]
 
@@ -31,6 +27,12 @@ let waitForFlag (flag: bool ref) =
     while not flag.Value && DateTime.UtcNow < deadline do
         Thread.Sleep 1
     flag.Value
+
+let waitUntil (condition: unit -> bool) =
+    let deadline = DateTime.UtcNow.AddSeconds 5.0
+    while not (condition ()) && DateTime.UtcNow < deadline do
+        Thread.Sleep 1
+    condition ()
 
 let private disposeRuntime (runtime: FIORuntime) =
     match box runtime with
@@ -54,23 +56,23 @@ let testAllRuntimesSequenced name (f: FIORuntime -> unit) =
 
 module FsCheckProperties =
 
+    // One pair for every property: FsCheck asks for the generator once per property and never disposes it.
+    let private propertyRuntimes =
+        lazy [ new DirectRuntime() :> FIORuntime; new WorkStealingRuntime(testConfig) :> FIORuntime ]
+
     type Generators =
 
         static member Runtime() =
-            Gen.oneof
-                [
-                    Gen.constant (new DirectRuntime() :> FIORuntime)
-                    Gen.constant (new PollingRuntime(testConfig) :> FIORuntime)
-                    Gen.constant (new SignalingRuntime(testConfig) :> FIORuntime)
-                    Gen.constant (new WorkStealingRuntime(testConfig) :> FIORuntime)
-                ]
-            |> Arb.fromGen
+            Gen.elements propertyRuntimes.Value |> Arb.fromGen
 
     let stressEnabled =
         Environment.GetEnvironmentVariable "FIO_RUN_STRESS" = "1"
 
     let stressTestCase name f =
         if stressEnabled then testCase name f else ptestCase name f
+
+    let stressTestAllRuntimes name (f: FIORuntime -> unit) =
+        if stressEnabled then testAllRuntimes name f else ptestCase name ignore
 
     let fsCheckConfig =
         { FsCheckConfig.defaultConfig with

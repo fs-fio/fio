@@ -6,8 +6,6 @@ open FIO.DSL
 open FIO.Sockets
 open FIO.Runtime
 open FIO.Runtime.Direct
-open FIO.Runtime.Polling
-open FIO.Runtime.Signaling
 open FIO.Runtime.WorkStealing
 
 open System
@@ -101,12 +99,10 @@ let cancellationTests =
             <| testList
                 "acceptLoop - hands a connection accepted as it is interrupted to a handler that closes it"
                 [
-                    let oneWorker = { EvaluationWorkers = 1; EvaluationSteps = 200; BlockingWorkers = 1 }
+                    let oneWorker = { EvaluationWorkers = 1; EvaluationSteps = 200 }
 
                     for name, make in
                         [
-                            "PollingRuntime", (fun () -> new PollingRuntime(oneWorker) :> FIORuntime)
-                            "SignalingRuntime", (fun () -> new SignalingRuntime(oneWorker) :> FIORuntime)
                             "WorkStealingRuntime", (fun () -> new WorkStealingRuntime(oneWorker) :> FIORuntime)
                         ] ->
                         testCase name (fun () ->

@@ -125,39 +125,39 @@ module Console =
                        && tcs.Task.IsCompletedSuccessfully then
                         giveBack tcs.Task.Result))
 
-    /// Returns an effect that writes formatted text to standard output.
+    /// Creates an effect that writes formatted text to standard output, mapping a write failure via onError.
     let print<'E> (format: Printf.TextWriterFormat<unit>) (onError: exn -> 'E) : FIO<unit, 'E> =
         FIO.attempt (fun () -> fprintf Console.Out format) onError
 
-    /// Returns an effect that writes formatted text followed by a newline to standard output.
+    /// Creates an effect that writes formatted text followed by a newline to standard output, mapping a write failure via onError.
     let printLine<'E> (format: Printf.TextWriterFormat<unit>) (onError: exn -> 'E) : FIO<unit, 'E> =
         FIO.attempt (fun () -> fprintfn Console.Out format) onError
 
-    /// Returns an effect that reads a line from standard input, failing through onError with EndOfStreamException at end
+    /// Creates an effect that reads a line from standard input, failing through onError with EndOfStreamException at end
     /// of input; input typed for an interrupted read goes to the next read, not to System.Console.ReadLine.
     let readLine<'E> (onError: exn -> 'E) : FIO<string, 'E> =
         awaitStdin StdinReader.Line StdinReader.giveBackLine onError
 
-    /// Returns an effect that reads a line from standard input, yielding None at end of input; interruption behaves
-    /// as in readLine.
+    /// Creates an effect that reads a line from standard input, yielding None at end of input and mapping a read failure via
+    /// onError; interruption behaves as in readLine.
     let tryReadLine<'E> (onError: exn -> 'E) : FIO<string option, 'E> =
         (awaitStdin StdinReader.Line StdinReader.giveBackLine id).Map(Some).CatchAll(function
             | :? IO.EndOfStreamException -> FIO.succeed None
             | ex -> FIO.fail (onError ex))
 
-    /// Returns an effect that reads the next key press, echoed unless intercept is true; fails through onError when input
+    /// Creates an effect that reads the next key press, echoed unless intercept is true; fails through onError when input
     /// is redirected. A key typed for an interrupted read goes to the next readKey, or begins the next readLine.
     let readKey<'E> (intercept: bool) (onError: exn -> 'E) : FIO<ConsoleKeyInfo, 'E> =
         awaitStdin (fun tcs -> StdinReader.Key(intercept, tcs)) StdinReader.giveBackKey onError
 
-    /// Returns an effect that writes text to standard output.
+    /// Creates an effect that writes text to standard output, mapping a write failure via onError.
     let write<'E> (text: string) (onError: exn -> 'E) : FIO<unit, 'E> =
         FIO.attempt (fun () -> Console.Write text) onError
 
-    /// Returns an effect that writes text followed by a newline to standard output.
+    /// Creates an effect that writes text followed by a newline to standard output, mapping a write failure via onError.
     let writeLine<'E> (text: string) (onError: exn -> 'E) : FIO<unit, 'E> =
         FIO.attempt (fun () -> Console.WriteLine text) onError
 
-    /// Returns an effect that clears the console.
+    /// Creates an effect that clears the console, mapping a failure via onError.
     let clear<'E> (onError: exn -> 'E) : FIO<unit, 'E> =
         FIO.attempt (fun () -> Console.Clear()) onError

@@ -1,11 +1,5 @@
 <Solution>
 
-    <Configurations>
-        <Platform Name="Any CPU" />
-        <Platform Name="x64" />
-        <Platform Name="x86" />
-    </Configurations>
-
     <Folder Name="/FIO Core Packages/">
         <Project Path="src/FIO/FIO.fsproj" />
     </Folder>

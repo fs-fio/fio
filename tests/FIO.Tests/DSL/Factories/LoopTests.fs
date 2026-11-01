@@ -73,6 +73,7 @@ let tests =
                     testCase "replicateFIO - stack-safe over 10000 iterations"
                     <| fun () ->
                         for runtime in allRuntimes () do
+                            use _ = runtime
                             let effect = FIO.replicateFIO 10000 (FIO.unit ())
 
                             let result =
@@ -140,6 +141,7 @@ let tests =
                     testCase "replicateFIODiscard - stack-safe over 10000 iterations"
                     <| fun () ->
                         for runtime in allRuntimes () do
+                            use _ = runtime
                             let effect = FIO.replicateFIODiscard 10000 (FIO.unit ())
 
                             let result =
@@ -198,6 +200,7 @@ let tests =
                     testCase "loop - stack-safe over 10000 iterations"
                     <| fun () ->
                         for runtime in allRuntimes () do
+                            use _ = runtime
                             let effect =
                                 FIO.loop 0 (fun s -> s < 10000) ((+) 1) (fun _ -> FIO.unit ())
 
@@ -257,6 +260,7 @@ let tests =
                     testCase "loopDiscard - stack-safe over 10000 iterations"
                     <| fun () ->
                         for runtime in allRuntimes () do
+                            use _ = runtime
                             let effect =
                                 FIO.loopDiscard 0 (fun s -> s < 10000) ((+) 1) (fun _ -> FIO.unit ())
 
@@ -311,6 +315,7 @@ let tests =
                     testCase "iterate - stack-safe over 10000 iterations"
                     <| fun () ->
                         for runtime in allRuntimes () do
+                            use _ = runtime
                             let effect =
                                 FIO.iterate 0 (fun s -> s < 10000) (fun s -> FIO.succeed (s + 1))
 

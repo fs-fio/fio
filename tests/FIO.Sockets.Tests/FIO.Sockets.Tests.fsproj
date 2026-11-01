@@ -1,9 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
-        <IsPackable>false</IsPackable>
-        <IsTestProject>true</IsTestProject>
         <GenerateProgramFile>false</GenerateProgramFile>
     </PropertyGroup>
 
@@ -20,7 +17,6 @@
     </ItemGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\..\src\FIO\FIO.fsproj" />
         <ProjectReference Include="..\..\src\FIO.Sockets\FIO.Sockets.fsproj" />
     </ItemGroup>
 

@@ -251,7 +251,7 @@ module ServerSocket =
     let acceptLoop (handler: Socket -> FIO<unit, SocketError>) (serverSocket: ServerSocket) : FIO<unit, SocketError> =
         acceptLoopWith DefaultMaxConcurrentHandlers handler serverSocket
 
-    /// The configuration the given server socket was created with.
+    /// Returns the configuration the given server socket was created with.
     let getConfig (serverSocket: ServerSocket) : ServerSocketConfig =
         serverSocket.Config
 

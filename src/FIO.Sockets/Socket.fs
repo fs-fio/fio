@@ -502,7 +502,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
     member _.GetLocalEndPoint () : FIO<EndPoint, SocketError> =
         attempt <| fun () -> netSocket.LocalEndPoint
 
-    /// The configuration this socket was created with.
+    /// Returns the configuration this socket was created with.
     member _.GetConfig () : SocketConfig =
         config
 

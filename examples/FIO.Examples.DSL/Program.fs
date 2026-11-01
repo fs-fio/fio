@@ -50,8 +50,22 @@ let helloWorld3 () =
     }
     |> fun task -> task.GetAwaiter().GetResult()
 
-// Same effect as helloWorld1, printed with the UnsafePrintResult convenience helper.
+// Runs an interrupting effect and shows the Interrupted branch of the result.
 let helloWorld4 () =
+    let hello: FIO<string, obj> = FIO.interrupt ExplicitInterrupt "Hello world! 🪻"
+    let fiber: Fiber<string, obj> = runtime.Run hello
+
+    task {
+        let! result = fiber.Task()
+        match result with
+        | Succeeded result -> printfn $"Success: %s{result}"
+        | Failed error -> printfn $"Error: %A{error}"
+        | Interrupted ex -> printfn $"Interrupted: %s{ex.Message}"
+    }
+    |> fun task -> task.GetAwaiter().GetResult()
+
+// Same effect as helloWorld1, printed with the UnsafePrintResult convenience helper.
+let helloWorld5 () =
     let hello = FIO.succeed "Hello world! 🪻"
     let fiber = runtime.Run hello
     fiber.UnsafePrintResult()
@@ -152,6 +166,7 @@ let examples =
         nameof helloWorld2, helloWorld2
         nameof helloWorld3, helloWorld3
         nameof helloWorld4, helloWorld4
+        nameof helloWorld5, helloWorld5
         nameof concurrency1, concurrency1
         nameof concurrency2, concurrency2
         nameof concurrency3, concurrency3

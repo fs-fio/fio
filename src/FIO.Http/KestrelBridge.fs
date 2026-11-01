@@ -296,18 +296,9 @@ module KestrelBridge =
                 streamToDispose |> Option.iter (fun stream -> stream.Dispose())
         }
 
-    /// Writes an HttpResponse to the Kestrel context, using the given JSON options or the defaults.
-    let writeResponseWith
-        (jsonOptions: JsonSerializerOptions option)
-        (ctx: HttpContext)
-        (response: FIO.Http.HttpResponse) : Task<unit> =
-        match jsonOptions with
-        | Some options -> writeResponseWithOptions options ctx response
-        | None -> writeResponseWithOptions defaultJsonOptions ctx response
-
     /// Writes an HttpResponse to the Kestrel context using the default JSON options.
     let writeResponse (ctx: HttpContext) (response: FIO.Http.HttpResponse) : Task<unit> =
-        writeResponseWith None ctx response
+        writeResponseWithOptions defaultJsonOptions ctx response
 
     // What a client sent is logged with its control characters escaped, so it cannot begin a log line of its own.
     let private printable (text: string) =
@@ -463,17 +454,6 @@ module KestrelBridge =
         (jsonOptions: JsonSerializerOptions)
         (ctx: HttpContext) : Task<unit> =
         handleTracked null runtime routes maxBodySize jsonOptions ctx
-
-    /// Handles a Kestrel request end-to-end, using the given JSON options or the defaults.
-    let handleRequestWith
-        (runtime: FIO.Runtime.Default.DefaultRuntime)
-        (routes: Routes<exn>)
-        (maxBodySize: int64)
-        (jsonOptions: JsonSerializerOptions option)
-        (ctx: HttpContext) : Task<unit> =
-        match jsonOptions with
-        | Some options -> handleRequestWithOptions runtime routes maxBodySize options ctx
-        | None -> handleRequestWithOptions runtime routes maxBodySize defaultJsonOptions ctx
 
     /// Handles a Kestrel request end-to-end using the default JSON options.
     let handleRequest

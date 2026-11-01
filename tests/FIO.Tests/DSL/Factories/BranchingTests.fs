@@ -12,9 +12,6 @@ open Expecto
 open System
 open System.Threading
 
-let private stressTestAllRuntimes name (f: FIORuntime -> unit) =
-    testList name [ for rt in allRuntimes () -> stressTestCase (rt.GetType().Name) (fun () -> f rt) ]
-
 [<Tests>]
 let tests =
     testList
@@ -244,7 +241,7 @@ let tests =
 
                     testCase "firstSuccessOf - only evaluates effects up to the first success"
                     <| fun () ->
-                        let runtime = new WorkStealingRuntime() :> FIORuntime
+                        use runtime = new WorkStealingRuntime(testConfig) :> FIORuntime
                         let mutable evaluated = 0
                         let bump effect =
                             FIO.suspend (fun () ->

@@ -1,11 +1,15 @@
 module FIO.Tests.Extensions.MappingTests
 
+open FIO.Tests.Utilities
 open FIO.Tests.Utilities.FsCheckProperties
 
 open FIO.DSL
 open FIO.Runtime
 
 open Expecto
+
+open System
+open System.Threading
 
 [<Tests>]
 let tests =
@@ -15,6 +19,103 @@ let tests =
             testList
                 "Mapping"
                 [
+                    testAllRuntimes "Map - a throwing mapper becomes a Defect" (fun runtime ->
+                        let effect: FIO<int, string> = FIO.succeed(1).Map(fun (_: int) -> failwith "mapper throws")
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        match result with
+                        | Interrupted ex ->
+                            match ex.cause with
+                            | Defect defect -> Expect.equal defect.Message "mapper throws" "The thrown exception should become the defect"
+                            | other -> failtest $"Expected a Defect cause but got {other}"
+                        | other -> failtest $"Expected Interrupted but got {other}")
+
+                    testAllRuntimes "MapError - a throwing mapper becomes a Defect" (fun runtime ->
+                        let effect: FIO<int, string> = FIO.fail("error").MapError(fun (_: string) -> failwith "mapper throws")
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        match result with
+                        | Interrupted ex ->
+                            match ex.cause with
+                            | Defect defect -> Expect.equal defect.Message "mapper throws" "The thrown exception should become the defect"
+                            | other -> failtest $"Expected a Defect cause but got {other}"
+                        | other -> failtest $"Expected Interrupted but got {other}")
+
+                    testAllRuntimes "Map - a mapper returning null succeeds with null, as a value rather than a missing effect" (fun runtime ->
+                        let effect: FIO<string, string> = FIO.succeed(1).Map(fun (_: int) -> null)
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        Expect.equal result (Succeeded null) "A null mapped value should be the success value")
+
+                    testAllRuntimes "Map - maps through a three-deep chain of Maps" (fun runtime ->
+                        let effect: FIO<string, string> = FIO.succeed(1).Map((+) 1).Map((*) 3).Map(string)
+
+                        let result = runtime.Run(effect).UnsafeSuccess()
+
+                        Expect.equal result "6" "Three chained Maps should apply in order")
+
+                    testAllRuntimes "Map - a mapper that throws after a FlatMap dies with a Defect" (fun runtime ->
+                        let ran = ref false
+                        let effect: FIO<int, string> =
+                            FIO.succeed(1)
+                                .FlatMap(fun x -> FIO.succeed (x + 1))
+                                .Map(fun (_: int) -> failwith "mapper throws")
+                                .FlatMap(fun (x: int) -> FIO.succeedWith (fun () -> ran.Value <- true; x))
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        Expect.isFalse ran.Value "The FlatMap after the throwing mapper should not run"
+                        match result with
+                        | Interrupted ex ->
+                            match ex.cause with
+                            | Defect defect -> Expect.equal defect.Message "mapper throws" "The thrown exception should become the defect"
+                            | other -> failtest $"Expected a Defect cause but got {other}"
+                        | other -> failtest $"Expected Interrupted but got {other}")
+
+                    testAllRuntimes "Map - a failure skips the mapper" (fun runtime ->
+                        let calls = ref 0
+                        let effect: FIO<int, string> = FIO.fail("error").Map(fun (x: int) -> calls.Value <- calls.Value + 1; x)
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        Expect.equal calls.Value 0 "The mapper should not run on a failure"
+                        match result with
+                        | Failed error -> Expect.equal error "error" "The error should be kept"
+                        | other -> failtest $"Expected Failed but got {other}")
+
+                    testAllRuntimes "Map - an interruption skips the mapper" (fun runtime ->
+                        let calls = ref 0
+                        let waiting = new ManualResetEventSlim(false)
+                        let effect: FIO<int, string> =
+                            FIO.succeedWith(fun () -> waiting.Set())
+                                .FlatMap(fun () -> FIO.never<int, string> ())
+                                .Map(fun x -> calls.Value <- calls.Value + 1; x)
+                        let fiber = runtime.Run effect
+                        let started = waiting.Wait(TimeSpan.FromSeconds 5.0)
+
+                        let result = runtime.Run(fiber.InterruptAwaitNow<string> ()).UnsafeSuccess()
+
+                        Expect.isTrue started "The mapped effect should be waiting when it is interrupted"
+                        Expect.equal calls.Value 0 "The mapper should not run on an interruption"
+                        match result with
+                        | Interrupted _ -> ()
+                        | other -> failtest $"Expected Interrupted but got {other}")
+
+                    testAllRuntimes "Map - over an Ensuring whose finalizer fails yields the finalizer's failure" (fun runtime ->
+                        let calls = ref 0
+                        let effect: FIO<int, string> =
+                            FIO.succeed(1).Ensuring(FIO.fail "f").Map(fun x -> calls.Value <- calls.Value + 1; x + 1)
+
+                        let result = runtime.Run(effect).UnsafeResult()
+
+                        Expect.equal calls.Value 0 "The mapper should not run when the finalizer fails"
+                        match result with
+                        | Failed error -> Expect.equal error "f" "The finalizer's failure should replace the success"
+                        | other -> failtest $"Expected Failed but got {other}")
+
                     testPropertyWithConfig fsCheckConfig "Map - transforms success value"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.succeed value
@@ -102,6 +203,20 @@ let tests =
             testList
                 "Replace / wrap success value"
                 [
+                    testAllRuntimes "Unit - discards the value" (fun runtime ->
+                        let effect: FIO<int, string> = FIO.succeed 42
+
+                        let result = runtime.Run(effect.Unit()).UnsafeSuccess()
+
+                        Expect.equal result () "Unit should discard the value and yield unit")
+
+                    testAllRuntimes "As - replaces the value" (fun runtime ->
+                        let effect: FIO<int, string> = FIO.succeed 42
+
+                        let result = runtime.Run(effect.As "replaced").UnsafeSuccess()
+
+                        Expect.equal result "replaced" "As should yield the given value")
+
                     testPropertyWithConfig fsCheckConfig "Unit - discards result, returns unit"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.succeed value

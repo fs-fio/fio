@@ -33,7 +33,7 @@ module CE =
             effect
 
         member inline _.Zero<'E> () : FIO<unit, 'E> =
-            FIO.succeed ()
+            FIO.unit ()
 
         member inline _.Combine<'A, 'A1, 'E> (effect: FIO<'A, 'E>, effect': FIO<'A1, 'E>) : FIO<'A1, 'E> =
             effect.ZipRight effect'
@@ -61,8 +61,7 @@ module CE =
 
                 let rec loop () =
                     if enumerator.MoveNext() then
-                        body(enumerator.Current).FlatMap <| fun _ ->
-                            loop ()
+                        body(enumerator.Current).FlatMap loop
                     else
                         FIO.unit ()
 
@@ -85,11 +84,9 @@ module CE =
                     FIO.unit ()
             (body resource).Ensuring dispose
 
-        member inline _.Match<'A, 'E, 'T> (value: 'T, cases: 'T -> FIO<'A, 'E>) : FIO<'A, 'E> =
-            cases value
-
         member inline _.MergeSources<'A, 'A1, 'E> (effect: FIO<'A, 'E>, effect': FIO<'A1, 'E>) : FIO<'A * 'A1, 'E> =
             effect.ZipPar effect'
 
-    /// Builds effects with `let!`, `and!` (which runs its effects concurrently), `do!`, `return`, `for`, `while`, `use`, and `try/with`/`try/finally`.
+    /// <summary>Builds effects with <c>let!</c>, <c>do!</c>, <c>return</c>, <c>for</c>, <c>while</c>, <c>use</c>,
+    /// <c>try/with</c> and <c>try/finally</c>, and <c>and!</c>, which runs its effects concurrently.</summary>
     let fio : FIOBuilder = FIOBuilder()

@@ -87,8 +87,7 @@ module HttpError =
     let fromException (ex: exn) : HttpError =
         GeneralError ex
 
-    /// Converts an HTTP error back into an exception: a GeneralError's own exception, otherwise a new one that keeps
-    /// any wrapped exception as its inner exception.
+    /// Converts an HTTP error back into an exception: a GeneralError's own, else a new one wrapping any inner exception.
     let toException (error: HttpError) : exn =
         match error with
         | GeneralError ex -> ex
@@ -287,14 +286,14 @@ type RequestBody =
     /// A text body.
     | Text of string
 
-    /// Returns the body as a byte array.
+    /// Returns this body as a byte array.
     member this.AsBytes () : byte[] =
         match this with
         | Empty -> Array.empty
         | Bytes bytes -> bytes
         | Text text -> Encoding.UTF8.GetBytes text
 
-    /// Returns the body as a string.
+    /// Returns this body as a string.
     member this.AsString () : string =
         match this with
         | Empty -> ""
@@ -315,7 +314,7 @@ type ResponseBody =
     /// A value to be serialized as JSON.
     | Json of obj
 
-    /// The body's content length in bytes, if known.
+    /// This body's content length in bytes, if known.
     member this.ContentLength : int64 option =
         match this with
         | Empty -> Some 0L

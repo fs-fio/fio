@@ -19,8 +19,9 @@
 ## Checklist
 
 - [ ] `dotnet build` succeeds with no warnings (`TreatWarningsAsErrors=true`)
-- [ ] `dotnet test` passes
+- [ ] `dotnet test` passes, and `dotnet test -c Release` too (the interpreter's JIT-limit guard runs only there)
 - [ ] Tests added/updated for behavior changes
+- [ ] New public API has a concise XML doc comment (see `docs/COMMENT_STYLE.md`)
 - [ ] Examples and docs updated where relevant
 - [ ] Package versions (if changed) go through `Directory.Packages.props`
 

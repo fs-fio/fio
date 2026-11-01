@@ -70,7 +70,8 @@ let private withBlockingStdIn (line: string) (test: ManualResetEventSlim -> unit
         gate.Set()
 
         try
-            (new DirectRuntime()).Run(Console.readLine<exn> id).UnsafeSuccess() |> ignore
+            use drain = new DirectRuntime()
+            drain.Run(Console.readLine<exn> id).UnsafeSuccess() |> ignore
         with _ ->
             ()
 
@@ -107,14 +108,24 @@ let private testCapturedOut name (f: Capture -> FIORuntime -> unit) =
     testList
         name
         [
-            for rt in allRuntimes () -> testCase (rt.GetType().Name) (fun () -> withCapturedOut f rt)
+            for rt in allRuntimes () ->
+                testCase (rt.GetType().Name) (fun () ->
+                    try
+                        withCapturedOut f rt
+                    finally
+                        (rt :> IDisposable).Dispose())
         ]
 
 let private testCapturedIn name (input: string) (f: FIORuntime -> unit) =
     testList
         name
         [
-            for rt in allRuntimes () -> testCase (rt.GetType().Name) (fun () -> withStdIn input f rt)
+            for rt in allRuntimes () ->
+                testCase (rt.GetType().Name) (fun () ->
+                    try
+                        withStdIn input f rt
+                    finally
+                        (rt :> IDisposable).Dispose())
         ]
 
 [<Tests>]

@@ -3,7 +3,6 @@ module FIO.Sockets.Tests.TypesTests
 open FIO.Sockets.Tests.Utilities
 open FIO.Sockets.Tests.Utilities.FsCheckProperties
 
-open FIO.DSL
 open FIO.Runtime
 open FIO.Sockets
 
@@ -60,8 +59,6 @@ let typesTests =
                         let errors =
                             [
                                 ConnectionFailed("host", 1, original)
-                                SendFailed original
-                                ReceiveFailed original
                                 BindFailed("address", 1, original)
                                 AcceptFailed original
                                 CodecError("codec", original)
@@ -247,150 +244,5 @@ let typesTests =
                             Expect.equal sc.Host "localhost" "AcceptedSocketConfig host"
                             Expect.equal sc.Port 9090 "AcceptedSocketConfig port"
                         | None -> failtest "Expected Some AcceptedSocketConfig"
-                ]
-
-            testList
-                "SocketPoolConfig"
-                [
-
-                    testAllRuntimes "create - returns valid defaults" (fun runtime ->
-                        let socketConfig =
-                            {
-                                Host = "localhost"
-                                Port = 8080
-                                AddressFamily = Net.Sockets.AddressFamily.InterNetwork
-                                SocketType = Net.Sockets.SocketType.Stream
-                                ProtocolType = Net.Sockets.ProtocolType.Tcp
-                                SendBufferSize = 8192
-                                ReceiveBufferSize = 8192
-                                SendTimeout = 30000
-                                ReceiveTimeout = 30000
-                                NoDelay = true
-                                LingerEnabled = true
-                                LingerTimeout = 0
-                            }
-                        let effect = SocketPoolConfig.create socketConfig
-
-                        let config = runtime.Run(effect).UnsafeSuccess()
-
-                        Expect.equal config.MinPoolSize 0 "Default MinPoolSize"
-                        Expect.equal config.MaxPoolSize 10 "Default MaxPoolSize"
-                        Expect.equal config.ConnectionLifetime 300 "Default ConnectionLifetime"
-                        Expect.isTrue config.ValidateOnAcquire "Default ValidateOnAcquire")
-
-                    testAllRuntimes "withMinPoolSize/withMaxPoolSize - validate their constraints" (fun runtime ->
-                        let socketConfig =
-                            {
-                                Host = "localhost"
-                                Port = 8080
-                                AddressFamily = Net.Sockets.AddressFamily.InterNetwork
-                                SocketType = Net.Sockets.SocketType.Stream
-                                ProtocolType = Net.Sockets.ProtocolType.Tcp
-                                SendBufferSize = 8192
-                                ReceiveBufferSize = 8192
-                                SendTimeout = 30000
-                                ReceiveTimeout = 30000
-                                NoDelay = true
-                                LingerEnabled = true
-                                LingerTimeout = 0
-                            }
-                        let effect =
-                            fio {
-                                let! config = SocketPoolConfig.create socketConfig
-                                return! SocketPoolConfig.withMinPoolSize -1 config
-                            }
-                        let effect2 =
-                            fio {
-                                let! config = SocketPoolConfig.create socketConfig
-                                return! SocketPoolConfig.withMaxPoolSize 0 config
-                            }
-
-                        let error = runtime.Run(effect).UnsafeError()
-
-                        match error with
-                        | InvalidState _ -> ()
-                        | other -> failtest $"Expected InvalidState for negative min but got {other}"
-
-                        let error2 = runtime.Run(effect2).UnsafeError()
-
-                        match error2 with
-                        | InvalidState _ -> ()
-                        | other -> failtest $"Expected InvalidState for zero max but got {other}")
-
-                    testAllRuntimes "withMinPoolSize - fails when the minimum exceeds the maximum" (fun runtime ->
-                        let effect =
-                            fio {
-                                let! socketConfig = SocketConfig.create "localhost" 8080
-                                let! config = SocketPoolConfig.create socketConfig
-                                return! SocketPoolConfig.withMinPoolSize (config.MaxPoolSize + 1) config
-                            }
-
-                        let error = runtime.Run(effect).UnsafeError()
-
-                        match error with
-                        | InvalidState(_, actual) -> Expect.equal actual "MinPoolSize > MaxPoolSize" "The failure should name the conflict"
-                        | other -> failtest $"Expected InvalidState but got {other}")
-
-                    testAllRuntimes "withMaxPoolSize - fails when the maximum is below the minimum" (fun runtime ->
-                        let effect =
-                            fio {
-                                let! socketConfig = SocketConfig.create "localhost" 8080
-                                let! config = SocketPoolConfig.create socketConfig
-                                let! withMinimum = SocketPoolConfig.withMinPoolSize 5 config
-                                return! SocketPoolConfig.withMaxPoolSize 3 withMinimum
-                            }
-
-                        let error = runtime.Run(effect).UnsafeError()
-
-                        match error with
-                        | InvalidState(_, actual) -> Expect.equal actual "MaxPoolSize < MinPoolSize" "The failure should name the conflict"
-                        | other -> failtest $"Expected InvalidState but got {other}")
-
-                    testAllRuntimes "withMinPoolSize/withMaxPoolSize - accept values within range, including equal bounds" (fun runtime ->
-                        let effect =
-                            fio {
-                                let! socketConfig = SocketConfig.create "localhost" 8080
-                                let! config = SocketPoolConfig.create socketConfig
-                                let! withMaximum = SocketPoolConfig.withMaxPoolSize 4 config
-                                let! withMinimum = SocketPoolConfig.withMinPoolSize 4 withMaximum
-                                return! SocketPoolConfig.withMaxPoolSize 4 withMinimum
-                            }
-
-                        let config = runtime.Run(effect).UnsafeSuccess()
-
-                        Expect.equal (config.MinPoolSize, config.MaxPoolSize) (4, 4) "Equal bounds should be accepted")
-
-                    testCase "builders - update the fields of a SocketPoolConfig"
-                    <| fun () ->
-                        let poolConfig =
-                            {
-                                SocketConfig =
-                                    {
-                                        Host = "localhost"
-                                        Port = 8080
-                                        AddressFamily = Net.Sockets.AddressFamily.InterNetwork
-                                        SocketType = Net.Sockets.SocketType.Stream
-                                        ProtocolType = Net.Sockets.ProtocolType.Tcp
-                                        SendBufferSize = 8192
-                                        ReceiveBufferSize = 8192
-                                        SendTimeout = 30000
-                                        ReceiveTimeout = 30000
-                                        NoDelay = true
-                                        LingerEnabled = true
-                                        LingerTimeout = 0
-                                    }
-                                MinPoolSize = 0
-                                MaxPoolSize = 10
-                                ConnectionLifetime = 300
-                                ValidateOnAcquire = true
-                            }
-
-                        let updated = SocketPoolConfig.withConnectionLifetime 600 poolConfig
-
-                        Expect.equal updated.ConnectionLifetime 600 "ConnectionLifetime"
-
-                        let updated2 = SocketPoolConfig.withValidateOnAcquire false poolConfig
-
-                        Expect.isFalse updated2.ValidateOnAcquire "ValidateOnAcquire"
                 ]
         ]

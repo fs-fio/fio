@@ -2,8 +2,8 @@ namespace FIO.DSL
 
 open System.Threading
 
-/// A mutable reference to an immutable value, updated atomically without locks; a transition may run more than
-/// once under contention, so keep it pure. With this namespace open, <c>Ref&lt;'A&gt;</c> means this type.
+/// <summary>A mutable reference to an immutable value, updated atomically without locks; a transition may run more than
+/// once under contention, so keep it pure. With this namespace open, <c>Ref&lt;'A&gt;</c> means this type.</summary>
 [<Sealed>]
 type Ref<'A>(initial: 'A) =
 

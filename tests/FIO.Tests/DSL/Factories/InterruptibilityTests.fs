@@ -108,6 +108,78 @@ let tests =
                         Expect.isTrue (waitForFlag unwound) "The fiber should unwind once the finalizer ends"
                         Expect.isFalse after.Value "Code in the continuation after the finalizer should not run")
 
+                    testAllRuntimes "OnExit - code after the finalizer does not run once the fiber was interrupted during it" (fun runtime ->
+                        let entered = new ManualResetEventSlim false
+                        let gate = new ManualResetEventSlim false
+                        let after = ref false
+                        let unwound = ref false
+                        let finalizer (_: FiberResult<unit, exn>) =
+                            FIO.attempt (fun () ->
+                                entered.Set()
+                                gate.Wait()) id
+                        let effect =
+                            fio {
+                                do! FIO.unit<exn>().OnExit finalizer
+                                after.Value <- true
+                            }
+
+                        let fiber = runtime.Run(effect.Ensuring(FIO.succeedWith (fun () -> unwound.Value <- true)))
+
+                        Expect.isTrue (entered.Wait(TimeSpan.FromSeconds 5.0)) "The finalizer should start"
+
+                        runtime.Run(fiber.InterruptNow()).Task().Wait()
+                        gate.Set()
+
+                        Expect.isTrue (waitForFlag unwound) "The fiber should unwind once the finalizer ends"
+                        Expect.isFalse after.Value "Code in the continuation after the finalizer should not run")
+
+                    testAllRuntimes "OnExit - in an uninterruptible region, the finalizer sees the success of an effect interrupted meanwhile" (fun runtime ->
+                        let entered = new ManualResetEventSlim false
+                        let gate = new ManualResetEventSlim false
+                        let seen = ref None
+                        let body =
+                            FIO.attempt (fun () ->
+                                entered.Set()
+                                gate.Wait()
+                                5) id
+                        let region = body.OnExit(fun outcome -> FIO.succeedWith (fun () -> seen.Value <- Some outcome))
+
+                        let fiber = runtime.Run(FIO.uninterruptible region)
+
+                        Expect.isTrue (entered.Wait(TimeSpan.FromSeconds 5.0)) "The region should start"
+
+                        runtime.Run(fiber.InterruptNow()).Task().Wait()
+                        gate.Set()
+
+                        Expect.isTrue (waitUntil (fun () -> seen.Value.IsSome)) "The finalizer should run once the body ends"
+                        Expect.equal seen.Value (Some(Succeeded 5)) "The finalizer should see the body's own outcome, not the pending interruption"
+
+                        let result = fiber.Task().Result
+
+                        match result with
+                        | Interrupted _ -> ()
+                        | other -> failtest $"Expected the interruption to take effect at the region's end, got {other}")
+
+                    testAllRuntimes "OnExit - runs the finalizer uninterruptibly" (fun runtime ->
+                        let started = new ManualResetEventSlim false
+                        let cancellable = ref true
+                        let finished = ref false
+                        let finalizer (_: FiberResult<unit, exn>) : FIO<unit, exn> =
+                            fio {
+                                let! token = FIO.cancellationToken ()
+                                cancellable.Value <- token.CanBeCanceled
+                                do! FIO.sleep (TimeSpan.FromMilliseconds 100.0)
+                                finished.Value <- true
+                            }
+                        let fiber = runtime.Run(FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> FIO.never<unit, exn> ()).OnExit(finalizer))
+
+                        Expect.isTrue (started.Wait(TimeSpan.FromSeconds 5.0)) "The fiber should start"
+
+                        runtime.Run(fiber.InterruptNow()).Task().Wait()
+
+                        Expect.isTrue (waitForFlag finished) "The finalizer should sleep to its end although its fiber was interrupted"
+                        Expect.isFalse cancellable.Value "The finalizer should get a token that never cancels")
+
                     testAllRuntimes "Uninterruptible - the member form defers interruption too" (fun runtime ->
                         let entered = new ManualResetEventSlim false
                         let gate = new ManualResetEventSlim false

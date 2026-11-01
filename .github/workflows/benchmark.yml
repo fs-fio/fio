@@ -30,6 +30,8 @@ jobs:
   benchmark:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      FIO_BENCH_RUNTIMES: "Direct,WorkStealing-2-200"
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -45,7 +47,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
           path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj', 'Directory.Packages.props', 'global.json') }}
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj', 'Directory.Build.props', 'Directory.Packages.props', 'global.json') }}
           restore-keys: |
             ${{ runner.os }}-nuget-
 
@@ -55,7 +57,6 @@ jobs:
       - name: Smoke test (all benchmarks × all runtimes, tiny params — fail fast on hang/throw)
         timeout-minutes: 10
         env:
-          FIO_BENCH_RUNTIMES: "Direct,Polling-2-200-1,Signaling-2-200-1,WorkStealing-2-200-1"
           FIO_BENCH_BANG_ACTORS: "4"
           FIO_BENCH_BANG_ROUNDS: "10"
           FIO_BENCH_BIG_ACTORS: "4"
@@ -79,16 +80,15 @@ jobs:
       - name: Run Pingpong benchmark (all runtimes)
         timeout-minutes: 20
         env:
-          FIO_BENCH_RUNTIMES: "Direct,Polling-2-200-1,Signaling-2-200-1,WorkStealing-2-200-1"
           FIO_BENCH_PINGPONG_ROUNDS: "50000"
           FIO_BENCH_WARMUP: "1"
           FIO_BENCH_ITERATIONS: "5"
         run: |
           dotnet run -c Release --project benchmarks/FIO.Benchmarks -- \
             --filter "*Pingpong*" \
-            --exporters json github
+            --exporters json
 
-      - name: Display benchmark summary
+      - name: Summarize results and convert them to tracking JSON
         run: |
           set -euo pipefail
           report_md=$(find BenchmarkDotNet.Artifacts/results -name '*PingpongBenchmark-report-github.md' | head -1)
@@ -103,10 +103,6 @@ jobs:
             cat "$report_md"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Convert results to tracking JSON
-        run: |
-          set -euo pipefail
           report_json=$(find BenchmarkDotNet.Artifacts/results -name '*PingpongBenchmark-report-full-compressed.json' | head -1)
           if [[ -z "$report_json" ]]; then
             echo "::error::No Pingpong JSON report found under BenchmarkDotNet.Artifacts/results — did the --exporters json flag take effect?"

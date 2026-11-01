@@ -58,6 +58,7 @@ let tests =
                     testCase "mergeAll - stack-safe over 10000 effects"
                     <| fun () ->
                         for runtime in allRuntimes () do
+                            use _ = runtime
                             let effects = [ 1 .. 10000 ] |> List.map FIO.succeed
                             let effect = FIO.mergeAll effects 0 (+)
 
@@ -136,6 +137,7 @@ let tests =
                     testCase "reduceAll - stack-safe over 10000 effects"
                     <| fun () ->
                         for runtime in allRuntimes () do
+                            use _ = runtime
                             let tail = [ 1 .. 9999 ] |> List.map FIO.succeed
                             let effect = FIO.reduceAll (FIO.succeed 0) tail (+)
 
@@ -224,6 +226,7 @@ let tests =
                     testCase "partition - stack-safe over 10000 items"
                     <| fun () ->
                         for runtime in allRuntimes () do
+                            use _ = runtime
                             let xs = [ 1 .. 10000 ]
                             let f x =
                                 if x % 2 = 0 then FIO.succeed x
@@ -284,6 +287,7 @@ let tests =
                     testCase "partitionPar - does not interrupt siblings on failure"
                     <| fun () ->
                         for runtime in allRuntimes () do
+                            use _ = runtime
                             let mutable completed = 0
                             let n = 10
                             let f i =
@@ -350,6 +354,7 @@ let tests =
                     testCase "validate - stack-safe over 10000 items"
                     <| fun () ->
                         for runtime in allRuntimes () do
+                            use _ = runtime
                             let xs = [ 1 .. 10000 ]
                             let effect = FIO.validate xs (fun x -> FIO.succeed x)
 
@@ -405,6 +410,7 @@ let tests =
                     testCase "validatePar - does not interrupt siblings on failure"
                     <| fun () ->
                         for runtime in allRuntimes () do
+                            use _ = runtime
                             let mutable completed = 0
                             let n = 10
                             let f i =
@@ -470,6 +476,7 @@ let tests =
                     testCase "collectAllSuccesses - stack-safe over 10000 effects"
                     <| fun () ->
                         for runtime in allRuntimes () do
+                            use _ = runtime
                             let effects = [ 1 .. 10000 ] |> List.map FIO.succeed
                             let effect = FIO.collectAllSuccesses effects
 

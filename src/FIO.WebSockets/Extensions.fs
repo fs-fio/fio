@@ -13,7 +13,7 @@ module WebSocketExtensions =
         /// Sends a value as JSON text, optionally using the given serializer options and cancellation token.
         member this.SendJson<'A> (value: 'A, ?options: JsonSerializerOptions, ?cancellationToken: CancellationToken) : FIO<unit, WsError> =
             fio {
-                let opts = defaultArg options (JsonSerializerOptions())
+                let opts = defaultArg options JsonSerializerOptions.Default
 
                 let! cancellationToken =
                     match cancellationToken with
@@ -31,7 +31,7 @@ module WebSocketExtensions =
         /// Receives a JSON value, optionally using the given serializer options and cancellation token.
         member this.ReceiveJson<'A> (?options: JsonSerializerOptions, ?cancellationToken: CancellationToken) : FIO<'A, WsError> =
             fio {
-                let opts = defaultArg options (JsonSerializerOptions())
+                let opts = defaultArg options JsonSerializerOptions.Default
 
                 let! cancellationToken =
                     match cancellationToken with

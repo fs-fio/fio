@@ -37,6 +37,10 @@ let client = fio {
 }
 ```
 
+`SendString`/`ReceiveString` (and the other string, bytes and JSON helpers) are extension members from
+`FIO.WebSockets.WebSocketExtensions`, which is not opened automatically; the type's own members are
+`SendText`/`SendBinary`/`SendFrame`/`Send` and `ReceiveMessage`/`Receive`/`TryReceive`.
+
 ## Server
 
 ```fsharp
@@ -57,8 +61,9 @@ let server = fio {
 }
 ```
 
-With `start` and `accept` the listener and the connection are yours to close, as above; `serve` and
-`acceptLoop` do it for you.
+With `start` and `accept`/`acceptDefault` the listener and the connection are yours to close, as above;
+`close` stops the listener and releases it, and closing it again does nothing. `serve` does it for you;
+`acceptLoop` closes the connections and only stops the listener it was given.
 
 `start` and `serve` take an `HttpListener` URL prefix, and its host does two jobs: it is the address
 bound — only the first one a name resolves to — and a filter on each request's `Host` header. So
@@ -188,7 +193,7 @@ Interrupting `serve` or `acceptLoop` shuts the server down gracefully, as the se
    own finalizers and uninterruptible regions still run to their end, and the shutdown waits for them.
 3. The listener is stopped, and with it the refusing of new requests. If .NET's `Stop()` fails midway
    and leaves the refusal waiting for a request that cannot come, the refusal is cut after a second
-   rather than holding the shutdown. `serve` also disposes the listener.
+   rather than holding the shutdown. `serve` also closes the listener.
 
 Requests that arrive during the shutdown are refused with 503. Handlers are the loop's children, forked
 while it hands a connection off uninterruptibly, so interrupting the loop leaves them running until the

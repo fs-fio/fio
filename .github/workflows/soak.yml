@@ -1,0 +1,64 @@
+name: Nightly Soak
+
+# A crash or race that one CI run rarely hits (one GC crash in 1,000 local runs, 2026-10-10) needs many runs, and
+# a crash needs a dump to be diagnosed. Scheduled runs start once this file is on the default branch.
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: Number of runs of the core test suite
+        default: "20"
+
+permissions:
+  contents: read
+
+env:
+  FIO_RUN_STRESS: "1"
+
+jobs:
+  soak:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+
+    timeout-minutes: 150
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj', 'Directory.Build.props', 'Directory.Packages.props', 'global.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Soak the core suite (Release)
+        run: >
+          bash scripts/stress-test.sh ${{ inputs.runs || '20' }} tests/FIO.Tests/FIO.Tests.fsproj
+          --logger "trx;LogFilePrefix=soak-${{ matrix.os }}"
+          --results-directory ./soak-results
+          --blame-hang-timeout 5m --blame-hang-dump-type mini
+          --blame-crash --blame-crash-dump-type mini
+
+      - name: Upload failures
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: soak-failures-${{ matrix.os }}
+          path: |
+            ./soak-results/**/*.trx
+            ./soak-results/**/*.dmp
+            ./soak-results/**/Sequence_*.xml
+          if-no-files-found: ignore
