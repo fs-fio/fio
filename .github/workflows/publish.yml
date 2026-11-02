@@ -11,12 +11,14 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  publish:
+  pack:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      prerelease: ${{ steps.release.outputs.prerelease }}
 
     steps:
       - name: Checkout code
@@ -108,17 +110,51 @@ jobs:
           name: nuget-packages
           path: ./nupkgs/*.nupkg
 
-      # Only a pushed tag publishes; a manual run, on a branch or on a tag, is a dry run.
+  # Only a pushed tag publishes; a manual run, on a branch or on a tag, is a dry run that stops after packing. This job
+  # runs none of the repository's code, so only it holds the release permissions. Trusted publishing: NuGet/login swaps
+  # the job's OIDC token for a short-lived API key, and the nuget.org policy names this repository, this file
+  # (publish.yml) and the production environment, so renaming any of them breaks publishing.
+  publish:
+    needs: pack
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+
+      - name: Download packages
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: nuget-packages
+          path: ./nupkgs
+
+      - name: Log in to NuGet.org
+        id: nuget-login
+        uses: NuGet/login@8d196754b4036150537f80ac539e15c2f1028841 # v1.2.0
+        with:
+          user: iyyel
+
       - name: Push to NuGet.org
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
         run: dotnet nuget push ./nupkgs/*.nupkg --api-key "$NUGET_API_KEY" --source https://api.nuget.org/v3/index.json --skip-duplicate
 
       - name: Create GitHub Release
-        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           generate_release_notes: true
-          prerelease: ${{ steps.release.outputs.prerelease == 'true' }}
+          prerelease: ${{ needs.pack.outputs.prerelease == 'true' }}
           files: ./nupkgs/*.nupkg
