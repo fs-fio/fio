@@ -6,6 +6,7 @@ updates:
       interval: "weekly"
     ignore:
       - dependency-name: "FSharp.Core"
+      - dependency-name: "fantomas"
     groups:
       minor-and-patch:
         patterns:

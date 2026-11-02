@@ -290,7 +290,7 @@ let consoleTests =
 
                 testCase "readLine - a pending read does not occupy an evaluation worker" (fun () ->
                     withBlockingStdIn "released" (fun gate ->
-                        use runtime = new WorkStealingRuntime { WorkerConfig.Default with EvaluationWorkers = 1 }
+                        use runtime = new WorkStealingRuntime({ WorkerConfig.Default with EvaluationWorkers = 1 })
 
                         let pending = runtime.Run(Console.readLine<exn> id)
                         Thread.Sleep 50
@@ -311,7 +311,7 @@ let consoleTests =
                     use gate = new ManualResetEventSlim false
                     use reader = new SequencedReader(gate, [| "first"; "second" |])
                     Console.SetIn reader
-                    use runtime = new WorkStealingRuntime { WorkerConfig.Default with EvaluationWorkers = 1 }
+                    use runtime = new WorkStealingRuntime({ WorkerConfig.Default with EvaluationWorkers = 1 })
 
                     try
                         let reading = runtime.Run(Console.readLine<exn> id)

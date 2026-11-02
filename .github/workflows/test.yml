@@ -18,6 +18,28 @@ env:
   FIO_RUN_STRESS: "1"
 
 jobs:
+  # Layout is Fantomas's (the version pinned in dotnet-tools.json, with the .editorconfig override): this job fails on
+  # any F# file the formatter would change. `dotnet fantomas .` fixes it.
+  format:
+    runs-on: ubuntu-latest
+
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Check formatting
+        run: dotnet fantomas --check .
+
   build:
     strategy:
       matrix:
