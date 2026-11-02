@@ -29,8 +29,7 @@ let channelTests =
                                 return chan.Count
                             }
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result 0 "New channel should have count 0"
 
@@ -43,8 +42,7 @@ let channelTests =
                                 return chan1.Count, chan2.Count
                             }
 
-                        let c1, c2 =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let c1, c2 = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal c1 1 "Channel with message should have count 1"
                         Expect.equal c2 0 "Other channel should remain at count 0")
@@ -62,8 +60,7 @@ let channelTests =
                                 return chan1.Id, chan2.Id
                             }
 
-                        let id1, id2 =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let id1, id2 = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.notEqual id1 id2 "Each channel should have a unique id"
                         Expect.notEqual id1 Guid.Empty "Channel id should not be empty"
@@ -78,8 +75,7 @@ let channelTests =
                                 return id1, id2
                             }
 
-                        let id1, id2 =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let id1, id2 = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal id1 id2 "Id should return the same value on repeated access"
                 ]
@@ -98,8 +94,7 @@ let channelTests =
                                 return before, after
                             }
 
-                        let before, after =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let before, after = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal before 0 "Count should be 0 before send"
                         Expect.equal after 1 "Count should be 1 after send"
@@ -116,8 +111,7 @@ let channelTests =
                                 return before, after
                             }
 
-                        let before, after =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let before, after = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal before 1 "Count should be 1 before receive"
                         Expect.equal after 0 "Count should be 0 after receive"
@@ -137,8 +131,7 @@ let channelTests =
                                 return afterThreeSends, afterOneReceive, afterTwoReceives
                             }
 
-                        let c3, c2, c1 =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let c3, c2, c1 = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal c3 3 "Count should be 3 after three sends"
                         Expect.equal c2 2 "Count should be 2 after one receive"
@@ -157,8 +150,7 @@ let channelTests =
                                 return sent
                             }
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result msg "Send should return the sent message"
 
@@ -171,8 +163,7 @@ let channelTests =
                                 return sent
                             }
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result msg "Send should return the sent string"
 
@@ -185,8 +176,7 @@ let channelTests =
                                 return sent
                             }
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result (a, b) "Send should return the sent tuple"
                 ]
@@ -204,8 +194,7 @@ let channelTests =
                                 return received
                             }
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result msg "Receive should return the sent message"
 
@@ -219,8 +208,7 @@ let channelTests =
                                 return received
                             }
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result msg "Receive should work with string type"
 
@@ -238,8 +226,7 @@ let channelTests =
                                 return [ r1; r2; r3 ]
                             }
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result [ 1; 2; 3 ] "Messages should be received in FIFO order"
 
@@ -257,8 +244,7 @@ let channelTests =
                                 return [ r1; r2; r3 ]
                             }
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result [ 10; 20; 30 ] "Alternating send/receive should work correctly"
 
@@ -272,8 +258,7 @@ let channelTests =
                                 return received
                             }
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result 42 "Blocked receiver should get message once sent")
                 ]
@@ -297,8 +282,7 @@ let channelTests =
                                 return [ v1; v2; v3 ] |> List.sort
                             }
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result [ 1; 2; 3 ] "All receivers should get messages")
 
@@ -318,8 +302,7 @@ let channelTests =
                                 return [ v1; v2; v3 ] |> List.sort
                             }
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result [ 1; 2; 3 ] "All sent messages should be receivable")
                 ]
@@ -340,8 +323,7 @@ let channelTests =
                                 return c1, c2, received
                             }
 
-                        let c1, c2, received =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let c1, c2, received = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal c1 1 "Source channel should have 1 message"
                         Expect.equal c2 0 "Other channel should be empty"
@@ -357,12 +339,11 @@ let channelTests =
                                 let chan = Channel<int>()
                                 let! receiverFiber = (chan.Read()).Fork()
                                 do! FIO.sleep (TimeSpan.FromMilliseconds 10.0)
-                                do! receiverFiber.InterruptNow ()
+                                do! receiverFiber.InterruptNow()
                                 return receiverFiber
                             }
 
-                        let fiber =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let fiber = runtime.Run(effect).UnsafeSuccess()
                         let result = fiber.UnsafeResult()
 
                         match result with
@@ -409,30 +390,27 @@ let channelTests =
                                         let chan = Channel<int>()
 
                                         let! receiverFibers =
-                                            FIO.forEach [ 1..receiverCount ] (fun _ ->
-                                                chan.Read().Fork())
+                                            FIO.forEach [ 1..receiverCount ] (fun _ -> chan.Read().Fork())
 
                                         let! senderFibers =
-                                            FIO.forEach [ 1..receiverCount ] (fun i ->
-                                                chan.Write(i).Unit().Fork())
+                                            FIO.forEach [ 1..receiverCount ] (fun i -> chan.Write(i).Unit().Fork())
 
                                         do! FIO.forEachDiscard senderFibers (fun sf -> sf.Join())
 
-                                        let! results =
-                                            FIO.forEach receiverFibers (fun rf -> rf.Join())
+                                        let! results = FIO.forEach receiverFibers (fun rf -> rf.Join())
 
                                         return results |> List.sort
                                     }
 
-                                let result =
-                                    runtime.Run(effect).UnsafeSuccess()
+                                let result = runtime.Run(effect).UnsafeSuccess()
 
                                 Expect.equal
                                     result
                                     [ 1..receiverCount ]
                                     "All blocked receivers must be rescheduled (no lost signals)"
 
-                        stressTestCase "Stress - bounded-buffer pattern at high iteration count (lost-wakeup regression)"
+                        stressTestCase
+                            "Stress - bounded-buffer pattern at high iteration count (lost-wakeup regression)"
                         <| fun () ->
                             let producerCount = 4
                             let consumerCount = 4
@@ -453,7 +431,7 @@ let channelTests =
                                             fio {
                                                 if delivered < totalItems then
                                                     match! hub.Read() with
-                                                    | Choice1Of2 (item, ack) ->
+                                                    | Choice1Of2(item, ack) ->
                                                         if waitingConsumers.Count > 0 then
                                                             let reply = waitingConsumers.Dequeue()
                                                             delivered <- delivered + 1
@@ -488,10 +466,12 @@ let channelTests =
                                         }
 
                                     let consumerCounts =
-                                        [ for index in 0 .. consumerCount - 1 ->
-                                            let baseCount = totalItems / consumerCount
-                                            let remainder = totalItems % consumerCount
-                                            if index < remainder then baseCount + 1 else baseCount ]
+                                        [
+                                            for index in 0 .. consumerCount - 1 ->
+                                                let baseCount = totalItems / consumerCount
+                                                let remainder = totalItems % consumerCount
+                                                if index < remainder then baseCount + 1 else baseCount
+                                        ]
 
                                     let consumer count =
                                         fio {
@@ -510,7 +490,8 @@ let channelTests =
 
                             if not (task.Wait(TimeSpan.FromSeconds 120.0)) then
                                 failwith "Deadlock detected: signal-protocol lost-wakeup race regressed"
-                    ])
+                    ]
+            )
 
             testList
                 "TryWrite"
@@ -518,19 +499,27 @@ let channelTests =
                     testAllRuntimes "TryWrite - an unbounded channel always accepts" (fun runtime ->
                         let chan = Channel<int>()
 
-                        let accepted = runtime.Run(chan.TryWrite 1 : FIO<bool, exn>).UnsafeSuccess()
+                        let accepted = runtime.Run(chan.TryWrite 1: FIO<bool, exn>).UnsafeSuccess()
 
                         Expect.isTrue accepted "An unbounded channel should accept the message"
                         Expect.equal chan.Count 1 "The message should be buffered")
 
-                    testCase "Channel - members take the element type, never obj" <| fun () ->
+                    testCase "Channel - members take the element type, never obj"
+                    <| fun () ->
                         let untyped =
-                            typeof<Channel<int>>.GetMethods(
-                                Reflection.BindingFlags.Public ||| Reflection.BindingFlags.Instance ||| Reflection.BindingFlags.DeclaredOnly)
-                            |> Array.filter (fun m -> m.GetParameters() |> Array.exists (fun p -> p.ParameterType = typeof<obj>))
+                            typeof<Channel<int>>
+                                .GetMethods(
+                                    Reflection.BindingFlags.Public
+                                    ||| Reflection.BindingFlags.Instance
+                                    ||| Reflection.BindingFlags.DeclaredOnly
+                                )
+                            |> Array.filter (fun m ->
+                                m.GetParameters() |> Array.exists (fun p -> p.ParameterType = typeof<obj>))
                             |> Array.map _.Name
 
-                        Expect.isEmpty untyped "A member whose parameter was inferred as obj accepts messages of any type"
+                        Expect.isEmpty
+                            untyped
+                            "A member whose parameter was inferred as obj accepts messages of any type"
                 ]
 
             testList
@@ -539,7 +528,9 @@ let channelTests =
                     testAllRuntimes "TryRead - an empty channel yields None without suspending" (fun runtime ->
                         let chan = Channel<int>()
 
-                        let result = runtime.Run(chan.TryRead() : FIO<int option, exn>) |> resultWithin (TimeSpan.FromSeconds 5.0)
+                        let result =
+                            runtime.Run(chan.TryRead(): FIO<int option, exn>)
+                            |> resultWithin (TimeSpan.FromSeconds 5.0)
 
                         match result with
                         | Some(Succeeded None) -> ()
@@ -548,7 +539,7 @@ let channelTests =
                     testPropertyWithConfig fsCheckConfig "TryRead - takes buffered messages in order"
                     <| fun (runtime: FIORuntime, values: int list) ->
                         let chan = Channel<int>()
-                        let effect : FIO<int option list * int option, exn> =
+                        let effect: FIO<int option list * int option, exn> =
                             fio {
                                 do! FIO.forEachDiscard values (fun value -> chan.Write value)
                                 let! taken = FIO.collectAll [ for _ in values -> chan.TryRead() ]
@@ -558,122 +549,162 @@ let channelTests =
 
                         let taken, rest = runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.equal taken (values |> List.map Some) "TryRead should take the messages in the order they were written"
+                        Expect.equal
+                            taken
+                            (values |> List.map Some)
+                            "TryRead should take the messages in the order they were written"
                         Expect.isNone rest "Nothing should be left once every message was taken"
 
-                    testAllRuntimes "TryRead - frees room for a writer waiting on a full bounded channel" (fun runtime ->
-                        let chan = Channel<int>.Bounded 1
-                        let writing = ref false
-                        let effect : FIO<int option * int, exn> =
-                            fio {
-                                do! chan.Write(1).Unit()
+                    testAllRuntimes
+                        "TryRead - frees room for a writer waiting on a full bounded channel"
+                        (fun runtime ->
+                            let chan = Channel<int>.Bounded 1
+                            let writing = ref false
+                            let effect: FIO<int option * int, exn> =
+                                fio {
+                                    do! chan.Write(1).Unit()
 
-                                let! writer =
-                                    (FIO.succeedWith(fun () -> writing.Value <- true).FlatMap(fun () -> chan.Write(2).Unit())).Fork()
+                                    let! writer =
+                                        (FIO
+                                            .succeedWith(fun () -> writing.Value <- true)
+                                            .FlatMap(fun () -> chan.Write(2).Unit()))
+                                            .Fork()
 
-                                do! FIO.succeedWith (fun () -> waitForFlag writing |> ignore)
-                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
-                                let! first = chan.TryRead()
-                                do! writer.Join()
-                                let! second = chan.Read()
-                                return first, second
-                            }
+                                    do! FIO.succeedWith (fun () -> waitForFlag writing |> ignore)
+                                    do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
+                                    let! first = chan.TryRead()
+                                    do! writer.Join()
+                                    let! second = chan.Read()
+                                    return first, second
+                                }
 
-                        let first, second = runtime.Run(effect).UnsafeSuccess()
+                            let first, second = runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.equal first (Some 1) "TryRead should take the buffered message"
-                        Expect.equal second 2 "The waiting writer should complete once TryRead made room")
+                            Expect.equal first (Some 1) "TryRead should take the buffered message"
+                            Expect.equal second 2 "The waiting writer should complete once TryRead made room")
 
-                    testAllRuntimes "TryRead - a message is taken once, by the parked reader or by TryRead" (fun runtime ->
-                        let chan = Channel<int>()
-                        let effect : FIO<int list, exn> =
-                            fio {
-                                let! reader = chan.Read().Fork()
-                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
-                                do! chan.Write(1).Unit()
-                                do! chan.Write(2).Unit()
-                                let! polled = chan.TryRead()
-                                let! read = reader.Join()
-                                let! leftover = chan.TryRead()
-                                return List.choose id [ polled; Some read; leftover ]
-                            }
+                    testAllRuntimes
+                        "TryRead - a message is taken once, by the parked reader or by TryRead"
+                        (fun runtime ->
+                            let chan = Channel<int>()
+                            let effect: FIO<int list, exn> =
+                                fio {
+                                    let! reader = chan.Read().Fork()
+                                    do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
+                                    do! chan.Write(1).Unit()
+                                    do! chan.Write(2).Unit()
+                                    let! polled = chan.TryRead()
+                                    let! read = reader.Join()
+                                    let! leftover = chan.TryRead()
+                                    return List.choose id [ polled; Some read; leftover ]
+                                }
 
-                        let taken = runtime.Run(effect).UnsafeSuccess()
+                            let taken = runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.equal (List.sort taken) [ 1; 2 ] "Each message should be taken exactly once, and the parked reader should still get one")
+                            Expect.equal
+                                (List.sort taken)
+                                [ 1; 2 ]
+                                "Each message should be taken exactly once, and the parked reader should still get one")
 
-                    stressTestAllRuntimes "Stress - TryRead pollers beside parked readers take every message exactly once" (fun runtime ->
-                        let messageCount = 50_000
-                        let pill = -1
-                        let chan = Channel<int>()
-                        let taken = ConcurrentBag<int>()
-                        let rec reader () : FIO<unit, exn> =
-                            chan.Read().FlatMap(fun message ->
-                                if message = pill then
+                    stressTestAllRuntimes
+                        "Stress - TryRead pollers beside parked readers take every message exactly once"
+                        (fun runtime ->
+                            let messageCount = 50_000
+                            let pill = -1
+                            let chan = Channel<int>()
+                            let taken = ConcurrentBag<int>()
+                            let rec reader () : FIO<unit, exn> =
+                                chan
+                                    .Read()
+                                    .FlatMap(fun message ->
+                                        if message = pill then
+                                            FIO.unit ()
+                                        else
+                                            taken.Add message
+                                            reader ())
+                            let rec poller (remaining: int) : FIO<unit, exn> =
+                                if remaining = 0 then
                                     FIO.unit ()
                                 else
-                                    taken.Add message
-                                    reader ())
-                        let rec poller (remaining: int) : FIO<unit, exn> =
-                            if remaining = 0 then
-                                FIO.unit ()
-                            else
-                                chan.TryRead().FlatMap(fun polled ->
-                                    match polled with
-                                    | Some message ->
-                                        taken.Add message
-                                        poller (remaining - 1)
-                                    | None ->
-                                        FIO.yieldNow().FlatMap(fun () -> poller (remaining - 1)))
-                        let effect =
-                            fio {
-                                let! readers = FIO.collectAll [ for _ in 1..3 -> reader().Fork() ]
-                                let! pollers = FIO.collectAll [ for _ in 1..3 -> (poller 20_000).Fork() ]
-                                do! FIO.forEachDiscard [ 0 .. messageCount - 1 ] (fun message -> chan.Write message)
+                                    chan
+                                        .TryRead()
+                                        .FlatMap(fun polled ->
+                                            match polled with
+                                            | Some message ->
+                                                taken.Add message
+                                                poller (remaining - 1)
+                                            | None -> FIO.yieldNow().FlatMap(fun () -> poller (remaining - 1)))
+                            let effect =
+                                fio {
+                                    let! readers = FIO.collectAll [ for _ in 1..3 -> reader().Fork() ]
+                                    let! pollers = FIO.collectAll [ for _ in 1..3 -> (poller 20_000).Fork() ]
+                                    do!
+                                        FIO.forEachDiscard [ 0 .. messageCount - 1 ] (fun message ->
+                                            chan.Write message)
 
-                                for fiber in pollers do
-                                    do! fiber.Join()
+                                    for fiber in pollers do
+                                        do! fiber.Join()
 
-                                do! FIO.forEachDiscard readers (fun _ -> chan.Write pill)
+                                    do! FIO.forEachDiscard readers (fun _ -> chan.Write pill)
 
-                                for fiber in readers do
-                                    do! fiber.Join()
-                            }
+                                    for fiber in readers do
+                                        do! fiber.Join()
+                                }
 
-                        let result = runtime.Run(effect.TimeoutFail (exn "timed out") (TimeSpan.FromSeconds 60.0)).UnsafeResult()
+                            let result =
+                                runtime
+                                    .Run(effect.TimeoutFail (exn "timed out") (TimeSpan.FromSeconds 60.0))
+                                    .UnsafeResult()
 
-                        match result with
-                        | Succeeded () -> ()
-                        | other -> failtest $"Expected every reader and poller to finish but got %A{other}"
-                        Expect.equal (taken |> Seq.sort |> List.ofSeq) [ 0 .. messageCount - 1 ] "Every message should be taken exactly once")
+                            match result with
+                            | Succeeded() -> ()
+                            | other -> failtest $"Expected every reader and poller to finish but got %A{other}"
+                            Expect.equal
+                                (taken |> Seq.sort |> List.ofSeq)
+                                [ 0 .. messageCount - 1 ]
+                                "Every message should be taken exactly once")
                 ]
 
             testList
                 "Bounded, dropping and sliding channels"
                 [
-                    testCase "Bounded, Dropping and Sliding - build a channel of the element type they are asked for" <| fun () ->
+                    testCase "Bounded, Dropping and Sliding - build a channel of the element type they are asked for"
+                    <| fun () ->
                         for name in [ "Bounded"; "Dropping"; "Sliding" ] do
                             let constructor = typeof<Channel<int>>.GetMethod name
 
                             Expect.isFalse
                                 constructor.IsGenericMethod
                                 $"{name} should take its element type from the channel type, not from a type parameter of its own"
-                            Expect.equal constructor.ReturnType typeof<Channel<int>> $"Channel<int>.{name} should build a Channel<int>"
+                            Expect.equal
+                                constructor.ReturnType
+                                typeof<Channel<int>>
+                                $"Channel<int>.{name} should build a Channel<int>"
 
-                    testCase "Bounded, Dropping and Sliding - reject a capacity below 1" <| fun () ->
-                        Expect.throwsT<ArgumentOutOfRangeException> (fun () -> Channel<int>.Bounded 0 |> ignore) "Bounded 0"
-                        Expect.throwsT<ArgumentOutOfRangeException> (fun () -> Channel<int>.Dropping 0 |> ignore) "Dropping 0"
-                        Expect.throwsT<ArgumentOutOfRangeException> (fun () -> Channel<int>.Sliding 0 |> ignore) "Sliding 0"
+                    testCase "Bounded, Dropping and Sliding - reject a capacity below 1"
+                    <| fun () ->
+                        Expect.throwsT<ArgumentOutOfRangeException>
+                            (fun () -> Channel<int>.Bounded 0 |> ignore)
+                            "Bounded 0"
+                        Expect.throwsT<ArgumentOutOfRangeException>
+                            (fun () -> Channel<int>.Dropping 0 |> ignore)
+                            "Dropping 0"
+                        Expect.throwsT<ArgumentOutOfRangeException>
+                            (fun () -> Channel<int>.Sliding 0 |> ignore)
+                            "Sliding 0"
 
                     testAllRuntimes "Bounded - a write to a full channel waits until a message is read" (fun runtime ->
                         let chan = Channel<int>.Bounded 1
                         let writing = ref false
-                        let effect : FIO<int list * bool * int, exn> =
+                        let effect: FIO<int list * bool * int, exn> =
                             fio {
                                 do! chan.Write(1).Unit()
 
                                 let! writer =
-                                    (FIO.succeedWith(fun () -> writing.Value <- true).FlatMap(fun () -> chan.Write(2).Unit())).Fork()
+                                    (FIO
+                                        .succeedWith(fun () -> writing.Value <- true)
+                                        .FlatMap(fun () -> chan.Write(2).Unit()))
+                                        .Fork()
 
                                 do! FIO.succeedWith (fun () -> waitForFlag writing |> ignore)
                                 do! FIO.sleep (TimeSpan.FromMilliseconds 100.0)
@@ -687,44 +718,55 @@ let channelTests =
 
                         let values, waited, countWhileWaiting = runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.isTrue waited "The second write, already started, should still be waiting while the channel is full"
+                        Expect.isTrue
+                            waited
+                            "The second write, already started, should still be waiting while the channel is full"
                         Expect.equal countWhileWaiting 1 "The waiting write should not have added its message"
                         Expect.equal values [ 1; 2 ] "Both messages should arrive, in order")
 
-                    testAllRuntimes "Bounded - an uninterruptible waiting writer still writes after an interruption" (fun runtime ->
-                        let chan = Channel<int>.Bounded 1
-                        let writing = ref false
-                        let effect : FIO<int * int * bool, exn> =
-                            fio {
-                                do! chan.Write(1).Unit()
+                    testAllRuntimes
+                        "Bounded - an uninterruptible waiting writer still writes after an interruption"
+                        (fun runtime ->
+                            let chan = Channel<int>.Bounded 1
+                            let writing = ref false
+                            let effect: FIO<int * int * bool, exn> =
+                                fio {
+                                    do! chan.Write(1).Unit()
 
-                                let! writer =
-                                    (FIO.uninterruptible (
-                                        FIO.succeedWith(fun () -> writing.Value <- true).FlatMap(fun () -> chan.Write(2).Unit()))).Fork()
+                                    let! writer =
+                                        (FIO.uninterruptible (
+                                            FIO
+                                                .succeedWith(fun () -> writing.Value <- true)
+                                                .FlatMap(fun () -> chan.Write(2).Unit())
+                                        ))
+                                            .Fork()
 
-                                do! FIO.succeedWith (fun () -> waitForFlag writing |> ignore)
-                                do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
-                                do! writer.InterruptNow()
-                                let! first = chan.Read()
-                                let! outcome = writer.Await()
-                                let! second = chan.Read()
+                                    do! FIO.succeedWith (fun () -> waitForFlag writing |> ignore)
+                                    do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
+                                    do! writer.InterruptNow()
+                                    let! first = chan.Read()
+                                    let! outcome = writer.Await()
+                                    let! second = chan.Read()
 
-                                let interrupted =
-                                    match outcome with
-                                    | Interrupted _ -> true
-                                    | _ -> false
+                                    let interrupted =
+                                        match outcome with
+                                        | Interrupted _ -> true
+                                        | _ -> false
 
-                                return first, second, interrupted
-                            }
+                                    return first, second, interrupted
+                                }
 
-                        let first, second, interrupted = runtime.Run(effect).UnsafeSuccess()
+                            let first, second, interrupted = runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.equal (first, second) (1, 2) "The uninterruptible write should land once there is room"
-                        Expect.isTrue interrupted "The writer should still report its interruption")
+                            Expect.equal
+                                (first, second)
+                                (1, 2)
+                                "The uninterruptible write should land once there is room"
+                            Expect.isTrue interrupted "The writer should still report its interruption")
 
                     testAllRuntimes "Bounded - an interrupted waiting writer never writes" (fun runtime ->
                         let chan = Channel<int>.Bounded 1
-                        let effect : FIO<int * int, exn> =
+                        let effect: FIO<int * int, exn> =
                             fio {
                                 do! chan.Write(1).Unit()
                                 let! writer = (chan.Write(2).Unit()).Fork()
@@ -741,26 +783,28 @@ let channelTests =
                         Expect.equal first 1 "The first message should be read"
                         Expect.equal left 0 "The interrupted write should never land")
 
-                    testAllRuntimes "Bounded - TryWrite on a full channel yields false without waiting or writing" (fun runtime ->
-                        let chan = Channel<int>.Bounded 1
-                        let effect : FIO<bool * bool * int * int, exn> =
-                            fio {
-                                let! first = chan.TryWrite 1
-                                let! second = chan.TryWrite 2
-                                let! value = chan.Read()
-                                return first, second, value, chan.Count
-                            }
+                    testAllRuntimes
+                        "Bounded - TryWrite on a full channel yields false without waiting or writing"
+                        (fun runtime ->
+                            let chan = Channel<int>.Bounded 1
+                            let effect: FIO<bool * bool * int * int, exn> =
+                                fio {
+                                    let! first = chan.TryWrite 1
+                                    let! second = chan.TryWrite 2
+                                    let! value = chan.Read()
+                                    return first, second, value, chan.Count
+                                }
 
-                        let first, second, value, left = runtime.Run(effect).UnsafeSuccess()
+                            let first, second, value, left = runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.isTrue first "A channel with room should accept"
-                        Expect.isFalse second "A full bounded channel should refuse without suspending"
-                        Expect.equal value 1 "The channel should keep its original message"
-                        Expect.equal left 0 "The refused message should never be buffered")
+                            Expect.isTrue first "A channel with room should accept"
+                            Expect.isFalse second "A full bounded channel should refuse without suspending"
+                            Expect.equal value 1 "The channel should keep its original message"
+                            Expect.equal left 0 "The refused message should never be buffered")
 
                     testAllRuntimes "Dropping - a full channel refuses new messages and keeps its own" (fun runtime ->
                         let chan = Channel<int>.Dropping 1
-                        let effect : FIO<bool * bool * int * int, exn> =
+                        let effect: FIO<bool * bool * int * int, exn> =
                             fio {
                                 let! first = chan.TryWrite 1
                                 let! second = chan.TryWrite 2
@@ -778,7 +822,7 @@ let channelTests =
 
                     testAllRuntimes "Sliding - a full channel drops its oldest message" (fun runtime ->
                         let chan = Channel<int>.Sliding 2
-                        let effect : FIO<bool * int list * int, exn> =
+                        let effect: FIO<bool * int list * int, exn> =
                             fio {
                                 do! chan.Write(1).Unit()
                                 do! chan.Write(2).Unit()
@@ -794,29 +838,37 @@ let channelTests =
                         Expect.equal values [ 2; 3 ] "The oldest message should have been dropped"
                         Expect.equal left 0 "Nothing else should be buffered")
 
-                    testAllRuntimes "Bounded - many producers and consumers deliver every message exactly once" (fun runtime ->
-                        let chan = Channel<int>.Bounded 4
-                        let producers, perProducer, consumers = 4, 250, 4
-                        let total = producers * perProducer
-                        let produce p : FIO<unit, exn> =
-                            FIO.forEachDiscard [ 1..perProducer ] (fun i -> chan.Write(p * perProducer + i).Unit())
-                        let consume () : FIO<int list, exn> =
-                            FIO.forEach [ 1 .. total / consumers ] (fun _ -> chan.Read())
-                        let effect : FIO<int list, exn> =
-                            fio {
-                                let! producerFibers = FIO.forEach [ 0 .. producers - 1 ] (fun p -> (produce p).Fork())
-                                let! consumerFibers = FIO.forEach [ 1..consumers ] (fun _ -> (consume ()).Fork())
-                                let! received = FIO.forEach consumerFibers (fun fiber -> fiber.Join())
-                                do! FIO.forEachDiscard producerFibers (fun fiber -> fiber.Join())
-                                return List.concat received
-                            }
+                    testAllRuntimes
+                        "Bounded - many producers and consumers deliver every message exactly once"
+                        (fun runtime ->
+                            let chan = Channel<int>.Bounded 4
+                            let producers, perProducer, consumers = 4, 250, 4
+                            let total = producers * perProducer
+                            let produce p : FIO<unit, exn> =
+                                FIO.forEachDiscard [ 1..perProducer ] (fun i -> chan.Write(p * perProducer + i).Unit())
+                            let consume () : FIO<int list, exn> =
+                                FIO.forEach [ 1 .. total / consumers ] (fun _ -> chan.Read())
+                            let effect: FIO<int list, exn> =
+                                fio {
+                                    let! producerFibers =
+                                        FIO.forEach [ 0 .. producers - 1 ] (fun p -> (produce p).Fork())
+                                    let! consumerFibers = FIO.forEach [ 1..consumers ] (fun _ -> (consume ()).Fork())
+                                    let! received = FIO.forEach consumerFibers (fun fiber -> fiber.Join())
+                                    do! FIO.forEachDiscard producerFibers (fun fiber -> fiber.Join())
+                                    return List.concat received
+                                }
 
-                        let task = runtime.Run(effect).Task()
+                            let task = runtime.Run(effect).Task()
 
-                        Expect.isTrue (task.Wait(TimeSpan.FromSeconds 60.0)) "Producers and consumers should finish without a lost wakeup"
-                        match task.Result with
-                        | Succeeded received ->
-                            Expect.equal (List.sort received) [ 1..total ] "Every message should arrive exactly once"
-                        | other -> failtest $"Expected Succeeded, got {other}")
+                            Expect.isTrue
+                                (task.Wait(TimeSpan.FromSeconds 60.0))
+                                "Producers and consumers should finish without a lost wakeup"
+                            match task.Result with
+                            | Succeeded received ->
+                                Expect.equal
+                                    (List.sort received)
+                                    [ 1..total ]
+                                    "Every message should arrive exactly once"
+                            | other -> failtest $"Expected Succeeded, got {other}")
                 ]
         ]

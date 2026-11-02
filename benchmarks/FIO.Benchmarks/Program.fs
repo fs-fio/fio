@@ -15,8 +15,7 @@ open System
 let private defaultWarmupCount = 3
 let private defaultIterationCount = 30
 
-let private summaryStyle =
-    SummaryStyle.Default.WithMaxParameterColumnWidth 40
+let private summaryStyle = SummaryStyle.Default.WithMaxParameterColumnWidth 40
 
 let private parseCount (name: string) (minValue: int) (defaultValue: int) =
     match Environment.GetEnvironmentVariable name with
@@ -38,25 +37,32 @@ let private buildConfig () =
             .WithMinIterationTime(TimeInterval.FromMilliseconds 100.0)
             .WithStrategy(RunStrategy.Throughput)
             .WithGcServer(true)
-            .WithGcConcurrent true
+            .WithGcConcurrent
+            true
 
     ManualConfig.Create(DefaultConfig.Instance).AddJob(job).WithSummaryStyle summaryStyle
 
 [<EntryPoint>]
 let main args =
     let hasCliJob =
-        args |> Array.exists (fun arg -> arg = "--job" || arg.StartsWith "--job=" || arg.StartsWith "-j")
+        args
+        |> Array.exists (fun arg -> arg = "--job" || arg.StartsWith "--job=" || arg.StartsWith "-j")
 
     let config =
-        if hasCliJob then (ManualConfig.Create DefaultConfig.Instance).WithSummaryStyle summaryStyle
-        else buildConfig ()
+        if hasCliJob then
+            (ManualConfig.Create DefaultConfig.Instance).WithSummaryStyle summaryStyle
+        else
+            buildConfig ()
 
     let summaries =
         BenchmarkSwitcher.FromAssembly(typeof<FIOBenchmark>.Assembly).Run(args, config)
 
-    if summaries
-       |> Seq.exists (fun summary ->
-           summary.HasCriticalValidationErrors
-           || summary.Reports |> Seq.exists (fun report -> not report.Success))
-    then 1
-    else 0
+    if
+        summaries
+        |> Seq.exists (fun summary ->
+            summary.HasCriticalValidationErrors
+            || summary.Reports |> Seq.exists (fun report -> not report.Success))
+    then
+        1
+    else
+        0

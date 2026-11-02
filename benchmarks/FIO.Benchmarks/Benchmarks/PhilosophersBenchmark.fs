@@ -20,10 +20,8 @@ module internal Philosophers =
         let pending = Queue<int * Channel<unit>>()
         let mutable doneCount = 0
 
-        let leftFork id =
-            id
-        let rightFork id =
-            (id + 1) % philosopherCount
+        let leftFork id = id
+        let rightFork id = (id + 1) % philosopherCount
         let canEat id =
             forks[leftFork id] && forks[rightFork id]
         let takeForks id =
@@ -82,8 +80,9 @@ module internal Philosophers =
             let totalRounds = philosopherCount * roundCount
 
             let philosophers =
-                [ for id in 0 .. philosopherCount - 1 ->
-                    philosopherEffect arbChannel id roundCount ]
+                [
+                    for id in 0 .. philosopherCount - 1 -> philosopherEffect arbChannel id roundCount
+                ]
 
             do! FIO.collectAllParDiscard (arbitratorEffect arbChannel philosopherCount totalRounds :: philosophers)
         }
@@ -106,5 +105,5 @@ type PhilosophersBenchmark() =
     [<ParamsSource("RoundCounts")>]
     member val RoundCount = 0 with get, set
 
-    override this.CreateEffect () =
+    override this.CreateEffect() =
         Philosophers.effect this.PhilosopherCount this.RoundCount

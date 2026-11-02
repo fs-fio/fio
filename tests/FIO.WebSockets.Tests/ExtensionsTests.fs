@@ -132,7 +132,10 @@ let extensionsTests =
 
                         match outcome with
                         | Error(Closed message) ->
-                            Expect.stringStarts message "Peer closed the connection" "ReceiveString must report the peer's close"
+                            Expect.stringStarts
+                                message
+                                "Peer closed the connection"
+                                "ReceiveString must report the peer's close"
                         | other -> failtest $"Expected Closed but got {other}")
 
                     testAllRuntimes "ReceiveBytes - rejects a text frame" (fun runtime ->
@@ -178,7 +181,10 @@ let extensionsTests =
 
                         match outcome with
                         | Error(Closed message) ->
-                            Expect.stringStarts message "Peer closed the connection" "ReceiveBytes must report the peer's close"
+                            Expect.stringStarts
+                                message
+                                "Peer closed the connection"
+                                "ReceiveBytes must report the peer's close"
                         | other -> failtest $"Expected Closed but got {other}")
 
                     testAllRuntimes "ReceiveJson - fails when the connection closes first" (fun runtime ->

@@ -271,10 +271,15 @@ let handlerTests =
                             HttpRequest.create HttpMethod.POST "/data"
                             |> HttpRequest.withBody (RequestBody.Text "   ")
 
-                        let result = runtime.Run(HttpHandler.parseJsonBody<TestMessage> None req).UnsafeResult()
+                        let result =
+                            runtime.Run(HttpHandler.parseJsonBody<TestMessage> None req).UnsafeResult()
 
                         match result with
-                        | Failed error -> Expect.stringContains error.Message "Request body is empty" "An empty body must be named as such"
+                        | Failed error ->
+                            Expect.stringContains
+                                error.Message
+                                "Request body is empty"
+                                "An empty body must be named as such"
                         | other -> failtest $"Expected failure but got {other}")
 
                     testAllRuntimes "parseJsonBody - fails on a JSON null" (fun runtime ->
@@ -282,10 +287,12 @@ let handlerTests =
                             HttpRequest.create HttpMethod.POST "/data"
                             |> HttpRequest.withBody (RequestBody.Text "null")
 
-                        let result = runtime.Run(HttpHandler.parseJsonBody<TestMessage> None req).UnsafeResult()
+                        let result =
+                            runtime.Run(HttpHandler.parseJsonBody<TestMessage> None req).UnsafeResult()
 
                         match result with
-                        | Failed error -> Expect.stringContains error.Message "deserialized to null" "A JSON null must be rejected"
+                        | Failed error ->
+                            Expect.stringContains error.Message "deserialized to null" "A JSON null must be rejected"
                         | other -> failtest $"Expected failure but got {other}")
 
                     testAllRuntimes "jsonBody - maps a parse failure through onError" (fun runtime ->
@@ -414,7 +421,8 @@ let handlerTests =
                     testAllRuntimes "bytes - carries the payload and content type" (fun runtime ->
                         let payload = [| 7uy; 8uy; 9uy |]
 
-                        let response = runHandler runtime (HttpHandler.bytes payload "application/octet-stream")
+                        let response =
+                            runHandler runtime (HttpHandler.bytes payload "application/octet-stream")
 
                         Expect.equal response.Status HttpStatusCode.OK "200"
                         match response.Body with

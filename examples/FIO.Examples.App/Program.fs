@@ -129,18 +129,20 @@ type PingPongApp() =
     inherit FIOApp<unit, exn>()
 
     let pinger (pingChannel: Channel<string>) (pongChannel: Channel<string>) =
-        pingChannel.Write "ping" >>= fun ping ->
-        Console.printLine $"pinger sent: %s{ping}" id >>= fun _ ->
-        pongChannel.Read() >>= fun pong ->
-        Console.printLine $"pinger received: %s{pong}" id >>= fun _ ->
-        FIO.unit ()
+        pingChannel.Write "ping"
+        >>= fun ping ->
+            Console.printLine $"pinger sent: %s{ping}" id
+            >>= fun _ ->
+                pongChannel.Read()
+                >>= fun pong -> Console.printLine $"pinger received: %s{pong}" id >>= fun _ -> FIO.unit ()
 
     let ponger (pingChannel: Channel<string>) (pongChannel: Channel<string>) =
-        pingChannel.Read() >>= fun ping ->
-        Console.printLine $"ponger received: %s{ping}" id >>= fun _ ->
-        pongChannel.Write "pong" >>= fun pong ->
-        Console.printLine $"ponger sent: %s{pong}" id >>= fun _ ->
-        FIO.unit ()
+        pingChannel.Read()
+        >>= fun ping ->
+            Console.printLine $"ponger received: %s{ping}" id
+            >>= fun _ ->
+                pongChannel.Write "pong"
+                >>= fun pong -> Console.printLine $"ponger sent: %s{pong}" id >>= fun _ -> FIO.unit ()
 
     override _.effect =
         let pingChannel = Channel<string>()
@@ -224,87 +226,75 @@ type AppError =
 type ErrorHandlingApp() =
     inherit FIOApp<string * char, AppError>()
 
-    let readFromDatabase : FIO<string, bool> =
+    let readFromDatabase: FIO<string, bool> =
         fio {
             let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> true)
-            if rand = 0 then return "data"
-            else return! FIO.fail false
+            if rand = 0 then return "data" else return! FIO.fail false
         }
 
-    let awaitWebservice : FIO<char, int> =
+    let awaitWebservice: FIO<char, int> =
         fio {
             let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> -1)
-            if rand = 1 then return 'S'
-            else return! FIO.fail 404
+            if rand = 1 then return 'S' else return! FIO.fail 404
         }
 
-    let databaseResult : FIO<string, AppError> =
-        fio {
-            return! readFromDatabase
-                .CatchAll(fun error -> FIO.fail (DbError error))
-        }
+    let databaseResult: FIO<string, AppError> =
+        fio { return! readFromDatabase.CatchAll(fun error -> FIO.fail (DbError error)) }
 
-    let webserviceResult : FIO<char, AppError> =
-        fio {
-            return! awaitWebservice
-                .CatchAll(fun error -> FIO.fail (WebServiceError error))
-        }
+    let webserviceResult: FIO<char, AppError> =
+        fio { return! awaitWebservice.CatchAll(fun error -> FIO.fail (WebServiceError error)) }
 
     override _.effect =
-        fio {
-            return! (databaseResult <*> webserviceResult)
-                .OrElseSucceed("default", 'D')
-        }
+        fio { return! (databaseResult <*> webserviceResult).OrElseSucceed("default", 'D') }
 
 // Like ErrorHandlingApp, but retries each failing effect before falling back.
 type ErrorHandlingWithRetryApp() =
     inherit FIOApp<string * char, AppError>()
 
-    let readFromDatabase : FIO<string, bool> =
+    let readFromDatabase: FIO<string, bool> =
         fio {
             let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> true)
-            if rand = 0 then return "data"
-            else return! FIO.fail false
+            if rand = 0 then return "data" else return! FIO.fail false
         }
 
-    let awaitWebservice : FIO<char, int> =
+    let awaitWebservice: FIO<char, int> =
         fio {
             let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> -1)
-            if rand = 1 then return 'S'
-            else return! FIO.fail 404
+            if rand = 1 then return 'S' else return! FIO.fail 404
         }
 
-    let databaseResult : FIO<string, AppError> =
+    let databaseResult: FIO<string, AppError> =
         fio {
             let onEachRetry (error, retry, maxRetries) =
-                (Console.printLine $"Database read failed with error: %A{error}. Retry attempt %d{retry} of %d{maxRetries}..." id)
-                    .OrElseFail false
+                (Console.printLine
+                    $"Database read failed with error: %A{error}. Retry attempt %d{retry} of %d{maxRetries}..."
+                    id)
+                    .OrElseFail
+                    false
 
-            return! (readFromDatabase.Retry 4 onEachRetry)
-                .CatchAll(fun error -> FIO.fail (DbError error))
+            return! (readFromDatabase.Retry 4 onEachRetry).CatchAll(fun error -> FIO.fail (DbError error))
         }
 
-    let webserviceResult : FIO<char, AppError> =
+    let webserviceResult: FIO<char, AppError> =
         fio {
             let onEachRetry (error, retry, maxRetries) =
-                (Console.printLine $"Webservice read failed with error: %A{error}. Retry attempt %d{retry} of %d{maxRetries}..." id)
-                    .OrElseFail 400
+                (Console.printLine
+                    $"Webservice read failed with error: %A{error}. Retry attempt %d{retry} of %d{maxRetries}..."
+                    id)
+                    .OrElseFail
+                    400
 
-            return! (awaitWebservice.Retry 4 onEachRetry)
-                .CatchAll(fun error -> FIO.fail (WebServiceError error))
+            return! (awaitWebservice.Retry 4 onEachRetry).CatchAll(fun error -> FIO.fail (WebServiceError error))
         }
 
     override _.effect =
-        fio {
-            return! (databaseResult <*> webserviceResult)
-                .OrElseSucceed("default", 'D')
-        }
+        fio { return! (databaseResult <*> webserviceResult).OrElseSucceed("default", 'D') }
 
 // Wraps failing F# async computations as effects and recovers from their exceptions.
 type AsyncErrorHandlingApp() =
     inherit FIOApp<string * int, AppError>()
 
-    let databaseReadTask : Async<string> =
+    let databaseReadTask: Async<string> =
         async {
             do printfn $"Reading from database..."
 
@@ -314,7 +304,7 @@ type AsyncErrorHandlingApp() =
                 return raise (Exception "Database error!")
         }
 
-    let webserviceAwaitTask : Async<int> =
+    let webserviceAwaitTask: Async<int> =
         async {
             do printfn $"Awaiting webservice..."
 
@@ -324,18 +314,13 @@ type AsyncErrorHandlingApp() =
                 return raise (Exception "Webservice error!")
         }
 
-    let databaseResult : FIO<string, AppError> =
-        (FIO.awaitAsync databaseReadTask id)
-            .CatchAll(fun ex -> FIO.fail (GeneralError ex.Message))
+    let databaseResult: FIO<string, AppError> =
+        (FIO.awaitAsync databaseReadTask id).CatchAll(fun ex -> FIO.fail (GeneralError ex.Message))
 
-    let webserviceResult : FIO<int, AppError> =
-        (FIO.awaitAsync webserviceAwaitTask id)
-            .CatchAll(fun ex -> FIO.fail (GeneralError ex.Message))
+    let webserviceResult: FIO<int, AppError> =
+        (FIO.awaitAsync webserviceAwaitTask id).CatchAll(fun ex -> FIO.fail (GeneralError ex.Message))
 
-    override _.effect =
-        fio {
-            return! databaseResult <&> webserviceResult
-        }
+    override _.effect = fio { return! databaseResult <&> webserviceResult }
 
 // Forks 100,000 sender fibers that each write to a single receiver over one channel.
 type HighlyConcurrentApp() =
@@ -387,13 +372,14 @@ type FiberFromTaskApp() =
     inherit FIOApp<unit, exn>()
 
     let fibonacci n =
-        FIO.forkTask (fun () ->
-            task {
-                printfn $"Task computing Fibonacci of %i{n}..."
-                let value = fib n
-                printfn $"Fibonacci of %i{n} is %i{value}"
-                return ()
-            })
+        FIO.forkTask
+            (fun () ->
+                task {
+                    printfn $"Task computing Fibonacci of %i{n}..."
+                    let value = fib n
+                    printfn $"Fibonacci of %i{n} is %i{value}"
+                    return ()
+                })
             id
 
     override _.effect =
@@ -416,12 +402,13 @@ type FiberFromGenericTaskApp() =
     inherit FIOApp<unit, exn>()
 
     let fibonacci n =
-        FIO.forkTask (fun () ->
-            task {
-                printfn $"Task computing Fibonacci of %i{n}..."
-                let value = fib n
-                return $"Fibonacci of %i{n} is %i{value}"
-            })
+        FIO.forkTask
+            (fun () ->
+                task {
+                    printfn $"Task computing Fibonacci of %i{n}..."
+                    let value = fib n
+                    return $"Fibonacci of %i{n} is %i{value}"
+                })
             id
 
     override _.effect =
@@ -476,8 +463,7 @@ type CustomRuntimeApp() =
 type ShutdownApp() =
     inherit FIOApp<unit, exn>()
 
-    override _.onShutdownTimeout =
-        TimeSpan.FromSeconds 5.0
+    override _.onShutdownTimeout = TimeSpan.FromSeconds 5.0
 
     override _.onShutdown() =
         Console.printLine "Shutdown hook: goodbye (the resource was already released by its finalizer)." id
@@ -509,10 +495,8 @@ type CustomExitCodeApp() =
         | AppFailed error ->
             printfn $"Failed with error code: {error}"
             error
-        | AppInterrupted _ ->
-            130
-        | AppFatalError _ ->
-            2
+        | AppInterrupted _ -> 130
+        | AppFatalError _ -> 2
 
     override _.effect =
         fio {
@@ -538,10 +522,11 @@ type RaceTimeoutApp() =
 
     override _.effect =
         fio {
-            let! winner = (delayed "fast (100ms)" 100 "fast").Race(delayed "slow (500ms)" 500 "slow")
+            let! winner =
+                (delayed "fast (100ms)" 100 "fast").Race(delayed "slow (500ms)" 500 "slow")
             do! Console.printLine $"Race winner: {winner}" id
 
-            match! (delayed "long task (800ms)" 800 42).Timeout (TimeSpan.FromMilliseconds 200.0) with
+            match! (delayed "long task (800ms)" 800 42).Timeout(TimeSpan.FromMilliseconds 200.0) with
             | Some value -> do! Console.printLine $"Completed with {value}" id
             | None -> do! Console.printLine "Timed out after 200ms (as expected)" id
         }
@@ -552,16 +537,17 @@ type ResourceApp() =
 
     let writeTempFile (text: string) (rejectAfterWriting: bool) =
         FIO.acquireReleaseExitWith
-            (FIO.attempt (fun () ->
-                let path = Path.GetTempFileName()
-                path, new StreamWriter(path)) id)
+            (FIO.attempt
+                (fun () ->
+                    let path = Path.GetTempFileName()
+                    path, new StreamWriter(path))
+                id)
             (fun (path, writer) outcome ->
                 fio {
                     do! FIO.attempt (fun () -> writer.Dispose()) id
 
                     match outcome with
-                    | Succeeded _ ->
-                        do! Console.printLine $"Committed: kept {path}" id
+                    | Succeeded _ -> do! Console.printLine $"Committed: kept {path}" id
                     | Failed _
                     | Interrupted _ ->
                         do! FIO.attempt (fun () -> File.Delete path) id
@@ -578,7 +564,9 @@ type ResourceApp() =
     override _.effect =
         fio {
             do! writeTempFile "Hello from FIO!" false
-            do! (writeTempFile "This write is rejected" true).CatchAll(fun ex -> Console.printLine $"Write failed: {ex.Message}" id)
+            do!
+                (writeTempFile "This write is rejected" true)
+                    .CatchAll(fun ex -> Console.printLine $"Write failed: {ex.Message}" id)
         }
 
 // Squares a list of numbers in parallel with forEachPar, then at most three at a time with forEachParN.
@@ -611,10 +599,12 @@ type StatefulActorApp() =
 
     let account (inbox: Channel<AccountMessage>) =
         let rec loop balance =
-            inbox.Read().FlatMap(function
-            | Deposit amount -> loop (balance + amount)
-            | Withdraw amount -> loop (balance - amount)
-            | Balance reply -> reply.Succeed(balance).Unit().FlatMap(fun () -> loop balance))
+            inbox
+                .Read()
+                .FlatMap(function
+                    | Deposit amount -> loop (balance + amount)
+                    | Withdraw amount -> loop (balance - amount)
+                    | Balance reply -> reply.Succeed(balance).Unit().FlatMap(fun () -> loop balance))
         loop 0
 
     override _.effect =
@@ -640,8 +630,7 @@ type SharedCounterApp() =
         fio {
             let counter = Ref<int> 0
 
-            do! FIO.forEachParDiscard [ 1..8 ] (fun _ ->
-                FIO.replicateFIODiscard 1000 (counter.Update(fun n -> n + 1)))
+            do! FIO.forEachParDiscard [ 1..8 ] (fun _ -> FIO.replicateFIODiscard 1000 (counter.Update(fun n -> n + 1)))
 
             let! total = counter.Get()
             do! Console.printLine $"8 fibers x 1000 increments = {total}" id
@@ -666,7 +655,8 @@ type SemaphoreApp() =
                             do! Console.printLine $"{name}: writing block {block}..." id
                             do! FIO.sleep (TimeSpan.FromMilliseconds 100.0)
                             do! Console.printLine $"{name}: block {block} written" id
-                        }))
+                        }
+                    ))
 
             do! job "Backup" <&&> job "Report"
         }
@@ -680,7 +670,7 @@ type HttpClientApp() =
             use client = new HttpClient()
             let fetch = FIO.awaitTask (client.GetStringAsync "https://example.com") id
 
-            match! fetch.Timeout (TimeSpan.FromSeconds 5.0) with
+            match! fetch.Timeout(TimeSpan.FromSeconds 5.0) with
             | Some body -> do! Console.printLine $"Fetched {body.Length} characters from example.com" id
             | None -> do! Console.printLine "Request timed out" id
         }
@@ -716,7 +706,8 @@ let examples =
         nameof HttpClientApp, fun () -> HttpClientApp().Run()
     ]
 
-examples |> List.iteri (fun index (name, example) ->
+examples
+|> List.iteri (fun index (name, example) ->
     printfn $"Running example: {name}\n"
     let exitCode = example ()
     printfn $"\nExample '{name}' completed with exit code: %d{exitCode}"

@@ -15,10 +15,11 @@ open Microsoft.AspNetCore.Http
 
 // The requests in flight on one server: its stop refuses new ones, waits for these, and interrupts what is left.
 [<Sealed; AllowNullLiteral>]
-type internal RequestTracker (runtime: FIO.Runtime.Default.DefaultRuntime) =
+type internal RequestTracker(runtime: FIO.Runtime.Default.DefaultRuntime) =
     let handlers = ConcurrentDictionary<Guid, Fiber<FIO.Http.HttpResponse, exn>>()
 
-    let drained = TaskCompletionSource TaskCreationOptions.RunContinuationsAsynchronously
+    let drained =
+        TaskCompletionSource TaskCreationOptions.RunContinuationsAsynchronously
 
     let cut = TaskCompletionSource TaskCreationOptions.RunContinuationsAsynchronously
 
@@ -30,13 +31,13 @@ type internal RequestTracker (runtime: FIO.Runtime.Default.DefaultRuntime) =
     let mutable cutting = false
 
     // A fiber is interrupted by an effect, and the runtime may already be gone.
-    static member Interrupt (runtime: FIO.Runtime.Default.DefaultRuntime, handler: Fiber<FIO.Http.HttpResponse, exn>) =
+    static member Interrupt(runtime: FIO.Runtime.Default.DefaultRuntime, handler: Fiber<FIO.Http.HttpResponse, exn>) =
         try
             runtime.Run(handler.InterruptNow(): FIO<unit, exn>) |> ignore
         with _ ->
             ()
 
-    member this.TryEnter () =
+    member this.TryEnter() =
         Interlocked.Increment &inFlight |> ignore
 
         if Volatile.Read &stopping = 1 then
@@ -45,21 +46,20 @@ type internal RequestTracker (runtime: FIO.Runtime.Default.DefaultRuntime) =
         else
             true
 
-    member _.Leave () =
+    member _.Leave() =
         if Interlocked.Decrement &inFlight = 0 && Volatile.Read &stopping = 1 then
             drained.TrySetResult() |> ignore
 
-    member _.Register (handler: Fiber<FIO.Http.HttpResponse, exn>) =
+    member _.Register(handler: Fiber<FIO.Http.HttpResponse, exn>) =
         handlers[handler.Id] <- handler
 
         if cutting then
             RequestTracker.Interrupt(runtime, handler)
 
-    member _.Unregister (handler: Fiber<FIO.Http.HttpResponse, exn>) =
-        handlers.TryRemove handler.Id |> ignore
+    member _.Unregister(handler: Fiber<FIO.Http.HttpResponse, exn>) = handlers.TryRemove handler.Id |> ignore
 
     // Refuses new requests from here on; the task completes once none is in flight.
-    member _.BeginStop () : Task =
+    member _.BeginStop() : Task =
         Interlocked.Exchange(&stopping, 1) |> ignore
 
         if Volatile.Read &inFlight = 0 then
@@ -68,10 +68,9 @@ type internal RequestTracker (runtime: FIO.Runtime.Default.DefaultRuntime) =
         drained.Task
 
     // Completes at the cut, so a request is answered even when its handler, having returned, waits for its children.
-    member _.CutTask : Task =
-        cut.Task
+    member _.CutTask: Task = cut.Task
 
-    member _.Cut () =
+    member _.Cut() =
         cutting <- true
         cut.TrySetResult() |> ignore
 
@@ -83,8 +82,7 @@ module KestrelBridge =
 
     /// The default JSON serializer options, for responses and request bodies alike: ASP.NET Core's web defaults
     /// (camelCase names; reading matches names in any casing and accepts numbers written as strings).
-    let defaultJsonOptions : JsonSerializerOptions =
-        JsonDefaults.options
+    let defaultJsonOptions: JsonSerializerOptions = JsonDefaults.options
 
     let private isValidPathSegment (segment: string) =
         not (
@@ -128,7 +126,8 @@ module KestrelBridge =
                                 failure <-
                                     Some(
                                         400,
-                                        $"Request body truncated: received {totalRead} of {length} declared bytes")
+                                        $"Request body truncated: received {totalRead} of {length} declared bytes"
+                                    )
                             | _ -> ()
                         else
                             totalRead <- totalRead + int64 bytesRead
@@ -137,7 +136,8 @@ module KestrelBridge =
                                 failure <-
                                     Some(
                                         413,
-                                        $"Request body size ({totalRead} bytes) exceeds maximum allowed size ({maxBodySize} bytes)")
+                                        $"Request body size ({totalRead} bytes) exceeds maximum allowed size ({maxBodySize} bytes)"
+                                    )
                                 reading <- false
                             else
                                 do! stream.WriteAsync(buffer, 0, bytesRead)
@@ -160,7 +160,8 @@ module KestrelBridge =
                 return
                     Error(
                         413,
-                        $"Request body size ({ctx.Request.ContentLength.Value} bytes) exceeds maximum allowed size ({maxBodySize} bytes)")
+                        $"Request body size ({ctx.Request.ContentLength.Value} bytes) exceeds maximum allowed size ({maxBodySize} bytes)"
+                    )
             else
                 let method = HttpMethod.fromString ctx.Request.Method
 
@@ -198,7 +199,8 @@ module KestrelBridge =
                                     return
                                         Error(
                                             413,
-                                            $"Request body size ({contentLength} bytes) exceeds supported buffer size ({Int32.MaxValue} bytes)")
+                                            $"Request body size ({contentLength} bytes) exceeds supported buffer size ({Int32.MaxValue} bytes)"
+                                        )
                                 else
                                     return! readBodyAsync ctx.Request.Body maxBodySize (Some(int contentLength))
                             else
@@ -211,22 +213,23 @@ module KestrelBridge =
                         let requestId = Guid.NewGuid().ToString()
                         return
                             Ok
-                            {
-                                Method = method
-                                Path = path
-                                PathSegments = segments
-                                QueryParams = queryParams
-                                Headers = headers
-                                Body = body
-                                Metadata = Map.empty |> Map.add "RequestId" (box requestId)
-                            }
+                                {
+                                    Method = method
+                                    Path = path
+                                    PathSegments = segments
+                                    QueryParams = queryParams
+                                    Headers = headers
+                                    Body = body
+                                    Metadata = Map.empty |> Map.add "RequestId" (box requestId)
+                                }
         }
 
     /// Writes an HttpResponse to the Kestrel context using the given JSON options.
     let writeResponseWithOptions
         (jsonOptions: JsonSerializerOptions)
         (ctx: HttpContext)
-        (response: FIO.Http.HttpResponse) : Task<unit> =
+        (response: FIO.Http.HttpResponse)
+        : Task<unit> =
         task {
             let! bodyBytes =
                 task {
@@ -236,8 +239,7 @@ module KestrelBridge =
                         let bytes = Encoding.UTF8.GetBytes text
                         return Some bytes
                     | ResponseBody.Bytes bytes -> return Some bytes
-                    | ResponseBody.Json obj ->
-                        return Some(JsonSerializer.SerializeToUtf8Bytes(obj, jsonOptions))
+                    | ResponseBody.Json obj -> return Some(JsonSerializer.SerializeToUtf8Bytes(obj, jsonOptions))
                     | ResponseBody.Stream _ -> return None
                 }
 
@@ -256,7 +258,8 @@ module KestrelBridge =
                 let isHead = HttpMethods.IsHead ctx.Request.Method
                 let status = int response.Status
                 // These statuses carry no body, and Kestrel rejects a write or a nonzero Content-Length on them.
-                let bodiless = status = 204 || status = 205 || status = 304 || (status >= 100 && status < 200)
+                let bodiless =
+                    status = 204 || status = 205 || status = 304 || (status >= 100 && status < 200)
 
                 match response.Body with
                 | _ when bodiless -> ()
@@ -311,8 +314,10 @@ module KestrelBridge =
             let builder = StringBuilder text.Length
 
             for c in text do
-                if breaksLine c then builder.Append($"\\x{int c:X2}") |> ignore
-                else builder.Append c |> ignore
+                if breaksLine c then
+                    builder.Append($"\\x{int c:X2}") |> ignore
+                else
+                    builder.Append c |> ignore
 
             builder.ToString()
 
@@ -354,7 +359,8 @@ module KestrelBridge =
         (routes: Routes<exn>)
         (maxBodySize: int64)
         (jsonOptions: JsonSerializerOptions)
-        (ctx: HttpContext) : Task<unit> =
+        (ctx: HttpContext)
+        : Task<unit> =
         task {
             let writeStatusBody (status: int) (text: string) =
                 task {
@@ -387,7 +393,8 @@ module KestrelBridge =
                                 tracker.Register fiber
 
                             // Nobody waits for the answer once the client has gone, so its handler is interrupted.
-                            use _ = ctx.RequestAborted.Register(fun () -> RequestTracker.Interrupt(runtime, fiber))
+                            use _ =
+                                ctx.RequestAborted.Register(fun () -> RequestTracker.Interrupt(runtime, fiber))
 
                             try
                                 let result = fiber.Task()
@@ -452,7 +459,8 @@ module KestrelBridge =
         (routes: Routes<exn>)
         (maxBodySize: int64)
         (jsonOptions: JsonSerializerOptions)
-        (ctx: HttpContext) : Task<unit> =
+        (ctx: HttpContext)
+        : Task<unit> =
         handleTracked null runtime routes maxBodySize jsonOptions ctx
 
     /// Handles a Kestrel request end-to-end using the default JSON options.
@@ -460,5 +468,6 @@ module KestrelBridge =
         (runtime: FIO.Runtime.Default.DefaultRuntime)
         (routes: Routes<exn>)
         (maxBodySize: int64)
-        (ctx: HttpContext) : Task =
+        (ctx: HttpContext)
+        : Task =
         handleRequestWithOptions runtime routes maxBodySize defaultJsonOptions ctx

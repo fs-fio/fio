@@ -48,27 +48,29 @@ type SocketApp(host, port) =
             do! readyChannel.Read().Unit()
             let! config = SocketConfig.create host port
 
-            do! SocketClient.withConnection config <| fun socket ->
-                fio {
-                    do! Console.printLine $"Connected to {host}:{port}" SocketError.fromException
+            do!
+                SocketClient.withConnection config
+                <| fun socket ->
+                    fio {
+                        do! Console.printLine $"Connected to {host}:{port}" SocketError.fromException
 
-                    let rec loop () =
-                        fio {
-                            do! Console.print $"Enter message (or 'quit'): " SocketError.fromException
-                            let! input = Console.readLine SocketError.fromException
-                            do! socket.SendString input
+                        let rec loop () =
+                            fio {
+                                do! Console.print $"Enter message (or 'quit'): " SocketError.fromException
+                                let! input = Console.readLine SocketError.fromException
+                                do! socket.SendString input
 
-                            if input = "quit" then
-                                do! Console.printLine "Disconnecting..." SocketError.fromException
-                                do! socket.Close()
-                            else
-                                let! response = socket.ReceiveString 1024
-                                do! Console.printLine $"Server: {response}" SocketError.fromException
-                                return! loop ()
-                        }
+                                if input = "quit" then
+                                    do! Console.printLine "Disconnecting..." SocketError.fromException
+                                    do! socket.Close()
+                                else
+                                    let! response = socket.ReceiveString 1024
+                                    do! Console.printLine $"Server: {response}" SocketError.fromException
+                                    return! loop ()
+                            }
 
-                    do! loop ()
-                }
+                        do! loop ()
+                    }
         }
 
     override _.effect =

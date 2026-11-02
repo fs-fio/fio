@@ -25,13 +25,16 @@ let private testUnix name (body: unit -> unit) =
 
         body ())
 
-let private stuckClient = new HttpClient(Timeout = Threading.Timeout.InfiniteTimeSpan)
+let private stuckClient =
+    new HttpClient(Timeout = Threading.Timeout.InfiniteTimeSpan)
 
 // The port can be taken before the child binds it, so a child that exits without listening is retried on a fresh one.
 let rec private startListeningChild scenario (shutdownTimeout: int) remaining =
     let port = findAvailablePort ()
-    let child = new ChildProcess.ChildProcess([ scenario; string port; string shutdownTimeout ])
-    let listening = child.WaitForLine $"FIO HTTP Server listening on http://127.0.0.1:{port}" (TimeSpan.FromSeconds 60.0)
+    let child =
+        new ChildProcess.ChildProcess([ scenario; string port; string shutdownTimeout ])
+    let listening =
+        child.WaitForLine $"FIO HTTP Server listening on http://127.0.0.1:{port}" (TimeSpan.FromSeconds 60.0)
 
     if not listening && remaining > 0 && (child.WaitForExit TimeSpan.Zero).IsSome then
         (child :> IDisposable).Dispose()
@@ -40,7 +43,11 @@ let rec private startListeningChild scenario (shutdownTimeout: int) remaining =
         child, port, listening
 
 // Runs runServer in a child process with one request that never finishes, so its stop must wait for it or cut it.
-let private withStuckServer scenario (shutdownTimeout: int) (test: ChildProcess.ChildProcess -> int -> Task<HttpResponseMessage> -> 'T) =
+let private withStuckServer
+    scenario
+    (shutdownTimeout: int)
+    (test: ChildProcess.ChildProcess -> int -> Task<HttpResponseMessage> -> 'T)
+    =
     let started, port, listening = startListeningChild scenario shutdownTimeout 10
     use child = started
     let stuck = stuckClient.GetAsync $"http://127.0.0.1:{port}/stuck"
@@ -52,7 +59,8 @@ let private withStuckServer scenario (shutdownTimeout: int) (test: ChildProcess.
 
 // A reused connection already holds Kestrel's abort token, so its cancellation is scheduled rather than immediate.
 let private loggedWhenClientsLeaveMidBody (rounds: int) (reuseConnection: bool) (leave: Socket -> unit) =
-    let routes = post "/upload" (fun req -> FIO.succeed (Response.okText (string (req.Body.AsBytes().Length))))
+    let routes =
+        post "/upload" (fun req -> FIO.succeed (Response.okText (string (req.Body.AsBytes().Length))))
 
     let _, logged =
         withCapturedError (fun () ->
@@ -62,10 +70,18 @@ let private loggedWhenClientsLeaveMidBody (rounds: int) (reuseConnection: bool) 
                     client.Connect("127.0.0.1", port)
 
                     if reuseConnection then
-                        client.Send(Encoding.ASCII.GetBytes "POST /upload HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 5\r\n\r\nhello") |> ignore
+                        client.Send(
+                            Encoding.ASCII.GetBytes
+                                "POST /upload HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 5\r\n\r\nhello"
+                        )
+                        |> ignore
                         client.Receive(Array.zeroCreate<byte> 4096) |> ignore
 
-                    client.Send(Encoding.ASCII.GetBytes "POST /upload HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 1000\r\n\r\npartial") |> ignore
+                    client.Send(
+                        Encoding.ASCII.GetBytes
+                            "POST /upload HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Length: 1000\r\n\r\npartial"
+                    )
+                    |> ignore
                     Thread.Sleep 50
                     leave client
                     Thread.Sleep 100
@@ -171,8 +187,7 @@ let serverTests =
                             let status, body =
                                 withTestHttpServer routes (fun port ->
                                     use client = new HttpClient()
-                                    let content =
-                                        new StringContent("test payload", Encoding.UTF8, "text/plain")
+                                    let content = new StringContent("test payload", Encoding.UTF8, "text/plain")
                                     let resp = client.PostAsync($"http://127.0.0.1:{port}/echo", content).Result
                                     let body = resp.Content.ReadAsStringAsync().Result
                                     int resp.StatusCode, body)
@@ -183,16 +198,28 @@ let serverTests =
                         testCase "Body handling - binds the JSON it serves when a client posts it back"
                         <| fun () ->
                             let routes =
-                                post "/echo-json" (HttpHandler.jsonBody<TestMessage, exn> (fun message -> FIO.succeed (Response.okJson message)) id)
+                                post
+                                    "/echo-json"
+                                    (HttpHandler.jsonBody<TestMessage, exn>
+                                        (fun message -> FIO.succeed (Response.okJson message))
+                                        id)
 
                             let body =
                                 withTestHttpServer routes (fun port ->
                                     use client = new HttpClient()
-                                    use content = new StringContent("""{"id":1,"text":"hello"}""", Encoding.UTF8, "application/json")
+                                    use content =
+                                        new StringContent(
+                                            """{"id":1,"text":"hello"}""",
+                                            Encoding.UTF8,
+                                            "application/json"
+                                        )
                                     let resp = client.PostAsync($"http://127.0.0.1:{port}/echo-json", content).Result
                                     resp.Content.ReadAsStringAsync().Result)
 
-                            Expect.equal body """{"id":1,"text":"hello"}""" "JSON in the server's own casing should round-trip"
+                            Expect.equal
+                                body
+                                """{"id":1,"text":"hello"}"""
+                                "JSON in the server's own casing should round-trip"
 
                         testCase "Body handling - serves a text response body"
                         <| fun () ->
@@ -235,8 +262,7 @@ let serverTests =
                             let status, body =
                                 withConfiguredServer (ServerConfig.withMaxBodySize 64L) routes (fun port _ ->
                                     use client = new HttpClient()
-                                    let content =
-                                        new StringContent(payload, Encoding.UTF8, "text/plain")
+                                    let content = new StringContent(payload, Encoding.UTF8, "text/plain")
                                     let resp = client.PostAsync($"http://127.0.0.1:{port}/upload", content).Result
                                     let body = resp.Content.ReadAsStringAsync().Result
                                     int resp.StatusCode, body)
@@ -253,20 +279,28 @@ let serverTests =
                             let raw =
                                 withConfiguredServer (ServerConfig.withMaxBodySize 16L) routes (fun port _ ->
                                     getWhenListening $"http://127.0.0.1:{port}/ping" |> ignore
-                                    sendRawRequest port (String.concat "\r\n" [
-                                        "POST /upload HTTP/1.1"
-                                        "Host: 127.0.0.1"
-                                        "Content-Type: text/plain"
-                                        "Transfer-Encoding: chunked"
-                                        "Connection: close"
-                                        ""
-                                        "20"
-                                        String.replicate 32 "x"
-                                        "0"
-                                        ""
-                                        "" ]))
+                                    sendRawRequest
+                                        port
+                                        (String.concat
+                                            "\r\n"
+                                            [
+                                                "POST /upload HTTP/1.1"
+                                                "Host: 127.0.0.1"
+                                                "Content-Type: text/plain"
+                                                "Transfer-Encoding: chunked"
+                                                "Connection: close"
+                                                ""
+                                                "20"
+                                                String.replicate 32 "x"
+                                                "0"
+                                                ""
+                                                ""
+                                            ]))
 
-                            Expect.stringStarts raw "HTTP/1.1 413" "A chunked body over the limit must be rejected with 413"
+                            Expect.stringStarts
+                                raw
+                                "HTTP/1.1 413"
+                                "A chunked body over the limit must be rejected with 413"
 
                         testCase "Body limits - survives a truncated request body and keeps serving"
                         <| fun () ->
@@ -278,20 +312,26 @@ let serverTests =
                                     tcp.Connect("127.0.0.1", port)
                                     use stream = tcp.GetStream()
                                     let request =
-                                        String.concat "\r\n" [
-                                            "POST /upload HTTP/1.1"
-                                            "Host: 127.0.0.1"
-                                            "Content-Type: text/plain"
-                                            "Content-Length: 100"
-                                            "Connection: close"
-                                            ""
-                                            "short" ]
+                                        String.concat
+                                            "\r\n"
+                                            [
+                                                "POST /upload HTTP/1.1"
+                                                "Host: 127.0.0.1"
+                                                "Content-Type: text/plain"
+                                                "Content-Length: 100"
+                                                "Connection: close"
+                                                ""
+                                                "short"
+                                            ]
                                     let bytes = Encoding.ASCII.GetBytes request
                                     stream.Write(bytes, 0, bytes.Length)
                                     stream.Flush()
                                     tcp.Client.Shutdown SocketShutdown.Send
                                     stream.ReadTimeout <- 5000
-                                    (try stream.ReadByte() |> ignore with _ -> ())
+                                    (try
+                                        stream.ReadByte() |> ignore
+                                     with _ ->
+                                         ())
                                     use client = new HttpClient()
                                     client.GetStringAsync($"http://127.0.0.1:{port}/ping").Result)
 
@@ -303,12 +343,17 @@ let serverTests =
 
                             let raw =
                                 withTestHttpServer routes (fun port ->
-                                    sendRawRequest port (String.concat "\r\n" [
-                                        "GET /safe%5C..%5Cetc HTTP/1.1"
-                                        "Host: 127.0.0.1"
-                                        "Connection: close"
-                                        ""
-                                        "" ]))
+                                    sendRawRequest
+                                        port
+                                        (String.concat
+                                            "\r\n"
+                                            [
+                                                "GET /safe%5C..%5Cetc HTTP/1.1"
+                                                "Host: 127.0.0.1"
+                                                "Connection: close"
+                                                ""
+                                                ""
+                                            ]))
 
                             Expect.stringStarts raw "HTTP/1.1 400" "A backslash segment must be rejected with 400"
                             Expect.stringContains raw "Invalid path segment" "The 400 must come from the path guard"
@@ -323,17 +368,19 @@ let serverTests =
 
                             let raw =
                                 withTestHttpServer routes (fun port ->
-                                    sendRawRequest port (String.concat "\r\n" [
-                                        "HEAD /text HTTP/1.1"
-                                        "Host: 127.0.0.1"
-                                        "Connection: close"
-                                        ""
-                                        "" ]))
+                                    sendRawRequest
+                                        port
+                                        (String.concat
+                                            "\r\n"
+                                            [ "HEAD /text HTTP/1.1"; "Host: 127.0.0.1"; "Connection: close"; ""; "" ]))
                             let idx = raw.IndexOf "\r\n\r\n"
                             let body = if idx >= 0 then raw.Substring(idx + 4) else ""
 
                             Expect.stringStarts raw "HTTP/1.1 200" "HEAD must still succeed"
-                            Expect.stringContains raw "Content-Length: 10" "HEAD must report the length a GET would return"
+                            Expect.stringContains
+                                raw
+                                "Content-Length: 10"
+                                "HEAD must report the length a GET would return"
                             Expect.equal body "" "HEAD must not write a response body"
 
                         testCase "Response writing - serves a raw byte response body"
@@ -343,7 +390,8 @@ let serverTests =
                                 get "/bytes" (fun _ ->
                                     FIO.succeed
                                         { HttpResponse.create HttpStatusCode.OK with
-                                            Body = ResponseBody.Bytes payload })
+                                            Body = ResponseBody.Bytes payload
+                                        })
 
                             let status, bytes =
                                 withTestHttpServer routes (fun port ->
@@ -364,7 +412,8 @@ let serverTests =
                                         Response.okStream
                                             (new IO.MemoryStream(payload))
                                             (Some(int64 payload.Length))
-                                            "application/octet-stream"))
+                                            "application/octet-stream"
+                                    ))
 
                             let status, contentLength, bytes =
                                 withTestHttpServer routes (fun port ->
@@ -381,33 +430,44 @@ let serverTests =
                                 "The stream's length must become the Content-Length"
                             Expect.sequenceEqual bytes payload "The stream must be copied unmodified"
 
-                        testCase "Response writing - aborts the connection when a stream without a length fails mid-body"
+                        testCase
+                            "Response writing - aborts the connection when a stream without a length fails mid-body"
                         <| fun () ->
                             let routes =
                                 get "/broken" (fun _ ->
-                                    FIO.succeed (Response.okStream (new FailingStream(Array.create (256 * 1024) 1uy)) None "application/octet-stream"))
+                                    FIO.succeed (
+                                        Response.okStream
+                                            (new FailingStream(Array.create (256 * 1024) 1uy))
+                                            None
+                                            "application/octet-stream"
+                                    ))
 
                             let outcome =
                                 withTestHttpServer routes (fun port ->
                                     use client = new HttpClient()
                                     try
-                                        Ok (client.GetByteArrayAsync($"http://127.0.0.1:{port}/broken").Result.Length)
+                                        Ok(client.GetByteArrayAsync($"http://127.0.0.1:{port}/broken").Result.Length)
                                     with ex ->
-                                        Error (ex.GetBaseException().Message))
+                                        Error(ex.GetBaseException().Message))
 
                             match outcome with
                             | Error _ -> ()
-                            | Ok length -> failtest $"A body that failed mid-copy must not arrive as a complete response, got {length} bytes"
+                            | Ok length ->
+                                failtest
+                                    $"A body that failed mid-copy must not arrive as a complete response, got {length} bytes"
 
-                        testCase "Response writing - a handler's typed failure is answered 500 and logged without the query string"
+                        testCase
+                            "Response writing - a handler's typed failure is answered 500 and logged without the query string"
                         <| fun () ->
-                            let routes = get "/boom" (fun _ -> FIO.attempt (fun () -> failwith "handler exploded") id)
+                            let routes =
+                                get "/boom" (fun _ -> FIO.attempt (fun () -> failwith "handler exploded") id)
 
                             let status, logged =
                                 withCapturedError (fun () ->
                                     withTestHttpServer routes (fun port ->
                                         use client = new HttpClient()
-                                        let resp = client.GetAsync($"http://127.0.0.1:{port}/boom?token=SECRET").Result
+                                        let resp =
+                                            client.GetAsync($"http://127.0.0.1:{port}/boom?token=SECRET").Result
                                         int resp.StatusCode))
 
                             Expect.equal status 500 "A failing handler must be answered 500"
@@ -416,7 +476,7 @@ let serverTests =
 
                         testCase "Response writing - a handler that throws inside its effect is answered 500 and logged"
                         <| fun () ->
-                            let crashing : HttpHandler<exn> =
+                            let crashing: HttpHandler<exn> =
                                 fun _ -> (FIO.succeed 1).FlatMap(fun _ -> failwith "handler crashed")
                             let routes =
                                 get "/boom" crashing
@@ -443,12 +503,19 @@ let serverTests =
                                     use client = new HttpClient()
                                     int (client.GetAsync($"http://127.0.0.1:{port}/busy").Result.StatusCode))
 
-                            Expect.equal status 503 "An interruption that was asked for means the service is unavailable"
+                            Expect.equal
+                                status
+                                503
+                                "An interruption that was asked for means the service is unavailable"
 
                         testCase "Response writing - a 204 with a body is answered 204 without it"
                         <| fun () ->
                             let routes =
-                                get "/empty" (fun _ -> FIO.succeed { Response.noContent with Body = ResponseBody.Text "not sent" })
+                                get "/empty" (fun _ ->
+                                    FIO.succeed
+                                        { Response.noContent with
+                                            Body = ResponseBody.Text "not sent"
+                                        })
 
                             let status, body =
                                 withTestHttpServer routes (fun port ->
@@ -459,9 +526,12 @@ let serverTests =
                             Expect.equal status 204 "The handler's status should reach the client"
                             Expect.equal body "" "A 204 carries no body"
 
-                        testCase "Body limits - accepts a body over Kestrel's own default when the configured limit allows it"
+                        testCase
+                            "Body limits - accepts a body over Kestrel's own default when the configured limit allows it"
                         <| fun () ->
-                            let routes = post "/upload" (fun req -> FIO.succeed (Response.okText (string (req.Body.AsBytes().Length))))
+                            let routes =
+                                post "/upload" (fun req ->
+                                    FIO.succeed (Response.okText (string (req.Body.AsBytes().Length))))
                             let size = 30_500_000
 
                             let status, body =
@@ -477,18 +547,22 @@ let serverTests =
                         testCase "Logging - a path that carries a line break is logged on one line"
                         <| fun () ->
                             let routes = get "/ping" (HttpHandler.text "pong")
-                            let forged = "/a%5Cb%0D%0A[2026-01-01%2000:00:00.000]%20ERROR%20[HandlerError]%20GET%20/admin%20-%20FORGED"
+                            let forged =
+                                "/a%5Cb%0D%0A[2026-01-01%2000:00:00.000]%20ERROR%20[HandlerError]%20GET%20/admin%20-%20FORGED"
 
                             let _, logged =
                                 withCapturedError (fun () ->
                                     withTestHttpServer routes (fun port ->
-                                        sendRawRequest port $"GET {forged} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"))
+                                        sendRawRequest
+                                            port
+                                            $"GET {forged} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n"))
                             let lines = logged.Split([| '\r'; '\n' |], StringSplitOptions.RemoveEmptyEntries)
 
                             Expect.equal lines.Length 1 $"The rejected request should be one log line, got: {logged}"
                             Expect.stringContains lines[0] "\\x0D\\x0A" "The line break should be logged escaped"
 
-                        testCase "Logging - a client that resets its connection in the middle of a body is not logged as an error"
+                        testCase
+                            "Logging - a client that resets its connection in the middle of a body is not logged as an error"
                         <| fun () ->
                             let logged =
                                 loggedWhenClientsLeaveMidBody 1 false (fun client ->
@@ -497,17 +571,26 @@ let serverTests =
 
                             Expect.equal logged "" "A client that left is not an error of the server"
 
-                        testCase "Logging - a client that ends its connection in the middle of a body is not logged as an error"
+                        testCase
+                            "Logging - a client that ends its connection in the middle of a body is not logged as an error"
                         <| fun () ->
-                            let logged = loggedWhenClientsLeaveMidBody 1 false (fun client -> client.Shutdown SocketShutdown.Send)
+                            let logged =
+                                loggedWhenClientsLeaveMidBody 1 false (fun client ->
+                                    client.Shutdown SocketShutdown.Send)
 
                             Expect.equal logged "" "A client that left is not an error of the server"
 
-                        testCase "Logging - a client that ends a reused connection in the middle of a body is not logged as an error"
+                        testCase
+                            "Logging - a client that ends a reused connection in the middle of a body is not logged as an error"
                         <| fun () ->
-                            let logged = loggedWhenClientsLeaveMidBody 10 true (fun client -> client.Shutdown SocketShutdown.Send)
+                            let logged =
+                                loggedWhenClientsLeaveMidBody 10 true (fun client ->
+                                    client.Shutdown SocketShutdown.Send)
 
-                            Expect.equal logged "" "A client that left is not an error of the server, on a reused connection too"
+                            Expect.equal
+                                logged
+                                ""
+                                "A client that left is not an error of the server, on a reused connection too"
                     ]
 
                 testList
@@ -554,7 +637,10 @@ let serverTests =
                             try
                                 let body = getWhenListening $"http://127.0.0.1:{port}/built"
 
-                                Expect.equal body "from builder" "ServerBuilder.startNow must serve the routes it was given"
+                                Expect.equal
+                                    body
+                                    "from builder"
+                                    "ServerBuilder.startNow must serve the routes it was given"
                             finally
                                 runWithTimeout (runtime :> FIORuntime) (Server.stop server) |> ignore
                     ]
@@ -589,8 +675,10 @@ let serverTests =
                                     $"start must fail with the bind error, got {error}"
                             | Succeeded _ ->
                                 runWithTimeout (runtime :> FIORuntime) (Server.stop server) |> ignore
-                                failtest "start succeeded on 192.0.2.1, which must not bind unless the host allows non-local binds"
-                            | Interrupted ex -> failtest $"start must fail with a typed error, not be interrupted: {ex.Message}"
+                                failtest
+                                    "start succeeded on 192.0.2.1, which must not bind unless the host allows non-local binds"
+                            | Interrupted ex ->
+                                failtest $"start must fail with a typed error, not be interrupted: {ex.Message}"
 
                             let result = runtime.Run(Server.run server).UnsafeResult()
 
@@ -617,10 +705,11 @@ let serverTests =
 
                             Expect.isFalse started "start must fail on 192.0.2.1"
                             Expect.throwsT<ObjectDisposedException>
-                                (fun () -> (Server.runtimeOf server).Run(FIO.unit () : FIO<unit, exn>) |> ignore)
+                                (fun () -> (Server.runtimeOf server).Run(FIO.unit (): FIO<unit, exn>) |> ignore)
                                 "stop must release the runtime the server created, even though start failed"
 
-                        testCase "stop - leaves the server stopped: a second stop is a no-op and run fails as not started"
+                        testCase
+                            "stop - leaves the server stopped: a second stop is a no-op and run fails as not started"
                         <| fun () ->
                             use runtime = new DefaultRuntime()
                             let routes = get "/ping" (HttpHandler.text "pong")
@@ -637,7 +726,11 @@ let serverTests =
                             let result = runtime.Run(Server.run server).UnsafeResult()
 
                             match result with
-                            | Failed error -> Expect.stringContains error.Message "not started" "A stopped server must not count as started"
+                            | Failed error ->
+                                Expect.stringContains
+                                    error.Message
+                                    "not started"
+                                    "A stopped server must not count as started"
                             | other -> failtest $"run after stop must fail, got {other}"
 
                         testCase "run - fails when the server has not been started"
@@ -651,7 +744,11 @@ let serverTests =
                             let result = runtime.Run(Server.run server).UnsafeResult()
 
                             match result with
-                            | Failed error -> Expect.stringContains error.Message "Call Server.start first" "run must say how to start the server"
+                            | Failed error ->
+                                Expect.stringContains
+                                    error.Message
+                                    "Call Server.start first"
+                                    "run must say how to start the server"
                             | other -> failtest $"run before start must fail, got {other}"
 
                         testCase "startServer - serves a request, then stop tears it down"
@@ -671,7 +768,15 @@ let serverTests =
                                     use fresh = new HttpClient(Timeout = TimeSpan.FromSeconds 5.0)
                                     let afterStop =
                                         try
-                                            Ok(int (fresh.GetAsync($"http://127.0.0.1:{port}/ping").GetAwaiter().GetResult().StatusCode))
+                                            Ok(
+                                                int (
+                                                    fresh
+                                                        .GetAsync($"http://127.0.0.1:{port}/ping")
+                                                        .GetAwaiter()
+                                                        .GetResult()
+                                                        .StatusCode
+                                                )
+                                            )
                                         with ex ->
                                             Error(ex.GetBaseException())
                                     body, afterStop
@@ -681,8 +786,12 @@ let serverTests =
                             Expect.equal body "pong" "Served via Server.startServer"
                             match afterStop with
                             | Error(:? SocketException as refused) ->
-                                Expect.equal refused.SocketErrorCode SocketError.ConnectionRefused "Nothing should listen on the port after stop"
-                            | other -> failtest $"A request after stop must be refused because nothing listens, got %A{other}"
+                                Expect.equal
+                                    refused.SocketErrorCode
+                                    SocketError.ConnectionRefused
+                                    "Nothing should listen on the port after stop"
+                            | other ->
+                                failtest $"A request after stop must be refused because nothing listens, got %A{other}"
 
                         testCase "runServerWithRuntime - stops when interrupted and leaves the given runtime running"
                         <| fun () ->
@@ -692,7 +801,10 @@ let serverTests =
                             let served = TaskCompletionSource()
                             let port, driverFiber =
                                 forkServerOnFreePort (driverRuntime :> FIORuntime) served.Task "/ping" (fun port ->
-                                    Server.runServerWithRuntime (ServerConfig.create "127.0.0.1" port) routes serverRuntime)
+                                    Server.runServerWithRuntime
+                                        (ServerConfig.create "127.0.0.1" port)
+                                        routes
+                                        serverRuntime)
 
                             let body = getWhenListening $"http://127.0.0.1:{port}/ping"
 
@@ -744,7 +856,11 @@ let serverTests =
                             let listening = isListening port
 
                             match restarted with
-                            | Failed error -> Expect.stringContains error.Message "cannot be started again" "start should say why it failed"
+                            | Failed error ->
+                                Expect.stringContains
+                                    error.Message
+                                    "cannot be started again"
+                                    "start should say why it failed"
                             | other -> failtest $"A stopped server must not start again, got {other}"
                             Expect.isFalse listening "Nothing should listen after a refused start"
 
@@ -758,11 +874,16 @@ let serverTests =
                                     for round in 1..8 ->
                                         onFreePort (fun port ->
                                             let server =
-                                                runWithTimeout (runtime :> FIORuntime) (Server.create (ServerConfig.create "127.0.0.1" port) routes)
-                                            let start, stop = (Server.start server).Result(), (Server.stop server).Result()
+                                                runWithTimeout
+                                                    (runtime :> FIORuntime)
+                                                    (Server.create (ServerConfig.create "127.0.0.1" port) routes)
+                                            let start, stop =
+                                                (Server.start server).Result(), (Server.stop server).Result()
                                             let racing =
-                                                if round % 2 = 0 then start.ZipPar stop
-                                                else (stop.ZipPar start).Map(fun (stopped, started) -> started, stopped)
+                                                if round % 2 = 0 then
+                                                    start.ZipPar stop
+                                                else
+                                                    (stop.ZipPar start).Map(fun (stopped, started) -> started, stopped)
                                             let started, _ = runWithTimeout (runtime :> FIORuntime) racing
                                             let listening = isListening port
                                             runWithTimeout (runtime :> FIORuntime) (Server.stop server) |> ignore
@@ -771,7 +892,10 @@ let serverTests =
                                             | _ -> Some listening)
                                 ]
 
-                            Expect.allEqual stillListening false "Whichever of start and stop ran first, the server must end stopped"
+                            Expect.allEqual
+                                stillListening
+                                false
+                                "Whichever of start and stop ran first, the server must end stopped"
 
                         testCase "runServer - interrupted while it starts, leaves nothing listening"
                         <| fun () ->
@@ -786,7 +910,9 @@ let serverTests =
                                             let delay = random.Next(0, 60)
                                             let driver =
                                                 fio {
-                                                    let! server = (Server.runServer (ServerConfig.create "127.0.0.1" port) routes).Fork()
+                                                    let! server =
+                                                        (Server.runServer (ServerConfig.create "127.0.0.1" port) routes)
+                                                            .Fork()
                                                     do! FIO.sleep (TimeSpan.FromMilliseconds(float delay))
                                                     return! server.InterruptAwaitNow()
                                                 }
@@ -797,14 +923,18 @@ let serverTests =
                                             | _ -> Some listening)
                                 ]
 
-                            Expect.allEqual stillListening false "An interruption during startup must not leave a server behind"
+                            Expect.allEqual
+                                stillListening
+                                false
+                                "An interruption during startup must not leave a server behind"
 
                         testCase "stop - lets a request in flight finish within the shutdown timeout"
                         <| fun () ->
                             let entered = new ManualResetEventSlim false
                             let routes =
                                 get "/slow" (fun _ ->
-                                    FIO.succeedWith(fun () -> entered.Set())
+                                    FIO
+                                        .succeedWith(fun () -> entered.Set())
                                         .FlatMap(fun () -> FIO.sleep (TimeSpan.FromMilliseconds 400.0))
                                         .FlatMap(fun () -> FIO.succeed (Response.okText "finished")))
                             use runtime = new DefaultRuntime()
@@ -822,7 +952,10 @@ let serverTests =
                             let body = response.Result.Content.ReadAsStringAsync().Result
 
                             Expect.isTrue inFlight "The request should reach its handler"
-                            Expect.equal (status, body) (200, "finished") "A request that finishes in time gets its answer"
+                            Expect.equal
+                                (status, body)
+                                (200, "finished")
+                                "A request that finishes in time gets its answer"
                             Expect.isLessThan elapsed 3_000L "stop should not wait longer than the request took"
 
                         testCase "stop - interrupts a request still running at the shutdown timeout and answers it 503"
@@ -836,7 +969,8 @@ let serverTests =
                             use runtime = new DefaultRuntime()
                             let port, server =
                                 startOnFreePort (runtime :> FIORuntime) (fun port ->
-                                    let config = ServerConfig.create "127.0.0.1" port |> ServerConfig.withShutdownTimeout 300
+                                    let config =
+                                        ServerConfig.create "127.0.0.1" port |> ServerConfig.withShutdownTimeout 300
                                     Server.startServerWithRuntime config routes runtime)
                             use client = new HttpClient()
                             let response = client.GetAsync $"http://127.0.0.1:{port}/stuck"
@@ -851,21 +985,31 @@ let serverTests =
                             Expect.isTrue inFlight "The request should reach its handler"
                             Expect.equal status 503 "A request cut off by the shutdown is answered 503"
                             Expect.isTrue ranFinalizer "The interrupted handler's finalizer should have run"
-                            Expect.isLessThan elapsed 3_000L "stop should take about its shutdown timeout, not Kestrel's 30 s"
+                            Expect.isLessThan
+                                elapsed
+                                3_000L
+                                "stop should take about its shutdown timeout, not Kestrel's 30 s"
 
                         testCase "stop - answers 503 at the cut to a handler that returned but awaits its children"
                         <| fun () ->
-                            let started = TaskCompletionSource TaskCreationOptions.RunContinuationsAsynchronously
+                            let started =
+                                TaskCompletionSource TaskCreationOptions.RunContinuationsAsynchronously
                             let child: FIO<unit, exn> =
-                                (FIO.succeedWith(fun () -> started.TrySetResult() |> ignore).FlatMap(fun () -> FIO.never ()))
+                                (FIO
+                                    .succeedWith(fun () -> started.TrySetResult() |> ignore)
+                                    .FlatMap(fun () -> FIO.never ()))
                                     .Ensuring(FIO.sleep (TimeSpan.FromSeconds 3.0))
                             let routes =
                                 get "/scoped" (fun _ ->
-                                    child.Fork().FlatMap(fun _ -> FIO.awaitUnitTask started.Task id).Map(fun () -> Response.okText "done"))
+                                    child
+                                        .Fork()
+                                        .FlatMap(fun _ -> FIO.awaitUnitTask started.Task id)
+                                        .Map(fun () -> Response.okText "done"))
                             use runtime = new DefaultRuntime()
                             let port, server =
                                 startOnFreePort (runtime :> FIORuntime) (fun port ->
-                                    let config = ServerConfig.create "127.0.0.1" port |> ServerConfig.withShutdownTimeout 300
+                                    let config =
+                                        ServerConfig.create "127.0.0.1" port |> ServerConfig.withShutdownTimeout 300
                                     Server.startServerWithRuntime config routes runtime)
                             use client = new HttpClient()
                             let response = client.GetAsync $"http://127.0.0.1:{port}/scoped"
@@ -879,14 +1023,18 @@ let serverTests =
 
                             Expect.isTrue inFlight "The handler's child should start"
                             Expect.equal status 503 "A request still in flight at the cut is answered 503"
-                            Expect.isLessThan answeredAfter 2_000L "The answer should not wait for the child's finalizer"
+                            Expect.isLessThan
+                                answeredAfter
+                                2_000L
+                                "The answer should not wait for the child's finalizer"
 
                         testCase "stop - answers 503 to a request that arrives while it waits for one in flight"
                         <| fun () ->
                             let entered = new ManualResetEventSlim false
                             let routes =
                                 get "/slow" (fun _ ->
-                                    FIO.succeedWith(fun () -> entered.Set())
+                                    FIO
+                                        .succeedWith(fun () -> entered.Set())
                                         .FlatMap(fun () -> FIO.sleep (TimeSpan.FromMilliseconds 1200.0))
                                         .FlatMap(fun () -> FIO.succeed (Response.okText "finished")))
                             use runtime = new DefaultRuntime()
@@ -921,14 +1069,17 @@ let serverTests =
                                 withTestHttpServer routes (fun port ->
                                     let client = new TcpClient()
                                     client.Connect("127.0.0.1", port)
-                                    let request = Encoding.ASCII.GetBytes "GET /stuck HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
+                                    let request =
+                                        Encoding.ASCII.GetBytes "GET /stuck HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n"
                                     client.GetStream().Write(request, 0, request.Length)
                                     let inFlight = entered.Wait(TimeSpan.FromSeconds 5.0)
                                     client.Close()
                                     inFlight, finalized.Wait(TimeSpan.FromSeconds 5.0))
 
                             Expect.isTrue inFlight "The request should reach its handler"
-                            Expect.isTrue interrupted "A handler nobody waits for any more should be interrupted and run its finalizer"
+                            Expect.isTrue
+                                interrupted
+                                "A handler nobody waits for any more should be interrupted and run its finalizer"
 
                         testCase "start - configuration found at run time adds no listener"
                         <| fun () ->
@@ -936,11 +1087,17 @@ let serverTests =
 
                             let extraListening =
                                 onFreePort (fun extraPort ->
-                                    Environment.SetEnvironmentVariable("Kestrel__Endpoints__Extra__Url", $"http://127.0.0.1:{extraPort}")
+                                    Environment.SetEnvironmentVariable(
+                                        "Kestrel__Endpoints__Extra__Url",
+                                        $"http://127.0.0.1:{extraPort}"
+                                    )
                                     try
                                         withTestHttpServer routes (fun _ ->
                                             let listening = isListening extraPort
-                                            if listening && tryGet extraPort "/ping" <> Some "pong" then None else Some listening)
+                                            if listening && tryGet extraPort "/ping" <> Some "pong" then
+                                                None
+                                            else
+                                                Some listening)
                                     finally
                                         Environment.SetEnvironmentVariable("Kestrel__Endpoints__Extra__Url", null))
 
@@ -950,47 +1107,65 @@ let serverTests =
                 testList
                     "Signals"
                     [
-                        testUnix "runServer - the first SIGTERM stops the server, which cuts the request still running and returns" (fun () ->
-                            let exitCode, status, output =
-                                withStuckServer "server" 500 (fun child _ stuck ->
-                                    child.Signal "TERM"
-                                    let exitCode = child.WaitForExit(TimeSpan.FromSeconds 20.0)
-                                    exitCode, int stuck.Result.StatusCode, child.Output)
+                        testUnix
+                            "runServer - the first SIGTERM stops the server, which cuts the request still running and returns"
+                            (fun () ->
+                                let exitCode, status, output =
+                                    withStuckServer "server" 500 (fun child _ stuck ->
+                                        child.Signal "TERM"
+                                        let exitCode = child.WaitForExit(TimeSpan.FromSeconds 20.0)
+                                        exitCode, int stuck.Result.StatusCode, child.Output)
 
-                            Expect.equal exitCode (Some 0) $"runServer should return once the server has stopped; output: {output}"
-                            Expect.equal status 503 "The request still running at the cut is answered 503")
+                                Expect.equal
+                                    exitCode
+                                    (Some 0)
+                                    $"runServer should return once the server has stopped; output: {output}"
+                                Expect.equal status 503 "The request still running at the cut is answered 503")
 
-                        testUnix "runServer - a second SIGTERM ends the process while the stop waits for a request" (fun () ->
-                            let refused, exitCode =
-                                withStuckServer "server" 0 (fun child port _ ->
-                                    child.Signal "TERM"
-                                    let refused = waitForRefusal port
-                                    child.Signal "TERM"
-                                    refused, child.WaitForExit(TimeSpan.FromSeconds 10.0))
+                        testUnix
+                            "runServer - a second SIGTERM ends the process while the stop waits for a request"
+                            (fun () ->
+                                let refused, exitCode =
+                                    withStuckServer "server" 0 (fun child port _ ->
+                                        child.Signal "TERM"
+                                        let refused = waitForRefusal port
+                                        child.Signal "TERM"
+                                        refused, child.WaitForExit(TimeSpan.FromSeconds 10.0))
 
-                            Expect.isTrue refused "The first SIGTERM should start the stop"
-                            Expect.isSome exitCode "A second SIGTERM must end the process while the stop waits for a request")
+                                Expect.isTrue refused "The first SIGTERM should start the stop"
+                                Expect.isSome
+                                    exitCode
+                                    "A second SIGTERM must end the process while the stop waits for a request")
 
-                        testUnix "runServer - in a FIOApp, a SIGTERM stops the server and the app exits as interrupted" (fun () ->
-                            let exitCode, status, output =
-                                withStuckServer "app-server" 500 (fun child _ stuck ->
-                                    child.Signal "TERM"
-                                    let exitCode = child.WaitForExit(TimeSpan.FromSeconds 20.0)
-                                    exitCode, int stuck.Result.StatusCode, child.Output)
+                        testUnix
+                            "runServer - in a FIOApp, a SIGTERM stops the server and the app exits as interrupted"
+                            (fun () ->
+                                let exitCode, status, output =
+                                    withStuckServer "app-server" 500 (fun child _ stuck ->
+                                        child.Signal "TERM"
+                                        let exitCode = child.WaitForExit(TimeSpan.FromSeconds 20.0)
+                                        exitCode, int stuck.Result.StatusCode, child.Output)
 
-                            Expect.equal exitCode (Some 130) $"The app should end as interrupted once the server has stopped; output: {output}"
-                            Expect.equal status 503 "The request still running at the cut is answered 503")
+                                Expect.equal
+                                    exitCode
+                                    (Some 130)
+                                    $"The app should end as interrupted once the server has stopped; output: {output}"
+                                Expect.equal status 503 "The request still running at the cut is answered 503")
 
-                        testUnix "runServer - in a FIOApp, a second Ctrl+C (SIGINT) ends the process while the stop waits for a request" (fun () ->
-                            let refused, exitCode =
-                                withStuckServer "app-server" 0 (fun child port _ ->
-                                    child.Signal "INT"
-                                    let refused = waitForRefusal port
-                                    child.Signal "INT"
-                                    refused, child.WaitForExit(TimeSpan.FromSeconds 10.0))
+                        testUnix
+                            "runServer - in a FIOApp, a second Ctrl+C (SIGINT) ends the process while the stop waits for a request"
+                            (fun () ->
+                                let refused, exitCode =
+                                    withStuckServer "app-server" 0 (fun child port _ ->
+                                        child.Signal "INT"
+                                        let refused = waitForRefusal port
+                                        child.Signal "INT"
+                                        refused, child.WaitForExit(TimeSpan.FromSeconds 10.0))
 
-                            Expect.isTrue refused "The first Ctrl+C should start the stop"
-                            Expect.isSome exitCode "A second Ctrl+C must end the process while the stop waits for a request")
+                                Expect.isTrue refused "The first Ctrl+C should start the stop"
+                                Expect.isSome
+                                    exitCode
+                                    "A second Ctrl+C must end the process while the stop waits for a request")
                     ]
             ]
     )

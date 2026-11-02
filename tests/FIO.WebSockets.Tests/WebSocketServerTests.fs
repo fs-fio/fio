@@ -12,18 +12,22 @@ open System.Threading
 open Expecto
 
 let private malformedUpgrade (port: int) =
-    String.concat "\r\n" [
-        "GET / HTTP/1.1"
-        $"Host: localhost:{port}"
-        "Connection: Upgrade"
-        "Upgrade: websocket"
-        ""
-        "" ]
+    String.concat
+        "\r\n"
+        [
+            "GET / HTTP/1.1"
+            $"Host: localhost:{port}"
+            "Connection: Upgrade"
+            "Upgrade: websocket"
+            ""
+            ""
+        ]
 
 let private clientStateThrough (start: string -> FIO<Net.HttpListener, WsError>) =
     fio {
         let! port, listener = startListenerWith start "localhost"
-        let! accepting = (WebSocketServer.acceptDefault listener WebSocketConfig.defaultConfig).Fork()
+        let! accepting =
+            (WebSocketServer.acceptDefault listener WebSocketConfig.defaultConfig).Fork()
         let! client = WebSocketClient.connectDefault $"ws://localhost:{port}/"
         let! state = client.State()
         let! server = accepting.Join()
@@ -44,7 +48,10 @@ let webSocketServerTests =
                     testAllRuntimes "start - creates a listening server" (fun runtime ->
                         let state = runWithTimeout runtime (clientStateThrough WebSocketServer.start)
 
-                        Expect.equal state Net.WebSockets.WebSocketState.Open "A client should connect to the started listener")
+                        Expect.equal
+                            state
+                            Net.WebSockets.WebSocketState.Open
+                            "A client should connect to the started listener")
 
                     testAllRuntimes "close - stops the listener" (fun runtime ->
                         let effect =
@@ -67,7 +74,9 @@ let webSocketServerTests =
 
                         let listener = runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.throwsT<ObjectDisposedException> (fun () -> listener.Prefixes |> ignore) "A closed listener should be disposed")
+                        Expect.throwsT<ObjectDisposedException>
+                            (fun () -> listener.Prefixes |> ignore)
+                            "A closed listener should be disposed")
 
                     testSequenced (
                         testAllRuntimes "close - closing twice stays quiet" (fun runtime ->
@@ -86,7 +95,8 @@ let webSocketServerTests =
                             finally
                                 Console.SetError originalErr
 
-                            Expect.equal (captured.ToString()) "" "Closing a closed listener must not log to stderr"))
+                            Expect.equal (captured.ToString()) "" "Closing a closed listener must not log to stderr")
+                    )
                 ]
 
             testList
@@ -138,7 +148,9 @@ let webSocketServerTests =
                         match endpoints.Value with
                         | Some(:? Net.IPEndPoint as remote), Some(:? Net.IPEndPoint as local) ->
                             Expect.isTrue (Net.IPAddress.IsLoopback remote.Address) "The peer should be loopback"
-                            Expect.isTrue (Net.IPAddress.IsLoopback local.Address) "The local address should be loopback"
+                            Expect.isTrue
+                                (Net.IPAddress.IsLoopback local.Address)
+                                "The local address should be loopback"
                             Expect.notEqual remote.Port 0 "The peer's port should be known"
                         | remote, local -> failtest $"Expected IP endpoints but got {remote} and {local}")
 
@@ -179,42 +191,49 @@ let webSocketServerTests =
                             | Frame(Text s) -> Expect.equal s msg $"Echo {i} should match"
                             | other -> failtest $"Expected text frame but got {other}")
 
-                    testAllRuntimes "acceptLoop - keeps serving after a handler fails with a typed error" (fun runtime ->
-                        let attempts = ref 0
-                        let handler (ws: WebSocket) =
-                            if Interlocked.Increment attempts = 1 then
-                                FIO.fail (GeneralError "The handler failed.")
-                            else
-                                echoHandler ws
-                        let effect =
-                            fio {
-                                let! port, listener = startTestListener ()
-                                let! loop = (WebSocketServer.acceptLoop listener WebSocketConfig.defaultConfig handler).Fork()
+                    testAllRuntimes
+                        "acceptLoop - keeps serving after a handler fails with a typed error"
+                        (fun runtime ->
+                            let attempts = ref 0
+                            let handler (ws: WebSocket) =
+                                if Interlocked.Increment attempts = 1 then
+                                    FIO.fail (GeneralError "The handler failed.")
+                                else
+                                    echoHandler ws
+                            let effect =
+                                fio {
+                                    let! port, listener = startTestListener ()
+                                    let! loop =
+                                        (WebSocketServer.acceptLoop listener WebSocketConfig.defaultConfig handler)
+                                            .Fork()
 
-                                let! first = connectWhenListening $"ws://localhost:{port}/"
-                                let! firstOutcome = first.ReceiveMessage().Timeout(TimeSpan.FromSeconds 5.0)
+                                    let! first = connectWhenListening $"ws://localhost:{port}/"
+                                    let! firstOutcome = first.ReceiveMessage().Timeout(TimeSpan.FromSeconds 5.0)
 
-                                let! second = WebSocketClient.connectDefault $"ws://localhost:{port}/"
-                                do! second.SendText "still serving"
-                                let! echoed = second.Receive Codec.text
-                                do! second.Close()
+                                    let! second = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+                                    do! second.SendText "still serving"
+                                    let! echoed = second.Receive Codec.text
+                                    do! second.Close()
 
-                                do! loop.InterruptNow()
-                                do! WebSocketServer.close listener
-                                return firstOutcome, echoed
-                            }
+                                    do! loop.InterruptNow()
+                                    do! WebSocketServer.close listener
+                                    return firstOutcome, echoed
+                                }
 
-                        let firstOutcome, echoed = runWithTimeout runtime effect
+                            let firstOutcome, echoed = runWithTimeout runtime effect
 
-                        match firstOutcome with
-                        | Some(ConnectionClosed _) -> ()
-                        | other -> failtest $"The failed handler's connection should be closed, got {other}"
-                        Expect.equal echoed "still serving" "A handler that fails must not stop the loop")
+                            match firstOutcome with
+                            | Some(ConnectionClosed _) -> ()
+                            | other -> failtest $"The failed handler's connection should be closed, got {other}"
+                            Expect.equal echoed "still serving" "A handler that fails must not stop the loop")
 
                     testAllRuntimes "startDefault - is an alias for start" (fun runtime ->
                         let state = runWithTimeout runtime (clientStateThrough WebSocketServer.startDefault)
 
-                        Expect.equal state Net.WebSockets.WebSocketState.Open "A client should connect to the listener startDefault started")
+                        Expect.equal
+                            state
+                            Net.WebSockets.WebSocketState.Open
+                            "A client should connect to the listener startDefault started")
                 ]
 
             testList
@@ -249,28 +268,34 @@ let webSocketServerTests =
                         Expect.equal status 400 "A non-WebSocket request must be answered with 400"
                         Expect.equal outcome "rejected" "accept must fail rather than yield a socket")
 
-                    testAllRuntimes "acceptLoop - answers a plain HTTP request with 400 and keeps serving" (fun runtime ->
-                        let status, echoed =
-                            withTestEchoServer
-                                (fun port ->
-                                    fio {
-                                        let! status =
-                                            FIO.attempt
-                                                (fun () ->
-                                                    use client = new HttpClient()
-                                                    int (client.GetAsync($"http://localhost:{port}/").Result.StatusCode))
-                                                WsError.fromException
+                    testAllRuntimes
+                        "acceptLoop - answers a plain HTTP request with 400 and keeps serving"
+                        (fun runtime ->
+                            let status, echoed =
+                                withTestEchoServer
+                                    (fun port ->
+                                        fio {
+                                            let! status =
+                                                FIO.attempt
+                                                    (fun () ->
+                                                        use client = new HttpClient()
+                                                        int (
+                                                            client
+                                                                .GetAsync($"http://localhost:{port}/")
+                                                                .Result.StatusCode
+                                                        ))
+                                                    WsError.fromException
 
-                                        let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
-                                        do! ws.SendText "after the plain request"
-                                        let! echoed = ws.Receive Codec.text
-                                        do! ws.Close()
-                                        return status, echoed
-                                    })
-                                runtime
+                                            let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+                                            do! ws.SendText "after the plain request"
+                                            let! echoed = ws.Receive Codec.text
+                                            do! ws.Close()
+                                            return status, echoed
+                                        })
+                                    runtime
 
-                        Expect.equal status 400 "A plain HTTP request must be answered with 400"
-                        Expect.equal echoed "after the plain request" "The loop must keep serving")
+                            Expect.equal status 400 "A plain HTTP request must be answered with 400"
+                            Expect.equal echoed "after the plain request" "The loop must keep serving")
 
                     testAllRuntimes "acceptLoop - keeps serving after a malformed upgrade request" (fun runtime ->
                         let echoed =
@@ -300,7 +325,10 @@ let webSocketServerTests =
                                     })
                                 runtime
 
-                        Expect.equal echoed "after the malformed upgrade" "The loop must keep serving after a failed handshake")
+                        Expect.equal
+                            echoed
+                            "after the malformed upgrade"
+                            "The loop must keep serving after a failed handshake")
 
                     testAllRuntimes "acceptLoop - answers a malformed upgrade request with 400" (fun runtime ->
                         let statusLine =
@@ -314,69 +342,86 @@ let webSocketServerTests =
                                             stream.Write(bytes, 0, bytes.Length)
                                             stream.ReadTimeout <- 10000
                                             use reader = new IO.StreamReader(stream, Text.Encoding.ASCII)
-                                            try reader.ReadLine() with _ -> null)
+                                            try
+                                                reader.ReadLine()
+                                            with _ ->
+                                                null)
                                         WsError.fromException)
                                 runtime
 
                         Expect.isNotNull statusLine "A malformed upgrade request must be answered"
                         Expect.stringContains statusLine "400" "A malformed upgrade request must be answered with 400")
 
-                    testAllRuntimes "acceptLoop - malformed upgrade requests do not hold up the next client" (fun runtime ->
-                        let waited =
-                            withTestEchoServer
-                                (fun port ->
-                                    fio {
-                                        let! malformed =
-                                            FIO.attempt
-                                                (fun () ->
-                                                    [
-                                                        for _ in 1..60 ->
-                                                            let client = new Net.Sockets.TcpClient("localhost", port)
-                                                            let bytes = Text.Encoding.ASCII.GetBytes(malformedUpgrade port)
-                                                            client.GetStream().Write(bytes, 0, bytes.Length)
-                                                            client
-                                                    ])
-                                                WsError.fromException
+                    testAllRuntimes
+                        "acceptLoop - malformed upgrade requests do not hold up the next client"
+                        (fun runtime ->
+                            let waited =
+                                withTestEchoServer
+                                    (fun port ->
+                                        fio {
+                                            let! malformed =
+                                                FIO.attempt
+                                                    (fun () ->
+                                                        [
+                                                            for _ in 1..60 ->
+                                                                let client =
+                                                                    new Net.Sockets.TcpClient("localhost", port)
+                                                                let bytes =
+                                                                    Text.Encoding.ASCII.GetBytes(
+                                                                        malformedUpgrade port
+                                                                    )
+                                                                client.GetStream().Write(bytes, 0, bytes.Length)
+                                                                client
+                                                        ])
+                                                    WsError.fromException
 
-                                        let clock = Diagnostics.Stopwatch.StartNew()
+                                            let clock = Diagnostics.Stopwatch.StartNew()
 
-                                        return!
-                                            (fio {
-                                                let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
-                                                do! ws.SendText "next"
-                                                let! _ = ws.Receive Codec.text
-                                                let waited = clock.ElapsedMilliseconds
-                                                do! ws.Close()
-                                                return waited
-                                            })
-                                                .Ensuring(FIO.succeedWith (fun () -> for client in malformed do client.Dispose()))
-                                    })
-                                runtime
+                                            return!
+                                                (fio {
+                                                    let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+                                                    do! ws.SendText "next"
+                                                    let! _ = ws.Receive Codec.text
+                                                    let waited = clock.ElapsedMilliseconds
+                                                    do! ws.Close()
+                                                    return waited
+                                                })
+                                                    .Ensuring(
+                                                        FIO.succeedWith (fun () ->
+                                                            for client in malformed do
+                                                                client.Dispose())
+                                                    )
+                                        })
+                                    runtime
 
-                        Expect.isLessThan waited 1_000L "A failed handshake must not pause the accept loop")
+                            Expect.isLessThan waited 1_000L "A failed handshake must not pause the accept loop")
 
-                    testAllRuntimes "acceptLoop - ends with an error when its listener is stopped under it" (fun runtime ->
-                        let effect =
-                            fio {
-                                let! _, listener = startTestListener ()
-                                let! loop = (WebSocketServer.acceptLoop listener WebSocketConfig.defaultConfig noopHandler).Fork()
-                                do! sleepMs 150.0
-                                do! WebSocketServer.close listener
-                                let! ended, _ = waitForTerminal loop 2_000
+                    testAllRuntimes
+                        "acceptLoop - ends with an error when its listener is stopped under it"
+                        (fun runtime ->
+                            let effect =
+                                fio {
+                                    let! _, listener = startTestListener ()
+                                    let! loop =
+                                        (WebSocketServer.acceptLoop listener WebSocketConfig.defaultConfig noopHandler)
+                                            .Fork()
+                                    do! sleepMs 150.0
+                                    do! WebSocketServer.close listener
+                                    let! ended, _ = waitForTerminal loop 2_000
 
-                                if ended then
-                                    let! outcome = loop.Await()
-                                    return Some outcome
-                                else
-                                    do! loop.InterruptNow()
-                                    return None
-                            }
+                                    if ended then
+                                        let! outcome = loop.Await()
+                                        return Some outcome
+                                    else
+                                        do! loop.InterruptNow()
+                                        return None
+                                }
 
-                        let outcome = runWithTimeout runtime effect
+                            let outcome = runWithTimeout runtime effect
 
-                        match outcome with
-                        | Some(Failed(ConnectionFailed _)) -> ()
-                        | other -> failtest $"The loop must stop once its listener is stopped, got %A{other}")
+                            match outcome with
+                            | Some(Failed(ConnectionFailed _)) -> ()
+                            | other -> failtest $"The loop must stop once its listener is stopped, got %A{other}")
 
                     testAllRuntimes "acceptLoop - answers 503 to a connection beyond MaxConnections" (fun runtime ->
                         let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withMaxConnections 2
@@ -397,36 +442,42 @@ let webSocketServerTests =
                         let third = runWithTimeout runtime effect
 
                         match third with
-                        | Error(ConnectionFailed message) -> Expect.stringContains message "503" "The connection over the limit must be refused with 503"
+                        | Error(ConnectionFailed message) ->
+                            Expect.stringContains
+                                message
+                                "503"
+                                "The connection over the limit must be refused with 503"
                         | other -> failtest $"Expected ConnectionFailed with a 503 but got {other}")
 
-                    testAllRuntimes "accept - fails with ConnectionFailed when the client did not offer the subprotocol" (fun runtime ->
-                        let effect =
-                            fio {
-                                let! port, listener = startTestListener ()
+                    testAllRuntimes
+                        "accept - fails with ConnectionFailed when the client did not offer the subprotocol"
+                        (fun runtime ->
+                            let effect =
+                                fio {
+                                    let! port, listener = startTestListener ()
 
-                                let! acceptFiber =
-                                    (WebSocketServer.accept listener WebSocketConfig.defaultConfig (Some "chat"))
-                                        .Map(fun _ -> None)
-                                        .CatchAll(fun error -> FIO.succeed (Some error))
-                                        .Fork()
+                                    let! acceptFiber =
+                                        (WebSocketServer.accept listener WebSocketConfig.defaultConfig (Some "chat"))
+                                            .Map(fun _ -> None)
+                                            .CatchAll(fun error -> FIO.succeed (Some error))
+                                            .Fork()
 
-                                let! _ =
-                                    (WebSocketClient.connectDefault $"ws://localhost:{port}/")
-                                        .Map(fun ws -> Ok ws)
-                                        .CatchAll(fun error -> FIO.succeed (Error error))
-                                        .Timeout(TimeSpan.FromSeconds 5.0)
+                                    let! _ =
+                                        (WebSocketClient.connectDefault $"ws://localhost:{port}/")
+                                            .Map(fun ws -> Ok ws)
+                                            .CatchAll(fun error -> FIO.succeed (Error error))
+                                            .Timeout(TimeSpan.FromSeconds 5.0)
 
-                                let! acceptOutcome = acceptFiber.Join()
-                                do! WebSocketServer.close listener
-                                return acceptOutcome
-                            }
+                                    let! acceptOutcome = acceptFiber.Join()
+                                    do! WebSocketServer.close listener
+                                    return acceptOutcome
+                                }
 
-                        let acceptOutcome = runWithTimeout runtime effect
+                            let acceptOutcome = runWithTimeout runtime effect
 
-                        match acceptOutcome with
-                        | Some(ConnectionFailed _) -> ()
-                        | other -> failtest $"accept must fail with ConnectionFailed, got {other}")
+                            match acceptOutcome with
+                            | Some(ConnectionFailed _) -> ()
+                            | other -> failtest $"accept must fail with ConnectionFailed, got {other}")
                 ]
 
             testList
@@ -446,7 +497,8 @@ let webSocketServerTests =
                                                 client.Timeout <- TimeSpan.FromSeconds 2.0
                                                 client.GetAsync($"http://localhost:{port}/").Result |> ignore
                                                 false
-                                            with _ -> true)
+                                            with _ ->
+                                                true)
                                         WsError.fromException
 
                                 return refused
@@ -467,7 +519,7 @@ let webSocketServerTests =
                             fio {
                                 let! message = ws.Receive Codec.text
                                 do! FIO.attempt (fun () -> received.Add message) WsError.fromException
-                                do! (handlerDone.Write ()).Unit()
+                                do! (handlerDone.Write()).Unit()
                             }
                         let effect =
                             withServedUrl
@@ -476,7 +528,7 @@ let webSocketServerTests =
                                     fio {
                                         let! client = connectWhenListening wsUrl
                                         do! client.Send(Codec.text, "hello serve")
-                                        do! (handlerDone.Read ()).Unit()
+                                        do! (handlerDone.Read()).Unit()
                                         do! client.Close()
                                         return ()
                                     })
@@ -486,11 +538,17 @@ let webSocketServerTests =
                         Expect.sequenceEqual received [ "hello serve" ] "serve must deliver the message to its handler")
 
                     testAllRuntimes "serveWith - runs a request/response protocol" (fun runtime ->
-                        let respond (request: string) = FIO.succeed (request.ToUpperInvariant())
+                        let respond (request: string) =
+                            FIO.succeed (request.ToUpperInvariant())
                         let effect =
                             withServedUrl
                                 (fun url ->
-                                    WebSocketServer.serveWith url WebSocketConfig.defaultConfig Codec.text Codec.text respond)
+                                    WebSocketServer.serveWith
+                                        url
+                                        WebSocketConfig.defaultConfig
+                                        Codec.text
+                                        Codec.text
+                                        respond)
                                 (fun wsUrl ->
                                     fio {
                                         let! client = connectWhenListening wsUrl
@@ -502,9 +560,6 @@ let webSocketServerTests =
 
                         let reply = runWithTimeout runtime effect
 
-                        Expect.equal
-                            reply
-                            "SHOUT"
-                            "serveWith must decode the request and encode the handler's reply")
+                        Expect.equal reply "SHOUT" "serveWith must decode the request and encode the handler's reply")
                 ]
         ]

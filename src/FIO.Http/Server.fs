@@ -33,7 +33,7 @@ type ServerConfig =
 module ServerConfig =
 
     /// The default server configuration (127.0.0.1:8080, 30 MB body limit, 10 s shutdown).
-    let defaultConfig : ServerConfig =
+    let defaultConfig: ServerConfig =
         {
             Host = "127.0.0.1"
             Port = 8080
@@ -43,15 +43,22 @@ module ServerConfig =
 
     /// Creates a server configuration for the given host and port.
     let create host port : ServerConfig =
-        { defaultConfig with Host = host; Port = port }
+        { defaultConfig with
+            Host = host
+            Port = port
+        }
 
     /// Sets the maximum request body size on a configuration.
     let withMaxBodySize maxSize config : ServerConfig =
-        { config with MaxRequestBodySize = maxSize }
+        { config with
+            MaxRequestBodySize = maxSize
+        }
 
     /// Sets how long, in milliseconds, a stopping server lets requests in flight finish; 0 or less waits indefinitely.
     let withShutdownTimeout (timeout: int) (config: ServerConfig) : ServerConfig =
-        { config with ShutdownTimeout = timeout }
+        { config with
+            ShutdownTimeout = timeout
+        }
 
 type private ServerState =
     | Created
@@ -102,8 +109,7 @@ module Server =
     let create (config: ServerConfig) (routes: Routes<exn>) : FIO<FIOServer, exn> =
         FIO.attempt (fun () -> newServer config routes (new DefaultRuntime()) true) id
 
-    let internal runtimeOf (server: FIOServer) : DefaultRuntime =
-        server.Runtime
+    let internal runtimeOf (server: FIOServer) : DefaultRuntime = server.Runtime
 
     // Disposing a runtime waits for its fibers to unwind, so it runs on a pool thread and is awaited, not blocked on.
     let private releaseOwnedRuntime (server: FIOServer) : FIO<unit, exn> =
@@ -131,8 +137,10 @@ module Server =
 
         builder.Services.Configure<HostOptions>(fun (options: HostOptions) ->
             options.ShutdownTimeout <-
-                if server.Config.ShutdownTimeout > 0 then TimeSpan.FromSeconds 5.0
-                else Timeout.InfiniteTimeSpan)
+                if server.Config.ShutdownTimeout > 0 then
+                    TimeSpan.FromSeconds 5.0
+                else
+                    Timeout.InfiniteTimeSpan)
         |> ignore
 
         builder.WebHost.ConfigureKestrel(fun options ->
@@ -159,33 +167,40 @@ module Server =
                     server.Config.MaxRequestBodySize
                     KestrelBridge.defaultJsonOptions
                     ctx
-                :> Task))
+                :> Task)
+        )
 
         app
 
     /// Starts the server listening, returning the running server. A server that was stopped cannot be started again.
     let start (server: FIOServer) : FIO<FIOServer, exn> =
-        locked server (
-            FIO.suspend (fun () ->
+        locked
+            server
+            (FIO.suspend (fun () ->
                 match server.State.Value with
                 | Started -> FIO.succeed server
                 | Stopped ->
-                    let message = "FIO HTTP Server was stopped and cannot be started again; create a new one."
+                    let message =
+                        "FIO HTTP Server was stopped and cannot be started again; create a new one."
                     FIO.fail (InvalidOperationException message :> exn)
                 | Created ->
                     fio {
                         let! app = FIO.attempt (fun () -> buildHost server) id
 
                         do!
-                            (FIO.awaitUnitTask (app.StartAsync()) id).CatchAll <| fun startError ->
+                            (FIO.awaitUnitTask (app.StartAsync()) id).CatchAll
+                            <| fun startError ->
                                 (FIO.awaitUnitTask (app.DisposeAsync().AsTask()) id)
-                                    .Ignore().FlatMap(fun () -> FIO.fail startError)
+                                    .Ignore()
+                                    .FlatMap(fun () -> FIO.fail startError)
 
                         do!
-                            FIO.attempt (fun () ->
-                                server.Host.Value <- Some(app :> IHost)
-                                server.State.Value <- Started
-                                printfn $"FIO HTTP Server listening on http://{server.Config.Host}:{server.Config.Port}")
+                            FIO.attempt
+                                (fun () ->
+                                    server.Host.Value <- Some(app :> IHost)
+                                    server.State.Value <- Started
+                                    printfn
+                                        $"FIO HTTP Server listening on http://{server.Config.Host}:{server.Config.Port}")
                                 id
 
                         return server
@@ -194,8 +209,9 @@ module Server =
     /// Stops the server: new requests get 503, requests in flight get the shutdown timeout, then are interrupted with 503.
     /// Never call it from one of the server's own handlers, which it would wait for and then interrupt.
     let stop (server: FIOServer) : FIO<FIOServer, exn> =
-        locked server (
-            FIO.suspend (fun () ->
+        locked
+            server
+            (FIO.suspend (fun () ->
                 match server.State.Value, server.Host.Value with
                 | Started, Some host ->
                     let drain =
@@ -208,13 +224,16 @@ module Server =
                                 else
                                     drained
 
-                            (FIO.awaitUnitTask waited id).FlatMap(fun () -> FIO.attempt (fun () -> server.Tracker.Cut()) id))
+                            (FIO.awaitUnitTask waited id)
+                                .FlatMap(fun () -> FIO.attempt (fun () -> server.Tracker.Cut()) id))
 
                     let release =
-                        (FIO.attempt (fun () ->
-                            server.Host.Value <- None
-                            server.State.Value <- Stopped
-                            host.Dispose()) id)
+                        (FIO.attempt
+                            (fun () ->
+                                server.Host.Value <- None
+                                server.State.Value <- Stopped
+                                host.Dispose())
+                            id)
                             .CatchAll(fun _ -> FIO.unit ())
                             .FlatMap(fun () -> releaseOwnedRuntime server)
 
@@ -237,7 +256,8 @@ module Server =
             match server.Host.Value with
             | Some host ->
                 let lifetime = host.Services.GetRequiredService<IHostApplicationLifetime>()
-                let stopping = TaskCompletionSource TaskCreationOptions.RunContinuationsAsynchronously
+                let stopping =
+                    TaskCompletionSource TaskCreationOptions.RunContinuationsAsynchronously
                 let claimed = ref 0
 
                 // Only the first signal is cancelled, so a second one can still end a stop that hangs.
@@ -249,10 +269,13 @@ module Server =
                 let signals =
                     [ PosixSignal.SIGINT; PosixSignal.SIGTERM; PosixSignal.SIGQUIT ]
                     |> List.choose (fun signal ->
-                        try Some(PosixSignalRegistration.Create(signal, onSignal))
-                        with _ -> None)
+                        try
+                            Some(PosixSignalRegistration.Create(signal, onSignal))
+                        with _ ->
+                            None)
 
-                let registration = lifetime.ApplicationStopping.Register(fun () -> stopping.TrySetResult() |> ignore)
+                let registration =
+                    lifetime.ApplicationStopping.Register(fun () -> stopping.TrySetResult() |> ignore)
 
                 let release =
                     FIO.succeedWith (fun () ->
@@ -263,70 +286,71 @@ module Server =
 
                 do! (FIO.awaitUnitTask stopping.Task id).Ensuring release
                 do! (stop server).Unit()
-            | None ->
-                return! FIO.fail (exn "FIO HTTP Server not started. Call Server.start first.")
+            | None -> return! FIO.fail (exn "FIO HTTP Server not started. Call Server.start first.")
         }
 
     // The caller never sees a server whose start failed, so its runtime is released here or not at all.
     let private startOrRelease (server: FIOServer) : FIO<FIOServer, exn> =
-        (start server).CatchAll(fun startError ->
-            (stop server).Ignore().FlatMap(fun () -> FIO.fail startError))
+        (start server).CatchAll(fun startError -> (stop server).Ignore().FlatMap(fun () -> FIO.fail startError))
 
     // A fiber interrupted while its server started could not hand the server to anyone: it is stopped again.
     let private handOver (server: FIO<FIOServer, exn>) : FIO<FIOServer, exn> =
-        FIO.cancellationToken().FlatMap(fun cancellationToken ->
-            FIO.uninterruptible (
-                server.FlatMap(startOrRelease).FlatMap(fun started ->
-                    if cancellationToken.IsCancellationRequested then stop started
-                    else FIO.succeed started)))
+        FIO
+            .cancellationToken()
+            .FlatMap(fun cancellationToken ->
+                FIO.uninterruptible (
+                    server
+                        .FlatMap(startOrRelease)
+                        .FlatMap(fun started ->
+                            if cancellationToken.IsCancellationRequested then
+                                stop started
+                            else
+                                FIO.succeed started)
+                ))
 
     /// Creates and starts a server using the given runtime. Prefer runServerWithRuntime, which also stops it.
     let startServerWithRuntime
         (config: ServerConfig)
         (routes: Routes<exn>)
-        (runtime: DefaultRuntime) : FIO<FIOServer, exn> =
+        (runtime: DefaultRuntime)
+        : FIO<FIOServer, exn> =
         handOver (createWithRuntime config routes runtime)
 
     /// Creates and starts a server with its own default runtime. Prefer runServer, which also stops it.
-    let startServer (config: ServerConfig) (routes: Routes<exn>) : FIO<FIOServer, exn> =
-        handOver (create config routes)
+    let startServer (config: ServerConfig) (routes: Routes<exn>) : FIO<FIOServer, exn> = handOver (create config routes)
 
     let private runScoped (server: FIO<FIOServer, exn>) : FIO<unit, exn> =
-        FIO.acquireReleaseWith
-            (server.FlatMap startOrRelease)
-            (fun started -> (stop started).Unit())
-            run
+        FIO.acquireReleaseWith (server.FlatMap startOrRelease) (fun started -> (stop started).Unit()) run
 
     /// Creates, starts, and runs a server using the given runtime until shutdown, then stops it.
     let runServerWithRuntime (config: ServerConfig) (routes: Routes<exn>) (runtime: DefaultRuntime) : FIO<unit, exn> =
         runScoped (createWithRuntime config routes runtime)
 
     /// Creates, starts, and runs a server with its own default runtime until shutdown, then stops it.
-    let runServer (config: ServerConfig) (routes: Routes<exn>) : FIO<unit, exn> =
-        runScoped (create config routes)
+    let runServer (config: ServerConfig) (routes: Routes<exn>) : FIO<unit, exn> = runScoped (create config routes)
 
 module ServerBuilder =
 
     /// Sets the host on a configuration.
-    let host host (config: ServerConfig) : ServerConfig =
-        { config with Host = host }
+    let host host (config: ServerConfig) : ServerConfig = { config with Host = host }
 
     /// Sets the port on a configuration.
-    let port port (config: ServerConfig) : ServerConfig =
-        { config with Port = port }
+    let port port (config: ServerConfig) : ServerConfig = { config with Port = port }
 
     /// Sets the maximum request body size on a configuration.
     let maxBodySize size (config: ServerConfig) : ServerConfig =
-        { config with MaxRequestBodySize = size }
+        { config with
+            MaxRequestBodySize = size
+        }
 
     /// Sets how long, in milliseconds, a stopping server lets requests in flight finish; 0 or less waits indefinitely.
     let shutdownTimeout (timeout: int) (config: ServerConfig) : ServerConfig =
-        { config with ShutdownTimeout = timeout }
+        { config with
+            ShutdownTimeout = timeout
+        }
 
     /// Creates and starts a server from the configuration and routes.
-    let startNow (routes: Routes<exn>) (config: ServerConfig) : FIO<FIOServer, exn> =
-        Server.startServer config routes
+    let startNow (routes: Routes<exn>) (config: ServerConfig) : FIO<FIOServer, exn> = Server.startServer config routes
 
     /// Creates, starts, and runs a server from the configuration and routes.
-    let runNow (routes: Routes<exn>) (config: ServerConfig) : FIO<unit, exn> =
-        Server.runServer config routes
+    let runNow (routes: Routes<exn>) (config: ServerConfig) : FIO<unit, exn> = Server.runServer config routes

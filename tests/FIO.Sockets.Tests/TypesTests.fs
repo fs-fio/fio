@@ -64,9 +64,13 @@ let typesTests =
                                 CodecError("codec", original)
                             ]
 
-                        let inners = errors |> List.map (fun error -> (SocketError.toException error).InnerException)
+                        let inners =
+                            errors |> List.map (fun error -> (SocketError.toException error).InnerException)
 
-                        Expect.all inners (fun inner -> Object.ReferenceEquals(inner, original)) "Every wrapped exception should be kept"
+                        Expect.all
+                            inners
+                            (fun inner -> Object.ReferenceEquals(inner, original))
+                            "Every wrapped exception should be kept"
                 ]
 
             testList
@@ -85,7 +89,9 @@ let typesTests =
                         Expect.equal config.SendBufferSize 8192 "Default send buffer"
                         Expect.equal config.ReceiveBufferSize 8192 "Default receive buffer"
                         Expect.isTrue config.NoDelay "Default NoDelay should be true"
-                        Expect.isFalse config.LingerEnabled "Default LingerEnabled should be false, so closing is graceful"
+                        Expect.isFalse
+                            config.LingerEnabled
+                            "Default LingerEnabled should be false, so closing is graceful"
                         Expect.equal config.LingerTimeout 0 "Default LingerTimeout should be 0"
 
                     testAllRuntimes "create - fails for an empty host" (fun runtime ->

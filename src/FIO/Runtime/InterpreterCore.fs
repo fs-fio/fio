@@ -64,7 +64,8 @@ let interruptedOnRegionExit (fiberContext: FiberContext) (outcome: Outcome) =
     match outcome with
     | OutcomeInterrupted _ -> outcome
     | OutcomeSucceeded _
-    | OutcomeFailed _ -> OutcomeInterrupted(interruptionFor fiberContext "Fiber was interrupted in an uninterruptible region.")
+    | OutcomeFailed _ ->
+        OutcomeInterrupted(interruptionFor fiberContext "Fiber was interrupted in an uninterruptible region.")
 
 let inline isFinalizerNode (node: FIOBase) =
     match node.Kind with
@@ -116,8 +117,7 @@ let processRegionCont (state: byref<InterpreterState>) (cont: Cont) (outcome: by
             | OutcomeInterrupted error -> PostFinalizerInterrupted error
 
         match node.Kind with
-        | NodeKind.OnExit ->
-            runExitFinalizer &state node saved level
+        | NodeKind.OnExit -> runExitFinalizer &state node saved level
         | _ ->
             state.ContStack.Push(PostFinalizerCont(saved, level))
             state.Effect <- cast<FIOBase> node.B
@@ -187,7 +187,8 @@ let inline processOutcome
     (state: byref<InterpreterState>)
     ([<InlineIfLambda>] onSuccessComplete: obj -> unit)
     ([<InlineIfLambda>] onErrorComplete: obj -> unit)
-    (initialOutcome: Outcome) =
+    (initialOutcome: Outcome)
+    =
     let mutable outcome = initialOutcome
     let mutable loop = true
 
@@ -233,21 +234,21 @@ let inline processResult
     (state: byref<InterpreterState>)
     ([<InlineIfLambda>] onSuccessComplete: obj -> unit)
     ([<InlineIfLambda>] onErrorComplete: obj -> unit)
-    (value: Result<obj, obj>) =
+    (value: Result<obj, obj>)
+    =
     match value with
-    | Ok value ->
-        processOutcome &state onSuccessComplete onErrorComplete (OutcomeSucceeded value)
+    | Ok value -> processOutcome &state onSuccessComplete onErrorComplete (OutcomeSucceeded value)
     | Error error ->
         match error with
         | :? FiberInterruptedException ->
             processOutcome &state onSuccessComplete onErrorComplete (OutcomeInterrupted error)
-        | _ ->
-            processOutcome &state onSuccessComplete onErrorComplete (OutcomeFailed error)
+        | _ -> processOutcome &state onSuccessComplete onErrorComplete (OutcomeFailed error)
 
 let inline handleSharedCase
     (state: byref<InterpreterState>)
     ([<InlineIfLambda>] onSuccessComplete: obj -> unit)
-    ([<InlineIfLambda>] onErrorComplete: obj -> unit) =
+    ([<InlineIfLambda>] onErrorComplete: obj -> unit)
+    =
     let node = state.Effect
 
     match node.Kind with
@@ -322,9 +323,9 @@ let inline handleSharedCase
         ValueNone
     | NodeKind.Suspend ->
         try
-           state.Effect <- node.Ops.Force node
+            state.Effect <- node.Ops.Force node
         with ex ->
-           state.Effect <- InterruptNode<obj, obj>(Defect ex, ex.Message)
+            state.Effect <- InterruptNode<obj, obj>(Defect ex, ex.Message)
         ValueNone
     | NodeKind.WithSuppression ->
         let outer = state.InterruptionSuppressed
@@ -347,22 +348,16 @@ let inline handleSharedCase
         state.Effect <- node.Child
         ValueNone
     | NodeKind.WriteChan
-    | NodeKind.TryWriteChan ->
-        ValueSome(HandleWriteChan(node.A, cast<Channel<obj>> node.B, node.Kind.IsTryWriteChan))
-    | NodeKind.ReadChan ->
-        ValueSome(HandleReadChan(cast<Channel<obj>> node.A))
+    | NodeKind.TryWriteChan -> ValueSome(HandleWriteChan(node.A, cast<Channel<obj>> node.B, node.Kind.IsTryWriteChan))
+    | NodeKind.ReadChan -> ValueSome(HandleReadChan(cast<Channel<obj>> node.A))
     | NodeKind.ForkEffect
     | NodeKind.ForkDaemonEffect ->
         let struct (fiber, fiberContext) = node.Ops.ForkTarget node
         ValueSome(HandleForkEffect(node.Child, fiber, fiberContext, node.Kind.IsForkDaemonEffect))
-    | NodeKind.JoinFiber ->
-        ValueSome(HandleJoinFiber(cast<FiberContext> node.A))
-    | NodeKind.JoinFirst ->
-        ValueSome(HandleJoinFirst(cast<FiberContext list> node.A))
-    | NodeKind.JoinAllFailFast ->
-        ValueSome(HandleJoinAllFailFast(cast<FiberContext[]> node.A))
-    | NodeKind.AwaitTask ->
-        ValueSome(HandleAwaitTask(cast<Task<obj>> node.A, node))
+    | NodeKind.JoinFiber -> ValueSome(HandleJoinFiber(cast<FiberContext> node.A))
+    | NodeKind.JoinFirst -> ValueSome(HandleJoinFirst(cast<FiberContext list> node.A))
+    | NodeKind.JoinAllFailFast -> ValueSome(HandleJoinAllFailFast(cast<FiberContext[]> node.A))
+    | NodeKind.AwaitTask -> ValueSome(HandleAwaitTask(cast<Task<obj>> node.A, node))
 
 // Generic so that this file gains no module-level static initializer. Interrupting a child interrupts its own
 // children from inside this callback, one level of stack each.
@@ -380,16 +375,26 @@ type internal ForkScopeCallback<'Marker> private () =
                             child.Interrupt(ParentInterrupted parentId, "Parent fiber scope closed.")
                         with _ ->
                             ()),
-                    null)
+                    null
+                )
                 |> ignore)
 
-let inline attachFork (parentContext: FiberContext) (childContext: FiberContext) (daemon: bool) (uninterruptible: bool) =
+let inline attachFork
+    (parentContext: FiberContext)
+    (childContext: FiberContext)
+    (daemon: bool)
+    (uninterruptible: bool)
+    =
     if not daemon then
         let scope =
-            if uninterruptible then parentContext.ProtectedChildScopeToken else parentContext.ChildScopeToken
+            if uninterruptible then
+                parentContext.ProtectedChildScopeToken
+            else
+                parentContext.ChildScopeToken
 
         childContext.AttachTo parentContext
-        let registration = scope.Register(ForkScopeCallback<FiberContext>.OnClosed, box childContext)
+        let registration =
+            scope.Register(ForkScopeCallback<FiberContext>.OnClosed, box childContext)
         childContext.AddRegistration registration
 
 let inline defectError (fiberContext: FiberContext) (ex: exn) =
@@ -406,7 +411,9 @@ let inline awaitedTask (awaited: Task<'T>) (suppressed: int) (fiberContext: Fibe
         awaited.WaitAsync fiberContext.CancellationToken
 
 let inline private endsByInterruption (waited: Task<obj>) (fiberContext: FiberContext) (suppressed: int) =
-    waited.IsCanceled && suppressed = 0 && fiberContext.CancellationToken.IsCancellationRequested
+    waited.IsCanceled
+    && suppressed = 0
+    && fiberContext.CancellationToken.IsCancellationRequested
 
 let inline private failureOf (waited: Task<obj>) : exn =
     match waited.Exception with
@@ -458,9 +465,13 @@ let parkUntilWritable
     (fiberContext: FiberContext)
     (contStack: Stack<Cont>)
     (suppressed: int)
-    (reschedule: WorkItem -> unit) =
+    (reschedule: WorkItem -> unit)
+    =
     let cancellationToken =
-        if suppressed > 0 then CancellationToken.None else fiberContext.CancellationToken
+        if suppressed > 0 then
+            CancellationToken.None
+        else
+            fiberContext.CancellationToken
 
     let waited = channel.Queue.WaitToWriteAsync(cancellationToken).AsTask()
 
@@ -493,7 +504,8 @@ let inline parkOnTask
     (contStack: Stack<Cont>)
     (suppressed: int)
     (node: FIOBase)
-    ([<InlineIfLambda>] reschedule: WorkItem -> unit) =
+    ([<InlineIfLambda>] reschedule: WorkItem -> unit)
+    =
     let resume () =
         let effect =
             try
@@ -520,7 +532,8 @@ let parkBlockingWaiter
     (fiberContext: FiberContext)
     (suppressed: int)
     (workItem: WorkItem)
-    (reschedule: Action<WorkItem>) =
+    (reschedule: Action<WorkItem>)
+    =
     let waiter = BlockingWaiter workItem
     if suppressed = 0 then
         let registration =
@@ -579,7 +592,8 @@ let awaitJoinAllSettled
     (fiberContexts: FiberContext[])
     (suppressed: bool)
     (currentFiberContext: FiberContext)
-    (cancellationToken: CancellationToken) =
+    (cancellationToken: CancellationToken)
+    =
     task {
         let completionSource =
             TaskCompletionSource<unit> TaskCreationOptions.RunContinuationsAsynchronously
@@ -587,17 +601,20 @@ let awaitJoinAllSettled
         registerJoinAllLatch fiberContexts (fun () -> completionSource.TrySetResult() |> ignore)
 
         let! _ =
-            if suppressed then completionSource.Task
-            else completionSource.Task.WaitAsync cancellationToken
+            if suppressed then
+                completionSource.Task
+            else
+                completionSource.Task.WaitAsync cancellationToken
 
         match tryCompleteJoinAll fiberContexts with
-        | ValueSome outcome ->
-            return OutcomeSucceeded <| box outcome
+        | ValueSome outcome -> return OutcomeSucceeded <| box outcome
         | ValueNone ->
             return
                 OutcomeInterrupted(
                     FiberInterruptedException(
                         currentFiberContext.Id,
                         ExplicitInterrupt,
-                        "JoinAllFailFast signalled without a settled outcome."))
+                        "JoinAllFailFast signalled without a settled outcome."
+                    )
+                )
     }

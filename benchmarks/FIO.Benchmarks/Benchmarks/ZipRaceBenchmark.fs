@@ -11,8 +11,8 @@ module internal ZipRace =
     // Builds the ZipRace workload: rounds of ZipPar and RaceFirst over trivial effects, stressing fork/settle/join cost.
     let effect roundCount =
         FIO.forEachDiscard (seq { 1..roundCount }) (fun round ->
-            ((FIO.succeed round).ZipPar(FIO.succeed (round + 1))).FlatMap <| fun _ ->
-                (FIO.succeed round).RaceFirst(FIO.succeed (round + 1)))
+            ((FIO.succeed round).ZipPar(FIO.succeed (round + 1))).FlatMap
+            <| fun _ -> (FIO.succeed round).RaceFirst(FIO.succeed (round + 1)))
 
 // Measures the per-invocation cost of the parallel combinators (ZipPar + RaceFirst).
 [<MemoryDiagnoser>]
@@ -26,5 +26,4 @@ type ZipRaceBenchmark() =
     [<ParamsSource("RoundCounts")>]
     member val RoundCount = 0 with get, set
 
-    override this.CreateEffect () =
-        ZipRace.effect this.RoundCount
+    override this.CreateEffect() = ZipRace.effect this.RoundCount

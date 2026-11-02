@@ -19,10 +19,8 @@ module internal Counting =
         let rec loop count =
             fio {
                 match! mailbox.Read() with
-                | Increment ->
-                    return! loop (count + 1)
-                | RetrieveChannel replyChannel ->
-                    do! replyChannel.Write(count).Unit()
+                | Increment -> return! loop (count + 1)
+                | RetrieveChannel replyChannel -> do! replyChannel.Write(count).Unit()
             }
         loop 0
 
@@ -45,8 +43,7 @@ module internal Counting =
             let mailbox = Channel<Message>()
             let replyChannel = Channel<int>()
 
-            do! FIO.collectAllParDiscard
-                    [ counterEffect mailbox; producerEffect mailbox replyChannel messageCount ]
+            do! FIO.collectAllParDiscard [ counterEffect mailbox; producerEffect mailbox replyChannel messageCount ]
         }
 
 // Measures throughput of a counter actor tallying a stream of increment messages.
@@ -61,5 +58,4 @@ type CountingBenchmark() =
     [<ParamsSource("MessageCounts")>]
     member val MessageCount = 0 with get, set
 
-    override this.CreateEffect () =
-        Counting.effect this.MessageCount
+    override this.CreateEffect() = Counting.effect this.MessageCount

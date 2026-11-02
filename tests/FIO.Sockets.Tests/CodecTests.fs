@@ -241,34 +241,45 @@ let codecTests =
                         let error = runtime.Run(codec.Decode [| 0uy; 0uy; 0uy |]).UnsafeError()
 
                         match error with
-                        | CodecError(message, _) -> Expect.stringContains message "Insufficient bytes" "The failure should say why"
+                        | CodecError(message, _) ->
+                            Expect.stringContains message "Insufficient bytes" "The failure should say why"
                         | other -> failtest $"Expected CodecError but got {other}")
 
                     testAllRuntimes "compose - a first payload past the end produces CodecError" (fun runtime ->
                         let codec = Codec.compose Codec.string Codec.string
 
-                        let error = runtime.Run(codec.Decode [| 0uy; 0uy; 0uy; 10uy; 0uy; 0uy; 0uy; 0uy |]).UnsafeError()
+                        let error =
+                            runtime.Run(codec.Decode [| 0uy; 0uy; 0uy; 10uy; 0uy; 0uy; 0uy; 0uy |]).UnsafeError()
 
                         match error with
-                        | CodecError(message, _) -> Expect.stringContains message "Incomplete first payload" "The failure should say why"
+                        | CodecError(message, _) ->
+                            Expect.stringContains message "Incomplete first payload" "The failure should say why"
                         | other -> failtest $"Expected CodecError but got {other}")
 
                     testAllRuntimes "compose - a negative second length produces CodecError" (fun runtime ->
                         let codec = Codec.compose Codec.string Codec.string
 
-                        let error = runtime.Run(codec.Decode [| 0uy; 0uy; 0uy; 0uy; 0xFFuy; 0xFFuy; 0xFFuy; 0xFFuy |]).UnsafeError()
+                        let error =
+                            runtime
+                                .Run(codec.Decode [| 0uy; 0uy; 0uy; 0uy; 0xFFuy; 0xFFuy; 0xFFuy; 0xFFuy |])
+                                .UnsafeError()
 
                         match error with
-                        | CodecError(message, _) -> Expect.stringContains message "Negative second payload length" "The failure should say why"
+                        | CodecError(message, _) ->
+                            Expect.stringContains message "Negative second payload length" "The failure should say why"
                         | other -> failtest $"Expected CodecError but got {other}")
 
                     testAllRuntimes "compose - a second payload past the end produces CodecError" (fun runtime ->
                         let codec = Codec.compose Codec.string Codec.string
 
-                        let error = runtime.Run(codec.Decode [| 0uy; 0uy; 0uy; 0uy; 0uy; 0uy; 0uy; 5uy; 1uy; 2uy |]).UnsafeError()
+                        let error =
+                            runtime
+                                .Run(codec.Decode [| 0uy; 0uy; 0uy; 0uy; 0uy; 0uy; 0uy; 5uy; 1uy; 2uy |])
+                                .UnsafeError()
 
                         match error with
-                        | CodecError(message, _) -> Expect.stringContains message "Incomplete second payload" "The failure should say why"
+                        | CodecError(message, _) ->
+                            Expect.stringContains message "Incomplete second payload" "The failure should say why"
                         | other -> failtest $"Expected CodecError but got {other}")
                 ]
 

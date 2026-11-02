@@ -17,9 +17,9 @@ module internal BoundedBuffer =
     let private distribute total parts =
         let baseCount = total / parts
         let remainder = total % parts
-        [ for index in 0 .. parts - 1 ->
-            if index < remainder then baseCount + 1
-            else baseCount ]
+        [
+            for index in 0 .. parts - 1 -> if index < remainder then baseCount + 1 else baseCount
+        ]
 
     // The bounded-buffer actor: parks producers and consumers and matches them up to capacity.
     let private bufferEffect (bufferChannel: Channel<BufferMessage>) capacity totalItems =
@@ -87,12 +87,13 @@ module internal BoundedBuffer =
             let consumerCounts = distribute totalItems consumerCount
 
             let producers =
-                [ for producerIndex in 0 .. producerCount - 1 ->
-                    producerEffect bufferChannel itemsPerProducer (producerIndex * itemsPerProducer + 1) ]
+                [
+                    for producerIndex in 0 .. producerCount - 1 ->
+                        producerEffect bufferChannel itemsPerProducer (producerIndex * itemsPerProducer + 1)
+                ]
 
             let consumers =
-                [ for count in consumerCounts ->
-                    consumerEffect bufferChannel count ]
+                [ for count in consumerCounts -> consumerEffect bufferChannel count ]
 
             do! FIO.collectAllParDiscard (bufferEffect bufferChannel capacity totalItems :: (producers @ consumers))
         }
@@ -127,5 +128,5 @@ type BoundedBufferBenchmark() =
     [<ParamsSource("ItemsPerProducerCounts")>]
     member val ItemsPerProducer = 0 with get, set
 
-    override this.CreateEffect () =
+    override this.CreateEffect() =
         BoundedBuffer.effect this.ProducerCount this.ConsumerCount this.Capacity this.ItemsPerProducer

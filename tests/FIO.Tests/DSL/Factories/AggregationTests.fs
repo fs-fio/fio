@@ -22,8 +22,7 @@ let tests =
                     <| fun (runtime: FIORuntime, zero: int) ->
                         let effect = FIO.mergeAll [] zero (+)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result zero "mergeAll over an empty seq should yield zero"
 
@@ -32,8 +31,7 @@ let tests =
                         let effects = xs |> List.map FIO.succeed
                         let effect = FIO.mergeAll effects 0 (+)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result (List.sum xs) "mergeAll should equal List.fold over the successes"
 
@@ -41,16 +39,11 @@ let tests =
                     <| fun (runtime: FIORuntime) ->
                         let mutable callCount = 0
                         let mk i =
-                            (FIO.attempt
-                                (fun () -> Interlocked.Increment(&callCount) |> ignore)
-                                (fun ex -> ex.Message)
-                            ).FlatMap(fun () ->
-                                if i = 3 then FIO.fail "boom"
-                                else FIO.succeed i)
-                        let effects = [ 0 .. 9 ] |> List.map mk
+                            (FIO.attempt (fun () -> Interlocked.Increment(&callCount) |> ignore) (fun ex -> ex.Message))
+                                .FlatMap(fun () -> if i = 3 then FIO.fail "boom" else FIO.succeed i)
+                        let effects = [ 0..9 ] |> List.map mk
 
-                        let error =
-                            runtime.Run(FIO.mergeAll effects 0 (+)).UnsafeError()
+                        let error = runtime.Run(FIO.mergeAll effects 0 (+)).UnsafeError()
 
                         Expect.equal error "boom" "mergeAll should fail with the first error"
                         Expect.equal callCount 4 "mergeAll should not evaluate further effects after failure"
@@ -59,20 +52,21 @@ let tests =
                     <| fun () ->
                         for runtime in allRuntimes () do
                             use _ = runtime
-                            let effects = [ 1 .. 10000 ] |> List.map FIO.succeed
+                            let effects = [ 1..10000 ] |> List.map FIO.succeed
                             let effect = FIO.mergeAll effects 0 (+)
 
-                            let result =
-                                runtime.Run(effect).UnsafeSuccess()
+                            let result = runtime.Run(effect).UnsafeSuccess()
 
-                            Expect.equal result 50005000 $"mergeAll on {runtime.GetType().Name} should fold 10000 effects"
+                            Expect.equal
+                                result
+                                50005000
+                                $"mergeAll on {runtime.GetType().Name} should fold 10000 effects"
 
                     testPropertyWithConfig fsCheckConfig "mergeAllPar - empty input yields zero"
                     <| fun (runtime: FIORuntime, zero: int) ->
                         let effect = FIO.mergeAllPar [] zero (+)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result zero "mergeAllPar over an empty seq should yield zero"
 
@@ -81,20 +75,15 @@ let tests =
                         let effects = xs |> List.map FIO.succeed
                         let effect = FIO.mergeAllPar effects 0 (+)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result (List.sum xs) "mergeAllPar should equal List.fold over the successes"
 
                     testPropertyWithConfig fsCheckConfig "mergeAllPar - fails with one of the errors"
                     <| fun (runtime: FIORuntime) ->
-                        let effects =
-                            [ FIO.succeed 1
-                              FIO.fail "boom"
-                              FIO.succeed 2 ]
+                        let effects = [ FIO.succeed 1; FIO.fail "boom"; FIO.succeed 2 ]
 
-                        let error =
-                            runtime.Run(FIO.mergeAllPar effects 0 (+)).UnsafeError()
+                        let error = runtime.Run(FIO.mergeAllPar effects 0 (+)).UnsafeError()
 
                         Expect.equal error "boom" "mergeAllPar should propagate the failure"
 
@@ -102,8 +91,7 @@ let tests =
                     <| fun (runtime: FIORuntime, x: int) ->
                         let effect = FIO.reduceAll (FIO.succeed x) [] (+)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result x "reduceAll with empty tail should return head's result"
 
@@ -112,8 +100,7 @@ let tests =
                         let tailEffects = tail |> List.map FIO.succeed
                         let effect = FIO.reduceAll (FIO.succeed h) tailEffects (+)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result (List.fold (+) h tail) "reduceAll should equal List.fold over head + tail"
 
@@ -128,8 +115,7 @@ let tests =
                                 (fun ex -> ex.Message)
                         let tail = [ 1; 2; 3 ] |> List.map mkTail
 
-                        let error =
-                            runtime.Run(FIO.reduceAll (FIO.fail "boom") tail (+)).UnsafeError()
+                        let error = runtime.Run(FIO.reduceAll (FIO.fail "boom") tail (+)).UnsafeError()
 
                         Expect.equal error "boom" "reduceAll should fail with head's error"
                         Expect.equal tailEvaluated 0 "reduceAll should not evaluate tail after head failure"
@@ -138,20 +124,21 @@ let tests =
                     <| fun () ->
                         for runtime in allRuntimes () do
                             use _ = runtime
-                            let tail = [ 1 .. 9999 ] |> List.map FIO.succeed
+                            let tail = [ 1..9999 ] |> List.map FIO.succeed
                             let effect = FIO.reduceAll (FIO.succeed 0) tail (+)
 
-                            let result =
-                                runtime.Run(effect).UnsafeSuccess()
+                            let result = runtime.Run(effect).UnsafeSuccess()
 
-                            Expect.equal result 49995000 $"reduceAll on {runtime.GetType().Name} should reduce 10000 effects"
+                            Expect.equal
+                                result
+                                49995000
+                                $"reduceAll on {runtime.GetType().Name} should reduce 10000 effects"
 
                     testPropertyWithConfig fsCheckConfig "reduceAllPar - empty tail returns head's result"
                     <| fun (runtime: FIORuntime, x: int) ->
                         let effect = FIO.reduceAllPar (FIO.succeed x) [] (+)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result x "reduceAllPar with empty tail should return head's result"
 
@@ -160,17 +147,18 @@ let tests =
                         let tailEffects = tail |> List.map FIO.succeed
                         let effect = FIO.reduceAllPar (FIO.succeed h) tailEffects (+)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.equal result (List.fold (+) h tail) "reduceAllPar should equal List.fold over head + tail"
+                        Expect.equal
+                            result
+                            (List.fold (+) h tail)
+                            "reduceAllPar should equal List.fold over head + tail"
 
                     testPropertyWithConfig fsCheckConfig "reduceAllPar - fails when head fails"
                     <| fun (runtime: FIORuntime) ->
                         let tail = [ FIO.succeed 1; FIO.succeed 2 ]
 
-                        let error =
-                            runtime.Run(FIO.reduceAllPar (FIO.fail "boom") tail (+)).UnsafeError()
+                        let error = runtime.Run(FIO.reduceAllPar (FIO.fail "boom") tail (+)).UnsafeError()
 
                         Expect.equal error "boom" "reduceAllPar should fail with head's error"
                 ]
@@ -182,8 +170,7 @@ let tests =
                     <| fun (runtime: FIORuntime) ->
                         let effect = FIO.partition [] FIO.succeed
 
-                        let errs, oks =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let errs, oks = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal errs [] "partition over an empty seq should yield no errors"
                         Expect.equal oks [] "partition over an empty seq should yield no successes"
@@ -192,8 +179,7 @@ let tests =
                     <| fun (runtime: FIORuntime, xs: int list) ->
                         let effect = FIO.partition xs (fun x -> FIO.succeed x)
 
-                        let errs, oks =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let errs, oks = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal errs [] "partition with all-success should produce no errors"
                         Expect.equal oks xs "partition with all-success should preserve input order"
@@ -203,22 +189,24 @@ let tests =
                         let f x = FIO.fail (string x)
                         let effect = FIO.partition xs f
 
-                        let errs, oks =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let errs, oks = runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.equal errs (List.map string xs) "partition with all-failure should preserve input order in errors"
+                        Expect.equal
+                            errs
+                            (List.map string xs)
+                            "partition with all-failure should preserve input order in errors"
                         Expect.equal oks [] "partition with all-failure should produce no successes"
 
-                    testPropertyWithConfig fsCheckConfig "partition - mixed input splits and preserves order in both lists"
+                    testPropertyWithConfig
+                        fsCheckConfig
+                        "partition - mixed input splits and preserves order in both lists"
                     <| fun (runtime: FIORuntime) ->
                         let xs = [ 0; 1; 2; 3; 4; 5 ]
                         let f x =
-                            if x % 2 = 0 then FIO.succeed x
-                            else FIO.fail (string x)
+                            if x % 2 = 0 then FIO.succeed x else FIO.fail (string x)
                         let effect = FIO.partition xs f
 
-                        let errs, oks =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let errs, oks = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal errs [ "1"; "3"; "5" ] "partition should preserve input order in errors"
                         Expect.equal oks [ 0; 2; 4 ] "partition should preserve input order in successes"
@@ -227,59 +215,67 @@ let tests =
                     <| fun () ->
                         for runtime in allRuntimes () do
                             use _ = runtime
-                            let xs = [ 1 .. 10000 ]
+                            let xs = [ 1..10000 ]
                             let f x =
-                                if x % 2 = 0 then FIO.succeed x
-                                else FIO.fail x
+                                if x % 2 = 0 then FIO.succeed x else FIO.fail x
                             let effect = FIO.partition xs f
 
-                            let errs, oks =
-                                runtime.Run(effect).UnsafeSuccess()
+                            let errs, oks = runtime.Run(effect).UnsafeSuccess()
 
-                            Expect.equal (List.length errs) 5000 $"partition on {runtime.GetType().Name} should collect 5000 errors"
-                            Expect.equal (List.length oks) 5000 $"partition on {runtime.GetType().Name} should collect 5000 successes"
+                            Expect.equal
+                                (List.length errs)
+                                5000
+                                $"partition on {runtime.GetType().Name} should collect 5000 errors"
+                            Expect.equal
+                                (List.length oks)
+                                5000
+                                $"partition on {runtime.GetType().Name} should collect 5000 successes"
 
                     testPropertyWithConfig fsCheckConfig "partitionPar - empty input yields ([], [])"
                     <| fun (runtime: FIORuntime) ->
                         let effect = FIO.partitionPar [] FIO.succeed
 
-                        let errs, oks =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let errs, oks = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal errs [] "partitionPar over an empty seq should yield no errors"
                         Expect.equal oks [] "partitionPar over an empty seq should yield no successes"
 
-                    testPropertyWithConfig fsCheckConfig "partitionPar - all-success collects every result and preserves order"
+                    testPropertyWithConfig
+                        fsCheckConfig
+                        "partitionPar - all-success collects every result and preserves order"
                     <| fun (runtime: FIORuntime, xs: int list) ->
                         let effect = FIO.partitionPar xs (fun x -> FIO.succeed x)
 
-                        let errs, oks =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let errs, oks = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal errs [] "partitionPar with all-success should produce no errors"
                         Expect.equal oks xs "partitionPar with all-success should preserve input order"
 
-                    testPropertyWithConfig fsCheckConfig "partitionPar - all-failure collects every error and preserves order"
+                    testPropertyWithConfig
+                        fsCheckConfig
+                        "partitionPar - all-failure collects every error and preserves order"
                     <| fun (runtime: FIORuntime, xs: int list) ->
                         let f x = FIO.fail (string x)
                         let effect = FIO.partitionPar xs f
 
-                        let errs, oks =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let errs, oks = runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.equal errs (List.map string xs) "partitionPar with all-failure should preserve input order in errors"
+                        Expect.equal
+                            errs
+                            (List.map string xs)
+                            "partitionPar with all-failure should preserve input order in errors"
                         Expect.equal oks [] "partitionPar with all-failure should produce no successes"
 
-                    testPropertyWithConfig fsCheckConfig "partitionPar - mixed input splits and preserves order in both lists"
+                    testPropertyWithConfig
+                        fsCheckConfig
+                        "partitionPar - mixed input splits and preserves order in both lists"
                     <| fun (runtime: FIORuntime) ->
                         let xs = [ 0; 1; 2; 3; 4; 5 ]
                         let f x =
-                            if x % 2 = 0 then FIO.succeed x
-                            else FIO.fail (string x)
+                            if x % 2 = 0 then FIO.succeed x else FIO.fail (string x)
                         let effect = FIO.partitionPar xs f
 
-                        let errs, oks =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let errs, oks = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal errs [ "1"; "3"; "5" ] "partitionPar should preserve input order in errors"
                         Expect.equal oks [ 0; 2; 4 ] "partitionPar should preserve input order in successes"
@@ -291,28 +287,31 @@ let tests =
                             let mutable completed = 0
                             let n = 10
                             let f i =
-                                (FIO.attempt
-                                    (fun () ->
-                                        Interlocked.Increment(&completed) |> ignore)
-                                    (fun ex -> ex.Message)
-                                ).FlatMap(fun () ->
-                                    if i = 0 then FIO.fail "boom"
-                                    else FIO.succeed i)
+                                (FIO.attempt (fun () -> Interlocked.Increment(&completed) |> ignore) (fun ex ->
+                                    ex.Message))
+                                    .FlatMap(fun () -> if i = 0 then FIO.fail "boom" else FIO.succeed i)
                             let effect = FIO.partitionPar [ 0 .. n - 1 ] f
 
-                            let errs, oks =
-                                runtime.Run(effect).UnsafeSuccess()
+                            let errs, oks = runtime.Run(effect).UnsafeSuccess()
 
-                            Expect.equal errs [ "boom" ] $"partitionPar on {runtime.GetType().Name} should collect the failure"
-                            Expect.equal oks [ 1 .. n - 1 ] $"partitionPar on {runtime.GetType().Name} should let siblings complete"
-                            Expect.equal completed n $"partitionPar on {runtime.GetType().Name} should not interrupt siblings on failure"
+                            Expect.equal
+                                errs
+                                [ "boom" ]
+                                $"partitionPar on {runtime.GetType().Name} should collect the failure"
+                            Expect.equal
+                                oks
+                                [ 1 .. n - 1 ]
+                                $"partitionPar on {runtime.GetType().Name} should let siblings complete"
+                            Expect.equal
+                                completed
+                                n
+                                $"partitionPar on {runtime.GetType().Name} should not interrupt siblings on failure"
 
                     testPropertyWithConfig fsCheckConfig "validate - empty input yields empty list"
                     <| fun (runtime: FIORuntime) ->
                         let effect = FIO.validate [] (fun x -> FIO.succeed x)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result [] "validate over an empty seq should yield []"
 
@@ -320,8 +319,7 @@ let tests =
                     <| fun (runtime: FIORuntime, xs: int list) ->
                         let effect = FIO.validate xs (fun x -> FIO.succeed x)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result xs "validate with all-success should preserve input order"
 
@@ -333,42 +331,46 @@ let tests =
                             let f x = FIO.fail (string x)
                             let effect = FIO.validate xs f
 
-                            let errs =
-                                runtime.Run(effect).UnsafeError()
+                            let errs = runtime.Run(effect).UnsafeError()
 
-                            Expect.equal errs (List.map string xs) "validate with all-failure should preserve input order in errors"
+                            Expect.equal
+                                errs
+                                (List.map string xs)
+                                "validate with all-failure should preserve input order in errors"
 
                     testPropertyWithConfig fsCheckConfig "validate - mixed input fails with only the errors"
                     <| fun (runtime: FIORuntime) ->
                         let xs = [ 0; 1; 2; 3; 4; 5 ]
                         let f x =
-                            if x % 2 = 0 then FIO.succeed x
-                            else FIO.fail (string x)
+                            if x % 2 = 0 then FIO.succeed x else FIO.fail (string x)
                         let effect = FIO.validate xs f
 
-                        let errs =
-                            runtime.Run(effect).UnsafeError()
+                        let errs = runtime.Run(effect).UnsafeError()
 
-                        Expect.equal errs [ "1"; "3"; "5" ] "validate should fail with only the per-input errors in source order"
+                        Expect.equal
+                            errs
+                            [ "1"; "3"; "5" ]
+                            "validate should fail with only the per-input errors in source order"
 
                     testCase "validate - stack-safe over 10000 items"
                     <| fun () ->
                         for runtime in allRuntimes () do
                             use _ = runtime
-                            let xs = [ 1 .. 10000 ]
+                            let xs = [ 1..10000 ]
                             let effect = FIO.validate xs (fun x -> FIO.succeed x)
 
-                            let result =
-                                runtime.Run(effect).UnsafeSuccess()
+                            let result = runtime.Run(effect).UnsafeSuccess()
 
-                            Expect.equal (List.length result) 10000 $"validate on {runtime.GetType().Name} should handle 10000 items"
+                            Expect.equal
+                                (List.length result)
+                                10000
+                                $"validate on {runtime.GetType().Name} should handle 10000 items"
 
                     testPropertyWithConfig fsCheckConfig "validatePar - empty input yields empty list"
                     <| fun (runtime: FIORuntime) ->
                         let effect = FIO.validatePar [] (fun x -> FIO.succeed x)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result [] "validatePar over an empty seq should yield []"
 
@@ -376,8 +378,7 @@ let tests =
                     <| fun (runtime: FIORuntime, xs: int list) ->
                         let effect = FIO.validatePar xs (fun x -> FIO.succeed x)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result xs "validatePar with all-success should preserve input order"
 
@@ -389,23 +390,28 @@ let tests =
                             let f x = FIO.fail (string x)
                             let effect = FIO.validatePar xs f
 
-                            let errs =
-                                runtime.Run(effect).UnsafeError()
+                            let errs = runtime.Run(effect).UnsafeError()
 
-                            Expect.equal errs (List.map string xs) "validatePar with all-failure should preserve input order in errors"
+                            Expect.equal
+                                errs
+                                (List.map string xs)
+                                "validatePar with all-failure should preserve input order in errors"
 
-                    testPropertyWithConfig fsCheckConfig "validatePar - mixed input fails with only the errors in source order"
+                    testPropertyWithConfig
+                        fsCheckConfig
+                        "validatePar - mixed input fails with only the errors in source order"
                     <| fun (runtime: FIORuntime) ->
                         let xs = [ 0; 1; 2; 3; 4; 5 ]
                         let f x =
-                            if x % 2 = 0 then FIO.succeed x
-                            else FIO.fail (string x)
+                            if x % 2 = 0 then FIO.succeed x else FIO.fail (string x)
                         let effect = FIO.validatePar xs f
 
-                        let errs =
-                            runtime.Run(effect).UnsafeError()
+                        let errs = runtime.Run(effect).UnsafeError()
 
-                        Expect.equal errs [ "1"; "3"; "5" ] "validatePar should fail with only the per-input errors in source order"
+                        Expect.equal
+                            errs
+                            [ "1"; "3"; "5" ]
+                            "validatePar should fail with only the per-input errors in source order"
 
                     testCase "validatePar - does not interrupt siblings on failure"
                     <| fun () ->
@@ -414,75 +420,80 @@ let tests =
                             let mutable completed = 0
                             let n = 10
                             let f i =
-                                (FIO.attempt
-                                    (fun () ->
-                                        Interlocked.Increment(&completed) |> ignore)
-                                    (fun ex -> ex.Message)
-                                ).FlatMap(fun () ->
-                                    if i = 0 then FIO.fail "boom"
-                                    else FIO.succeed i)
+                                (FIO.attempt (fun () -> Interlocked.Increment(&completed) |> ignore) (fun ex ->
+                                    ex.Message))
+                                    .FlatMap(fun () -> if i = 0 then FIO.fail "boom" else FIO.succeed i)
                             let effect = FIO.validatePar [ 0 .. n - 1 ] f
 
-                            let errs =
-                                runtime.Run(effect).UnsafeError()
+                            let errs = runtime.Run(effect).UnsafeError()
 
-                            Expect.equal errs [ "boom" ] $"validatePar on {runtime.GetType().Name} should collect the failure"
-                            Expect.equal completed n $"validatePar on {runtime.GetType().Name} should not interrupt siblings on failure"
+                            Expect.equal
+                                errs
+                                [ "boom" ]
+                                $"validatePar on {runtime.GetType().Name} should collect the failure"
+                            Expect.equal
+                                completed
+                                n
+                                $"validatePar on {runtime.GetType().Name} should not interrupt siblings on failure"
 
                     testPropertyWithConfig fsCheckConfig "collectAllSuccesses - empty input yields empty list"
                     <| fun (runtime: FIORuntime) ->
                         let effect = FIO.collectAllSuccesses []
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result [] "collectAllSuccesses over an empty seq should yield []"
 
-                    testPropertyWithConfig fsCheckConfig "collectAllSuccesses - all-success returns every result in order"
+                    testPropertyWithConfig
+                        fsCheckConfig
+                        "collectAllSuccesses - all-success returns every result in order"
                     <| fun (runtime: FIORuntime, xs: int list) ->
                         let effects = xs |> List.map FIO.succeed
                         let effect = FIO.collectAllSuccesses effects
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.equal result xs "collectAllSuccesses with all-success should return every result in source order"
+                        Expect.equal
+                            result
+                            xs
+                            "collectAllSuccesses with all-success should return every result in source order"
 
                     testPropertyWithConfig fsCheckConfig "collectAllSuccesses - all-failure returns empty list"
                     <| fun (runtime: FIORuntime, xs: int list) ->
                         let effects = xs |> List.map (fun x -> FIO.fail (string x))
                         let effect = FIO.collectAllSuccesses effects
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result [] "collectAllSuccesses with all-failure should yield []"
 
-                    testPropertyWithConfig fsCheckConfig "collectAllSuccesses - mixed input drops failures and keeps successes in order"
+                    testPropertyWithConfig
+                        fsCheckConfig
+                        "collectAllSuccesses - mixed input drops failures and keeps successes in order"
                     <| fun (runtime: FIORuntime) ->
                         let effects =
-                            [ FIO.succeed 1
-                              FIO.fail "a"
-                              FIO.succeed 2
-                              FIO.fail "b"
-                              FIO.succeed 3 ]
+                            [ FIO.succeed 1; FIO.fail "a"; FIO.succeed 2; FIO.fail "b"; FIO.succeed 3 ]
                         let effect = FIO.collectAllSuccesses effects
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.equal result [ 1; 2; 3 ] "collectAllSuccesses should drop failures and keep successes in source order"
+                        Expect.equal
+                            result
+                            [ 1; 2; 3 ]
+                            "collectAllSuccesses should drop failures and keep successes in source order"
 
                     testCase "collectAllSuccesses - stack-safe over 10000 effects"
                     <| fun () ->
                         for runtime in allRuntimes () do
                             use _ = runtime
-                            let effects = [ 1 .. 10000 ] |> List.map FIO.succeed
+                            let effects = [ 1..10000 ] |> List.map FIO.succeed
                             let effect = FIO.collectAllSuccesses effects
 
-                            let result =
-                                runtime.Run(effect).UnsafeSuccess()
+                            let result = runtime.Run(effect).UnsafeSuccess()
 
-                            Expect.equal (List.length result) 10000 $"collectAllSuccesses on {runtime.GetType().Name} should handle 10000 effects"
+                            Expect.equal
+                                (List.length result)
+                                10000
+                                $"collectAllSuccesses on {runtime.GetType().Name} should handle 10000 effects"
                 ]
         ]

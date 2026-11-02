@@ -35,10 +35,8 @@ module internal Big =
         fio {
             for _ in 1..receiveCount do
                 match! actor.PingReceiveChannel.Read() with
-                | Ping(ping, replyChan) ->
-                    do! replyChan.Write(Pong(ping + 1)).Unit()
-                | _ ->
-                    return! FIO.fail (InvalidOperationException "Big: received pong when ping was expected" :> exn)
+                | Ping(ping, replyChan) -> do! replyChan.Write(Pong(ping + 1)).Unit()
+                | _ -> return! FIO.fail (InvalidOperationException "Big: received pong when ping was expected" :> exn)
 
             return! receivePongsEffect actor roundCount actor.SendingCount message
         }
@@ -48,10 +46,8 @@ module internal Big =
         fio {
             for _ in 1..receiveCount do
                 match! actor.PongReceiveChannel.Read() with
-                | Pong _ ->
-                    ()
-                | _ ->
-                    return! FIO.fail (InvalidOperationException "Big: received ping when pong was expected" :> exn)
+                | Pong _ -> ()
+                | _ -> return! FIO.fail (InvalidOperationException "Big: received ping when pong was expected" :> exn)
 
             if roundCount > 0 then
                 return! sendPingsEffect actor (roundCount - 1) message
@@ -64,30 +60,38 @@ module internal Big =
     // Builds a fully-connected mesh of actors wired to each other's ping channels.
     let private createActors actorCount =
         let baseActors =
-            [ for _ in 1..actorCount ->
-                  {
-                      PingReceiveChannel = Channel<Message>()
-                      PongReceiveChannel = Channel<Message>()
-                      SendingChannels = []
-                      SendingCount = 0
-                  } ]
+            [
+                for _ in 1..actorCount ->
+                    {
+                        PingReceiveChannel = Channel<Message>()
+                        PongReceiveChannel = Channel<Message>()
+                        SendingChannels = []
+                        SendingCount = 0
+                    }
+            ]
 
-        let pingChannels =
-            baseActors
-            |> List.map _.PingReceiveChannel
-            |> List.toArray
+        let pingChannels = baseActors |> List.map _.PingReceiveChannel |> List.toArray
 
         baseActors
         |> List.mapi (fun index actor ->
-            let sendingChannels = [ for targetIndex in 0 .. actorCount - 1 do if targetIndex <> index then yield pingChannels[targetIndex] ]
-            { actor with SendingChannels = sendingChannels; SendingCount = List.length sendingChannels })
+            let sendingChannels =
+                [
+                    for targetIndex in 0 .. actorCount - 1 do
+                        if targetIndex <> index then
+                            yield pingChannels[targetIndex]
+                ]
+            { actor with
+                SendingChannels = sendingChannels
+                SendingCount = List.length sendingChannels
+            })
 
     // Builds the Big workload: all-to-all ping/pong across a mesh of actors.
     let effect actorCount roundCount =
         fio {
             let actors = createActors actorCount
-            do! FIO.forEachParDiscard (List.indexed actors) <| fun (index, actor) ->
-                    actorEffect actor (index * 10) roundCount
+            do!
+                FIO.forEachParDiscard (List.indexed actors)
+                <| fun (index, actor) -> actorEffect actor (index * 10) roundCount
         }
 
 // Measures all-to-all ping/pong messaging across a fully-connected mesh of actors.
@@ -96,11 +100,9 @@ module internal Big =
 type BigBenchmark() =
     inherit FIOBenchmark()
 
-    member _.ActorCounts =
-        RuntimeParam.intParams "FIO_BENCH_BIG_ACTORS" [| 10; 25 |]
+    member _.ActorCounts = RuntimeParam.intParams "FIO_BENCH_BIG_ACTORS" [| 10; 25 |]
 
-    member _.RoundCounts =
-        RuntimeParam.intParams "FIO_BENCH_BIG_ROUNDS" [| 100; 500 |]
+    member _.RoundCounts = RuntimeParam.intParams "FIO_BENCH_BIG_ROUNDS" [| 100; 500 |]
 
     [<ParamsSource("ActorCounts")>]
     member val ActorCount = 0 with get, set
@@ -108,5 +110,5 @@ type BigBenchmark() =
     [<ParamsSource("RoundCounts")>]
     member val RoundCount = 0 with get, set
 
-    override this.CreateEffect () =
+    override this.CreateEffect() =
         Big.effect this.ActorCount this.RoundCount

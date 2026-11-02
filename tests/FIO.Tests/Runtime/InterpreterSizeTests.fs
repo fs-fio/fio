@@ -70,10 +70,12 @@ let private estimatedBasicBlocks (body: MethodBody) =
 
             starts.Add next |> ignore
         | _ ->
-            if opcode.FlowControl = FlowControl.Return
-               || opcode.FlowControl = FlowControl.Throw
-               || opcode.Name.StartsWith "leave"
-               || opcode.Name = "endfinally" then
+            if
+                opcode.FlowControl = FlowControl.Return
+                || opcode.FlowControl = FlowControl.Throw
+                || opcode.Name.StartsWith "leave"
+                || opcode.Name = "endfinally"
+            then
                 starts.Add next |> ignore
 
         i <- next
@@ -110,7 +112,9 @@ let interpreterSizeTests =
                     if not optimizedBuild then
                         skiptest "the interpreter loop is only a state machine in optimized builds; run with -c Release"
 
-                    let loops = interpreterLoops () |> Array.filter (fun (name, _) -> name = $"FIO.Runtime.{runtime}")
+                    let loops =
+                        interpreterLoops ()
+                        |> Array.filter (fun (name, _) -> name = $"FIO.Runtime.{runtime}")
 
                     Expect.isNonEmpty loops $"No interpreter state machine found for {runtime}"
 
@@ -122,9 +126,10 @@ let interpreterSizeTests =
                             blockLimit
                             $"The {runtime} interpreter loop has ~{blocks} basic blocks; at 2,000 the JIT stops optimizing it. Move rarely taken code out of the inlined processOutcome or handleSharedCase"
 
-            yield testCase "Cont - stays 56 bytes"
-            <| fun () ->
-                let size = Unsafe.SizeOf<Cont>()
+            yield
+                testCase "Cont - stays 56 bytes"
+                <| fun () ->
+                    let size = Unsafe.SizeOf<Cont>()
 
-                Expect.isLessThanOrEqual size 56 "Cont grew"
+                    Expect.isLessThanOrEqual size 56 "Cont grew"
         ]

@@ -17,7 +17,10 @@ open Microsoft.AspNetCore.Connections
 
 open Expecto
 
-let testConfig = { WorkerConfig.Default with EvaluationWorkers = 2 }
+let testConfig =
+    { WorkerConfig.Default with
+        EvaluationWorkers = 2
+    }
 
 [<CLIMutable>]
 type TestMessage = { Id: int; Text: string }
@@ -39,9 +42,9 @@ type FailingStream(prefix: byte array) =
         with get () = raise (NotSupportedException())
         and set _ = raise (NotSupportedException())
 
-    override _.Flush () = ()
+    override _.Flush() = ()
 
-    override _.Read (buffer: byte array, offset: int, count: int) : int =
+    override _.Read(buffer: byte array, offset: int, count: int) : int =
         if position >= prefix.Length then
             raise (IO.IOException "The response body's source failed.")
 
@@ -50,11 +53,11 @@ type FailingStream(prefix: byte array) =
         position <- position + copied
         copied
 
-    override _.Seek (_: int64, _: IO.SeekOrigin) : int64 = raise (NotSupportedException())
+    override _.Seek(_: int64, _: IO.SeekOrigin) : int64 = raise (NotSupportedException())
 
-    override _.SetLength (_: int64) = raise (NotSupportedException())
+    override _.SetLength(_: int64) = raise (NotSupportedException())
 
-    override _.Write (_: byte array, _: int, _: int) = raise (NotSupportedException())
+    override _.Write(_: byte array, _: int, _: int) = raise (NotSupportedException())
 
 let runtimes () =
     [
@@ -73,7 +76,8 @@ let testAllRuntimes name (f: FIORuntime -> unit) =
             name
             [
                 for rt in runtimes () ->
-                    testCase (rt.GetType().Name) <| fun () ->
+                    testCase (rt.GetType().Name)
+                    <| fun () ->
                         try
                             f rt
                         finally
@@ -95,14 +99,11 @@ let private runWithin (seconds: float) (runtime: FIORuntime) (effect: FIO<'A, ex
     | Failed error -> failtest $"Effect failed: {error}"
     | Interrupted ex -> failtest $"Interrupted: {ex.Message}"
 
-let runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, exn>) =
-    runWithin 30.0 runtime effect
+let runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, exn>) = runWithin 30.0 runtime effect
 
-let makeRequest (method: HttpMethod) (path: string) =
-    HttpRequest.create method path
+let makeRequest (method: HttpMethod) (path: string) = HttpRequest.create method path
 
-let makeGetRequest (path: string) =
-    makeRequest HttpMethod.GET path
+let makeGetRequest (path: string) = makeRequest HttpMethod.GET path
 
 let dispatchAndRun (runtime: FIORuntime) (routes: Routes<exn>) (request: HttpRequest) =
     runWithin 10.0 runtime (Routes.dispatch request routes)
@@ -134,7 +135,10 @@ let sendRawRequest (port: int) (request: string) =
 
     stream.ReadTimeout <- 5000
     use reader = new IO.StreamReader(stream, Encoding.ASCII)
-    try reader.ReadToEnd() with _ -> ""
+    try
+        reader.ReadToEnd()
+    with _ ->
+        ""
 
 let findAvailablePort () =
     let listener = new TcpListener(IPAddress.Loopback, 0)
@@ -148,7 +152,8 @@ let isListening (port: int) =
     use tcp = new TcpClient()
 
     try
-        tcp.ConnectAsync("127.0.0.1", port).Wait(TimeSpan.FromMilliseconds 500.0) && tcp.Connected
+        tcp.ConnectAsync("127.0.0.1", port).Wait(TimeSpan.FromMilliseconds 500.0)
+        && tcp.Connected
     with _ ->
         false
 
@@ -188,15 +193,22 @@ let startOnFreePort (runtime: FIORuntime) (start: int -> FIO<'S, exn>) : int * '
     attempt 10
 
 // The driver ends only once the server it forked has unwound; `ended` says whether the server ended because it lost its port.
-let forkServerOnFreePort (runtime: FIORuntime) (interrupt: Task) (probe: string) (serve: int -> FIO<unit, exn>) : int * Fiber<unit, exn> =
+let forkServerOnFreePort
+    (runtime: FIORuntime)
+    (interrupt: Task)
+    (probe: string)
+    (serve: int -> FIO<unit, exn>)
+    : int * Fiber<unit, exn> =
     let rec attempt remaining =
         let port = findAvailablePort ()
-        let ended = TaskCompletionSource<bool> TaskCreationOptions.RunContinuationsAsynchronously
+        let ended =
+            TaskCompletionSource<bool> TaskCreationOptions.RunContinuationsAsynchronously
         let driver =
             fio {
                 let! server =
                     (serve port)
-                        .TapError(fun error -> FIO.succeedWith (fun () -> ended.TrySetResult(isAddressInUse error) |> ignore))
+                        .TapError(fun error ->
+                            FIO.succeedWith (fun () -> ended.TrySetResult(isAddressInUse error) |> ignore))
                         .Ensuring(FIO.succeedWith (fun () -> ended.TrySetResult false |> ignore))
                         .Fork()
                 do! FIO.awaitUnitTask (Task.WhenAny(interrupt, ended.Task)) id
@@ -205,7 +217,9 @@ let forkServerOnFreePort (runtime: FIORuntime) (interrupt: Task) (probe: string)
         let fiber = runtime.Run driver
         let deadline = DateTime.UtcNow.AddSeconds 30.0
 
-        while not ended.Task.IsCompleted && (tryGet port probe).IsNone && DateTime.UtcNow < deadline do
+        while not ended.Task.IsCompleted
+              && (tryGet port probe).IsNone
+              && DateTime.UtcNow < deadline do
             Thread.Sleep 25
 
         if ended.Task.IsCompleted && ended.Task.Result && remaining > 0 then
@@ -226,11 +240,20 @@ let onFreePort (round: int -> 'T option) : 'T =
 
     attempt 10
 
-let private startConfiguredServer (configure: ServerConfig -> ServerConfig) (routes: Routes<exn>) (runtime: DefaultRuntime) =
-    startOnFreePort runtime (fun port -> Server.startServerWithRuntime (configure (ServerConfig.create "127.0.0.1" port)) routes runtime)
+let private startConfiguredServer
+    (configure: ServerConfig -> ServerConfig)
+    (routes: Routes<exn>)
+    (runtime: DefaultRuntime)
+    =
+    startOnFreePort runtime (fun port ->
+        Server.startServerWithRuntime (configure (ServerConfig.create "127.0.0.1" port)) routes runtime)
 
 // Runs the action against a server started through Server, so what a test sees is what a user's server does.
-let withConfiguredServer (configure: ServerConfig -> ServerConfig) (routes: Routes<exn>) (action: int -> FIOServer -> 'T) : 'T =
+let withConfiguredServer
+    (configure: ServerConfig -> ServerConfig)
+    (routes: Routes<exn>)
+    (action: int -> FIOServer -> 'T)
+    : 'T =
     let runtime = new DefaultRuntime()
     let port, server = startConfiguredServer configure routes runtime
 

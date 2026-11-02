@@ -55,7 +55,10 @@ let socketClientTests =
                                 let! config = SocketConfig.create "127.0.0.1" 1
 
                                 return!
-                                    SocketClient.connect(config).Map(fun _ -> None).CatchAll(fun error -> FIO.succeed (Some error))
+                                    SocketClient
+                                        .connect(config)
+                                        .Map(fun _ -> None)
+                                        .CatchAll(fun error -> FIO.succeed (Some error))
                             }
 
                         let result = runtime.Run(effect).UnsafeSuccess()
@@ -64,23 +67,25 @@ let socketClientTests =
                         | Some(ConnectionFailed _) -> ()
                         | other -> failtest $"Expected ConnectionFailed but got {other}")
 
-                    testAllRuntimes "connect - fails with ConnectionFailed for a record whose port is out of range" (fun runtime ->
-                        let effect =
-                            fio {
-                                let! config = SocketConfig.create "127.0.0.1" 1
+                    testAllRuntimes
+                        "connect - fails with ConnectionFailed for a record whose port is out of range"
+                        (fun runtime ->
+                            let effect =
+                                fio {
+                                    let! config = SocketConfig.create "127.0.0.1" 1
 
-                                return!
-                                    SocketClient
-                                        .connect({ config with Port = 70000 })
-                                        .Map(fun _ -> None)
-                                        .CatchAll(fun error -> FIO.succeed (Some error))
-                            }
+                                    return!
+                                        SocketClient
+                                            .connect({ config with Port = 70000 })
+                                            .Map(fun _ -> None)
+                                            .CatchAll(fun error -> FIO.succeed (Some error))
+                                }
 
-                        let result = runtime.Run(effect).UnsafeResult()
+                            let result = runtime.Run(effect).UnsafeResult()
 
-                        match result with
-                        | Succeeded(Some(ConnectionFailed("127.0.0.1", 70000, _))) -> ()
-                        | other -> failtest $"Expected ConnectionFailed but got {other}")
+                            match result with
+                            | Succeeded(Some(ConnectionFailed("127.0.0.1", 70000, _))) -> ()
+                            | other -> failtest $"Expected ConnectionFailed but got {other}")
 
                     testAllRuntimes "connect - closes the socket of a refused connection" (fun runtime ->
                         if OperatingSystem.IsWindows() then
@@ -93,54 +98,73 @@ let socketClientTests =
                                     match error with
                                     | ConnectionFailed _ -> FIO.succeed true
                                     | _ -> FIO.succeed false)
-                        let openDescriptors () = IO.Directory.GetFileSystemEntries("/dev/fd").Length
+                        let openDescriptors () =
+                            IO.Directory.GetFileSystemEntries("/dev/fd").Length
                         runtime.Run(refusedConnect).UnsafeSuccess() |> ignore
                         let before = openDescriptors ()
 
-                        let refused = runtime.Run(FIO.forEach [ 1..100 ] (fun _ -> refusedConnect)).UnsafeSuccess()
+                        let refused =
+                            runtime.Run(FIO.forEach [ 1..100 ] (fun _ -> refusedConnect)).UnsafeSuccess()
                         let after = openDescriptors ()
 
                         Expect.allEqual refused true "Every connect should be refused"
-                        Expect.isLessThan (after - before) 10 $"A refused connect should not leave its socket open ({before} descriptors before, {after} after)")
+                        Expect.isLessThan
+                            (after - before)
+                            10
+                            $"A refused connect should not leave its socket open ({before} descriptors before, {after} after)")
                 ]
 
             testList
                 "Scoped lifetime"
                 [
-                    testAllRuntimes "withConnection - closes the socket when the scope ends, as its peer sees" (fun runtime ->
-                        let held = ref Unchecked.defaultof<Socket>
-                        let peerSawClose = Threading.Tasks.TaskCompletionSource<bool>()
-                        let untilClosed (socket: Socket) =
-                            fio {
-                                let! _ = socket.ReceiveBytes 16
-                                let! next = socket.ReceiveBytes(16).Map(Ok).CatchAll(fun error -> FIO.succeed (Error error))
+                    testAllRuntimes
+                        "withConnection - closes the socket when the scope ends, as its peer sees"
+                        (fun runtime ->
+                            let held = ref Unchecked.defaultof<Socket>
+                            let peerSawClose = Threading.Tasks.TaskCompletionSource<bool>()
+                            let untilClosed (socket: Socket) =
+                                fio {
+                                    let! _ = socket.ReceiveBytes 16
+                                    let! next =
+                                        socket
+                                            .ReceiveBytes(16)
+                                            .Map(Ok)
+                                            .CatchAll(fun error -> FIO.succeed (Error error))
 
-                                match next with
-                                | Error(ConnectionClosed _) -> peerSawClose.TrySetResult true |> ignore
-                                | _ -> peerSawClose.TrySetResult false |> ignore
-                            }
+                                    match next with
+                                    | Error(ConnectionClosed _) -> peerSawClose.TrySetResult true |> ignore
+                                    | _ -> peerSawClose.TrySetResult false |> ignore
+                                }
 
-                        let wasConnected, closed =
-                            withTestServer
-                                untilClosed
-                                (fun port ->
-                                    fio {
-                                        let! config = SocketConfig.create "127.0.0.1" port
-                                        let! wasConnected =
-                                            SocketClient.withConnection config (fun socket ->
-                                                held.Value <- socket
-                                                socket.SendString("x").Map(fun () -> socket.IsConnected()))
-                                        let! first =
-                                            FIO.awaitTask
-                                                (Threading.Tasks.Task.WhenAny(peerSawClose.Task, Threading.Tasks.Task.Delay 3000))
-                                                SocketError.fromException
-                                        return wasConnected, obj.ReferenceEquals(first, peerSawClose.Task) && peerSawClose.Task.Result
-                                    })
-                                runtime
+                            let wasConnected, closed =
+                                withTestServer
+                                    untilClosed
+                                    (fun port ->
+                                        fio {
+                                            let! config = SocketConfig.create "127.0.0.1" port
+                                            let! wasConnected =
+                                                SocketClient.withConnection config (fun socket ->
+                                                    held.Value <- socket
+                                                    socket.SendString("x").Map(fun () -> socket.IsConnected()))
+                                            let! first =
+                                                FIO.awaitTask
+                                                    (Threading.Tasks.Task.WhenAny(
+                                                        peerSawClose.Task,
+                                                        Threading.Tasks.Task.Delay 3000
+                                                    ))
+                                                    SocketError.fromException
+                                            return
+                                                wasConnected,
+                                                obj.ReferenceEquals(first, peerSawClose.Task)
+                                                && peerSawClose.Task.Result
+                                        })
+                                    runtime
 
-                        Expect.isTrue wasConnected "Should have been connected during action"
-                        Expect.isTrue closed "The peer should see the connection end when the scope ends, without a collection"
-                        GC.KeepAlive held.Value)
+                            Expect.isTrue wasConnected "Should have been connected during action"
+                            Expect.isTrue
+                                closed
+                                "The peer should see the connection end when the scope ends, without a collection"
+                            GC.KeepAlive held.Value)
 
                     testAllRuntimes "withConnection - fails with ConnectionFailed when nothing listens" (fun runtime ->
                         let actionRan = ref false
@@ -223,7 +247,9 @@ let socketClientTests =
                                 .Map(fun (_, count) -> Ok count)
                                 .CatchAll(fun error -> FIO.succeed (Error error))
                                 .FlatMap(function
-                                    | Ok count -> (FIO.sleep (TimeSpan.FromMilliseconds 1.0)).FlatMap(fun () -> drain socket (total + count))
+                                    | Ok count ->
+                                        (FIO.sleep (TimeSpan.FromMilliseconds 1.0))
+                                            .FlatMap(fun () -> drain socket (total + count))
                                     | Error(ConnectionClosed _) -> FIO.succeed (total, true)
                                     | Error _ -> FIO.succeed (total, false))
 

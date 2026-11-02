@@ -31,7 +31,7 @@ type internal ContStackPool private () =
     [<ThreadStatic; DefaultValue>]
     static val mutable private pool: Stack<Stack<Cont>>
 
-    static member inline Rent () =
+    static member inline Rent() =
         let mutable pool = ContStackPool.pool
         if isNull pool then
             pool <- Stack<_>()
@@ -44,7 +44,7 @@ type internal ContStackPool private () =
         else
             Stack<Cont> DefaultStackCapacity
 
-    static member inline Return (stack: Stack<Cont>) =
+    static member inline Return(stack: Stack<Cont>) =
         let mutable pool = ContStackPool.pool
         if isNull pool then
             pool <- Stack<_>()
@@ -72,10 +72,9 @@ type internal LockedWorkDeque(initialCapacity: int) =
         finally
             Monitor.Exit gate
 
-    member _.IsEmptyApprox =
-        bottom = top
+    member _.IsEmptyApprox = bottom = top
 
-    member _.PushBottom (workItem: WorkItem) =
+    member _.PushBottom(workItem: WorkItem) =
         Monitor.Enter gate
         try
             if bottom - top >= items.Length then
@@ -92,7 +91,7 @@ type internal LockedWorkDeque(initialCapacity: int) =
         finally
             Monitor.Exit gate
 
-    member _.TryPopBottom (workItem: byref<WorkItem>) =
+    member _.TryPopBottom(workItem: byref<WorkItem>) =
         Monitor.Enter gate
         try
             if bottom = top then
@@ -105,7 +104,7 @@ type internal LockedWorkDeque(initialCapacity: int) =
         finally
             Monitor.Exit gate
 
-    member _.TrySteal (workItem: byref<WorkItem>) =
+    member _.TrySteal(workItem: byref<WorkItem>) =
         Monitor.Enter gate
         try
             if bottom = top then
@@ -134,9 +133,11 @@ type FIORuntime internal () =
     [<VolatileField>]
     let mutable draining = 0
 
-    let unwound = TaskCompletionSource TaskCreationOptions.RunContinuationsAsynchronously
+    let unwound =
+        TaskCompletionSource TaskCreationOptions.RunContinuationsAsynchronously
 
-    let stopped = TaskCompletionSource TaskCreationOptions.RunContinuationsAsynchronously
+    let stopped =
+        TaskCompletionSource TaskCreationOptions.RunContinuationsAsynchronously
 
     let disposedMessage = "The runtime was disposed."
 
@@ -144,7 +145,8 @@ type FIORuntime internal () =
         stripes[RuntimeHelpers.GetHashCode fiberContext &&& (stripes.Length - 1)]
 
     let snapshot () =
-        stripes |> Array.collect (fun stripe -> lock stripe (fun () -> Seq.toArray stripe))
+        stripes
+        |> Array.collect (fun stripe -> lock stripe (fun () -> Seq.toArray stripe))
 
     let trackedCount () =
         let mutable count = 0
@@ -174,21 +176,19 @@ type FIORuntime internal () =
     /// A display string describing this runtime's configuration; a runtime without one gives its name.
     abstract member ConfigString: string
 
-    default this.ConfigString : string =
-        this.Name
+    default this.ConfigString: string = this.Name
 
     /// Schedules the given effect on a new fiber and returns its handle at once; it never waits for, interrupts, or
     /// discards a fiber already running, so call it as often as you like.
     abstract member Run<'A, 'E> : FIO<'A, 'E> -> Fiber<'A, 'E>
 
-    override this.ToString () : string =
-        this.ConfigString
+    override this.ToString() : string = this.ConfigString
 
     member val internal StopWorkers: unit -> unit = ignore with get, set
 
     // The flag is read under the stripe's lock, which Shutdown takes for its snapshot only after claiming the flag:
     // a Run the snapshot missed sees the flag and interrupts itself.
-    member private _.Watch (fiberContext: FiberContext) =
+    member private _.Watch(fiberContext: FiberContext) =
         let stripe = stripeOf fiberContext
 
         let late =
@@ -201,21 +201,19 @@ type FIORuntime internal () =
         if late then
             fiberContext.Interrupt(ExplicitInterrupt, disposedMessage)
 
-    member internal this.Track (fiberContext: FiberContext) =
+    member internal this.Track(fiberContext: FiberContext) =
         if Volatile.Read &disposed = 1 then
             raise (ObjectDisposedException(this.Name, disposedMessage))
 
         this.Watch fiberContext
 
-    member internal this.TrackDaemon (fiberContext: FiberContext) =
-        this.Watch fiberContext
+    member internal this.TrackDaemon(fiberContext: FiberContext) = this.Watch fiberContext
 
-    member internal _.TrackedCount =
-        trackedCount ()
+    member internal _.TrackedCount = trackedCount ()
 
     /// Interrupts every fiber still running, waits up to the given time for them to unwind, then stops the workers and
     /// abandons what is left; a later call waits for the first. Do not call it from one of this runtime's fibers.
-    member this.Shutdown (timeout: TimeSpan) : unit =
+    member this.Shutdown(timeout: TimeSpan) : unit =
         validateTimeout (nameof timeout) timeout
 
         if tryClaim &disposed then
@@ -242,7 +240,7 @@ type FIORuntime internal () =
 
     interface IDisposable with
 
-        member this.Dispose () : unit =
+        member this.Dispose() : unit =
             this.Shutdown(TimeSpan.FromSeconds 10.0)
 
 /// Worker counts and scheduling parameters for a worker-based runtime.
@@ -255,7 +253,7 @@ type WorkerConfig =
     }
 
     /// The default configuration, sized to the current machine.
-    static member Default : WorkerConfig =
+    static member Default: WorkerConfig =
         {
             EvaluationWorkers = WorkerRuntimeDefaults.ComputeEvaluationWorkerCount()
             EvaluationSteps = WorkerRuntimeDefaults.EvaluationWorkerSteps

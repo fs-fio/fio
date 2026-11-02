@@ -38,7 +38,11 @@ let ceTests =
                         match result with
                         | Interrupted ex ->
                             match ex.cause with
-                            | Defect defect -> Expect.equal defect.Message "thunk throws" "The thrown exception should become the defect"
+                            | Defect defect ->
+                                Expect.equal
+                                    defect.Message
+                                    "thunk throws"
+                                    "The thrown exception should become the defect"
                             | other -> failtest $"Expected a Defect cause but got {other}"
                         | other -> failtest $"Expected Interrupted but got {other}")
 
@@ -186,7 +190,9 @@ let ceTests =
 
                         Expect.equal result value "yield! should yield effect same as return!"
 
-                    testPropertyWithConfig fsCheckConfig "ReturnFrom - return! after do! exercises ReturnFrom via Combine"
+                    testPropertyWithConfig
+                        fsCheckConfig
+                        "ReturnFrom - return! after do! exercises ReturnFrom via Combine"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable executed = false
                         let effect =
@@ -537,7 +543,9 @@ let ceTests =
                         Expect.equal result value "try...finally should return value"
                         Expect.equal order [ "body1"; "body2"; "finally" ] "Finalizer should run after body completes"
 
-                    testPropertyWithConfig fsCheckConfig "TryFinally - nested try...finally runs finalizers in correct order"
+                    testPropertyWithConfig
+                        fsCheckConfig
+                        "TryFinally - nested try...finally runs finalizers in correct order"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable order = []
                         let effect =
@@ -585,72 +593,79 @@ let ceTests =
                         let result = runtime.Run(effect).UnsafeResult()
 
                         match result with
-                        | Failed error -> Expect.equal error "body error" "Body error should be preserved over finalizer error"
+                        | Failed error ->
+                            Expect.equal error "body error" "Body error should be preserved over finalizer error"
                         | _ -> failtest $"Expected Failed, got {result}")
 
-                    testAllRuntimes "TryFinally - inside TryWith, the finalizer runs and then the error is caught" (fun runtime ->
-                        let mutable finalizerRan = false
-                        let effect =
-                            fio {
-                                try
+                    testAllRuntimes
+                        "TryFinally - inside TryWith, the finalizer runs and then the error is caught"
+                        (fun runtime ->
+                            let mutable finalizerRan = false
+                            let effect =
+                                fio {
                                     try
-                                        return! FIO.fail "body-error"
+                                        try
+                                            return! FIO.fail "body-error"
+                                        finally
+                                            finalizerRan <- true
+                                            FIO.unit ()
+                                    with error ->
+                                        return $"caught: {error}"
+                                }
+
+                            let result = runtime.Run(effect).UnsafeSuccess()
+
+                            Expect.equal result "caught: body-error" "Error should be caught by outer try...with"
+                            Expect.isTrue finalizerRan "Finalizer should run before error is caught")
+
+                    testAllRuntimes
+                        "TryWith - inside TryFinally, the error is caught and the finalizer still runs"
+                        (fun runtime ->
+                            let mutable finalizerRan = false
+                            let effect =
+                                fio {
+                                    try
+                                        try
+                                            return! FIO.fail "inner-error"
+                                        with error ->
+                                            return $"recovered: {error}"
                                     finally
                                         finalizerRan <- true
                                         FIO.unit ()
-                                with error ->
-                                    return $"caught: {error}"
-                            }
+                                }
 
-                        let result = runtime.Run(effect).UnsafeSuccess()
+                            let result = runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.equal result "caught: body-error" "Error should be caught by outer try...with"
-                        Expect.isTrue finalizerRan "Finalizer should run before error is caught")
-
-                    testAllRuntimes "TryWith - inside TryFinally, the error is caught and the finalizer still runs" (fun runtime ->
-                        let mutable finalizerRan = false
-                        let effect =
-                            fio {
-                                try
-                                    try
-                                        return! FIO.fail "inner-error"
-                                    with error ->
-                                        return $"recovered: {error}"
-                                finally
-                                    finalizerRan <- true
-                                    FIO.unit ()
-                            }
-
-                        let result = runtime.Run(effect).UnsafeSuccess()
-
-                        Expect.equal result "recovered: inner-error" "Inner try...with should catch error"
-                        Expect.isTrue finalizerRan "Outer finalizer should still run")
+                            Expect.equal result "recovered: inner-error" "Inner try...with should catch error"
+                            Expect.isTrue finalizerRan "Outer finalizer should still run")
                 ]
 
             testList
                 "For"
                 [
-                    testAllRuntimes "For - iterates a 10,000-item sequence in order and disposes the enumerator" (fun runtime ->
-                        let seen = ResizeArray<int>()
-                        let mutable disposed = false
-                        let items =
-                            seq {
-                                try
-                                    yield! seq { 1..10000 }
-                                finally
-                                    disposed <- true
-                            }
-                        let effect: FIO<unit, string> =
-                            fio {
-                                for item in items do
-                                    do! FIO.succeedWith (fun () -> seen.Add item)
-                            }
+                    testAllRuntimes
+                        "For - iterates a 10,000-item sequence in order and disposes the enumerator"
+                        (fun runtime ->
+                            let seen = ResizeArray<int>()
+                            let mutable disposed = false
+                            let items =
+                                seq {
+                                    try
+                                        yield! seq { 1..10000 }
+                                    finally
+                                        disposed <- true
+                                }
+                            let effect: FIO<unit, string> =
+                                fio {
+                                    for item in items do
+                                        do! FIO.succeedWith (fun () -> seen.Add item)
+                                }
 
-                        let result = runtime.Run(effect).UnsafeSuccess()
+                            let result = runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.equal result () "The loop should complete"
-                        Expect.equal (List.ofSeq seen) [ 1..10000 ] "Every item should be seen in order"
-                        Expect.isTrue disposed "The enumerator should be disposed after the loop")
+                            Expect.equal result () "The loop should complete"
+                            Expect.equal (List.ofSeq seen) [ 1..10000 ] "Every item should be seen in order"
+                            Expect.isTrue disposed "The enumerator should be disposed after the loop")
 
                     testAllRuntimes "For - iterates over sequence" (fun runtime ->
                         let mutable counter = 0
@@ -1039,7 +1054,10 @@ let ceTests =
                         let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result value "Nested use should return value"
-                        Expect.equal disposeOrder [ "third"; "second"; "first" ] "Resources should dispose in reverse order"
+                        Expect.equal
+                            disposeOrder
+                            [ "third"; "second"; "first" ]
+                            "Resources should dispose in reverse order"
 
                     testAllRuntimes "Using - use with null disposable does not throw" (fun runtime ->
                         let mutable ran = false
@@ -1147,7 +1165,9 @@ let ceTests =
 
                         Expect.equal result error "and! should propagate error from first effect"
 
-                    testPropertyWithConfig fsCheckConfig "MergeSources - and! with multiple errors surfaces one of the errors"
+                    testPropertyWithConfig
+                        fsCheckConfig
+                        "MergeSources - and! with multiple errors surfaces one of the errors"
                     <| fun (runtime: FIORuntime, err1: int, err2: int) ->
                         let effect =
                             fio {
@@ -1160,31 +1180,31 @@ let ceTests =
 
                         Expect.isTrue (result = err1 || result = err2) "and! surfaces one of the concurrent errors"
 
-                    testAllRuntimes "MergeSources - and! executes in parallel (the left operand parks until the right has started)" (fun runtime ->
-                        let rendezvous = Channel<unit>()
-                        let overlapped = ref false
-                        let effect: FIO<int * int, string> =
-                            fio {
-                                let! a =
-                                    FIO.suspend (fun () ->
-                                        (rendezvous.Read().Timeout (TimeSpan.FromSeconds 3.0))
-                                            .Map(fun signalled ->
-                                                overlapped.Value <- Option.isSome signalled
-                                                1))
+                    testAllRuntimes
+                        "MergeSources - and! executes in parallel (the left operand parks until the right has started)"
+                        (fun runtime ->
+                            let rendezvous = Channel<unit>()
+                            let overlapped = ref false
+                            let effect: FIO<int * int, string> =
+                                fio {
+                                    let! a =
+                                        FIO.suspend (fun () ->
+                                            (rendezvous.Read().Timeout(TimeSpan.FromSeconds 3.0))
+                                                .Map(fun signalled ->
+                                                    overlapped.Value <- Option.isSome signalled
+                                                    1))
 
-                                and! b =
-                                    FIO.suspend (fun () ->
-                                        (rendezvous.Write ()).Map(fun _ -> 2))
+                                    and! b = FIO.suspend (fun () -> (rendezvous.Write()).Map(fun _ -> 2))
 
-                                return a, b
-                            }
+                                    return a, b
+                                }
 
-                        let result = runtime.Run(effect).UnsafeSuccess()
+                            let result = runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.equal result (1, 2) "Should return both values"
-                        Expect.isTrue
-                            overlapped.Value
-                            "and! must run its operands concurrently: the left saw the right start before finishing")
+                            Expect.equal result (1, 2) "Should return both values"
+                            Expect.isTrue
+                                overlapped.Value
+                                "and! must run its operands concurrently: the left saw the right start before finishing")
 
                     testAllRuntimes "MergeSources - and! with three sources executes in parallel" (fun runtime ->
                         let fromSecond = Channel<unit>()
@@ -1195,19 +1215,17 @@ let ceTests =
                             fio {
                                 let! a =
                                     FIO.suspend (fun () ->
-                                        (fromSecond.Read().Timeout (TimeSpan.FromSeconds 3.0))
+                                        (fromSecond.Read().Timeout(TimeSpan.FromSeconds 3.0))
                                             .FlatMap(fun second ->
                                                 sawSecond.Value <- Option.isSome second
-                                                (fromThird.Read().Timeout (TimeSpan.FromSeconds 3.0))
+                                                (fromThird.Read().Timeout(TimeSpan.FromSeconds 3.0))
                                                     .Map(fun third ->
                                                         sawThird.Value <- Option.isSome third
                                                         1)))
 
-                                and! b =
-                                    FIO.suspend (fun () -> (fromSecond.Write ()).Map(fun _ -> 2))
+                                and! b = FIO.suspend (fun () -> (fromSecond.Write()).Map(fun _ -> 2))
 
-                                and! c =
-                                    FIO.suspend (fun () -> (fromThird.Write ()).Map(fun _ -> 3))
+                                and! c = FIO.suspend (fun () -> (fromThird.Write()).Map(fun _ -> 3))
 
                                 return a, b, c
                             }
@@ -1232,7 +1250,9 @@ let ceTests =
 
                         Expect.equal result (a + b + c) "let! ... and! ... and! should zip three effects"
 
-                    testPropertyWithConfig fsCheckConfig "MergeSources - and! propagates an error from the first of three effects"
+                    testPropertyWithConfig
+                        fsCheckConfig
+                        "MergeSources - and! propagates an error from the first of three effects"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let effect =
                             fio {
@@ -1277,7 +1297,9 @@ let ceTests =
 
                         Expect.equal result (a + b + c + d + e) "and! x5 should zip five effects"
 
-                    testPropertyWithConfig fsCheckConfig "MergeSources - and! propagates an error from the second of three effects"
+                    testPropertyWithConfig
+                        fsCheckConfig
+                        "MergeSources - and! propagates an error from the second of three effects"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let effect =
                             fio {
@@ -1293,7 +1315,9 @@ let ceTests =
 
                         Expect.equal result error "Error from second effect should propagate"
 
-                    testPropertyWithConfig fsCheckConfig "MergeSources - and! propagates an error from the third of three effects"
+                    testPropertyWithConfig
+                        fsCheckConfig
+                        "MergeSources - and! propagates an error from the third of three effects"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let effect =
                             fio {
@@ -1307,7 +1331,9 @@ let ceTests =
 
                         Expect.equal result error "Error from third effect should propagate"
 
-                    testPropertyWithConfig fsCheckConfig "MergeSources - and! propagates an error from the third of four effects"
+                    testPropertyWithConfig
+                        fsCheckConfig
+                        "MergeSources - and! propagates an error from the third of four effects"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let effect =
                             fio {
@@ -1322,7 +1348,9 @@ let ceTests =
 
                         Expect.equal result error "Error from third effect in and! x4 should propagate"
 
-                    testPropertyWithConfig fsCheckConfig "MergeSources - and! propagates an error from the fourth of five effects"
+                    testPropertyWithConfig
+                        fsCheckConfig
+                        "MergeSources - and! propagates an error from the fourth of five effects"
                     <| fun (runtime: FIORuntime, error: int) ->
                         let effect =
                             fio {

@@ -24,5 +24,4 @@ type ForkBenchmark() =
     [<ParamsSource("ActorCounts")>]
     member val ActorCount = 0 with get, set
 
-    override this.CreateEffect () =
-        Fork.effect this.ActorCount
+    override this.CreateEffect() = Fork.effect this.ActorCount

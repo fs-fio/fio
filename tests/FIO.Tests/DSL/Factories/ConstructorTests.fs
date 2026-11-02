@@ -13,8 +13,7 @@ open System
 open System.Runtime.CompilerServices
 
 [<MethodImpl(MethodImplOptions.NoInlining)>]
-let private throwsFromUserCode () : int =
-    failwith "thunk threw"
+let private throwsFromUserCode () : int = failwith "thunk threw"
 
 [<Tests>]
 let tests =
@@ -28,8 +27,7 @@ let tests =
                     <| fun (runtime: FIORuntime) ->
                         let effect = FIO.unit ()
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result () "FIO.unit should return unit"
 
@@ -37,8 +35,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.succeed value
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result value "FIO.succeed should return the provided value"
 
@@ -46,8 +43,7 @@ let tests =
                     <| fun (runtime: FIORuntime, error: string) ->
                         let effect = FIO.fail error
 
-                        let result =
-                            runtime.Run(effect).UnsafeError()
+                        let result = runtime.Run(effect).UnsafeError()
 
                         Expect.equal result error "FIO.fail should fail with the provided error"
 
@@ -56,8 +52,7 @@ let tests =
                         let effect = FIO.interrupt ExplicitInterrupt "test interrupt"
 
                         let fiber = runtime.Run effect
-                        let fiberResult =
-                            fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
+                        let fiberResult = fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
 
                         match fiberResult with
                         | Interrupted ex ->
@@ -78,12 +73,10 @@ let tests =
                     testPropertyWithConfig fsCheckConfig "interrupt - with ParentInterrupted cause"
                     <| fun (runtime: FIORuntime) ->
                         let parentGuid = Guid.NewGuid()
-                        let effect =
-                            FIO.interrupt (ParentInterrupted parentGuid) "parent interrupt test"
+                        let effect = FIO.interrupt (ParentInterrupted parentGuid) "parent interrupt test"
 
                         let fiber = runtime.Run effect
-                        let fiberResult =
-                            fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
+                        let fiberResult = fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
 
                         match fiberResult with
                         | Interrupted ex ->
@@ -103,12 +96,10 @@ let tests =
 
                     testPropertyWithConfig fsCheckConfig "interrupt - with ResourceExhaustion cause"
                     <| fun (runtime: FIORuntime) ->
-                        let effect =
-                            FIO.interrupt (ResourceExhaustion "out of memory") "resource test"
+                        let effect = FIO.interrupt (ResourceExhaustion "out of memory") "resource test"
 
                         let fiber = runtime.Run effect
-                        let fiberResult =
-                            fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
+                        let fiberResult = fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
 
                         match fiberResult with
                         | Interrupted ex ->
@@ -132,8 +123,7 @@ let tests =
                             FIO.interrupt (InvalidArgument("param", "bad value")) "invalid arg test"
 
                         let fiber = runtime.Run effect
-                        let fiberResult =
-                            fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
+                        let fiberResult = fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
 
                         match fiberResult with
                         | Interrupted ex ->
@@ -155,8 +145,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.attempt (fun () -> value) (fun ex -> ex.Message)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result value "FIO.attempt should return the function result"
 
@@ -165,8 +154,7 @@ let tests =
                         let msg = errorMsg.Get
                         let effect = FIO.attempt (fun () -> raise (Exception msg)) (fun ex -> ex.Message)
 
-                        let result =
-                            runtime.Run(effect).UnsafeError()
+                        let result = runtime.Run(effect).UnsafeError()
 
                         Expect.equal result msg "FIO.attempt should map exception to error"
 
@@ -176,8 +164,7 @@ let tests =
                         let ex = Exception msg
                         let effect = FIO.attempt (fun () -> raise ex) id
 
-                        let result =
-                            runtime.Run(effect).UnsafeError()
+                        let result = runtime.Run(effect).UnsafeError()
 
                         Expect.equal result.Message msg "FIO.attempt should pass through exception"
 
@@ -185,15 +172,17 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect: FIO<int, string> = FIO.succeedWith (fun () -> value)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result value "FIO.succeedWith should return the function result"
 
-                    testPropertyWithConfig fsCheckConfig "succeedWith - runs the function once per run, not at construction"
+                    testPropertyWithConfig
+                        fsCheckConfig
+                        "succeedWith - runs the function once per run, not at construction"
                     <| fun (runtime: FIORuntime) ->
                         let calls = ref 0
-                        let effect: FIO<unit, string> = FIO.succeedWith (fun () -> calls.Value <- calls.Value + 1)
+                        let effect: FIO<unit, string> =
+                            FIO.succeedWith (fun () -> calls.Value <- calls.Value + 1)
 
                         Expect.equal calls.Value 0 "Constructing the effect must not run the function"
 
@@ -211,7 +200,8 @@ let tests =
                         match result with
                         | Interrupted ex ->
                             match ex.cause with
-                            | Defect inner -> Expect.equal inner.Message "thunk threw" "The defect should carry the thrown exception"
+                            | Defect inner ->
+                                Expect.equal inner.Message "thunk threw" "The defect should carry the thrown exception"
                             | other -> failtest $"Expected a Defect cause but got {other}"
                         | other -> failtest $"Expected Interrupted but got {other}"
 
@@ -240,8 +230,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.fromResult (Ok value)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result value "FIO.fromResult should convert Ok to success"
 
@@ -249,8 +238,7 @@ let tests =
                     <| fun (runtime: FIORuntime, error: string) ->
                         let effect = FIO.fromResult (Error error)
 
-                        let result =
-                            runtime.Run(effect).UnsafeError()
+                        let result = runtime.Run(effect).UnsafeError()
 
                         Expect.equal result error "FIO.fromResult should convert Error to fail"
 
@@ -258,8 +246,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.fromOption (Some value) (fun () -> "none error")
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result value "FIO.fromOption should convert Some to success"
 
@@ -267,8 +254,7 @@ let tests =
                     <| fun (runtime: FIORuntime, error: string) ->
                         let effect = FIO.fromOption None (fun () -> error)
 
-                        let result =
-                            runtime.Run(effect).UnsafeError()
+                        let result = runtime.Run(effect).UnsafeError()
 
                         Expect.equal result error "FIO.fromOption should convert None to error using onNone"
 
@@ -276,8 +262,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.fromChoice (Choice1Of2 value)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result value "FIO.fromChoice should convert Choice1Of2 to success"
 
@@ -285,8 +270,7 @@ let tests =
                     <| fun (runtime: FIORuntime, error: string) ->
                         let effect = FIO.fromChoice (Choice2Of2 error)
 
-                        let result =
-                            runtime.Run(effect).UnsafeError()
+                        let result = runtime.Run(effect).UnsafeError()
 
                         Expect.equal result error "FIO.fromChoice should convert Choice2Of2 to fail"
                 ]

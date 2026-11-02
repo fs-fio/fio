@@ -13,13 +13,20 @@ open System.Diagnostics
 open Expecto
 open FsCheck.FSharp
 
-let testConfig = { WorkerConfig.Default with EvaluationWorkers = 2 }
+let testConfig =
+    { WorkerConfig.Default with
+        EvaluationWorkers = 2
+    }
 
 module FsCheckProperties =
 
     // One pair for every property: FsCheck asks for the generator once per property and never disposes it.
     let private propertyRuntimes =
-        lazy [ new DirectRuntime() :> FIORuntime; new WorkStealingRuntime(testConfig) :> FIORuntime ]
+        lazy
+            [
+                new DirectRuntime() :> FIORuntime
+                new WorkStealingRuntime(testConfig) :> FIORuntime
+            ]
 
     type Generators =
         static member Runtime() =
@@ -59,8 +66,7 @@ let testAllRuntimes name (f: FIORuntime -> unit) =
             ]
     )
 
-let noopHandler (_socket: Socket) =
-    FIO.unit ()
+let noopHandler (_socket: Socket) = FIO.unit ()
 
 let echoHandler (socket: Socket) =
     fio {
@@ -100,7 +106,9 @@ let serveAndConnect (runtime: FIORuntime) (serveOn: int -> FIO<unit, SocketError
         let deadline = Stopwatch.StartNew()
         let mutable client = new Sockets.TcpClient()
 
-        while not client.Connected && not (server.IsTerminal()) && deadline.ElapsedMilliseconds < 5_000L do
+        while not client.Connected
+              && not (server.IsTerminal())
+              && deadline.ElapsedMilliseconds < 5_000L do
             try
                 client.ConnectAsync(IPAddress.Loopback, port).Wait(500) |> ignore
             with _ ->
@@ -139,13 +147,13 @@ let waitForTerminal (fiber: Fiber<'A, 'E>) (budgetMs: int) =
     }
 
 let connectWhenListening (host: string) (port: int) =
-    (SocketClient.connectWith host port)
-        .Retry 60 (fun (_, _, _) -> FIO.sleep (TimeSpan.FromMilliseconds 50.0))
+    (SocketClient.connectWith host port).Retry 60 (fun (_, _, _) -> FIO.sleep (TimeSpan.FromMilliseconds 50.0))
 
 let withTestServer
     (handler: Socket -> FIO<unit, SocketError>)
     (action: int -> FIO<'A, SocketError>)
-    (runtime: FIORuntime) =
+    (runtime: FIORuntime)
+    =
     let effect =
         fio {
             let! config = ServerSocketConfig.create "127.0.0.1" 0
@@ -158,10 +166,11 @@ let withTestServer
                     let! socket = ServerSocket.accept server
                     do! handler socket
                     do! socket.Close()
-                }).Fork()
+                })
+                    .Fork()
 
             let! result = action port
-            do! serverFiber.InterruptNow ()
+            do! serverFiber.InterruptNow()
             do! ServerSocket.close server
             return result
         }
@@ -178,7 +187,7 @@ let withTestEchoServer (action: int -> FIO<'A, SocketError>) (runtime: FIORuntim
             let! serverFiber = (ServerSocket.acceptLoop echoHandler server).Fork()
             do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
             let! result = action port
-            do! serverFiber.InterruptNow ()
+            do! serverFiber.InterruptNow()
             do! ServerSocket.close server
             return result
         }

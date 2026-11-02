@@ -46,14 +46,14 @@ module Routes =
             exactMatches
             |> List.choose (fun route ->
                 match getExactPath route.Pattern with
-                | Some path ->
-                    Some((route.Pattern.Method, path), route.Handler)
-                | None ->
-                    None)
+                | Some path -> Some((route.Pattern.Method, path), route.Handler)
+                | None -> None)
             |> List.fold
                 (fun acc (key, handler) ->
-                    if Map.containsKey key acc then acc
-                    else Map.add key handler acc)
+                    if Map.containsKey key acc then
+                        acc
+                    else
+                        Map.add key handler acc)
                 Map.empty
         index, parameterized
 
@@ -80,15 +80,18 @@ module Routes =
         }
 
     /// Creates a route collection from one pattern and a handler.
-    let route (pattern: RoutePattern) (handler: HttpHandler<'E>) : Routes<'E> =
-        single pattern (fun _ -> handler)
+    let route (pattern: RoutePattern) (handler: HttpHandler<'E>) : Routes<'E> = single pattern (fun _ -> handler)
 
     /// Combines two route collections, preferring the first on conflicts.
     let combine (routes: Routes<'E>) (routes': Routes<'E>) : Routes<'E> =
         let mergedIndex =
             routes'.ExactMatchIndex
             |> Map.fold
-                (fun acc key handler -> if Map.containsKey key acc then acc else Map.add key handler acc)
+                (fun acc key handler ->
+                    if Map.containsKey key acc then
+                        acc
+                    else
+                        Map.add key handler acc)
                 routes.ExactMatchIndex
         {
             RouteList = routes.RouteList @ routes'.RouteList
@@ -100,7 +103,9 @@ module Routes =
 
     /// Sets the handler used when no route matches.
     let withNotFound (handler: HttpHandler<'E>) (routes: Routes<'E>) : Routes<'E> =
-        { routes with NotFoundHandler = handler }
+        { routes with
+            NotFoundHandler = handler
+        }
 
     let private allowedMethodsFor (request: HttpRequest) (routes: Routes<'E>) =
         let normalizedPath = "/" + String.concat "/" request.PathSegments
@@ -132,8 +137,7 @@ module Routes =
             let key = req.Method, normalizedPath
             match Map.tryFind key routes.ExactMatchIndex with
             | Some handler -> Some(handler [] req)
-            | None ->
-                tryRoutes req routes.ParameterizedRoutes
+            | None -> tryRoutes req routes.ParameterizedRoutes
 
         match tryDispatch request with
         | Some effect -> effect
@@ -151,8 +155,7 @@ module Routes =
                 else
                     match allowedMethodsFor request routes with
                     | [] -> routes.NotFoundHandler request
-                    | methods ->
-                        routes.MethodNotAllowedHandler (methods |> List.map (fun m -> m.ToString())) request
+                    | methods -> routes.MethodNotAllowedHandler (methods |> List.map (fun m -> m.ToString())) request
 
     /// Adds a pattern and parameter-aware handler to a route collection.
     let add (pattern: RoutePattern) (handler: obj list -> HttpHandler<'E>) (routes: Routes<'E>) : Routes<'E> =
@@ -163,14 +166,18 @@ module Routes =
             | Some path ->
                 let key = pattern.Method, path
                 let index =
-                    if Map.containsKey key routes.ExactMatchIndex then routes.ExactMatchIndex
-                    else Map.add key handler routes.ExactMatchIndex
+                    if Map.containsKey key routes.ExactMatchIndex then
+                        routes.ExactMatchIndex
+                    else
+                        Map.add key handler routes.ExactMatchIndex
                 { routes with
                     RouteList = updatedRoutes
                     ExactMatchIndex = index
                 }
             | None ->
-                { routes with RouteList = updatedRoutes }
+                { routes with
+                    RouteList = updatedRoutes
+                }
         else
             { routes with
                 RouteList = updatedRoutes
@@ -184,8 +191,12 @@ module Routes =
     /// Builds a route collection from a list of pattern/handler pairs.
     let fromList (routes: (RoutePattern * HttpHandler<'E>) list) : Routes<'E> =
         let routeList =
-            routes |> List.map (fun (pattern, handler) ->
-                { Pattern = pattern; Handler = fun _ -> handler })
+            routes
+            |> List.map (fun (pattern, handler) ->
+                {
+                    Pattern = pattern
+                    Handler = fun _ -> handler
+                })
         let index, parameterized = buildIndex routeList
         {
             RouteList = routeList
@@ -213,24 +224,19 @@ module Routes =
         }
 
     /// Transforms every handler in a route collection. Alias for map.
-    let transform (func: HttpHandler<'E> -> HttpHandler<'E>) (routes: Routes<'E>) : Routes<'E> =
-        map func routes
+    let transform (func: HttpHandler<'E> -> HttpHandler<'E>) (routes: Routes<'E>) : Routes<'E> = map func routes
 
 module RouteBuilder =
 
     type RouteCollector<'E>() =
 
-        member _.Yield (routes: Routes<'E>) : Routes<'E> =
-            routes
+        member _.Yield(routes: Routes<'E>) : Routes<'E> = routes
 
-        member _.Combine (routes: Routes<'E>, routes': Routes<'E>) : Routes<'E> =
-            Routes.combine routes routes'
+        member _.Combine(routes: Routes<'E>, routes': Routes<'E>) : Routes<'E> = Routes.combine routes routes'
 
-        member _.Delay (func: unit -> Routes<'E>) : Routes<'E> =
-            func ()
+        member _.Delay(func: unit -> Routes<'E>) : Routes<'E> = func ()
 
-        member _.Zero () : Routes<'E> =
-            Routes.empty<'E>
+        member _.Zero() : Routes<'E> = Routes.empty<'E>
 
     /// A computation expression for composing route collections.
     let routes<'E> : RouteCollector<'E> = RouteCollector<'E>()
@@ -238,107 +244,90 @@ module RouteBuilder =
 module RoutesOperators =
 
     /// <summary>Combines two route collections. Operator form of <c>Routes.combine</c>.</summary>
-    let (++) (routes: Routes<'E>) (routes': Routes<'E>) : Routes<'E> =
-        Routes.combine routes routes'
+    let (++) (routes: Routes<'E>) (routes': Routes<'E>) : Routes<'E> = Routes.combine routes routes'
 
     /// <summary>Pairs a pattern with a handler. Operator form of <c>Routes.route</c>.</summary>
-    let (=>) (pattern: RoutePattern) (handler: HttpHandler<'E>) =
-        Routes.route pattern handler
+    let (=>) (pattern: RoutePattern) (handler: HttpHandler<'E>) = Routes.route pattern handler
 
     /// <summary>Pairs a pattern with a parameter-aware handler. Operator form of <c>Routes.single</c>.</summary>
-    let (==>) (pattern: RoutePattern) (handler: obj list -> HttpHandler<'E>) =
-        Routes.single pattern handler
+    let (==>) (pattern: RoutePattern) (handler: obj list -> HttpHandler<'E>) = Routes.single pattern handler
 
 module TypedRoutes =
 
     /// Creates a GET route from a path and handler.
-    let get (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
-        Routes.route (Route.get path) handler
+    let get (path: string) (handler: HttpHandler<'E>) : Routes<'E> = Routes.route (Route.get path) handler
 
     /// Creates a POST route from a path and handler.
-    let post (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
-        Routes.route (Route.post path) handler
+    let post (path: string) (handler: HttpHandler<'E>) : Routes<'E> = Routes.route (Route.post path) handler
 
     /// Creates a PUT route from a path and handler.
-    let put (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
-        Routes.route (Route.put path) handler
+    let put (path: string) (handler: HttpHandler<'E>) : Routes<'E> = Routes.route (Route.put path) handler
 
     /// Creates a DELETE route from a path and handler.
     let delete (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
         Routes.route (Route.delete path) handler
 
     /// Creates a PATCH route from a path and handler.
-    let patch (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
-        Routes.route (Route.patch path) handler
+    let patch (path: string) (handler: HttpHandler<'E>) : Routes<'E> = Routes.route (Route.patch path) handler
 
     /// Creates a GET route capturing an integer path parameter.
     let getInt (before: string list) (after: string list) (handler: int -> HttpHandler<'E>) : Routes<'E> =
         let pattern = RoutePattern.get <| RoutePath.withInt before after
-        Routes.single pattern <| fun parameters ->
+        Routes.single pattern
+        <| fun parameters ->
             match parameters with
-            | [ :? int as id ] ->
-                handler id
-            | _ ->
-                HttpHandler.badRequestText "Invalid parameters"
+            | [ :? int as id ] -> handler id
+            | _ -> HttpHandler.badRequestText "Invalid parameters"
 
     /// Creates a GET route capturing a string path parameter.
     let getString (before: string list) (after: string list) (handler: string -> HttpHandler<'E>) : Routes<'E> =
         let pattern = RoutePattern.get <| RoutePath.withString before after
-        Routes.single pattern <| fun parameters ->
+        Routes.single pattern
+        <| fun parameters ->
             match parameters with
-            | [ :? string as value ] ->
-                handler value
-            | _ ->
-                HttpHandler.badRequestText "Invalid parameters"
+            | [ :? string as value ] -> handler value
+            | _ -> HttpHandler.badRequestText "Invalid parameters"
 
     /// Creates a POST route capturing an integer path parameter.
     let postInt (before: string list) (after: string list) (handler: int -> HttpHandler<'E>) : Routes<'E> =
         let pattern = RoutePattern.post <| RoutePath.withInt before after
-        Routes.single pattern <| fun parameters ->
+        Routes.single pattern
+        <| fun parameters ->
             match parameters with
-            | [ :? int as id ] ->
-                handler id
-            | _ ->
-                HttpHandler.badRequestText "Invalid parameters"
+            | [ :? int as id ] -> handler id
+            | _ -> HttpHandler.badRequestText "Invalid parameters"
 
     /// Creates a PUT route capturing an integer path parameter.
     let putInt (before: string list) (after: string list) (handler: int -> HttpHandler<'E>) : Routes<'E> =
         let pattern = RoutePattern.put <| RoutePath.withInt before after
-        Routes.single pattern <| fun parameters ->
+        Routes.single pattern
+        <| fun parameters ->
             match parameters with
-            | [ :? int as id ] ->
-                handler id
-            | _ ->
-                HttpHandler.badRequestText "Invalid parameters"
+            | [ :? int as id ] -> handler id
+            | _ -> HttpHandler.badRequestText "Invalid parameters"
 
     /// Creates a DELETE route capturing an integer path parameter.
     let deleteInt (before: string list) (after: string list) (handler: int -> HttpHandler<'E>) : Routes<'E> =
         let pattern = RoutePattern.delete <| RoutePath.withInt before after
-        Routes.single pattern <| fun parameters ->
+        Routes.single pattern
+        <| fun parameters ->
             match parameters with
-            | [ :? int as id ] ->
-                handler id
-            | _ ->
-                HttpHandler.badRequestText "Invalid parameters"
+            | [ :? int as id ] -> handler id
+            | _ -> HttpHandler.badRequestText "Invalid parameters"
 
 module SimpleRoutes =
 
     /// Creates a GET route from a path and handler.
-    let get (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
-        TypedRoutes.get path handler
+    let get (path: string) (handler: HttpHandler<'E>) : Routes<'E> = TypedRoutes.get path handler
 
     /// Creates a POST route from a path and handler.
-    let post (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
-        TypedRoutes.post path handler
+    let post (path: string) (handler: HttpHandler<'E>) : Routes<'E> = TypedRoutes.post path handler
 
     /// Creates a PUT route from a path and handler.
-    let put (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
-        TypedRoutes.put path handler
+    let put (path: string) (handler: HttpHandler<'E>) : Routes<'E> = TypedRoutes.put path handler
 
     /// Creates a DELETE route from a path and handler.
-    let delete (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
-        TypedRoutes.delete path handler
+    let delete (path: string) (handler: HttpHandler<'E>) : Routes<'E> = TypedRoutes.delete path handler
 
     /// Creates a PATCH route from a path and handler.
-    let patch (path: string) (handler: HttpHandler<'E>) : Routes<'E> =
-        TypedRoutes.patch path handler
+    let patch (path: string) (handler: HttpHandler<'E>) : Routes<'E> = TypedRoutes.patch path handler

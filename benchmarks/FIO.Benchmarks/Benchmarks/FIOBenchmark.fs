@@ -24,16 +24,15 @@ type FIOBenchmark() =
     abstract CreateEffect: unit -> FIO<unit, exn>
 
     [<GlobalSetup>]
-    member this.Setup () =
+    member this.Setup() =
         runtime <- RuntimeParam.create this.Runtime
-        effect <- this.CreateEffect ()
+        effect <- this.CreateEffect()
 
     [<GlobalCleanup>]
-    member _.Cleanup () =
+    member _.Cleanup() =
         match box runtime with
         | :? IDisposable as d -> d.Dispose()
         | _ -> ()
 
     [<Benchmark>]
-    member _.Run () =
-        RuntimeParam.run runtime effect
+    member _.Run() = RuntimeParam.run runtime effect

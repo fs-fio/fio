@@ -27,7 +27,8 @@ module internal StdinReader =
     let private returnedKeys = ConcurrentQueue<ConsoleKeyInfo>()
 
     // Replaced by tests: Console.ReadKey cannot be fed without a terminal.
-    let mutable readKey : bool -> ConsoleKeyInfo = fun intercept -> Console.ReadKey intercept
+    let mutable readKey: bool -> ConsoleKeyInfo =
+        fun intercept -> Console.ReadKey intercept
 
     let private readLineOrEnd () =
         match Console.In.ReadLine() with
@@ -46,7 +47,8 @@ module internal StdinReader =
         (tcs: TaskCompletionSource<'T>)
         (returned: ConcurrentQueue<'T>)
         (undelivered: ConcurrentQueue<'T>)
-        (read: unit -> 'T) =
+        (read: unit -> 'T)
+        =
         let mutable value = Unchecked.defaultof<'T>
 
         if returned.TryPeek &value then
@@ -96,11 +98,9 @@ module internal StdinReader =
         thread.Force()
         requests.Add request
 
-    let giveBackLine (line: string) =
-        returnedLines.Enqueue line
+    let giveBackLine (line: string) = returnedLines.Enqueue line
 
-    let giveBackKey (key: ConsoleKeyInfo) =
-        returnedKeys.Enqueue key
+    let giveBackKey (key: ConsoleKeyInfo) = returnedKeys.Enqueue key
 
 [<RequireQualifiedAccess>]
 module Console =
@@ -110,20 +110,28 @@ module Console =
     let private awaitStdin
         (request: TaskCompletionSource<'T> -> StdinReader.Request)
         (giveBack: 'T -> unit)
-        (onError: exn -> 'E) =
-        FIO.cancellationToken().FlatMap <| fun cancellationToken ->
-            let tcs = TaskCompletionSource<'T> TaskCreationOptions.RunContinuationsAsynchronously
-            let registration = cancellationToken.Register(fun () -> tcs.TrySetCanceled cancellationToken |> ignore)
+        (onError: exn -> 'E)
+        =
+        FIO.cancellationToken().FlatMap
+        <| fun cancellationToken ->
+            let tcs =
+                TaskCompletionSource<'T> TaskCreationOptions.RunContinuationsAsynchronously
+            let registration =
+                cancellationToken.Register(fun () -> tcs.TrySetCanceled cancellationToken |> ignore)
             StdinReader.enqueue (request tcs)
 
             (FIO.awaitTask tcs.Task onError)
-                .Ensuring(FIO.succeedWith (fun () ->
-                    registration.Dispose()
+                .Ensuring(
+                    FIO.succeedWith (fun () ->
+                        registration.Dispose()
 
-                    if not (tcs.TrySetCanceled())
-                       && cancellationToken.IsCancellationRequested
-                       && tcs.Task.IsCompletedSuccessfully then
-                        giveBack tcs.Task.Result))
+                        if
+                            not (tcs.TrySetCanceled())
+                            && cancellationToken.IsCancellationRequested
+                            && tcs.Task.IsCompletedSuccessfully
+                        then
+                            giveBack tcs.Task.Result)
+                )
 
     /// Creates an effect that writes formatted text to standard output, mapping a write failure via onError.
     let print<'E> (format: Printf.TextWriterFormat<unit>) (onError: exn -> 'E) : FIO<unit, 'E> =
@@ -141,9 +149,11 @@ module Console =
     /// Creates an effect that reads a line from standard input, yielding None at end of input and mapping a read failure via
     /// onError; interruption behaves as in readLine.
     let tryReadLine<'E> (onError: exn -> 'E) : FIO<string option, 'E> =
-        (awaitStdin StdinReader.Line StdinReader.giveBackLine id).Map(Some).CatchAll(function
-            | :? IO.EndOfStreamException -> FIO.succeed None
-            | ex -> FIO.fail (onError ex))
+        (awaitStdin StdinReader.Line StdinReader.giveBackLine id)
+            .Map(Some)
+            .CatchAll(function
+                | :? IO.EndOfStreamException -> FIO.succeed None
+                | ex -> FIO.fail (onError ex))
 
     /// Creates an effect that reads the next key press, echoed unless intercept is true; fails through onError when input
     /// is redirected. A key typed for an interrupted read goes to the next readKey, or begins the next readLine.

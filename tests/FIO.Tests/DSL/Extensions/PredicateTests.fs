@@ -19,8 +19,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.succeed(value).Ignore()
 
-                        let actual =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let actual = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal actual () "Ignore should return unit on success"
 
@@ -28,8 +27,7 @@ let tests =
                     <| fun (runtime: FIORuntime, error: int) ->
                         let effect = FIO.fail(error).Ignore()
 
-                        let actual =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let actual = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal actual () "Ignore should return unit on failure"
 
@@ -37,8 +35,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.succeed(value).IsSuccess()
 
-                        let actual =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let actual = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.isTrue actual "IsSuccess should return true on success"
 
@@ -46,8 +43,7 @@ let tests =
                     <| fun (runtime: FIORuntime, error: int) ->
                         let effect = FIO.fail(error).IsSuccess()
 
-                        let actual =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let actual = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.isFalse actual "IsSuccess should return false on failure"
 
@@ -55,8 +51,7 @@ let tests =
                     <| fun (runtime: FIORuntime, error: int) ->
                         let effect = FIO.fail(error).IsFailure()
 
-                        let actual =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let actual = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.isTrue actual "IsFailure should return true on failure"
 
@@ -64,8 +59,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.succeed(value).IsFailure()
 
-                        let actual =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let actual = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.isFalse actual "IsFailure should return false on success"
                 ]
@@ -83,8 +77,7 @@ let tests =
                                     value)
                                 id
 
-                        let _ =
-                            runtime.Run(effect.When true).UnsafeSuccess()
+                        let _ = runtime.Run(effect.When true).UnsafeSuccess()
 
                         Expect.isTrue executed "When(true) should execute the effect"
 
@@ -98,8 +91,7 @@ let tests =
                                     value)
                                 id
 
-                        let result =
-                            runtime.Run(effect.When false).UnsafeSuccess()
+                        let result = runtime.Run(effect.When false).UnsafeSuccess()
 
                         Expect.isFalse executed "When(false) should not execute the effect"
                         Expect.equal result () "When(false) should return unit"
@@ -114,8 +106,7 @@ let tests =
                                     value)
                                 id
 
-                        let _ =
-                            runtime.Run(effect.Unless false).UnsafeSuccess()
+                        let _ = runtime.Run(effect.Unless false).UnsafeSuccess()
 
                         Expect.isTrue executed "Unless(false) should execute the effect"
 
@@ -129,8 +120,7 @@ let tests =
                                     value)
                                 id
 
-                        let result =
-                            runtime.Run(effect.Unless true).UnsafeSuccess()
+                        let result = runtime.Run(effect.Unless true).UnsafeSuccess()
 
                         Expect.isFalse executed "Unless(true) should not execute the effect"
                         Expect.equal result () "Unless(true) should return unit"

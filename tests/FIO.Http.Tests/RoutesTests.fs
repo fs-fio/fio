@@ -92,7 +92,8 @@ let routesTests =
             testAllRuntimes "dispatch - falls through to notFound for OPTIONS" (fun runtime ->
                 let routes = Routes.route (Route.get "/only-get") (HttpHandler.text "ok")
 
-                let resp = dispatchAndRun runtime routes (makeRequest HttpMethod.OPTIONS "/only-get")
+                let resp =
+                    dispatchAndRun runtime routes (makeRequest HttpMethod.OPTIONS "/only-get")
 
                 Expect.equal resp.Status HttpStatusCode.NotFound "OPTIONS not treated as 405")
 

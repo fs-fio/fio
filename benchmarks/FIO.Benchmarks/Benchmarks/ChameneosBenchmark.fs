@@ -23,7 +23,8 @@ module internal Chameneos =
             ReplyChannel: Channel<Response>
         }
 
-    let private complement = function
+    let private complement =
+        function
         | Red, Red -> Red
         | Yellow, Yellow -> Yellow
         | Blue, Blue -> Blue
@@ -50,8 +51,7 @@ module internal Chameneos =
                         do! request.ReplyChannel.Write(Stop).Unit()
                     else
                         match waiter with
-                        | None ->
-                            waiter <- Some request
+                        | None -> waiter <- Some request
                         | Some first ->
                             meetingsLeft <- meetingsLeft - 1
                             waiter <- None
@@ -69,12 +69,18 @@ module internal Chameneos =
 
         let rec loop color =
             fio {
-                do! mallChannel.Write({ Color = color; ReplyChannel = replyChannel }).Unit()
+                do!
+                    mallChannel
+                        .Write(
+                            {
+                                Color = color
+                                ReplyChannel = replyChannel
+                            }
+                        )
+                        .Unit()
                 match! replyChannel.Read() with
-                | Stop ->
-                    ()
-                | Paired partnerColor ->
-                    return! loop (complement (color, partnerColor))
+                | Stop -> ()
+                | Paired partnerColor -> return! loop (complement (color, partnerColor))
             }
 
         loop initialColor
@@ -86,8 +92,9 @@ module internal Chameneos =
             let colors = [| Red; Yellow; Blue |]
 
             let creatures =
-                [ for index in 0 .. creatureCount - 1 ->
-                    creatureEffect mallChannel colors[index % 3] ]
+                [
+                    for index in 0 .. creatureCount - 1 -> creatureEffect mallChannel colors[index % 3]
+                ]
 
             do! FIO.collectAllParDiscard (mallEffect mallChannel meetingCount creatureCount :: creatures)
         }
@@ -110,5 +117,5 @@ type ChameneosBenchmark() =
     [<ParamsSource("MeetingCounts")>]
     member val MeetingCount = 0 with get, set
 
-    override this.CreateEffect () =
+    override this.CreateEffect() =
         Chameneos.effect this.CreatureCount this.MeetingCount

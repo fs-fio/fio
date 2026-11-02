@@ -31,8 +31,7 @@ let tests =
                                 return sw.Elapsed
                             }
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.isGreaterThanOrEqual result.TotalMilliseconds 15.0 "FIO.sleep should delay execution"
 
@@ -41,7 +40,7 @@ let tests =
                             fio {
                                 let! fiber = (FIO.sleep (TimeSpan.FromMinutes 1.0)).Fork()
                                 do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
-                                return! fiber.InterruptAwaitNow ()
+                                return! fiber.InterruptAwaitNow()
                             }
                         let sw = Stopwatch.StartNew()
 
@@ -93,7 +92,7 @@ let tests =
                             fio {
                                 let! fiber = (FIO.sleep Timeout.InfiniteTimeSpan).Fork()
                                 do! FIO.sleep (TimeSpan.FromMilliseconds 20.0)
-                                return! fiber.InterruptAwaitNow ()
+                                return! fiber.InterruptAwaitNow()
                             }
 
                         let result = runtime.Run(effect).UnsafeSuccess()
@@ -106,18 +105,15 @@ let tests =
                     <| fun (runtime: FIORuntime) ->
                         let effect = FIO.yieldNow ()
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result () "yieldNow should complete with unit"
 
                     testPropertyWithConfig fsCheckConfig "yieldNow - sequences correctly with subsequent effects"
                     <| fun (runtime: FIORuntime, value: int) ->
-                        let effect =
-                            (FIO.yieldNow ()).FlatMap(fun () -> FIO.succeed value)
+                        let effect = (FIO.yieldNow ()).FlatMap(fun () -> FIO.succeed value)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result value "yieldNow should sequence into subsequent effects"
 
@@ -125,9 +121,11 @@ let tests =
                         let value = 42
                         let effect = FIO.never().RaceFirst(FIO.succeed value)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.equal result value "RaceFirst with FIO.never should return the completing effect's result")
+                        Expect.equal
+                            result
+                            value
+                            "RaceFirst with FIO.never should return the completing effect's result")
                 ]
         ]
