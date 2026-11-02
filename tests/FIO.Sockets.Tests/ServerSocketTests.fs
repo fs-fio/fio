@@ -25,7 +25,8 @@ let private connectEachAndAwaitEnd (connections: int) (port: int) =
 
             try
                 do! client.ConnectAsync(IPAddress.Loopback, port, giveUp.Token).AsTask()
-                let! read = client.GetStream().ReadAsync(Array.zeroCreate<byte> 1, 0, 1, giveUp.Token)
+                let! read =
+                    client.GetStream().ReadAsync(Array.zeroCreate<byte> 1, 0, 1, giveUp.Token)
 
                 if read = 0 then
                     ended <- ended + 1
@@ -41,7 +42,8 @@ let private acceptLoopTimed (connections: int) (configure: ServerSocketConfig ->
         let! server = ServerSocket.bind (configure config)
         let! ep = ServerSocket.getLocalEndPoint server
         let! loopFiber = (ServerSocket.acceptLoop noopHandler server).Fork()
-        let! outcome = FIO.awaitTask (connectEachAndAwaitEnd connections (ep :?> IPEndPoint).Port) SocketError.fromException
+        let! outcome =
+            FIO.awaitTask (connectEachAndAwaitEnd connections (ep :?> IPEndPoint).Port) SocketError.fromException
         do! sleepMs 300.0
         do! loopFiber.InterruptNow()
         do! ServerSocket.close server
@@ -119,8 +121,14 @@ let serverSocketTests =
 
                         match result with
                         | Error(BindFailed(address, boundPort, (:? Sockets.SocketException as ex))), port ->
-                            Expect.equal (address, boundPort) ("127.0.0.1", port) "BindFailed should name what it tried to bind"
-                            Expect.equal ex.SocketErrorCode Sockets.SocketError.AddressAlreadyInUse "The port should be reported as in use"
+                            Expect.equal
+                                (address, boundPort)
+                                ("127.0.0.1", port)
+                                "BindFailed should name what it tried to bind"
+                            Expect.equal
+                                ex.SocketErrorCode
+                                Sockets.SocketError.AddressAlreadyInUse
+                                "The port should be reported as in use"
                         | Ok second, _ ->
                             runtime.Run(ServerSocket.close second).UnsafeSuccess()
                             failtest "A port in use must not bind a second time"
@@ -128,7 +136,11 @@ let serverSocketTests =
 
                     testAllRuntimes "bind - releases its socket when listening fails" (fun runtime ->
                         let probe =
-                            new Sockets.Socket(Sockets.AddressFamily.InterNetwork, Sockets.SocketType.Dgram, Sockets.ProtocolType.Udp)
+                            new Sockets.Socket(
+                                Sockets.AddressFamily.InterNetwork,
+                                Sockets.SocketType.Dgram,
+                                Sockets.ProtocolType.Udp
+                            )
                         probe.Bind(IPEndPoint(IPAddress.Loopback, 0))
                         let port = (probe.LocalEndPoint :?> IPEndPoint).Port
                         probe.Dispose()
@@ -195,74 +207,97 @@ let serverSocketTests =
                                 let! config = ServerSocketConfig.create "127.0.0.1" 0
                                 let! server = ServerSocket.bind config
                                 do! ServerSocket.close server
-                                return! (ServerSocket.accept server).Map(fun _ -> None).CatchAll(fun error -> FIO.succeed (Some error))
+                                return!
+                                    (ServerSocket.accept server)
+                                        .Map(fun _ -> None)
+                                        .CatchAll(fun error -> FIO.succeed (Some error))
                             }
 
                         let result = runtime.Run(effect).UnsafeResult()
 
                         match result with
                         | Succeeded(Some(AcceptFailed _)) -> ()
-                        | other -> failtest $"Accepting on a closed server socket must fail with AcceptFailed, got %A{other}")
+                        | other ->
+                            failtest $"Accepting on a closed server socket must fail with AcceptFailed, got %A{other}")
 
-                    testAllRuntimes "accept - applies the AcceptedSocketConfig's receive timeout to the accepted socket" (fun runtime ->
-                        let effect =
-                            fio {
-                                let! acceptedBase = SocketConfig.create "127.0.0.1" 1
-                                let accepted = SocketConfig.withReceiveTimeout 150 acceptedBase
-                                let! baseConfig = ServerSocketConfig.create "127.0.0.1" 0
-                                let! server = ServerSocket.bind (ServerSocketConfig.withAcceptedConfig accepted baseConfig)
-                                let! ep = ServerSocket.getLocalEndPoint server
-                                let port = (ep :?> IPEndPoint).Port
+                    testAllRuntimes
+                        "accept - applies the AcceptedSocketConfig's receive timeout to the accepted socket"
+                        (fun runtime ->
+                            let effect =
+                                fio {
+                                    let! acceptedBase = SocketConfig.create "127.0.0.1" 1
+                                    let accepted = SocketConfig.withReceiveTimeout 150 acceptedBase
+                                    let! baseConfig = ServerSocketConfig.create "127.0.0.1" 0
+                                    let! server =
+                                        ServerSocket.bind (ServerSocketConfig.withAcceptedConfig accepted baseConfig)
+                                    let! ep = ServerSocket.getLocalEndPoint server
+                                    let port = (ep :?> IPEndPoint).Port
 
-                                let! acceptFiber = (ServerSocket.accept server).Fork()
-                                let! client = SocketClient.connectWith "127.0.0.1" port
-                                let! serverSide = acceptFiber.Join()
+                                    let! acceptFiber = (ServerSocket.accept server).Fork()
+                                    let! client = SocketClient.connectWith "127.0.0.1" port
+                                    let! serverSide = acceptFiber.Join()
 
-                                let! outcome =
-                                    (serverSide.ReceiveBytes 16).Map(fun _ -> None).CatchAll(fun error -> FIO.succeed (Some error))
+                                    let! outcome =
+                                        (serverSide.ReceiveBytes 16)
+                                            .Map(fun _ -> None)
+                                            .CatchAll(fun error -> FIO.succeed (Some error))
 
-                                do! serverSide.Close()
-                                do! client.Close()
-                                do! ServerSocket.close server
-                                return outcome, serverSide.GetConfig()
-                            }
+                                    do! serverSide.Close()
+                                    do! client.Close()
+                                    do! ServerSocket.close server
+                                    return outcome, serverSide.GetConfig()
+                                }
 
-                        let result = runWithTimeout runtime effect
+                            let result = runWithTimeout runtime effect
 
-                        match result with
-                        | Some(TimeoutError _), config ->
-                            Expect.equal config.ReceiveTimeout 150 "The accepted socket should carry the configured timeout"
-                        | other, _ -> failtest $"An idle accepted socket must time out, got {other}")
+                            match result with
+                            | Some(TimeoutError _), config ->
+                                Expect.equal
+                                    config.ReceiveTimeout
+                                    150
+                                    "The accepted socket should carry the configured timeout"
+                            | other, _ -> failtest $"An idle accepted socket must time out, got {other}")
 
-                    testAllRuntimes "accept - applies the AcceptedSocketConfig's NoDelay and buffer sizes to the accepted socket" (fun runtime ->
-                        let effect =
-                            fio {
-                                let! acceptedBase = SocketConfig.create "127.0.0.1" 1
-                                let accepted =
-                                    acceptedBase
-                                    |> SocketConfig.withNoDelay true
-                                    |> SocketConfig.withSendBufferSize 24576
-                                    |> SocketConfig.withReceiveBufferSize 24576
-                                let! baseConfig = ServerSocketConfig.create "127.0.0.1" 0
-                                let! server = ServerSocket.bind (ServerSocketConfig.withAcceptedConfig accepted baseConfig)
-                                let! ep = ServerSocket.getLocalEndPoint server
-                                let port = (ep :?> IPEndPoint).Port
-                                let! acceptFiber = (ServerSocket.accept server).Fork()
-                                let! client = SocketClient.connectWith "127.0.0.1" port
-                                let! serverSide = acceptFiber.Join()
-                                let options =
-                                    serverSide.NetSocket.NoDelay, serverSide.NetSocket.SendBufferSize, serverSide.NetSocket.ReceiveBufferSize
-                                do! serverSide.Close()
-                                do! client.Close()
-                                do! ServerSocket.close server
-                                return options
-                            }
+                    testAllRuntimes
+                        "accept - applies the AcceptedSocketConfig's NoDelay and buffer sizes to the accepted socket"
+                        (fun runtime ->
+                            let effect =
+                                fio {
+                                    let! acceptedBase = SocketConfig.create "127.0.0.1" 1
+                                    let accepted =
+                                        acceptedBase
+                                        |> SocketConfig.withNoDelay true
+                                        |> SocketConfig.withSendBufferSize 24576
+                                        |> SocketConfig.withReceiveBufferSize 24576
+                                    let! baseConfig = ServerSocketConfig.create "127.0.0.1" 0
+                                    let! server =
+                                        ServerSocket.bind (ServerSocketConfig.withAcceptedConfig accepted baseConfig)
+                                    let! ep = ServerSocket.getLocalEndPoint server
+                                    let port = (ep :?> IPEndPoint).Port
+                                    let! acceptFiber = (ServerSocket.accept server).Fork()
+                                    let! client = SocketClient.connectWith "127.0.0.1" port
+                                    let! serverSide = acceptFiber.Join()
+                                    let options =
+                                        serverSide.NetSocket.NoDelay,
+                                        serverSide.NetSocket.SendBufferSize,
+                                        serverSide.NetSocket.ReceiveBufferSize
+                                    do! serverSide.Close()
+                                    do! client.Close()
+                                    do! ServerSocket.close server
+                                    return options
+                                }
 
-                        let noDelay, sendBuffer, receiveBuffer = runWithTimeout runtime effect
+                            let noDelay, sendBuffer, receiveBuffer = runWithTimeout runtime effect
 
-                        Expect.isTrue noDelay "The accepted socket should have Nagle's algorithm disabled"
-                        Expect.contains [ 24576; 49152 ] sendBuffer "The accepted socket should get the configured send buffer (Linux reports it doubled)"
-                        Expect.contains [ 24576; 49152 ] receiveBuffer "The accepted socket should get the configured receive buffer (Linux reports it doubled)")
+                            Expect.isTrue noDelay "The accepted socket should have Nagle's algorithm disabled"
+                            Expect.contains
+                                [ 24576; 49152 ]
+                                sendBuffer
+                                "The accepted socket should get the configured send buffer (Linux reports it doubled)"
+                            Expect.contains
+                                [ 24576; 49152 ]
+                                receiveBuffer
+                                "The accepted socket should get the configured receive buffer (Linux reports it doubled)")
                 ]
 
             testList
@@ -274,14 +309,12 @@ let serverSocketTests =
                                 let! config = ServerSocketConfig.create "127.0.0.1" 0
 
                                 let! result =
-                                    ServerSocket.withServerSocket
-                                        config
-                                        (fun server ->
-                                            fio {
-                                                let! ep = ServerSocket.getLocalEndPoint server
-                                                let port = (ep :?> IPEndPoint).Port
-                                                return port > 0
-                                            })
+                                    ServerSocket.withServerSocket config (fun server ->
+                                        fio {
+                                            let! ep = ServerSocket.getLocalEndPoint server
+                                            let port = (ep :?> IPEndPoint).Port
+                                            return port > 0
+                                        })
                                 return result
                             }
 
@@ -346,54 +379,62 @@ let serverSocketTests =
             testList
                 "serve / serveWith (bind + accept + close in one effect)"
                 [
-                    testAllRuntimes "serve - accepts a connection and closes the server when interrupted" (fun runtime ->
-                        let received = ResizeArray<string>()
-                        let handlerDone = Channel<unit>()
-                        let handler (socket: Socket) =
-                            fio {
-                                let! message = socket.Receive(Codec.line, 1024)
-                                do! FIO.attempt (fun () -> received.Add message) SocketError.fromException
-                                do! socket.Close()
-                                do! (handlerDone.Write ()).Unit()
-                            }
-                        let effect =
-                            fio {
-                                let! probe = ServerSocketConfig.create "127.0.0.1" 0
-                                let! probeServer = ServerSocket.bind probe
-                                let! ep = ServerSocket.getLocalEndPoint probeServer
-                                let port = (ep :?> IPEndPoint).Port
-                                do! ServerSocket.close probeServer
+                    testAllRuntimes
+                        "serve - accepts a connection and closes the server when interrupted"
+                        (fun runtime ->
+                            let received = ResizeArray<string>()
+                            let handlerDone = Channel<unit>()
+                            let handler (socket: Socket) =
+                                fio {
+                                    let! message = socket.Receive(Codec.line, 1024)
+                                    do! FIO.attempt (fun () -> received.Add message) SocketError.fromException
+                                    do! socket.Close()
+                                    do! (handlerDone.Write()).Unit()
+                                }
+                            let effect =
+                                fio {
+                                    let! probe = ServerSocketConfig.create "127.0.0.1" 0
+                                    let! probeServer = ServerSocket.bind probe
+                                    let! ep = ServerSocket.getLocalEndPoint probeServer
+                                    let port = (ep :?> IPEndPoint).Port
+                                    do! ServerSocket.close probeServer
 
-                                let! config = ServerSocketConfig.create "127.0.0.1" port
-                                let! serveFiber = (ServerSocket.serve config handler).Fork()
+                                    let! config = ServerSocketConfig.create "127.0.0.1" port
+                                    let! serveFiber = (ServerSocket.serve config handler).Fork()
 
-                                let! client = connectWhenListening "127.0.0.1" port
-                                do! client.Send(Codec.line, "hello serve")
-                                do! client.Close()
+                                    let! client = connectWhenListening "127.0.0.1" port
+                                    do! client.Send(Codec.line, "hello serve")
+                                    do! client.Close()
 
-                                do! (handlerDone.Read ()).Unit()
-                                do! serveFiber.InterruptNow()
+                                    do! (handlerDone.Read()).Unit()
+                                    do! serveFiber.InterruptNow()
 
-                                let mutable listening = true
-                                let mutable attempts = 0
+                                    let mutable listening = true
+                                    let mutable attempts = 0
 
-                                while listening && attempts < 100 do
-                                    attempts <- attempts + 1
-                                    let! probe = (SocketClient.connectWith "127.0.0.1" port).Map(Some).CatchAll(fun _ -> FIO.succeed None)
+                                    while listening && attempts < 100 do
+                                        attempts <- attempts + 1
+                                        let! probe =
+                                            (SocketClient.connectWith "127.0.0.1" port)
+                                                .Map(Some)
+                                                .CatchAll(fun _ -> FIO.succeed None)
 
-                                    match probe with
-                                    | Some connected ->
-                                        do! connected.Close()
-                                        do! sleepMs 20.0
-                                    | None -> listening <- false
+                                        match probe with
+                                        | Some connected ->
+                                            do! connected.Close()
+                                            do! sleepMs 20.0
+                                        | None -> listening <- false
 
-                                return listening
-                            }
+                                    return listening
+                                }
 
-                        let stillListening = runWithTimeout runtime effect
+                            let stillListening = runWithTimeout runtime effect
 
-                        Expect.sequenceEqual received [ "hello serve" ] "serve must deliver the message to its handler"
-                        Expect.isFalse stillListening "serve must close its server socket when it is interrupted")
+                            Expect.sequenceEqual
+                                received
+                                [ "hello serve" ]
+                                "serve must deliver the message to its handler"
+                            Expect.isFalse stillListening "serve must close its server socket when it is interrupted")
 
                     testAllRuntimes "serveWith - runs a request/response protocol" (fun runtime ->
                         let effect =
@@ -429,57 +470,63 @@ let serverSocketTests =
             testList
                 "Accept-loop resilience"
                 [
-                    testAllRuntimes "acceptLoopWith - runs at most maxConcurrentHandlers handlers, treating a non-positive limit as one" (fun runtime ->
-                        let entered = ref 0
-                        let gate = Channel<unit>()
-                        let enteredSignal = Channel<unit>()
-                        let gatedHandler (socket: Socket) =
-                            fio {
-                                do! FIO.attempt (fun () -> Interlocked.Increment entered |> ignore) SocketError.fromException
-                                do! (enteredSignal.Write ()).Unit()
-                                do! (gate.Read ()).Unit()
-                                do! socket.Close()
-                            }
-                        let effect =
-                            fio {
-                                let! config = ServerSocketConfig.create "127.0.0.1" 0
-                                let! server = ServerSocket.bind config
-                                let! ep = ServerSocket.getLocalEndPoint server
-                                let port = (ep :?> IPEndPoint).Port
-                                let! loopFiber = (ServerSocket.acceptLoopWith 0 gatedHandler server).Fork()
+                    testAllRuntimes
+                        "acceptLoopWith - runs at most maxConcurrentHandlers handlers, treating a non-positive limit as one"
+                        (fun runtime ->
+                            let entered = ref 0
+                            let gate = Channel<unit>()
+                            let enteredSignal = Channel<unit>()
+                            let gatedHandler (socket: Socket) =
+                                fio {
+                                    do!
+                                        FIO.attempt
+                                            (fun () -> Interlocked.Increment entered |> ignore)
+                                            SocketError.fromException
+                                    do! (enteredSignal.Write()).Unit()
+                                    do! (gate.Read()).Unit()
+                                    do! socket.Close()
+                                }
+                            let effect =
+                                fio {
+                                    let! config = ServerSocketConfig.create "127.0.0.1" 0
+                                    let! server = ServerSocket.bind config
+                                    let! ep = ServerSocket.getLocalEndPoint server
+                                    let port = (ep :?> IPEndPoint).Port
+                                    let! loopFiber = (ServerSocket.acceptLoopWith 0 gatedHandler server).Fork()
 
-                                let! first = connectWhenListening "127.0.0.1" port
-                                let! second = SocketClient.connectWith "127.0.0.1" port
-                                do! (enteredSignal.Read ()).Unit()
-                                do! FIO.sleep (System.TimeSpan.FromMilliseconds 200.0)
-                                let whileFirstRuns = entered.Value
+                                    let! first = connectWhenListening "127.0.0.1" port
+                                    let! second = SocketClient.connectWith "127.0.0.1" port
+                                    do! (enteredSignal.Read()).Unit()
+                                    do! FIO.sleep (System.TimeSpan.FromMilliseconds 200.0)
+                                    let whileFirstRuns = entered.Value
 
-                                do! (gate.Write ()).Unit()
-                                do! (enteredSignal.Read ()).Unit()
-                                do! (gate.Write ()).Unit()
+                                    do! (gate.Write()).Unit()
+                                    do! (enteredSignal.Read()).Unit()
+                                    do! (gate.Write()).Unit()
 
-                                do! first.Close()
-                                do! second.Close()
-                                do! loopFiber.InterruptNow()
-                                do! ServerSocket.close server
-                                return whileFirstRuns, entered.Value
-                            }
+                                    do! first.Close()
+                                    do! second.Close()
+                                    do! loopFiber.InterruptNow()
+                                    do! ServerSocket.close server
+                                    return whileFirstRuns, entered.Value
+                                }
 
-                        let whileFirstRuns, total = runWithTimeout runtime effect
+                            let whileFirstRuns, total = runWithTimeout runtime effect
 
-                        Expect.equal whileFirstRuns 1 "A limit of 0 must still admit exactly one handler at a time"
-                        Expect.equal total 2 "The second handler must run once the first one finishes")
+                            Expect.equal whileFirstRuns 1 "A limit of 0 must still admit exactly one handler at a time"
+                            Expect.equal total 2 "The second handler must run once the first one finishes")
 
                     testAllRuntimes "acceptLoop - survives a failing handler and keeps serving" (fun runtime ->
                         let attempts = ref 0
                         let firstFailed = Channel<unit>()
                         let flakyHandler (socket: Socket) =
                             fio {
-                                let! n = FIO.attempt (fun () -> Interlocked.Increment attempts) SocketError.fromException
+                                let! n =
+                                    FIO.attempt (fun () -> Interlocked.Increment attempts) SocketError.fromException
 
                                 if n = 1 then
-                                    do! (firstFailed.Write ()).Unit()
-                                    return! FIO.fail (SocketError.GeneralError (exn "handler exploded"))
+                                    do! (firstFailed.Write()).Unit()
+                                    return! FIO.fail (SocketError.GeneralError(exn "handler exploded"))
                                 else
                                     do! socket.Send(Codec.line, "still alive")
                                     do! socket.Close()
@@ -492,13 +539,15 @@ let serverSocketTests =
                                 let port = (ep :?> IPEndPoint).Port
                                 let! loopFiber = (ServerSocket.acceptLoop flakyHandler server).Fork()
 
-                                do! (fio {
+                                do!
+                                    (fio {
                                         let! first = connectWhenListening "127.0.0.1" port
                                         do! first.Send(Codec.line, "one")
                                         do! first.Close()
-                                     }).CatchAll(fun _ -> FIO.unit ())
+                                    })
+                                        .CatchAll(fun _ -> FIO.unit ())
 
-                                do! (firstFailed.Read ()).Unit()
+                                do! (firstFailed.Read()).Unit()
 
                                 let! second = connectWhenListening "127.0.0.1" port
                                 let! reply = second.Receive(Codec.line, 1024)
@@ -514,123 +563,163 @@ let serverSocketTests =
                         Expect.equal reply "still alive" "A failing handler must not stop the accept loop"
                         Expect.isGreaterThanOrEqual attempts.Value 2 "The loop must have accepted a second connection")
 
-                    testAllRuntimes "acceptLoop - survives a handler that throws, closes its connection and keeps serving" (fun runtime ->
-                        let attempts = ref 0
-                        let throwingHandler (socket: Socket) =
-                            if Interlocked.Increment attempts = 1 then
-                                failwith "handler threw"
-                            else
-                                fio {
-                                    do! socket.Send(Codec.line, "still alive")
-                                    do! socket.Close()
-                                }
-                        let effect =
-                            fio {
-                                let! config = ServerSocketConfig.create "127.0.0.1" 0
-                                let! server = ServerSocket.bind config
-                                let! ep = ServerSocket.getLocalEndPoint server
-                                let port = (ep :?> IPEndPoint).Port
-                                let! loopFiber = (ServerSocket.acceptLoop throwingHandler server).Fork()
-
-                                let! first = connectWhenListening "127.0.0.1" port
-                                let! firstOutcome = first.Receive(Codec.line, 1024).Timeout(System.TimeSpan.FromSeconds 5.0).Result()
-                                do! first.Close()
-
-                                let! second = connectWhenListening "127.0.0.1" port
-                                let! reply = second.Receive(Codec.line, 1024).Timeout(System.TimeSpan.FromSeconds 5.0)
-                                do! second.Close()
-
-                                do! loopFiber.InterruptNow()
-                                do! ServerSocket.close server
-                                return firstOutcome, reply
-                            }
-
-                        let firstOutcome, reply = runWithTimeout runtime effect
-
-                        Expect.isError firstOutcome "The connection whose handler threw should be closed, not left open"
-                        Expect.equal reply (Some "still alive") "A handler that throws must not stop the accept loop")
-
-                    testAllRuntimes "acceptLoop - stops with AcceptFailed when its server socket is closed under it" (fun runtime ->
-                        let served = Channel<unit>()
-                        let handler (socket: Socket) =
-                            fio {
-                                do! socket.Close()
-                                do! (served.Write ()).Unit()
-                            }
-                        let effect =
-                            fio {
-                                let! config = ServerSocketConfig.create "127.0.0.1" 0
-                                let! server = ServerSocket.bind config
-                                let! ep = ServerSocket.getLocalEndPoint server
-                                let port = (ep :?> IPEndPoint).Port
-                                let! loopFiber = (ServerSocket.acceptLoop handler server).Fork()
-                                let! client = connectWhenListening "127.0.0.1" port
-                                do! (served.Read ()).Unit()
-                                do! client.Close()
-                                do! FIO.sleep (System.TimeSpan.FromMilliseconds 150.0)
-                                do! ServerSocket.close server
-                                let! ended, _ = waitForTerminal loopFiber 2_000
-                                if ended then
-                                    let! outcome = loopFiber.Await()
-                                    return Some outcome
+                    testAllRuntimes
+                        "acceptLoop - survives a handler that throws, closes its connection and keeps serving"
+                        (fun runtime ->
+                            let attempts = ref 0
+                            let throwingHandler (socket: Socket) =
+                                if Interlocked.Increment attempts = 1 then
+                                    failwith "handler threw"
                                 else
+                                    fio {
+                                        do! socket.Send(Codec.line, "still alive")
+                                        do! socket.Close()
+                                    }
+                            let effect =
+                                fio {
+                                    let! config = ServerSocketConfig.create "127.0.0.1" 0
+                                    let! server = ServerSocket.bind config
+                                    let! ep = ServerSocket.getLocalEndPoint server
+                                    let port = (ep :?> IPEndPoint).Port
+                                    let! loopFiber = (ServerSocket.acceptLoop throwingHandler server).Fork()
+
+                                    let! first = connectWhenListening "127.0.0.1" port
+                                    let! firstOutcome =
+                                        first
+                                            .Receive(Codec.line, 1024)
+                                            .Timeout(System.TimeSpan.FromSeconds 5.0)
+                                            .Result()
+                                    do! first.Close()
+
+                                    let! second = connectWhenListening "127.0.0.1" port
+                                    let! reply =
+                                        second.Receive(Codec.line, 1024).Timeout(System.TimeSpan.FromSeconds 5.0)
+                                    do! second.Close()
+
                                     do! loopFiber.InterruptNow()
-                                    return None
-                            }
+                                    do! ServerSocket.close server
+                                    return firstOutcome, reply
+                                }
 
-                        let outcome = runWithTimeout runtime effect
+                            let firstOutcome, reply = runWithTimeout runtime effect
 
-                        match outcome with
-                        | Some(Failed(AcceptFailed _)) -> ()
-                        | other -> failtest $"The loop must stop promptly with AcceptFailed once its server socket is closed, got %A{other}")
+                            Expect.isError
+                                firstOutcome
+                                "The connection whose handler threw should be closed, not left open"
+                            Expect.equal
+                                reply
+                                (Some "still alive")
+                                "A handler that throws must not stop the accept loop")
 
-                    testAllRuntimes "acceptLoop - a connection whose options cannot be set is closed at once and costs the loop no pause" (fun runtime ->
-                        let connections = 200
-                        let effect =
-                            fio {
-                                let! accepted = SocketConfig.create "127.0.0.1" 1
-                                let! dropped = acceptLoopTimed connections (ServerSocketConfig.withAcceptedConfig { accepted with SendBufferSize = -1 })
-                                let! handled = acceptLoopTimed connections id
-                                return dropped, handled
-                            }
+                    testAllRuntimes
+                        "acceptLoop - stops with AcceptFailed when its server socket is closed under it"
+                        (fun runtime ->
+                            let served = Channel<unit>()
+                            let handler (socket: Socket) =
+                                fio {
+                                    do! socket.Close()
+                                    do! (served.Write()).Unit()
+                                }
+                            let effect =
+                                fio {
+                                    let! config = ServerSocketConfig.create "127.0.0.1" 0
+                                    let! server = ServerSocket.bind config
+                                    let! ep = ServerSocket.getLocalEndPoint server
+                                    let port = (ep :?> IPEndPoint).Port
+                                    let! loopFiber = (ServerSocket.acceptLoop handler server).Fork()
+                                    let! client = connectWhenListening "127.0.0.1" port
+                                    do! (served.Read()).Unit()
+                                    do! client.Close()
+                                    do! FIO.sleep (System.TimeSpan.FromMilliseconds 150.0)
+                                    do! ServerSocket.close server
+                                    let! ended, _ = waitForTerminal loopFiber 2_000
+                                    if ended then
+                                        let! outcome = loopFiber.Await()
+                                        return Some outcome
+                                    else
+                                        do! loopFiber.InterruptNow()
+                                        return None
+                                }
 
-                        let ((endedCleanly, droppedIn), (_, handledIn)), logged = withCapturedError (fun () -> runWithTimeout runtime effect)
-                        let reports = logged.Split('\n') |> Array.filter (fun line -> line.Contains "accept loop iteration") |> Array.length
+                            let outcome = runWithTimeout runtime effect
 
-                        Expect.equal endedCleanly connections "Every dropped connection should be closed, so its client reads the end of the stream"
-                        Expect.isLessThan droppedIn (2L * handledIn + 1_000L) $"Dropping a connection must not pause the accept loop (clients connect one after another, without holding a runtime thread, so any pause adds up): dropping took {droppedIn} ms, handling {handledIn} ms"
-                        Expect.equal reports (1 + connections / 40) "A streak of failures should be reported by its first and every fortieth")
+                            match outcome with
+                            | Some(Failed(AcceptFailed _)) -> ()
+                            | other ->
+                                failtest
+                                    $"The loop must stop promptly with AcceptFailed once its server socket is closed, got %A{other}")
 
-                    testAllRuntimes "acceptLoop - reports a handler's failure and a handler's crash on standard error" (fun runtime ->
-                        let attempts = ref 0
-                        let ended = Channel<unit>()
-                        let handler (_: Socket) : FIO<unit, SocketError> =
-                            (if Interlocked.Increment attempts = 1 then
-                                FIO.fail (GeneralError (exn "the handler failed"))
-                             else
-                                FIO.succeedWith (fun () -> failwith "the handler crashed"))
-                                .Ensuring(ended.Write().Unit())
-                        let effect =
-                            fio {
-                                let! config = ServerSocketConfig.create "127.0.0.1" 0
-                                let! server = ServerSocket.bind config
-                                let! ep = ServerSocket.getLocalEndPoint server
-                                let port = (ep :?> IPEndPoint).Port
-                                let! loopFiber = (ServerSocket.acceptLoop handler server).Fork()
-                                let! first = connectWhenListening "127.0.0.1" port
-                                do! (ended.Read ()).Unit()
-                                let! second = connectWhenListening "127.0.0.1" port
-                                do! (ended.Read ()).Unit()
-                                do! sleepMs 200.0
-                                do! first.Close()
-                                do! second.Close()
-                                do! loopFiber.InterruptNow()
-                                do! ServerSocket.close server
-                            }
+                    testAllRuntimes
+                        "acceptLoop - a connection whose options cannot be set is closed at once and costs the loop no pause"
+                        (fun runtime ->
+                            let connections = 200
+                            let effect =
+                                fio {
+                                    let! accepted = SocketConfig.create "127.0.0.1" 1
+                                    let! dropped =
+                                        acceptLoopTimed
+                                            connections
+                                            (ServerSocketConfig.withAcceptedConfig
+                                                { accepted with SendBufferSize = -1 })
+                                    let! handled = acceptLoopTimed connections id
+                                    return dropped, handled
+                                }
 
-                        let (), logged = withCapturedError (fun () -> runWithTimeout runtime effect)
+                            let ((endedCleanly, droppedIn), (_, handledIn)), logged =
+                                withCapturedError (fun () -> runWithTimeout runtime effect)
+                            let reports =
+                                logged.Split('\n')
+                                |> Array.filter (fun line -> line.Contains "accept loop iteration")
+                                |> Array.length
 
-                        Expect.stringContains logged "the handler failed" "A handler's typed failure should be reported"
-                        Expect.stringContains logged "the handler crashed" "A handler's crash should be reported")
+                            Expect.equal
+                                endedCleanly
+                                connections
+                                "Every dropped connection should be closed, so its client reads the end of the stream"
+                            Expect.isLessThan
+                                droppedIn
+                                (2L * handledIn + 1_000L)
+                                $"Dropping a connection must not pause the accept loop (clients connect one after another, without holding a runtime thread, so any pause adds up): dropping took {droppedIn} ms, handling {handledIn} ms"
+                            Expect.equal
+                                reports
+                                (1 + connections / 40)
+                                "A streak of failures should be reported by its first and every fortieth")
+
+                    testAllRuntimes
+                        "acceptLoop - reports a handler's failure and a handler's crash on standard error"
+                        (fun runtime ->
+                            let attempts = ref 0
+                            let ended = Channel<unit>()
+                            let handler (_: Socket) : FIO<unit, SocketError> =
+                                (if Interlocked.Increment attempts = 1 then
+                                     FIO.fail (GeneralError(exn "the handler failed"))
+                                 else
+                                     FIO.succeedWith (fun () -> failwith "the handler crashed"))
+                                    .Ensuring(ended.Write().Unit())
+                            let effect =
+                                fio {
+                                    let! config = ServerSocketConfig.create "127.0.0.1" 0
+                                    let! server = ServerSocket.bind config
+                                    let! ep = ServerSocket.getLocalEndPoint server
+                                    let port = (ep :?> IPEndPoint).Port
+                                    let! loopFiber = (ServerSocket.acceptLoop handler server).Fork()
+                                    let! first = connectWhenListening "127.0.0.1" port
+                                    do! (ended.Read()).Unit()
+                                    let! second = connectWhenListening "127.0.0.1" port
+                                    do! (ended.Read()).Unit()
+                                    do! sleepMs 200.0
+                                    do! first.Close()
+                                    do! second.Close()
+                                    do! loopFiber.InterruptNow()
+                                    do! ServerSocket.close server
+                                }
+
+                            let (), logged = withCapturedError (fun () -> runWithTimeout runtime effect)
+
+                            Expect.stringContains
+                                logged
+                                "the handler failed"
+                                "A handler's typed failure should be reported"
+                            Expect.stringContains logged "the handler crashed" "A handler's crash should be reported")
                 ]
         ]

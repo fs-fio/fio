@@ -64,7 +64,10 @@ let socketTests =
                                         let! config = SocketConfig.create "127.0.0.1" port
                                         let! socket = SocketClient.connect config
                                         let! result =
-                                            socket.ReceiveBytes(0).Map(fun _ -> None).CatchAll(fun error -> FIO.succeed (Some error))
+                                            socket
+                                                .ReceiveBytes(0)
+                                                .Map(fun _ -> None)
+                                                .CatchAll(fun error -> FIO.succeed (Some error))
                                         do! socket.Close()
                                         return result
                                     })
@@ -177,48 +180,55 @@ let socketTests =
                         | Some(InvalidState _) -> ()
                         | other -> failtest $"Expected InvalidState but got {other}")
 
-                    testAllRuntimes "ReceiveExactly - fails with ConnectionClosed when the peer closes mid-read" (fun runtime ->
-                        let result =
-                            withTestServer
-                                (fun socket -> fio { do! socket.SendBytes [| 1uy; 2uy |] })
-                                (fun port ->
-                                    fio {
-                                        let! socket = SocketClient.connectWith "127.0.0.1" port
-                                        let! result =
-                                            socket
-                                                .ReceiveExactly(4)
-                                                .Map(fun _ -> None)
-                                                .CatchAll(fun error -> FIO.succeed (Some error))
-                                        do! socket.Close()
-                                        return result
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "ReceiveExactly - fails with ConnectionClosed when the peer closes mid-read"
+                        (fun runtime ->
+                            let result =
+                                withTestServer
+                                    (fun socket -> fio { do! socket.SendBytes [| 1uy; 2uy |] })
+                                    (fun port ->
+                                        fio {
+                                            let! socket = SocketClient.connectWith "127.0.0.1" port
+                                            let! result =
+                                                socket
+                                                    .ReceiveExactly(4)
+                                                    .Map(fun _ -> None)
+                                                    .CatchAll(fun error -> FIO.succeed (Some error))
+                                            do! socket.Close()
+                                            return result
+                                        })
+                                    runtime
 
-                        match result with
-                        | Some(ConnectionClosed message) ->
-                            Expect.stringContains message "after 2 of 4 bytes" "The failure should say how much arrived"
-                        | other -> failtest $"Expected ConnectionClosed but got {other}")
+                            match result with
+                            | Some(ConnectionClosed message) ->
+                                Expect.stringContains
+                                    message
+                                    "after 2 of 4 bytes"
+                                    "The failure should say how much arrived"
+                            | other -> failtest $"Expected ConnectionClosed but got {other}")
 
-                    testAllRuntimes "ReceiveExactly - fails with ConnectionClosed once the socket is closed" (fun runtime ->
-                        let result =
-                            withTestServer
-                                noopHandler
-                                (fun port ->
-                                    fio {
-                                        let! socket = SocketClient.connectWith "127.0.0.1" port
-                                        do! socket.Close()
-                                        let! result =
-                                            socket
-                                                .ReceiveExactly(4)
-                                                .Map(fun _ -> None)
-                                                .CatchAll(fun error -> FIO.succeed (Some error))
-                                        return result
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "ReceiveExactly - fails with ConnectionClosed once the socket is closed"
+                        (fun runtime ->
+                            let result =
+                                withTestServer
+                                    noopHandler
+                                    (fun port ->
+                                        fio {
+                                            let! socket = SocketClient.connectWith "127.0.0.1" port
+                                            do! socket.Close()
+                                            let! result =
+                                                socket
+                                                    .ReceiveExactly(4)
+                                                    .Map(fun _ -> None)
+                                                    .CatchAll(fun error -> FIO.succeed (Some error))
+                                            return result
+                                        })
+                                    runtime
 
-                        match result with
-                        | Some(ConnectionClosed "Socket is not connected") -> ()
-                        | other -> failtest $"Expected ConnectionClosed but got {other}")
+                            match result with
+                            | Some(ConnectionClosed "Socket is not connected") -> ()
+                            | other -> failtest $"Expected ConnectionClosed but got {other}")
                 ]
 
             testList
@@ -279,23 +289,31 @@ let socketTests =
                         Expect.equal received.Id 7 "Id should match"
                         Expect.equal received.Text "json line" "Text should match")
 
-                    testAllRuntimes "ReceiveJsonLine - reads one value per call when lines arrive together" (fun runtime ->
-                        let first, second =
-                            withTestServer
-                                (fun socket ->
-                                    fio { do! socket.SendBytes(Encoding.UTF8.GetBytes "{\"Id\":1,\"Text\":\"a\"}\n{\"Id\":2,\"Text\":\"b\"}\n") })
-                                (fun port ->
-                                    fio {
-                                        let! socket = SocketClient.connectWith "127.0.0.1" port
-                                        let! first = socket.ReceiveJsonLine<TestMessage> 8192
-                                        let! second = socket.ReceiveJsonLine<TestMessage> 8192
-                                        do! socket.Close()
-                                        return first, second
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "ReceiveJsonLine - reads one value per call when lines arrive together"
+                        (fun runtime ->
+                            let first, second =
+                                withTestServer
+                                    (fun socket ->
+                                        fio {
+                                            do!
+                                                socket.SendBytes(
+                                                    Encoding.UTF8.GetBytes
+                                                        "{\"Id\":1,\"Text\":\"a\"}\n{\"Id\":2,\"Text\":\"b\"}\n"
+                                                )
+                                        })
+                                    (fun port ->
+                                        fio {
+                                            let! socket = SocketClient.connectWith "127.0.0.1" port
+                                            let! first = socket.ReceiveJsonLine<TestMessage> 8192
+                                            let! second = socket.ReceiveJsonLine<TestMessage> 8192
+                                            do! socket.Close()
+                                            return first, second
+                                        })
+                                    runtime
 
-                        Expect.equal first { Id = 1; Text = "a" } "First value"
-                        Expect.equal second { Id = 2; Text = "b" } "Second value")
+                            Expect.equal first { Id = 1; Text = "a" } "First value"
+                            Expect.equal second { Id = 2; Text = "b" } "Second value")
 
                     testAllRuntimes "ReceiveJsonLine - reads a value split across two writes" (fun runtime ->
                         let received =
@@ -317,24 +335,34 @@ let socketTests =
 
                         Expect.equal received { Id = 3; Text = "split" } "The value should be read whole")
 
-                    testAllRuntimes "ReceiveJsonLine - fails with BufferOverflow for a line longer than maxBytes" (fun runtime ->
-                        let result =
-                            withTestServer
-                                (fun socket ->
-                                    fio { do! socket.SendBytes(Encoding.UTF8.GetBytes "{\"Id\":4,\"Text\":\"far too long for sixteen bytes\"}\n") })
-                                (fun port ->
-                                    fio {
-                                        let! socket = SocketClient.connectWith "127.0.0.1" port
-                                        let! result =
-                                            (socket.ReceiveJsonLine<TestMessage> 16).Map(fun _ -> None).CatchAll(fun error -> FIO.succeed (Some error))
-                                        do! socket.Close()
-                                        return result
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "ReceiveJsonLine - fails with BufferOverflow for a line longer than maxBytes"
+                        (fun runtime ->
+                            let result =
+                                withTestServer
+                                    (fun socket ->
+                                        fio {
+                                            do!
+                                                socket.SendBytes(
+                                                    Encoding.UTF8.GetBytes
+                                                        "{\"Id\":4,\"Text\":\"far too long for sixteen bytes\"}\n"
+                                                )
+                                        })
+                                    (fun port ->
+                                        fio {
+                                            let! socket = SocketClient.connectWith "127.0.0.1" port
+                                            let! result =
+                                                (socket.ReceiveJsonLine<TestMessage> 16)
+                                                    .Map(fun _ -> None)
+                                                    .CatchAll(fun error -> FIO.succeed (Some error))
+                                            do! socket.Close()
+                                            return result
+                                        })
+                                    runtime
 
-                        match result with
-                        | Some(BufferOverflow _) -> ()
-                        | other -> failtest $"An over-long JSON line must fail with BufferOverflow, got %A{other}")
+                            match result with
+                            | Some(BufferOverflow _) -> ()
+                            | other -> failtest $"An over-long JSON line must fail with BufferOverflow, got %A{other}")
                 ]
 
             testList
@@ -402,53 +430,71 @@ let socketTests =
 
                         match result with
                         | Some(CodecError(message, _)) ->
-                            Expect.stringContains message "Negative frame length: -1" "The failure should name the length"
+                            Expect.stringContains
+                                message
+                                "Negative frame length: -1"
+                                "The failure should name the length"
                         | other -> failtest $"Expected CodecError but got {other}")
 
-                    testAllRuntimes "ReceiveFramed - fails with BufferOverflow for a frame over maxFrameSize" (fun runtime ->
-                        let result =
-                            withTestServer
-                                (fun socket -> fio { do! socket.SendBytes [| 0uy; 0uy; 0uy; 100uy |] })
-                                (fun port ->
-                                    fio {
-                                        let! socket = SocketClient.connectWith "127.0.0.1" port
-                                        let! result =
-                                            socket
-                                                .ReceiveFramed(Codec.string, 10)
-                                                .Map(fun _ -> None)
-                                                .CatchAll(fun error -> FIO.succeed (Some error))
-                                        do! socket.Close()
-                                        return result
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "ReceiveFramed - fails with BufferOverflow for a frame over maxFrameSize"
+                        (fun runtime ->
+                            let result =
+                                withTestServer
+                                    (fun socket -> fio { do! socket.SendBytes [| 0uy; 0uy; 0uy; 100uy |] })
+                                    (fun port ->
+                                        fio {
+                                            let! socket = SocketClient.connectWith "127.0.0.1" port
+                                            let! result =
+                                                socket
+                                                    .ReceiveFramed(Codec.string, 10)
+                                                    .Map(fun _ -> None)
+                                                    .CatchAll(fun error -> FIO.succeed (Some error))
+                                            do! socket.Close()
+                                            return result
+                                        })
+                                    runtime
 
-                        match result with
-                        | Some(BufferOverflow(requested, available)) ->
-                            Expect.equal (requested, available) (100, 10) "The failure should name both sizes"
-                        | other -> failtest $"Expected BufferOverflow but got {other}")
+                            match result with
+                            | Some(BufferOverflow(requested, available)) ->
+                                Expect.equal (requested, available) (100, 10) "The failure should name both sizes"
+                            | other -> failtest $"Expected BufferOverflow but got {other}")
 
-                    testAllRuntimes "ReceiveFramed - a frame over maxFrameSize closes the receive side instead of parsing its payload" (fun runtime ->
-                        let first, second =
-                            withTestServer
-                                (fun socket ->
-                                    fio {
-                                        let hidden = Array.append [| 0uy; 0uy; 0uy; 4uy |] (Encoding.UTF8.GetBytes "evil")
-                                        do! socket.SendBytes(Array.concat [ [| 0uy; 0uy; 0uy; 100uy |]; hidden; Array.zeroCreate 92 ])
-                                    })
-                                (fun port ->
-                                    fio {
-                                        let! socket = SocketClient.connectWith "127.0.0.1" port
-                                        let next () = socket.ReceiveFramed(Codec.string, 10).Map(Ok).CatchAll(fun error -> FIO.succeed (Error error))
-                                        let! first = next ()
-                                        let! second = next ()
-                                        do! socket.Close()
-                                        return first, second
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "ReceiveFramed - a frame over maxFrameSize closes the receive side instead of parsing its payload"
+                        (fun runtime ->
+                            let first, second =
+                                withTestServer
+                                    (fun socket ->
+                                        fio {
+                                            let hidden =
+                                                Array.append [| 0uy; 0uy; 0uy; 4uy |] (Encoding.UTF8.GetBytes "evil")
+                                            do!
+                                                socket.SendBytes(
+                                                    Array.concat
+                                                        [ [| 0uy; 0uy; 0uy; 100uy |]; hidden; Array.zeroCreate 92 ]
+                                                )
+                                        })
+                                    (fun port ->
+                                        fio {
+                                            let! socket = SocketClient.connectWith "127.0.0.1" port
+                                            let next () =
+                                                socket
+                                                    .ReceiveFramed(Codec.string, 10)
+                                                    .Map(Ok)
+                                                    .CatchAll(fun error -> FIO.succeed (Error error))
+                                            let! first = next ()
+                                            let! second = next ()
+                                            do! socket.Close()
+                                            return first, second
+                                        })
+                                    runtime
 
-                        match first, second with
-                        | Error(BufferOverflow _), Error(ConnectionClosed _) -> ()
-                        | other -> failtest $"After an oversized frame the next read must fail with ConnectionClosed, got %A{other}")
+                            match first, second with
+                            | Error(BufferOverflow _), Error(ConnectionClosed _) -> ()
+                            | other ->
+                                failtest
+                                    $"After an oversized frame the next read must fail with ConnectionClosed, got %A{other}")
 
                     testAllRuntimes "ReceiveFramed - a negative length closes the receive side" (fun runtime ->
                         let first, second =
@@ -461,7 +507,11 @@ let socketTests =
                                 (fun port ->
                                     fio {
                                         let! socket = SocketClient.connectWith "127.0.0.1" port
-                                        let next () = socket.ReceiveFramed(Codec.string).Map(Ok).CatchAll(fun error -> FIO.succeed (Error error))
+                                        let next () =
+                                            socket
+                                                .ReceiveFramed(Codec.string)
+                                                .Map(Ok)
+                                                .CatchAll(fun error -> FIO.succeed (Error error))
                                         let! first = next ()
                                         let! second = next ()
                                         do! socket.Close()
@@ -471,7 +521,9 @@ let socketTests =
 
                         match first, second with
                         | Error(CodecError _), Error(ConnectionClosed _) -> ()
-                        | other -> failtest $"After a negative frame length the next read must fail with ConnectionClosed, got %A{other}")
+                        | other ->
+                            failtest
+                                $"After a negative frame length the next read must fail with ConnectionClosed, got %A{other}")
 
                     testAllRuntimes "SendFramed - roundtrips an empty payload through ReceiveFramed" (fun runtime ->
                         let empty, after =
@@ -519,7 +571,10 @@ let socketTests =
                                     fio {
                                         let! socket = SocketClient.connectWith "127.0.0.1" port
                                         let! result =
-                                            socket.ReceiveLine(0).Map(fun _ -> None).CatchAll(fun error -> FIO.succeed (Some error))
+                                            socket
+                                                .ReceiveLine(0)
+                                                .Map(fun _ -> None)
+                                                .CatchAll(fun error -> FIO.succeed (Some error))
                                         do! socket.Close()
                                         return result
                                     })
@@ -529,43 +584,56 @@ let socketTests =
                         | Some(InvalidState _) -> ()
                         | other -> failtest $"Expected InvalidState but got {other}")
 
-                    testAllRuntimes "ReceiveLine - fails with BufferOverflow for a line longer than maxBytes" (fun runtime ->
-                        let result =
-                            withTestServer
-                                (fun socket -> fio { do! socket.SendBytes(Encoding.UTF8.GetBytes "abcdef\n") })
-                                (fun port ->
-                                    fio {
-                                        let! socket = SocketClient.connectWith "127.0.0.1" port
-                                        let! result =
-                                            socket.ReceiveLine(3).Map(fun _ -> None).CatchAll(fun error -> FIO.succeed (Some error))
-                                        do! socket.Close()
-                                        return result
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "ReceiveLine - fails with BufferOverflow for a line longer than maxBytes"
+                        (fun runtime ->
+                            let result =
+                                withTestServer
+                                    (fun socket -> fio { do! socket.SendBytes(Encoding.UTF8.GetBytes "abcdef\n") })
+                                    (fun port ->
+                                        fio {
+                                            let! socket = SocketClient.connectWith "127.0.0.1" port
+                                            let! result =
+                                                socket
+                                                    .ReceiveLine(3)
+                                                    .Map(fun _ -> None)
+                                                    .CatchAll(fun error -> FIO.succeed (Some error))
+                                            do! socket.Close()
+                                            return result
+                                        })
+                                    runtime
 
-                        match result with
-                        | Some(BufferOverflow(requested, available)) ->
-                            Expect.equal (requested, available) (4, 3) "The failure should name both sizes"
-                        | other -> failtest $"Expected BufferOverflow but got {other}")
+                            match result with
+                            | Some(BufferOverflow(requested, available)) ->
+                                Expect.equal (requested, available) (4, 3) "The failure should name both sizes"
+                            | other -> failtest $"Expected BufferOverflow but got {other}")
 
-                    testAllRuntimes "ReceiveLine - a line longer than maxBytes closes the receive side instead of yielding its tail" (fun runtime ->
-                        let first, second =
-                            withTestServer
-                                (fun socket -> fio { do! socket.SendBytes(Encoding.UTF8.GetBytes "AAAAAAAAQUIT\n") })
-                                (fun port ->
-                                    fio {
-                                        let! socket = SocketClient.connectWith "127.0.0.1" port
-                                        let next () = socket.ReceiveLine(8).Map(Ok).CatchAll(fun error -> FIO.succeed (Error error))
-                                        let! first = next ()
-                                        let! second = next ()
-                                        do! socket.Close()
-                                        return first, second
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "ReceiveLine - a line longer than maxBytes closes the receive side instead of yielding its tail"
+                        (fun runtime ->
+                            let first, second =
+                                withTestServer
+                                    (fun socket ->
+                                        fio { do! socket.SendBytes(Encoding.UTF8.GetBytes "AAAAAAAAQUIT\n") })
+                                    (fun port ->
+                                        fio {
+                                            let! socket = SocketClient.connectWith "127.0.0.1" port
+                                            let next () =
+                                                socket
+                                                    .ReceiveLine(8)
+                                                    .Map(Ok)
+                                                    .CatchAll(fun error -> FIO.succeed (Error error))
+                                            let! first = next ()
+                                            let! second = next ()
+                                            do! socket.Close()
+                                            return first, second
+                                        })
+                                    runtime
 
-                        match first, second with
-                        | Error(BufferOverflow _), Error(ConnectionClosed _) -> ()
-                        | other -> failtest $"The tail of a rejected line must never be read as a line, got %A{other}")
+                            match first, second with
+                            | Error(BufferOverflow _), Error(ConnectionClosed _) -> ()
+                            | other ->
+                                failtest $"The tail of a rejected line must never be read as a line, got %A{other}")
 
                     testAllRuntimes "SendLine - still works after the receive side is closed" (fun runtime ->
                         let replies = Channel<string>()
@@ -580,7 +648,11 @@ let socketTests =
                                 (fun port ->
                                     fio {
                                         let! socket = SocketClient.connectWith "127.0.0.1" port
-                                        let! _ = socket.ReceiveLine(8).Map(Ok).CatchAll(fun error -> FIO.succeed (Error error))
+                                        let! _ =
+                                            socket
+                                                .ReceiveLine(8)
+                                                .Map(Ok)
+                                                .CatchAll(fun error -> FIO.succeed (Error error))
                                         do! socket.SendLine "ERR line too long"
                                         let! reply = replies.Read()
                                         do! socket.Close()
@@ -708,7 +780,10 @@ let socketTests =
                                     fio {
                                         let! socket = SocketClient.connectWith "127.0.0.1" port
                                         let! result =
-                                            socket.SendBytes(null).Map(fun _ -> None).CatchAll(fun error -> FIO.succeed (Some error))
+                                            socket
+                                                .SendBytes(null)
+                                                .Map(fun _ -> None)
+                                                .CatchAll(fun error -> FIO.succeed (Some error))
                                         do! socket.Close()
                                         return result
                                     })
@@ -748,7 +823,10 @@ let socketTests =
                                         let! socket = SocketClient.connectWith "127.0.0.1" port
                                         do! socket.Close()
                                         let! result =
-                                            socket.ReceiveBytes(16).Map(fun _ -> None).CatchAll(fun error -> FIO.succeed (Some error))
+                                            socket
+                                                .ReceiveBytes(16)
+                                                .Map(fun _ -> None)
+                                                .CatchAll(fun error -> FIO.succeed (Some error))
                                         return result
                                     })
                                 runtime
@@ -764,15 +842,16 @@ let socketTests =
                     testAllRuntimes "ReceiveBytes - times out with TimeoutError" (fun runtime ->
                         let result =
                             withTestServer
-                                (fun _socket ->
-                                    fio { do! FIO.sleep (System.TimeSpan.FromMilliseconds 3000.0) })
+                                (fun _socket -> fio { do! FIO.sleep (System.TimeSpan.FromMilliseconds 3000.0) })
                                 (fun port ->
                                     fio {
                                         let! baseConfig = SocketConfig.create "127.0.0.1" port
                                         let config = SocketConfig.withReceiveTimeout 300 baseConfig
                                         let! socket = SocketClient.connect config
                                         let! result =
-                                            (socket.ReceiveBytes 1024).Map(fun _ -> None).CatchAll(fun e -> FIO.succeed (Some e))
+                                            (socket.ReceiveBytes 1024)
+                                                .Map(fun _ -> None)
+                                                .CatchAll(fun e -> FIO.succeed (Some e))
                                         do! socket.Close()
                                         return result
                                     })
@@ -782,37 +861,42 @@ let socketTests =
                         | Some(TimeoutError _) -> ()
                         | other -> failtest $"Expected TimeoutError but got {other}")
 
-                    testAllRuntimes "SendBytes - times out with TimeoutError when the peer stops reading" (fun runtime ->
-                        let chunk = Array.zeroCreate<byte> (1024 * 1024)
-                        let result =
-                            withTestServer
-                                (fun _socket -> FIO.never<unit, SocketError> ())
-                                (fun port ->
-                                    fio {
-                                        let! baseConfig = SocketConfig.create "127.0.0.1" port
-                                        let! socket = SocketClient.connect (SocketConfig.withSendTimeout 200 baseConfig)
-                                        let rec flood (sent: int) =
-                                            if sent >= 64 then
-                                                FIO.succeed None
-                                            else
-                                                (socket.SendBytes chunk)
-                                                    .Map(fun () -> Ok())
-                                                    .CatchAll(fun error -> FIO.succeed (Error error))
-                                                    .FlatMap(function
-                                                        | Ok() -> flood (sent + 1)
-                                                        | Error error -> FIO.succeed (Some error))
-                                        let! result = flood 0
-                                        do! socket.Close()
-                                        return result
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "SendBytes - times out with TimeoutError when the peer stops reading"
+                        (fun runtime ->
+                            let chunk = Array.zeroCreate<byte>(1024 * 1024)
+                            let result =
+                                withTestServer
+                                    (fun _socket -> FIO.never<unit, SocketError>())
+                                    (fun port ->
+                                        fio {
+                                            let! baseConfig = SocketConfig.create "127.0.0.1" port
+                                            let! socket =
+                                                SocketClient.connect (SocketConfig.withSendTimeout 200 baseConfig)
+                                            let rec flood (sent: int) =
+                                                if sent >= 64 then
+                                                    FIO.succeed None
+                                                else
+                                                    (socket.SendBytes chunk)
+                                                        .Map(fun () -> Ok())
+                                                        .CatchAll(fun error -> FIO.succeed (Error error))
+                                                        .FlatMap(function
+                                                            | Ok() -> flood (sent + 1)
+                                                            | Error error -> FIO.succeed (Some error))
+                                            let! result = flood 0
+                                            do! socket.Close()
+                                            return result
+                                        })
+                                    runtime
 
-                        match result with
-                        | Some(TimeoutError _) -> ()
-                        | other -> failtest $"Expected TimeoutError within 64 one-megabyte sends to a peer that never reads (Windows accepts a single send of any size), got %A{other}")
+                            match result with
+                            | Some(TimeoutError _) -> ()
+                            | other ->
+                                failtest
+                                    $"Expected TimeoutError within 64 one-megabyte sends to a peer that never reads (Windows accepts a single send of any size), got %A{other}")
 
                     testAllRuntimes "Receive - times out with TimeoutError when the peer never sends" (fun runtime ->
-                        let silentHandler (_socket: Socket) = FIO.never<unit, SocketError> ()
+                        let silentHandler (_socket: Socket) = FIO.never<unit, SocketError>()
                         let effect =
                             fio {
                                 let! serverConfig = ServerSocketConfig.create "127.0.0.1" 0
@@ -840,95 +924,112 @@ let socketTests =
                         let outcome = runWithTimeout runtime effect
 
                         match outcome with
-                        | Error (SocketError.TimeoutError _) -> ()
+                        | Error(SocketError.TimeoutError _) -> ()
                         | Error other -> failtest $"Expected TimeoutError but got {other}"
                         | Ok value -> failtest $"Expected a timeout but received {value}")
 
-                    testAllRuntimes "Receive - succeeds within a configured timeout that is not exceeded" (fun runtime ->
-                        let effect =
-                            fio {
-                                let! serverConfig = ServerSocketConfig.create "127.0.0.1" 0
-                                let! server = ServerSocket.bind serverConfig
-                                let! ep = ServerSocket.getLocalEndPoint server
-                                let port = (ep :?> IPEndPoint).Port
-                                let! loopFiber = (ServerSocket.acceptLoop echoHandler server).Fork()
+                    testAllRuntimes
+                        "Receive - succeeds within a configured timeout that is not exceeded"
+                        (fun runtime ->
+                            let effect =
+                                fio {
+                                    let! serverConfig = ServerSocketConfig.create "127.0.0.1" 0
+                                    let! server = ServerSocket.bind serverConfig
+                                    let! ep = ServerSocket.getLocalEndPoint server
+                                    let port = (ep :?> IPEndPoint).Port
+                                    let! loopFiber = (ServerSocket.acceptLoop echoHandler server).Fork()
 
-                                let! baseConfig = SocketConfig.create "127.0.0.1" port
+                                    let! baseConfig = SocketConfig.create "127.0.0.1" port
 
-                                let clientConfig =
-                                    baseConfig
-                                    |> SocketConfig.withReceiveTimeout 5000
-                                    |> SocketConfig.withSendTimeout 5000
+                                    let clientConfig =
+                                        baseConfig
+                                        |> SocketConfig.withReceiveTimeout 5000
+                                        |> SocketConfig.withSendTimeout 5000
 
-                                let! client = SocketClient.connect clientConfig
-                                do! client.Send(Codec.line, "ping")
-                                let! reply = client.Receive(Codec.line, 1024)
-                                do! client.Close()
-                                do! loopFiber.InterruptNow()
-                                do! ServerSocket.close server
-                                return reply
-                            }
+                                    let! client = SocketClient.connect clientConfig
+                                    do! client.Send(Codec.line, "ping")
+                                    let! reply = client.Receive(Codec.line, 1024)
+                                    do! client.Close()
+                                    do! loopFiber.InterruptNow()
+                                    do! ServerSocket.close server
+                                    return reply
+                                }
 
-                        let reply = runWithTimeout runtime effect
+                            let reply = runWithTimeout runtime effect
 
-                        Expect.equal
-                            reply
-                            "ping"
-                            "A generous timeout must not interfere with a normal exchange")
+                            Expect.equal reply "ping" "A generous timeout must not interfere with a normal exchange")
 
-                    testAllRuntimes "ReceiveExactly - a timeout part-way through a read keeps what arrived for the next receive" (fun runtime ->
-                        let first, second =
-                            withTestServer
-                                (fun socket ->
-                                    fio {
-                                        do! socket.SendBytes [| 1uy; 2uy |]
-                                        do! FIO.sleep (TimeSpan.FromMilliseconds 600.0)
-                                        do! socket.SendBytes [| 3uy; 4uy; 5uy; 6uy; 7uy; 8uy |]
-                                        do! FIO.sleep (TimeSpan.FromMilliseconds 1000.0)
-                                    })
-                                (fun port ->
-                                    fio {
-                                        let! baseConfig = SocketConfig.create "127.0.0.1" port
-                                        let! socket = SocketClient.connect (SocketConfig.withReceiveTimeout 200 baseConfig)
-                                        let next () = socket.ReceiveExactly(4).Map(Ok).CatchAll(fun error -> FIO.succeed (Error error))
-                                        let! first = next ()
-                                        do! FIO.sleep (TimeSpan.FromMilliseconds 800.0)
-                                        let! second = next ()
-                                        do! socket.Close()
-                                        return first, second
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "ReceiveExactly - a timeout part-way through a read keeps what arrived for the next receive"
+                        (fun runtime ->
+                            let first, second =
+                                withTestServer
+                                    (fun socket ->
+                                        fio {
+                                            do! socket.SendBytes [| 1uy; 2uy |]
+                                            do! FIO.sleep (TimeSpan.FromMilliseconds 600.0)
+                                            do! socket.SendBytes [| 3uy; 4uy; 5uy; 6uy; 7uy; 8uy |]
+                                            do! FIO.sleep (TimeSpan.FromMilliseconds 1000.0)
+                                        })
+                                    (fun port ->
+                                        fio {
+                                            let! baseConfig = SocketConfig.create "127.0.0.1" port
+                                            let! socket =
+                                                SocketClient.connect (SocketConfig.withReceiveTimeout 200 baseConfig)
+                                            let next () =
+                                                socket
+                                                    .ReceiveExactly(4)
+                                                    .Map(Ok)
+                                                    .CatchAll(fun error -> FIO.succeed (Error error))
+                                            let! first = next ()
+                                            do! FIO.sleep (TimeSpan.FromMilliseconds 800.0)
+                                            let! second = next ()
+                                            do! socket.Close()
+                                            return first, second
+                                        })
+                                    runtime
 
-                        match first, second with
-                        | Error(TimeoutError _), Ok [| 1uy; 2uy; 3uy; 4uy |] -> ()
-                        | other -> failtest $"A read cut off by a timeout must keep its bytes for the next read, got %A{other}")
+                            match first, second with
+                            | Error(TimeoutError _), Ok [| 1uy; 2uy; 3uy; 4uy |] -> ()
+                            | other ->
+                                failtest
+                                    $"A read cut off by a timeout must keep its bytes for the next read, got %A{other}")
 
-                    testAllRuntimes "ReceiveLine - a timeout part-way through a line keeps what arrived for the next receive" (fun runtime ->
-                        let first, second =
-                            withTestServer
-                                (fun socket ->
-                                    fio {
-                                        do! socket.SendBytes(Encoding.UTF8.GetBytes "PART")
-                                        do! FIO.sleep (TimeSpan.FromMilliseconds 600.0)
-                                        do! socket.SendBytes(Encoding.UTF8.GetBytes "IAL\nNEXT\n")
-                                        do! FIO.sleep (TimeSpan.FromMilliseconds 1000.0)
-                                    })
-                                (fun port ->
-                                    fio {
-                                        let! baseConfig = SocketConfig.create "127.0.0.1" port
-                                        let! socket = SocketClient.connect (SocketConfig.withReceiveTimeout 200 baseConfig)
-                                        let next () = socket.ReceiveLine(64).Map(Ok).CatchAll(fun error -> FIO.succeed (Error error))
-                                        let! first = next ()
-                                        do! FIO.sleep (TimeSpan.FromMilliseconds 800.0)
-                                        let! second = next ()
-                                        do! socket.Close()
-                                        return first, second
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "ReceiveLine - a timeout part-way through a line keeps what arrived for the next receive"
+                        (fun runtime ->
+                            let first, second =
+                                withTestServer
+                                    (fun socket ->
+                                        fio {
+                                            do! socket.SendBytes(Encoding.UTF8.GetBytes "PART")
+                                            do! FIO.sleep (TimeSpan.FromMilliseconds 600.0)
+                                            do! socket.SendBytes(Encoding.UTF8.GetBytes "IAL\nNEXT\n")
+                                            do! FIO.sleep (TimeSpan.FromMilliseconds 1000.0)
+                                        })
+                                    (fun port ->
+                                        fio {
+                                            let! baseConfig = SocketConfig.create "127.0.0.1" port
+                                            let! socket =
+                                                SocketClient.connect (SocketConfig.withReceiveTimeout 200 baseConfig)
+                                            let next () =
+                                                socket
+                                                    .ReceiveLine(64)
+                                                    .Map(Ok)
+                                                    .CatchAll(fun error -> FIO.succeed (Error error))
+                                            let! first = next ()
+                                            do! FIO.sleep (TimeSpan.FromMilliseconds 800.0)
+                                            let! second = next ()
+                                            do! socket.Close()
+                                            return first, second
+                                        })
+                                    runtime
 
-                        match first, second with
-                        | Error(TimeoutError _), Ok "PARTIAL" -> ()
-                        | other -> failtest $"A line cut off by a timeout must keep its bytes for the next read, got %A{other}")
+                            match first, second with
+                            | Error(TimeoutError _), Ok "PARTIAL" -> ()
+                            | other ->
+                                failtest
+                                    $"A line cut off by a timeout must keep its bytes for the next read, got %A{other}")
 
                     testAllRuntimes "ReceiveLine - an idle timeout leaves the socket usable" (fun runtime ->
                         let first, second =
@@ -942,8 +1043,13 @@ let socketTests =
                                 (fun port ->
                                     fio {
                                         let! baseConfig = SocketConfig.create "127.0.0.1" port
-                                        let! socket = SocketClient.connect (SocketConfig.withReceiveTimeout 200 baseConfig)
-                                        let next () = socket.ReceiveLine(64).Map(Ok).CatchAll(fun error -> FIO.succeed (Error error))
+                                        let! socket =
+                                            SocketClient.connect (SocketConfig.withReceiveTimeout 200 baseConfig)
+                                        let next () =
+                                            socket
+                                                .ReceiveLine(64)
+                                                .Map(Ok)
+                                                .CatchAll(fun error -> FIO.succeed (Error error))
                                         let! first = next ()
                                         do! FIO.sleep (TimeSpan.FromMilliseconds 800.0)
                                         let! second = next ()
@@ -954,299 +1060,401 @@ let socketTests =
 
                         match first, second with
                         | Error(TimeoutError _), Ok "LATE" -> ()
-                        | other -> failtest $"A timeout before any byte of a line must leave the socket usable, got %A{other}")
+                        | other ->
+                            failtest $"A timeout before any byte of a line must leave the socket usable, got %A{other}")
 
-                    testAllRuntimes "ReceiveExactly - reports a reset connection as an error, not a timeout, when a receive timeout is set" (fun runtime ->
-                        let listener = new Sockets.TcpListener(IPAddress.Loopback, 0)
-                        listener.Start()
-                        let port = (listener.LocalEndpoint :?> IPEndPoint).Port
-                        try
-                            let effect =
-                                fio {
-                                    let! baseConfig = SocketConfig.create "127.0.0.1" port
-                                    let! client = SocketClient.connect (SocketConfig.withReceiveTimeout 5000 baseConfig)
+                    testAllRuntimes
+                        "ReceiveExactly - reports a reset connection as an error, not a timeout, when a receive timeout is set"
+                        (fun runtime ->
+                            let listener = new Sockets.TcpListener(IPAddress.Loopback, 0)
+                            listener.Start()
+                            let port = (listener.LocalEndpoint :?> IPEndPoint).Port
+                            try
+                                let effect =
+                                    fio {
+                                        let! baseConfig = SocketConfig.create "127.0.0.1" port
+                                        let! client =
+                                            SocketClient.connect (SocketConfig.withReceiveTimeout 5000 baseConfig)
 
-                                    do! FIO.attempt
-                                            (fun () ->
-                                                use peer = listener.AcceptSocket()
-                                                peer.LingerState <- Sockets.LingerOption(true, 0)
-                                                peer.Close())
-                                            SocketError.fromException
+                                        do!
+                                            FIO.attempt
+                                                (fun () ->
+                                                    use peer = listener.AcceptSocket()
+                                                    peer.LingerState <- Sockets.LingerOption(true, 0)
+                                                    peer.Close())
+                                                SocketError.fromException
 
-                                    let! result =
-                                        client.ReceiveExactly(4).Map(fun _ -> None).CatchAll(fun error -> FIO.succeed (Some error))
+                                        let! result =
+                                            client
+                                                .ReceiveExactly(4)
+                                                .Map(fun _ -> None)
+                                                .CatchAll(fun error -> FIO.succeed (Some error))
 
-                                    do! client.Close()
-                                    return result
-                                }
+                                        do! client.Close()
+                                        return result
+                                    }
 
-                            let result = runWithTimeout runtime effect
+                                let result = runWithTimeout runtime effect
 
-                            match result with
-                            | Some(TimeoutError _) -> failtest "A reset connection must not be reported as a timeout"
-                            | Some _ -> ()
-                            | None -> failtest "Reading from a reset connection must fail"
-                        finally
-                            listener.Stop())
+                                match result with
+                                | Some(TimeoutError _) ->
+                                    failtest "A reset connection must not be reported as a timeout"
+                                | Some _ -> ()
+                                | None -> failtest "Reading from a reset connection must fail"
+                            finally
+                                listener.Stop())
                 ]
 
             testList
                 "Receives that give up or overlap"
                 [
-                    testAllRuntimes "ReceiveLine - a receive given up on leaves the following line whole" (fun runtime ->
-                        let first, second =
-                            withTestServer
-                                (fun socket ->
-                                    fio {
-                                        do! sleepMs 400.0
-                                        do! socket.SendBytes(Encoding.UTF8.GetBytes "HELLO\nWORLD\n")
-                                        do! sleepMs 1000.0
-                                    })
-                                (fun port ->
-                                    fio {
-                                        let! baseConfig = SocketConfig.create "127.0.0.1" port
-                                        let! socket = SocketClient.connect (SocketConfig.withReceiveTimeout 5000 baseConfig)
-                                        let! first = socket.ReceiveLine(64).Timeout(TimeSpan.FromMilliseconds 100.0)
-                                        let! second = socket.ReceiveLine 64
-                                        do! socket.Close()
-                                        return first, second
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "ReceiveLine - a receive given up on leaves the following line whole"
+                        (fun runtime ->
+                            let first, second =
+                                withTestServer
+                                    (fun socket ->
+                                        fio {
+                                            do! sleepMs 400.0
+                                            do! socket.SendBytes(Encoding.UTF8.GetBytes "HELLO\nWORLD\n")
+                                            do! sleepMs 1000.0
+                                        })
+                                    (fun port ->
+                                        fio {
+                                            let! baseConfig = SocketConfig.create "127.0.0.1" port
+                                            let! socket =
+                                                SocketClient.connect (SocketConfig.withReceiveTimeout 5000 baseConfig)
+                                            let! first =
+                                                socket.ReceiveLine(64).Timeout(TimeSpan.FromMilliseconds 100.0)
+                                            let! second = socket.ReceiveLine 64
+                                            do! socket.Close()
+                                            return first, second
+                                        })
+                                    runtime
 
-                        Expect.equal first None "The first receive should give up before any byte arrives"
-                        Expect.equal second "HELLO" "The read the first receive left behind must not swallow the line's first bytes")
+                            Expect.equal first None "The first receive should give up before any byte arrives"
+                            Expect.equal
+                                second
+                                "HELLO"
+                                "The read the first receive left behind must not swallow the line's first bytes")
 
-                    testAllRuntimes "ReceiveExactly - an interrupted receive keeps the bytes it had for the next receive" (fun runtime ->
-                        let received =
-                            withTestServer
-                                (fun socket ->
-                                    fio {
-                                        do! socket.SendBytes(Encoding.UTF8.GetBytes "AAAA")
-                                        do! sleepMs 500.0
-                                        do! socket.SendBytes(Encoding.UTF8.GetBytes "BBBB")
-                                        do! sleepMs 1000.0
-                                    })
-                                (fun port ->
-                                    fio {
-                                        let! socket = SocketClient.connectWith "127.0.0.1" port
-                                        let! reading = socket.ReceiveExactly(8).Fork()
-                                        do! sleepMs 200.0
-                                        let! _ = reading.InterruptAwaitNow()
-                                        let! bytes = socket.ReceiveExactly 8
-                                        do! socket.Close()
-                                        return Encoding.UTF8.GetString bytes
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "ReceiveExactly - an interrupted receive keeps the bytes it had for the next receive"
+                        (fun runtime ->
+                            let received =
+                                withTestServer
+                                    (fun socket ->
+                                        fio {
+                                            do! socket.SendBytes(Encoding.UTF8.GetBytes "AAAA")
+                                            do! sleepMs 500.0
+                                            do! socket.SendBytes(Encoding.UTF8.GetBytes "BBBB")
+                                            do! sleepMs 1000.0
+                                        })
+                                    (fun port ->
+                                        fio {
+                                            let! socket = SocketClient.connectWith "127.0.0.1" port
+                                            let! reading = socket.ReceiveExactly(8).Fork()
+                                            do! sleepMs 200.0
+                                            let! _ = reading.InterruptAwaitNow()
+                                            let! bytes = socket.ReceiveExactly 8
+                                            do! socket.Close()
+                                            return Encoding.UTF8.GetString bytes
+                                        })
+                                    runtime
 
-                        Expect.equal received "AAAABBBB" "Bytes that arrived for the interrupted receive belong to the next one")
+                            Expect.equal
+                                received
+                                "AAAABBBB"
+                                "Bytes that arrived for the interrupted receive belong to the next one")
 
-                    testAllRuntimes "ReceiveLine - polling with a short Timeout truncates and repeats nothing" (fun runtime ->
-                        let received =
-                            withTestServer
-                                sendSpacedLines
-                                (fun port ->
-                                    fio {
-                                        let! socket = SocketClient.connectWith "127.0.0.1" port
-                                        let! received = pollLines (socket.ReceiveLine(64).Timeout(TimeSpan.FromMilliseconds 10.0))
-                                        do! socket.Close()
-                                        return received
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "ReceiveLine - polling with a short Timeout truncates and repeats nothing"
+                        (fun runtime ->
+                            let received =
+                                withTestServer
+                                    sendSpacedLines
+                                    (fun port ->
+                                        fio {
+                                            let! socket = SocketClient.connectWith "127.0.0.1" port
+                                            let! received =
+                                                pollLines (
+                                                    socket.ReceiveLine(64).Timeout(TimeSpan.FromMilliseconds 10.0)
+                                                )
+                                            do! socket.Close()
+                                            return received
+                                        })
+                                    runtime
 
-                        let positions = received |> List.map (fun line -> List.tryFindIndex ((=) line) spacedLines)
+                            let positions =
+                                received |> List.map (fun line -> List.tryFindIndex ((=) line) spacedLines)
 
-                        Expect.all positions Option.isSome $"Every line should arrive whole, got %A{received}"
-                        Expect.equal positions (List.distinct (List.sort positions)) "Lines should arrive in order, each at most once"
-                        Expect.isGreaterThan received.Length (spacedLines.Length / 2) "Only a line that arrives as its timeout fires may be lost")
+                            Expect.all positions Option.isSome $"Every line should arrive whole, got %A{received}"
+                            Expect.equal
+                                positions
+                                (List.distinct (List.sort positions))
+                                "Lines should arrive in order, each at most once"
+                            Expect.isGreaterThan
+                                received.Length
+                                (spacedLines.Length / 2)
+                                "Only a line that arrives as its timeout fires may be lost")
 
-                    testAllRuntimes "ReceiveLine - polling with a receive timeout loses, truncates and repeats nothing" (fun runtime ->
-                        let received =
-                            withTestServer
-                                sendSpacedLines
-                                (fun port ->
-                                    fio {
-                                        let! baseConfig = SocketConfig.create "127.0.0.1" port
-                                        let! socket = SocketClient.connect (SocketConfig.withReceiveTimeout 10 baseConfig)
-                                        let poll =
-                                            socket.ReceiveLine(64).Map(Some).CatchAll(fun error ->
-                                                match error with
-                                                | TimeoutError _ -> FIO.succeed None
-                                                | other -> FIO.fail other)
-                                        let! received = pollLines poll
-                                        do! socket.Close()
-                                        return received
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "ReceiveLine - polling with a receive timeout loses, truncates and repeats nothing"
+                        (fun runtime ->
+                            let received =
+                                withTestServer
+                                    sendSpacedLines
+                                    (fun port ->
+                                        fio {
+                                            let! baseConfig = SocketConfig.create "127.0.0.1" port
+                                            let! socket =
+                                                SocketClient.connect (SocketConfig.withReceiveTimeout 10 baseConfig)
+                                            let poll =
+                                                socket
+                                                    .ReceiveLine(64)
+                                                    .Map(Some)
+                                                    .CatchAll(fun error ->
+                                                        match error with
+                                                        | TimeoutError _ -> FIO.succeed None
+                                                        | other -> FIO.fail other)
+                                            let! received = pollLines poll
+                                            do! socket.Close()
+                                            return received
+                                        })
+                                    runtime
 
-                        Expect.equal received spacedLines "Every line should arrive whole, once and in order")
+                            Expect.equal received spacedLines "Every line should arrive whole, once and in order")
 
-                    testAllRuntimes "ReceiveFramed - a receive interrupted while it decodes gives its frame to the next receive" (fun runtime ->
-                        let decoding = TaskCompletionSource()
-                        let stalled: SocketCodec<string> =
-                            { Codec.string with
-                                Decode = fun _ -> FIO.succeedWith(fun () -> decoding.TrySetResult() |> ignore).FlatMap(fun () -> FIO.never ()) }
+                    testAllRuntimes
+                        "ReceiveFramed - a receive interrupted while it decodes gives its frame to the next receive"
+                        (fun runtime ->
+                            let decoding = TaskCompletionSource()
+                            let stalled: SocketCodec<string> =
+                                { Codec.string with
+                                    Decode =
+                                        fun _ ->
+                                            FIO
+                                                .succeedWith(fun () -> decoding.TrySetResult() |> ignore)
+                                                .FlatMap(fun () -> FIO.never ())
+                                }
 
-                        let received =
-                            withTestServer
-                                (fun socket ->
-                                    fio {
-                                        do! socket.SendFramed(Codec.string, "FRAME")
-                                        do! sleepMs 1000.0
-                                    })
-                                (fun port ->
-                                    fio {
-                                        let! socket = SocketClient.connectWith "127.0.0.1" port
-                                        let! first = socket.ReceiveFramed(stalled).Fork()
-                                        do! FIO.awaitUnitTask decoding.Task SocketError.fromException
-                                        let! _ = first.InterruptAwaitNow()
-                                        let! frame = socket.ReceiveFramed(Codec.string).Timeout(TimeSpan.FromSeconds 3.0)
-                                        do! socket.Close()
-                                        return frame
-                                    })
-                                runtime
+                            let received =
+                                withTestServer
+                                    (fun socket ->
+                                        fio {
+                                            do! socket.SendFramed(Codec.string, "FRAME")
+                                            do! sleepMs 1000.0
+                                        })
+                                    (fun port ->
+                                        fio {
+                                            let! socket = SocketClient.connectWith "127.0.0.1" port
+                                            let! first = socket.ReceiveFramed(stalled).Fork()
+                                            do! FIO.awaitUnitTask decoding.Task SocketError.fromException
+                                            let! _ = first.InterruptAwaitNow()
+                                            let! frame =
+                                                socket.ReceiveFramed(Codec.string).Timeout(TimeSpan.FromSeconds 3.0)
+                                            do! socket.Close()
+                                            return frame
+                                        })
+                                    runtime
 
-                        Expect.equal received (Some "FRAME") "A frame its receiver never used must reach the next receive")
+                            Expect.equal
+                                received
+                                (Some "FRAME")
+                                "A frame its receiver never used must reach the next receive")
 
-                    testAllRuntimes "ReceiveFramed - memory follows the bytes that arrived, not the announced length" (fun runtime ->
-                        let allocated =
-                            withTestServer
-                                (fun socket ->
-                                    fio {
-                                        do! socket.SendBytes [| 0uy; 255uy; 255uy; 255uy |]
-                                        do! sleepMs 1500.0
-                                    })
-                                (fun port ->
-                                    fio {
-                                        let! socket = SocketClient.connectWith "127.0.0.1" port
-                                        do! sleepMs 100.0
-                                        let before = GC.GetTotalAllocatedBytes false
-                                        let! _ = socket.ReceiveFramed(Codec.bytes).Timeout(TimeSpan.FromMilliseconds 300.0)
-                                        let after = GC.GetTotalAllocatedBytes false
-                                        do! socket.Close()
-                                        return after - before
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "ReceiveFramed - memory follows the bytes that arrived, not the announced length"
+                        (fun runtime ->
+                            let allocated =
+                                withTestServer
+                                    (fun socket ->
+                                        fio {
+                                            do! socket.SendBytes [| 0uy; 255uy; 255uy; 255uy |]
+                                            do! sleepMs 1500.0
+                                        })
+                                    (fun port ->
+                                        fio {
+                                            let! socket = SocketClient.connectWith "127.0.0.1" port
+                                            do! sleepMs 100.0
+                                            let before = GC.GetTotalAllocatedBytes false
+                                            let! _ =
+                                                socket
+                                                    .ReceiveFramed(Codec.bytes)
+                                                    .Timeout(TimeSpan.FromMilliseconds 300.0)
+                                            let after = GC.GetTotalAllocatedBytes false
+                                            do! socket.Close()
+                                            return after - before
+                                        })
+                                    runtime
 
-                        Expect.isLessThan allocated 4_000_000L "A 16 MB frame of which only the prefix arrived must not cost 16 MB")
+                            Expect.isLessThan
+                                allocated
+                                4_000_000L
+                                "A 16 MB frame of which only the prefix arrived must not cost 16 MB")
 
-                    testAllRuntimes "ReceiveLine - accepts a line of exactly maxBytes with its newline; one byte more closes the receive side" (fun runtime ->
-                        let first, second, third =
-                            withTestServer
-                                (fun socket ->
-                                    fio {
-                                        do! socket.SendBytes(Encoding.UTF8.GetBytes "ABC\nABCD\nX\n")
-                                        do! sleepMs 500.0
-                                    })
-                                (fun port ->
-                                    fio {
-                                        let! socket = SocketClient.connectWith "127.0.0.1" port
-                                        let! first = socket.ReceiveLine 4
-                                        let! second = socket.ReceiveLine(4).Map(Ok).CatchAll(fun error -> FIO.succeed (Error error))
-                                        let! third = socket.ReceiveBytes(16).Map(Ok).CatchAll(fun error -> FIO.succeed (Error error))
-                                        do! socket.Close()
-                                        return first, second, third
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "ReceiveLine - accepts a line of exactly maxBytes with its newline; one byte more closes the receive side"
+                        (fun runtime ->
+                            let first, second, third =
+                                withTestServer
+                                    (fun socket ->
+                                        fio {
+                                            do! socket.SendBytes(Encoding.UTF8.GetBytes "ABC\nABCD\nX\n")
+                                            do! sleepMs 500.0
+                                        })
+                                    (fun port ->
+                                        fio {
+                                            let! socket = SocketClient.connectWith "127.0.0.1" port
+                                            let! first = socket.ReceiveLine 4
+                                            let! second =
+                                                socket
+                                                    .ReceiveLine(4)
+                                                    .Map(Ok)
+                                                    .CatchAll(fun error -> FIO.succeed (Error error))
+                                            let! third =
+                                                socket
+                                                    .ReceiveBytes(16)
+                                                    .Map(Ok)
+                                                    .CatchAll(fun error -> FIO.succeed (Error error))
+                                            do! socket.Close()
+                                            return first, second, third
+                                        })
+                                    runtime
 
-                        Expect.equal first "ABC" "Four bytes with the newline fit a limit of four"
-                        match second with
-                        | Error(BufferOverflow(5, 4)) -> ()
-                        | other -> failtest $"A line of five bytes must overflow a limit of four, got %A{other}"
-                        match third with
-                        | Error(ConnectionClosed _) -> ()
-                        | other -> failtest $"After a rejected line every receive must fail, got %A{other}")
+                            Expect.equal first "ABC" "Four bytes with the newline fit a limit of four"
+                            match second with
+                            | Error(BufferOverflow(5, 4)) -> ()
+                            | other -> failtest $"A line of five bytes must overflow a limit of four, got %A{other}"
+                            match third with
+                            | Error(ConnectionClosed _) -> ()
+                            | other -> failtest $"After a rejected line every receive must fail, got %A{other}")
 
-                    testAllRuntimes "ReceiveLine - rejects a line at once when maxBytes arrived without its newline" (fun runtime ->
-                        let outcome =
-                            withTestServer
-                                (fun socket ->
-                                    fio {
-                                        do! socket.SendBytes(Encoding.UTF8.GetBytes "ABCD")
-                                        do! sleepMs 2000.0
-                                    })
-                                (fun port ->
-                                    fio {
-                                        let! socket = SocketClient.connectWith "127.0.0.1" port
-                                        let! outcome =
-                                            socket.ReceiveLine(4).Map(Ok).CatchAll(fun error -> FIO.succeed (Error error)).Timeout(TimeSpan.FromSeconds 1.0)
-                                        do! socket.Close()
-                                        return outcome
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "ReceiveLine - rejects a line at once when maxBytes arrived without its newline"
+                        (fun runtime ->
+                            let outcome =
+                                withTestServer
+                                    (fun socket ->
+                                        fio {
+                                            do! socket.SendBytes(Encoding.UTF8.GetBytes "ABCD")
+                                            do! sleepMs 2000.0
+                                        })
+                                    (fun port ->
+                                        fio {
+                                            let! socket = SocketClient.connectWith "127.0.0.1" port
+                                            let! outcome =
+                                                socket
+                                                    .ReceiveLine(4)
+                                                    .Map(Ok)
+                                                    .CatchAll(fun error -> FIO.succeed (Error error))
+                                                    .Timeout(TimeSpan.FromSeconds 1.0)
+                                            do! socket.Close()
+                                            return outcome
+                                        })
+                                    runtime
 
-                        match outcome with
-                        | Some(Error(BufferOverflow(5, 4))) -> ()
-                        | other -> failtest $"Four bytes with no newline fill a limit of four, so the line is too long, got %A{other}")
+                            match outcome with
+                            | Some(Error(BufferOverflow(5, 4))) -> ()
+                            | other ->
+                                failtest
+                                    $"Four bytes with no newline fill a limit of four, so the line is too long, got %A{other}")
 
-                    testAllRuntimes "ReceiveLine - receives at once take turns, each getting whole lines" (fun runtime ->
-                        let lines = [ for i in 1..40 -> String.replicate (i % 7 + 1) $"{i}," ]
+                    testAllRuntimes
+                        "ReceiveLine - receives at once take turns, each getting whole lines"
+                        (fun runtime ->
+                            let lines = [ for i in 1..40 -> String.replicate (i % 7 + 1) $"{i}," ]
 
-                        let received =
-                            withTestServer
-                                (fun socket ->
-                                    fio {
-                                        do! sleepMs 200.0
-                                        do! socket.SendBytes(Encoding.UTF8.GetBytes(String.concat "" [ for line in lines -> line + "\n" ]))
-                                        do! sleepMs 1000.0
-                                    })
-                                (fun port ->
-                                    fio {
-                                        let! socket = SocketClient.connectWith "127.0.0.1" port
-                                        let! halves = FIO.forEachPar [ 1..2 ] (fun _ -> FIO.forEach [ 1..20 ] (fun _ -> socket.ReceiveLine 256))
-                                        do! socket.Close()
-                                        return List.concat halves
-                                    })
-                                runtime
+                            let received =
+                                withTestServer
+                                    (fun socket ->
+                                        fio {
+                                            do! sleepMs 200.0
+                                            do!
+                                                socket.SendBytes(
+                                                    Encoding.UTF8.GetBytes(
+                                                        String.concat "" [ for line in lines -> line + "\n" ]
+                                                    )
+                                                )
+                                            do! sleepMs 1000.0
+                                        })
+                                    (fun port ->
+                                        fio {
+                                            let! socket = SocketClient.connectWith "127.0.0.1" port
+                                            let! halves =
+                                                FIO.forEachPar [ 1..2 ] (fun _ ->
+                                                    FIO.forEach [ 1..20 ] (fun _ -> socket.ReceiveLine 256))
+                                            do! socket.Close()
+                                            return List.concat halves
+                                        })
+                                    runtime
 
-                        Expect.equal (List.sort received) (List.sort lines) "Every line should arrive whole and once, whichever receiver took it")
+                            Expect.equal
+                                (List.sort received)
+                                (List.sort lines)
+                                "Every line should arrive whole and once, whichever receiver took it")
 
-                    testAllRuntimes "ReceiveLine - returns what the peer sent before a send to it failed" (fun runtime ->
-                        if OperatingSystem.IsWindows() then
-                            skiptest "A reset connection discards its unread data on Windows"
+                    testAllRuntimes
+                        "ReceiveLine - returns what the peer sent before a send to it failed"
+                        (fun runtime ->
+                            if OperatingSystem.IsWindows() then
+                                skiptest "A reset connection discards its unread data on Windows"
 
-                        let reply =
-                            withTestServer
-                                (fun socket -> socket.SendLine "REPLY")
-                                (fun port ->
-                                    fio {
-                                        let! socket = SocketClient.connectWith "127.0.0.1" port
-                                        do! sleepMs 200.0
-                                        do! socket.SendString("first").CatchAll(fun _ -> FIO.unit ())
-                                        do! sleepMs 100.0
-                                        do! socket.SendString("second").CatchAll(fun _ -> FIO.unit ())
-                                        do! sleepMs 100.0
-                                        let! reply = socket.ReceiveLine 64
-                                        do! socket.Close()
-                                        return reply
-                                    })
-                                runtime
+                            let reply =
+                                withTestServer
+                                    (fun socket -> socket.SendLine "REPLY")
+                                    (fun port ->
+                                        fio {
+                                            let! socket = SocketClient.connectWith "127.0.0.1" port
+                                            do! sleepMs 200.0
+                                            do! socket.SendString("first").CatchAll(fun _ -> FIO.unit ())
+                                            do! sleepMs 100.0
+                                            do! socket.SendString("second").CatchAll(fun _ -> FIO.unit ())
+                                            do! sleepMs 100.0
+                                            let! reply = socket.ReceiveLine 64
+                                            do! socket.Close()
+                                            return reply
+                                        })
+                                    runtime
 
-                        Expect.equal reply "REPLY" "Data the peer delivered stays readable after a failed send")
+                            Expect.equal reply "REPLY" "Data the peer delivered stays readable after a failed send")
 
-                    testAllRuntimes "Close - with linger enabled and a zero timeout resets the connection, as its peer sees" (fun runtime ->
-                        let peerReceive = TaskCompletionSource<Result<int, SocketError>>()
-                        let peer (socket: Socket) =
-                            fio {
-                                do! sleepMs 400.0
-                                let! outcome = socket.ReceiveBytes(16).Map(fun (_, n) -> Ok n).CatchAll(fun error -> FIO.succeed (Error error))
-                                peerReceive.TrySetResult outcome |> ignore
-                            }
+                    testAllRuntimes
+                        "Close - with linger enabled and a zero timeout resets the connection, as its peer sees"
+                        (fun runtime ->
+                            let peerReceive = TaskCompletionSource<Result<int, SocketError>>()
+                            let peer (socket: Socket) =
+                                fio {
+                                    do! sleepMs 400.0
+                                    let! outcome =
+                                        socket
+                                            .ReceiveBytes(16)
+                                            .Map(fun (_, n) -> Ok n)
+                                            .CatchAll(fun error -> FIO.succeed (Error error))
+                                    peerReceive.TrySetResult outcome |> ignore
+                                }
 
-                        let outcome =
-                            withTestServer
-                                peer
-                                (fun port ->
-                                    fio {
-                                        let! baseConfig = SocketConfig.create "127.0.0.1" port
-                                        let! socket = SocketClient.connect (SocketConfig.withLinger true 0 baseConfig)
-                                        do! sleepMs 100.0
-                                        do! socket.Close()
-                                        return! FIO.awaitTask (peerReceive.Task.WaitAsync(TimeSpan.FromSeconds 3.0)) SocketError.fromException
-                                    })
-                                runtime
+                            let outcome =
+                                withTestServer
+                                    peer
+                                    (fun port ->
+                                        fio {
+                                            let! baseConfig = SocketConfig.create "127.0.0.1" port
+                                            let! socket =
+                                                SocketClient.connect (SocketConfig.withLinger true 0 baseConfig)
+                                            do! sleepMs 100.0
+                                            do! socket.Close()
+                                            return!
+                                                FIO.awaitTask
+                                                    (peerReceive.Task.WaitAsync(TimeSpan.FromSeconds 3.0))
+                                                    SocketError.fromException
+                                        })
+                                    runtime
 
-                        match outcome with
-                        | Error(GeneralError _) -> ()
-                        | other -> failtest $"A reset should fail the peer's receive; a graceful close would end its stream, got %A{other}")
+                            match outcome with
+                            | Error(GeneralError _) -> ()
+                            | other ->
+                                failtest
+                                    $"A reset should fail the peer's receive; a graceful close would end its stream, got %A{other}")
                 ]
         ]

@@ -41,7 +41,10 @@ let private countingAttempt (count: int ref) =
         id
 
 let private predicateFailingAt (limit: int) (otherwise: bool) (n: int) =
-    if n >= limit then FIO.fail (exn "pred-error") else FIO.succeed otherwise
+    if n >= limit then
+        FIO.fail (exn "pred-error")
+    else
+        FIO.succeed otherwise
 
 let private stackSafety name (run: int ref -> FIORuntime -> int) =
     testCase $"{name} - stack safety with 10000 iterations" (fun () ->
@@ -70,39 +73,37 @@ let tests =
                 [
                     testPropertyWithConfig fsCheckConfig "RetryOrElse - falls back after max retries"
                     <| fun (runtime: FIORuntime, fallbackValue: int) ->
-                        let effect = FIO.fail("error").RetryOrElse 2 (fun _ -> FIO.succeed fallbackValue) (fun _ -> FIO.unit ())
+                        let effect =
+                            FIO.fail("error").RetryOrElse 2 (fun _ -> FIO.succeed fallbackValue) (fun _ -> FIO.unit ())
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result fallbackValue "RetryOrElse should fall back after max retries"
 
                     testPropertyWithConfig fsCheckConfig "RetryOrElse - succeeds without fallback"
                     <| fun (runtime: FIORuntime, value: int) ->
-                        let effect = FIO.succeed(value).RetryOrElse 3 (fun _ -> FIO.succeed -1) (fun _ -> FIO.unit ())
+                        let effect =
+                            FIO.succeed(value).RetryOrElse 3 (fun _ -> FIO.succeed -1) (fun _ -> FIO.unit ())
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result value "RetryOrElse should return original value on success"
 
                     testPropertyWithConfig fsCheckConfig "RetryOrElse - callback called on each retry"
                     <| fun (runtime: FIORuntime, fallbackValue: int) ->
                         let mutable callbackCount = 0
-                        let effect = FIO.fail(0).RetryOrElse
-                                        3
-                                        (fun _ -> FIO.succeed fallbackValue)
-                                        (fun _ ->
-                                            callbackCount <- callbackCount + 1
-                                            FIO.unit ())
+                        let effect =
+                            FIO.fail(0).RetryOrElse 3 (fun _ -> FIO.succeed fallbackValue) (fun _ ->
+                                callbackCount <- callbackCount + 1
+                                FIO.unit ())
 
-                        let _ =
-                            runtime.Run(effect).UnsafeResult()
+                        let _ = runtime.Run(effect).UnsafeResult()
 
                         Expect.equal callbackCount 2 "RetryOrElse callback should be called on each retry"
 
                     testAllRuntimes "RetryOrElse - maxAttempts below 1 interrupts with InvalidArgument" (fun runtime ->
-                        let effect: FIO<int, string> = FIO.fail("error").RetryOrElse 0 (fun _ -> FIO.succeed 1) (fun _ -> FIO.unit ())
+                        let effect: FIO<int, string> =
+                            FIO.fail("error").RetryOrElse 0 (fun _ -> FIO.succeed 1) (fun _ -> FIO.unit ())
 
                         let result = runtime.Run(effect).UnsafeResult()
 
@@ -110,7 +111,8 @@ let tests =
                         | Interrupted ex ->
                             match ex.cause with
                             | InvalidArgument("maxAttempts", _) -> ()
-                            | cause -> failtest $"RetryOrElse 0 should interrupt with InvalidArgument, got cause: %A{cause}"
+                            | cause ->
+                                failtest $"RetryOrElse 0 should interrupt with InvalidArgument, got cause: %A{cause}"
                         | other -> failtest $"RetryOrElse 0 should interrupt with InvalidArgument, got: %A{other}")
 
                     testPropertyWithConfig fsCheckConfig "Retry - succeeds immediately without retrying"
@@ -124,8 +126,7 @@ let tests =
                                 id
                         let retried = effect.Retry 3 (fun _ -> FIO.unit ())
 
-                        let actual =
-                            runtime.Run(retried).UnsafeSuccess()
+                        let actual = runtime.Run(retried).UnsafeSuccess()
 
                         Expect.equal actual value "Retry should succeed"
                         Expect.equal attempts 1 "Retry should not retry on immediate success"
@@ -140,8 +141,7 @@ let tests =
                             }
                         let retried = effect.Retry 4 (fun _ -> FIO.unit ())
 
-                        let _ =
-                            runtime.Run(retried).UnsafeResult()
+                        let _ = runtime.Run(retried).UnsafeResult()
 
                         Expect.equal attempts 4 "Retry should retry up to max"
 
@@ -158,8 +158,7 @@ let tests =
                             }
                         let retried = effect.Retry 5 (fun _ -> FIO.unit ())
 
-                        let actual =
-                            runtime.Run(retried).UnsafeSuccess()
+                        let actual = runtime.Run(retried).UnsafeSuccess()
 
                         Expect.equal actual value "Retry should succeed on third attempt"
                         Expect.equal attempts 3 "Should take 3 attempts"
@@ -168,14 +167,11 @@ let tests =
                     <| fun (runtime: FIORuntime) ->
                         let mutable attempts = []
                         let effect =
-                            FIO.fail("error").Retry
-                                3
-                                (fun (_, attempt, max) ->
-                                    attempts <- attempts @ [ (attempt, max) ]
-                                    FIO.unit ())
+                            FIO.fail("error").Retry 3 (fun (_, attempt, max) ->
+                                attempts <- attempts @ [ (attempt, max) ]
+                                FIO.unit ())
 
-                        let _ =
-                            runtime.Run(effect).UnsafeResult()
+                        let _ = runtime.Run(effect).UnsafeResult()
 
                         Expect.equal attempts [ 1, 3; 2, 3 ] "Retry callback should receive correct attempt numbers"
 
@@ -188,13 +184,14 @@ let tests =
                                 return! FIO.fail count
                             }
 
-                        let result =
-                            runtime.Run(effect.RetryUntil(fun error -> error >= 3)).UnsafeError()
+                        let result = runtime.Run(effect.RetryUntil(fun error -> error >= 3)).UnsafeError()
 
                         Expect.equal result 3 "RetryUntil should fail with the error that matched the predicate"
                         Expect.equal count 3 "RetryUntil should retry until predicate matches"
 
-                    testPropertyWithConfig fsCheckConfig "RetryUntil - fails immediately when predicate true on first error"
+                    testPropertyWithConfig
+                        fsCheckConfig
+                        "RetryUntil - fails immediately when predicate true on first error"
                     <| fun (runtime: FIORuntime, errValue: int) ->
                         let mutable count = 0
                         let effect =
@@ -203,8 +200,7 @@ let tests =
                                 return! FIO.fail errValue
                             }
 
-                        let result =
-                            runtime.Run(effect.RetryUntil(fun _ -> true)).UnsafeError()
+                        let result = runtime.Run(effect.RetryUntil(fun _ -> true)).UnsafeError()
 
                         Expect.equal count 1 "RetryUntil should fail without retrying"
                         Expect.equal result errValue "RetryUntil should fail with the original error"
@@ -221,15 +217,17 @@ let tests =
                                 return! FIO.fail count
                             }
 
-                        let result =
-                            runtime.Run(effect.RetryUntilEquals 4).UnsafeError()
+                        let result = runtime.Run(effect.RetryUntilEquals 4).UnsafeError()
 
                         Expect.equal count 4 "RetryUntilEquals should retry until equality"
                         Expect.equal result 4 "RetryUntilEquals should fail with the matched error"
 
                     predicateErrorPropagates "RetryUntilFIO" (fun count runtime ->
                         runtime
-                            .Run((failingExnCounter count).RetryUntilFIO(fun (ex: exn) -> predicateFailingAt 2 false (int ex.Message)))
+                            .Run(
+                                (failingExnCounter count)
+                                    .RetryUntilFIO(fun (ex: exn) -> predicateFailingAt 2 false (int ex.Message))
+                            )
                             .UnsafeError())
 
                     testPropertyWithConfig fsCheckConfig "RetryWhile - stops when predicate becomes false"
@@ -241,8 +239,7 @@ let tests =
                                 return! FIO.fail count
                             }
 
-                        let result =
-                            runtime.Run(effect.RetryWhile(fun error -> error < 5)).UnsafeError()
+                        let result = runtime.Run(effect.RetryWhile(fun error -> error < 5)).UnsafeError()
 
                         Expect.equal count 5 "RetryWhile should retry until predicate is false"
                         Expect.equal result 5 "RetryWhile should fail with the error that failed the predicate"
@@ -252,7 +249,10 @@ let tests =
 
                     predicateErrorPropagates "RetryWhileFIO" (fun count runtime ->
                         runtime
-                            .Run((failingExnCounter count).RetryWhileFIO(fun (ex: exn) -> predicateFailingAt 2 true (int ex.Message)))
+                            .Run(
+                                (failingExnCounter count)
+                                    .RetryWhileFIO(fun (ex: exn) -> predicateFailingAt 2 true (int ex.Message))
+                            )
                             .UnsafeError())
 
                     testAllRuntimes "Eventually - succeeds after N failures" (fun runtime ->
@@ -266,8 +266,7 @@ let tests =
                                     return 42
                             }
 
-                        let result =
-                            runtime.Run(effect.Eventually()).UnsafeSuccess()
+                        let result = runtime.Run(effect.Eventually()).UnsafeSuccess()
 
                         Expect.equal result 42 "Eventually should return the first success value"
                         Expect.equal count 5 "Eventually should retry until success")
@@ -285,8 +284,7 @@ let tests =
                                     count)
                                 id
 
-                        let result =
-                            runtime.Run(effect.RepeatN 5).UnsafeSuccess()
+                        let result = runtime.Run(effect.RepeatN 5).UnsafeSuccess()
 
                         Expect.equal count 5 "RepeatN should execute 5 times"
                         Expect.equal result 5 "RepeatN should return last result"
@@ -300,7 +298,8 @@ let tests =
                         | Interrupted ex ->
                             match ex.cause with
                             | InvalidArgument _ -> ()
-                            | cause -> failtest $"RepeatN 0 should interrupt with InvalidArgument, got cause: %A{cause}"
+                            | cause ->
+                                failtest $"RepeatN 0 should interrupt with InvalidArgument, got cause: %A{cause}"
                         | other -> failtest $"RepeatN 0 should interrupt with InvalidArgument, got: %A{other}")
 
                     testPropertyWithConfig fsCheckConfig "RepeatN - n=1 executes exactly once"
@@ -313,8 +312,7 @@ let tests =
                                     value)
                                 id
 
-                        let result =
-                            runtime.Run(effect.RepeatN 1).UnsafeSuccess()
+                        let result = runtime.Run(effect.RepeatN 1).UnsafeSuccess()
 
                         Expect.equal count 1 "RepeatN(1) should execute exactly once"
                         Expect.equal result value "RepeatN(1) should return the result"
@@ -329,8 +327,7 @@ let tests =
                                     count)
                                 id
 
-                        let result =
-                            runtime.Run(effect.RepeatUntil(fun r -> r >= 3)).UnsafeSuccess()
+                        let result = runtime.Run(effect.RepeatUntil(fun r -> r >= 3)).UnsafeSuccess()
 
                         Expect.equal count 3 "RepeatUntil should execute until predicate is satisfied"
                         Expect.equal result 3 "RepeatUntil should return the value that satisfied the predicate"
@@ -345,8 +342,7 @@ let tests =
                                     value)
                                 id
 
-                        let result =
-                            runtime.Run(effect.RepeatUntil(fun _ -> true)).UnsafeSuccess()
+                        let result = runtime.Run(effect.RepeatUntil(fun _ -> true)).UnsafeSuccess()
 
                         Expect.equal count 1 "RepeatUntil should execute exactly once"
                         Expect.equal result value "RepeatUntil should return the first result"
@@ -364,8 +360,7 @@ let tests =
                                     count)
                                 id
 
-                        let result =
-                            runtime.Run(effect.RepeatUntilEquals 4).UnsafeSuccess()
+                        let result = runtime.Run(effect.RepeatUntilEquals 4).UnsafeSuccess()
 
                         Expect.equal count 4 "RepeatUntilEquals should execute until equality"
                         Expect.equal result 4 "RepeatUntilEquals should return the matched value"
@@ -383,8 +378,7 @@ let tests =
                                     count)
                                 id
 
-                        let result =
-                            runtime.Run(effect.RepeatWhile(fun r -> r < 5)).UnsafeSuccess()
+                        let result = runtime.Run(effect.RepeatWhile(fun r -> r < 5)).UnsafeSuccess()
 
                         Expect.equal count 5 "RepeatWhile should execute until predicate is false"
                         Expect.equal result 5 "RepeatWhile should return the value that failed the predicate"
@@ -397,14 +391,10 @@ let tests =
 
                     testAllRuntimes "Forever - loops until interrupted by Timeout" (fun runtime ->
                         let mutable count = 0
-                        let effect =
-                            FIO.attempt
-                                (fun () -> count <- count + 1)
-                                id
-                        let bounded = effect.Forever().Timeout (TimeSpan.FromMilliseconds 100.0)
+                        let effect = FIO.attempt (fun () -> count <- count + 1) id
+                        let bounded = effect.Forever().Timeout(TimeSpan.FromMilliseconds 100.0)
 
-                        let result =
-                            runtime.Run(bounded).UnsafeSuccess()
+                        let result = runtime.Run(bounded).UnsafeSuccess()
 
                         Expect.equal result None "Forever should not produce a value before timeout"
                         Expect.isGreaterThan count 0 "Forever should have run at least once before timeout")
@@ -415,7 +405,8 @@ let tests =
                             FIO.attempt
                                 (fun () ->
                                     count <- count + 1
-                                    if count = 3 then failwith "third run")
+                                    if count = 3 then
+                                        failwith "third run")
                                 (fun ex -> ex.Message)
 
                         let result = runtime.Run(effect.Forever<int>()).UnsafeError()
@@ -424,8 +415,10 @@ let tests =
                         Expect.equal count 3 "Forever should not run the effect again after it fails")
 
                     testAllRuntimes "Forever - takes the result type its context needs" (fun runtime ->
-                        let ticking: FIO<string, exn> = (FIO.sleep (TimeSpan.FromMilliseconds 1.0)).Forever()
-                        let raced = ticking.RaceFirst((FIO.sleep (TimeSpan.FromMilliseconds 20.0)).Map(fun () -> "done"))
+                        let ticking: FIO<string, exn> =
+                            (FIO.sleep (TimeSpan.FromMilliseconds 1.0)).Forever()
+                        let raced =
+                            ticking.RaceFirst((FIO.sleep (TimeSpan.FromMilliseconds 20.0)).Map(fun () -> "done"))
 
                         let result = runtime.Run(raced).UnsafeSuccess()
 

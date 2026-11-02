@@ -56,36 +56,41 @@ let webSocketTests =
                         | Frame(Binary b) -> Expect.equal b data "Binary roundtrip"
                         | other -> failtest $"Expected binary frame but got {other}")
 
-                    testAllRuntimes "ReceiveMessage - reassembles messages larger than the receive buffer" (fun runtime ->
-                        let results =
-                            withTestServer
-                                echoHandler
-                                (fun port ->
-                                    fio {
-                                        let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
-                                        let! results =
-                                            FIO.forEach [ 4_095; 4_096; 4_097; 16_384; 100_000 ] (fun size ->
-                                                fio {
-                                                    let text = String(Array.init size (fun i -> char (int 'a' + i % 26)))
-                                                    do! ws.SendText text
-                                                    let! textMsg = ws.ReceiveMessage()
-                                                    let data = Array.init size (fun i -> byte (i % 251))
-                                                    do! ws.SendBinary data
-                                                    let! binaryMsg = ws.ReceiveMessage()
-                                                    return size, text, textMsg, data, binaryMsg
-                                                })
-                                        do! ws.Close()
-                                        return results
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "ReceiveMessage - reassembles messages larger than the receive buffer"
+                        (fun runtime ->
+                            let results =
+                                withTestServer
+                                    echoHandler
+                                    (fun port ->
+                                        fio {
+                                            let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+                                            let! results =
+                                                FIO.forEach [ 4_095; 4_096; 4_097; 16_384; 100_000 ] (fun size ->
+                                                    fio {
+                                                        let text =
+                                                            String(
+                                                                Array.init size (fun i -> char (int 'a' + i % 26))
+                                                            )
+                                                        do! ws.SendText text
+                                                        let! textMsg = ws.ReceiveMessage()
+                                                        let data = Array.init size (fun i -> byte (i % 251))
+                                                        do! ws.SendBinary data
+                                                        let! binaryMsg = ws.ReceiveMessage()
+                                                        return size, text, textMsg, data, binaryMsg
+                                                    })
+                                            do! ws.Close()
+                                            return results
+                                        })
+                                    runtime
 
-                        for size, text, textMsg, data, binaryMsg in results do
-                            match textMsg with
-                            | Frame(Text s) -> Expect.equal s text $"Text of {size} bytes"
-                            | other -> failtest $"Expected text frame but got {other}"
-                            match binaryMsg with
-                            | Frame(Binary b) -> Expect.equal b data $"Binary of {size} bytes"
-                            | other -> failtest $"Expected binary frame but got {other}")
+                            for size, text, textMsg, data, binaryMsg in results do
+                                match textMsg with
+                                | Frame(Text s) -> Expect.equal s text $"Text of {size} bytes"
+                                | other -> failtest $"Expected text frame but got {other}"
+                                match binaryMsg with
+                                | Frame(Binary b) -> Expect.equal b data $"Binary of {size} bytes"
+                                | other -> failtest $"Expected binary frame but got {other}")
 
                     testAllRuntimes "ReceiveMessage - fails with MessageTooLarge past MaxMessageSize" (fun runtime ->
                         let result =
@@ -93,8 +98,14 @@ let webSocketTests =
                                 echoHandler
                                 (fun port ->
                                     fio {
-                                        let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withMaxMessageSize 10_000L
-                                        let! ws = WebSocketClient.connect (Uri $"ws://localhost:{port}/") config Threading.CancellationToken.None
+                                        let config =
+                                            WebSocketConfig.defaultConfig
+                                            |> WebSocketConfig.withMaxMessageSize 10_000L
+                                        let! ws =
+                                            WebSocketClient.connect
+                                                (Uri $"ws://localhost:{port}/")
+                                                config
+                                                Threading.CancellationToken.None
                                         do! ws.SendText(String('x', 16_384))
                                         let! result = ws.ReceiveMessage().Result()
                                         do! ws.Abort().Ignore()
@@ -108,27 +119,37 @@ let webSocketTests =
                             Expect.isGreaterThan actual 10_000L "The size at which the limit was crossed"
                         | other -> failtest $"Expected MessageTooLarge but got {other}")
 
-                    testAllRuntimes "ReceiveMessage - past MaxMessageSize, aborts the connection rather than returning the rest as a message" (fun runtime ->
-                        let first, second =
-                            withTestServer
-                                echoHandler
-                                (fun port ->
-                                    fio {
-                                        let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withMaxMessageSize 10_000L
-                                        let! ws = WebSocketClient.connect (Uri $"ws://localhost:{port}/") config Threading.CancellationToken.None
-                                        do! ws.SendText(String('x', 16_384))
-                                        let! first = ws.ReceiveMessage().Result()
-                                        let! second = ws.ReceiveMessage().Result()
-                                        return first, second
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "ReceiveMessage - past MaxMessageSize, aborts the connection rather than returning the rest as a message"
+                        (fun runtime ->
+                            let first, second =
+                                withTestServer
+                                    echoHandler
+                                    (fun port ->
+                                        fio {
+                                            let config =
+                                                WebSocketConfig.defaultConfig
+                                                |> WebSocketConfig.withMaxMessageSize 10_000L
+                                            let! ws =
+                                                WebSocketClient.connect
+                                                    (Uri $"ws://localhost:{port}/")
+                                                    config
+                                                    Threading.CancellationToken.None
+                                            do! ws.SendText(String('x', 16_384))
+                                            let! first = ws.ReceiveMessage().Result()
+                                            let! second = ws.ReceiveMessage().Result()
+                                            return first, second
+                                        })
+                                    runtime
 
-                        match first with
-                        | Error(MessageTooLarge _) -> ()
-                        | other -> failtest $"Expected MessageTooLarge but got {other}"
-                        match second with
-                        | Error(Closed _) -> ()
-                        | other -> failtest $"Expected a closed connection after an oversized message, but the next receive gave {other}")
+                            match first with
+                            | Error(MessageTooLarge _) -> ()
+                            | other -> failtest $"Expected MessageTooLarge but got {other}"
+                            match second with
+                            | Error(Closed _) -> ()
+                            | other ->
+                                failtest
+                                    $"Expected a closed connection after an oversized message, but the next receive gave {other}")
 
                     testAllRuntimes "Send - roundtrips through Receive with the text codec" (fun runtime ->
                         let result =
@@ -228,7 +249,10 @@ let webSocketTests =
                         match first with
                         | ConnectionClosed _ -> ()
                         | other -> failtest $"Expected the peer's close first, got {other}"
-                        Expect.equal state WebSocketState.Closed "Answering the peer's close should complete the handshake")
+                        Expect.equal
+                            state
+                            WebSocketState.Closed
+                            "Answering the peer's close should complete the handshake")
 
                     testAllRuntimes "Abort - terminates the connection" (fun runtime ->
                         let state =
@@ -245,23 +269,28 @@ let webSocketTests =
 
                         Expect.equal state WebSocketState.Aborted "Should be Aborted")
 
-                    testAllRuntimes "Dispose - releases the connection, after which a send fails with Closed" (fun runtime ->
-                        let outcome =
-                            withTestServer
-                                noopHandler
-                                (fun port ->
-                                    fio {
-                                        let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
-                                        do! ws.Dispose()
-                                        let! outcome =
-                                            ws.SendText("after dispose").Map(fun _ -> None).CatchAll(fun error -> FIO.succeed (Some error))
-                                        return outcome
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "Dispose - releases the connection, after which a send fails with Closed"
+                        (fun runtime ->
+                            let outcome =
+                                withTestServer
+                                    noopHandler
+                                    (fun port ->
+                                        fio {
+                                            let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+                                            do! ws.Dispose()
+                                            let! outcome =
+                                                ws
+                                                    .SendText("after dispose")
+                                                    .Map(fun _ -> None)
+                                                    .CatchAll(fun error -> FIO.succeed (Some error))
+                                            return outcome
+                                        })
+                                    runtime
 
-                        match outcome with
-                        | Some(Closed _) -> ()
-                        | other -> failtest $"Expected Closed but got {other}")
+                            match outcome with
+                            | Some(Closed _) -> ()
+                            | other -> failtest $"Expected Closed but got {other}")
                 ]
 
             testList
@@ -298,7 +327,10 @@ let webSocketTests =
                                     })
                                 runtime
 
-                        Expect.equal state WebSocketState.CloseSent "An explicit CloseOutput must close the output and wait for the peer's close"
+                        Expect.equal
+                            state
+                            WebSocketState.CloseSent
+                            "An explicit CloseOutput must close the output and wait for the peer's close"
                         Expect.equal
                             received
                             (Some(ConnectionClosed(Some WebSocketCloseStatus.PolicyViolation, "done here")))
@@ -309,7 +341,11 @@ let webSocketTests =
 
                         let state, received =
                             withTestServer
-                                (fun ws -> ws.ReceiveMessage().Result().FlatMap(fun outcome -> (observed.Write outcome).Unit()))
+                                (fun ws ->
+                                    ws
+                                        .ReceiveMessage()
+                                        .Result()
+                                        .FlatMap(fun outcome -> (observed.Write outcome).Unit()))
                                 (fun port ->
                                     fio {
                                         let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
@@ -324,7 +360,9 @@ let webSocketTests =
                         match received with
                         | Some(Error _)
                         | Some(Ok(ConnectionClosed(None, _))) -> ()
-                        | other -> failtest $"The peer's receive should end with an error or a disconnect, not a clean close, got %A{other}")
+                        | other ->
+                            failtest
+                                $"The peer's receive should end with an error or a disconnect, not a clean close, got %A{other}")
                 ]
 
             testList
@@ -510,57 +548,72 @@ let webSocketTests =
                         | Error(Closed _) -> ()
                         | other -> failtest $"Expected Closed but got {other}")
 
-                    testAllRuntimes "Close - against a peer that never reads, times out and leaves the socket aborted" (fun runtime ->
-                        let outcome, state =
-                            withTestServer
-                                (fun _ -> FIO.never ())
-                                (fun port ->
-                                    fio {
-                                        let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withSendTimeout 500
-                                        let! cancellationToken = FIO.cancellationToken ()
-                                        let! ws = WebSocketClient.connect (Uri $"ws://localhost:{port}/") config cancellationToken
-                                        let! outcome = ws.Close().Result()
-                                        let! state = ws.State()
-                                        return outcome, state
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "Close - against a peer that never reads, times out and leaves the socket aborted"
+                        (fun runtime ->
+                            let outcome, state =
+                                withTestServer
+                                    (fun _ -> FIO.never ())
+                                    (fun port ->
+                                        fio {
+                                            let config =
+                                                WebSocketConfig.defaultConfig |> WebSocketConfig.withSendTimeout 500
+                                            let! cancellationToken = FIO.cancellationToken ()
+                                            let! ws =
+                                                WebSocketClient.connect
+                                                    (Uri $"ws://localhost:{port}/")
+                                                    config
+                                                    cancellationToken
+                                            let! outcome = ws.Close().Result()
+                                            let! state = ws.State()
+                                            return outcome, state
+                                        })
+                                    runtime
 
-                        match outcome with
-                        | Error(TimeoutError _) -> ()
-                        | other -> failtest $"Expected TimeoutError but got {other}"
-                        Expect.equal
-                            state
-                            WebSocketState.Aborted
-                            "A timed-out close must leave the socket aborted; if this fails, CloseIfOpen needs an Abort fallback")
+                            match outcome with
+                            | Error(TimeoutError _) -> ()
+                            | other -> failtest $"Expected TimeoutError but got {other}"
+                            Expect.equal
+                                state
+                                WebSocketState.Aborted
+                                "A timed-out close must leave the socket aborted; if this fails, CloseIfOpen needs an Abort fallback")
 
-                    testAllRuntimes "SendBinary - times out with TimeoutError against a peer that never reads" (fun runtime ->
-                        let outcome =
-                            withTestServer
-                                (fun _ -> FIO.never ())
-                                (fun port ->
-                                    fio {
-                                        let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withSendTimeout 200
-                                        let! ws =
-                                            WebSocketClient.connect (Uri $"ws://localhost:{port}/") config Threading.CancellationToken.None
-                                        let chunk = Array.zeroCreate<byte> (1024 * 1024)
-                                        let rec flood (sent: int) =
-                                            if sent >= 64 then
-                                                FIO.succeed None
-                                            else
-                                                (ws.SendBinary chunk)
-                                                    .Map(fun () -> Ok())
-                                                    .CatchAll(fun error -> FIO.succeed (Error error))
-                                                    .FlatMap(function
-                                                        | Ok() -> flood (sent + 1)
-                                                        | Error error -> FIO.succeed (Some error))
-                                        let! outcome = flood 0
-                                        return outcome
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "SendBinary - times out with TimeoutError against a peer that never reads"
+                        (fun runtime ->
+                            let outcome =
+                                withTestServer
+                                    (fun _ -> FIO.never ())
+                                    (fun port ->
+                                        fio {
+                                            let config =
+                                                WebSocketConfig.defaultConfig |> WebSocketConfig.withSendTimeout 200
+                                            let! ws =
+                                                WebSocketClient.connect
+                                                    (Uri $"ws://localhost:{port}/")
+                                                    config
+                                                    Threading.CancellationToken.None
+                                            let chunk = Array.zeroCreate<byte>(1024 * 1024)
+                                            let rec flood (sent: int) =
+                                                if sent >= 64 then
+                                                    FIO.succeed None
+                                                else
+                                                    (ws.SendBinary chunk)
+                                                        .Map(fun () -> Ok())
+                                                        .CatchAll(fun error -> FIO.succeed (Error error))
+                                                        .FlatMap(function
+                                                            | Ok() -> flood (sent + 1)
+                                                            | Error error -> FIO.succeed (Some error))
+                                            let! outcome = flood 0
+                                            return outcome
+                                        })
+                                    runtime
 
-                        match outcome with
-                        | Some(TimeoutError _) -> ()
-                        | other -> failtest $"Expected TimeoutError within 64 one-megabyte messages to a peer that never reads (loopback buffers absorb a few megabytes), got %A{other}")
+                            match outcome with
+                            | Some(TimeoutError _) -> ()
+                            | other ->
+                                failtest
+                                    $"Expected TimeoutError within 64 one-megabyte messages to a peer that never reads (loopback buffers absorb a few megabytes), got %A{other}")
 
                     testAllRuntimes "ReceiveMessage - on an aborted socket fails with Closed" (fun runtime ->
                         let outcome =
@@ -640,8 +693,14 @@ let webSocketTests =
                                 echoHandler
                                 (fun port ->
                                     fio {
-                                        let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withMaxMessageSize 10_000L
-                                        let! ws = WebSocketClient.connect (Uri $"ws://localhost:{port}/") config Threading.CancellationToken.None
+                                        let config =
+                                            WebSocketConfig.defaultConfig
+                                            |> WebSocketConfig.withMaxMessageSize 10_000L
+                                        let! ws =
+                                            WebSocketClient.connect
+                                                (Uri $"ws://localhost:{port}/")
+                                                config
+                                                Threading.CancellationToken.None
                                         do! ws.SendText(String('x', 16_384))
                                         let! result = (ws.TryReceive Codec.text).Result()
                                         do! ws.Abort().Ignore()
@@ -720,34 +779,40 @@ let webSocketTests =
                         Expect.equal state WebSocketState.Aborted "An aborted connection cannot be closed")
 
                     testSequenced (
-                        testAllRuntimes "CloseIfOpen - stays quiet when the peer drops the connection instead of answering the close" (fun runtime ->
-                            let captured = new IO.StringWriter()
-                            let original = Console.Error
-                            Console.SetError captured
-                            let effect =
-                                fio {
-                                    let! port, listener = startTestListener ()
-                                    let! server =
-                                        (fio {
-                                            let! ws = WebSocketServer.acceptDefault listener WebSocketConfig.defaultConfig
-                                            let! _ = ws.ReceiveMessage()
-                                            do! WebSocketServer.abort listener
-                                        }).Fork()
-                                    let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
-                                    do! ws.CloseOutput()
-                                    do! ws.CloseIfOpen()
-                                    do! server.Await().Unit()
-                                }
+                        testAllRuntimes
+                            "CloseIfOpen - stays quiet when the peer drops the connection instead of answering the close"
+                            (fun runtime ->
+                                let captured = new IO.StringWriter()
+                                let original = Console.Error
+                                Console.SetError captured
+                                let effect =
+                                    fio {
+                                        let! port, listener = startTestListener ()
+                                        let! server =
+                                            (fio {
+                                                let! ws =
+                                                    WebSocketServer.acceptDefault
+                                                        listener
+                                                        WebSocketConfig.defaultConfig
+                                                let! _ = ws.ReceiveMessage()
+                                                do! WebSocketServer.abort listener
+                                            })
+                                                .Fork()
+                                        let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
+                                        do! ws.CloseOutput()
+                                        do! ws.CloseIfOpen()
+                                        do! server.Await().Unit()
+                                    }
 
-                            try
-                                runWithTimeout runtime effect
-                            finally
-                                Console.SetError original
+                                try
+                                    runWithTimeout runtime effect
+                                finally
+                                    Console.SetError original
 
-                            Expect.equal
-                                (captured.ToString())
-                                ""
-                                "A peer that dropped the connection is not an error worth reporting")
+                                Expect.equal
+                                    (captured.ToString())
+                                    ""
+                                    "A peer that dropped the connection is not an error worth reporting")
                     )
                 ]
         ]

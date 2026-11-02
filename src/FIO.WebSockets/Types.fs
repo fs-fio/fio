@@ -28,7 +28,7 @@ type WebSocketConfig =
 module WebSocketConfig =
 
     /// The default configuration: 4 KB receive buffer, 1 MB message limit, 30 s send timeout, no receive timeout, 10 s shutdown.
-    let defaultConfig : WebSocketConfig =
+    let defaultConfig: WebSocketConfig =
         {
             ReceiveBufferSize = 4096
             MaxMessageSize = 1_048_576L
@@ -56,7 +56,9 @@ module WebSocketConfig =
 
     /// Sets the shutdown timeout on a configuration.
     let withShutdownTimeout (timeout: int) (config: WebSocketConfig) : WebSocketConfig =
-        { config with ShutdownTimeout = timeout }
+        { config with
+            ShutdownTimeout = timeout
+        }
 
     /// Sets the most connections serve and acceptLoop keep open at once; 0 or less means no limit.
     let withMaxConnections (limit: int) (config: WebSocketConfig) : WebSocketConfig =
@@ -106,7 +108,7 @@ type WsError =
     /// An otherwise-unclassified error.
     | GeneralError of string
 
-    override this.ToString () : string =
+    override this.ToString() : string =
         match this with
         | ConnectionFailed message -> $"Connection failed: {message}"
         | SendFailed message -> $"Send failed: {message}"
@@ -123,14 +125,11 @@ module WsError =
     /// Classifies an exception as a WebSocket error, giving timeouts, JSON failures and a prematurely closed connection their own case.
     let fromException (ex: exn) : WsError =
         match ex with
-        | :? TimeoutException as ex ->
-            TimeoutError ex.Message
-        | :? JsonException as ex ->
-            CodecError ex.Message
+        | :? TimeoutException as ex -> TimeoutError ex.Message
+        | :? JsonException as ex -> CodecError ex.Message
         | :? WebSocketException as ex when ex.WebSocketErrorCode = WebSocketError.ConnectionClosedPrematurely ->
             Closed ex.Message
-        | _ ->
-            GeneralError ex.Message
+        | _ -> GeneralError ex.Message
 
     let internal receiveFailed (ex: exn) =
         match fromException ex with
@@ -147,8 +146,7 @@ module WsError =
         | GeneralError message -> ConnectionFailed message
         | error -> error
 
-    let internal codecError (ex: exn) =
-        CodecError ex.Message
+    let internal codecError (ex: exn) = CodecError ex.Message
 
     let internal describeClose (status: WebSocketCloseStatus option) (description: string) =
         let statusText =

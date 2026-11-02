@@ -29,12 +29,16 @@ module internal Trapezoidal =
             let chunk = pointCount / workerCount
 
             let workers =
-                [ for workerIndex in 0 .. workerCount - 1 ->
-                      let lo = workerIndex * chunk
-                      let hi =
-                        if workerIndex = workerCount - 1 then pointCount
-                        else (workerIndex + 1) * chunk
-                      partialEffect a h lo hi ]
+                [
+                    for workerIndex in 0 .. workerCount - 1 ->
+                        let lo = workerIndex * chunk
+                        let hi =
+                            if workerIndex = workerCount - 1 then
+                                pointCount
+                            else
+                                (workerIndex + 1) * chunk
+                        partialEffect a h lo hi
+                ]
 
             let! partials = FIO.collectAllPar workers
             let result = List.sum partials * h
@@ -61,5 +65,5 @@ type TrapezoidalBenchmark() =
     [<ParamsSource("PointCounts")>]
     member val PointCount = 0 with get, set
 
-    override this.CreateEffect () =
+    override this.CreateEffect() =
         Trapezoidal.effect this.WorkerCount this.PointCount

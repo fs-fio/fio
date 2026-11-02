@@ -15,13 +15,20 @@ open System.Threading.Tasks
 open Expecto
 open FsCheck.FSharp
 
-let testConfig = { WorkerConfig.Default with EvaluationWorkers = 2 }
+let testConfig =
+    { WorkerConfig.Default with
+        EvaluationWorkers = 2
+    }
 
 module FsCheckProperties =
 
     // One pair for every property: FsCheck asks for the generator once per property and never disposes it.
     let private propertyRuntimes =
-        lazy [ new DirectRuntime() :> FIORuntime; new WorkStealingRuntime(testConfig) :> FIORuntime ]
+        lazy
+            [
+                new DirectRuntime() :> FIORuntime
+                new WorkStealingRuntime(testConfig) :> FIORuntime
+            ]
 
     type Generators =
 
@@ -60,12 +67,13 @@ let testAllRuntimes name (f: FIORuntime -> unit) =
                         disposeRuntime rt)
         ]
 
-let stressEnabled =
-    Environment.GetEnvironmentVariable "FIO_RUN_STRESS" = "1"
+let stressEnabled = Environment.GetEnvironmentVariable "FIO_RUN_STRESS" = "1"
 
 let stressTestAllRuntimes name (f: FIORuntime -> unit) =
-    if stressEnabled then testSequenced (testAllRuntimes name f)
-    else ptestCase name ignore
+    if stressEnabled then
+        testSequenced (testAllRuntimes name f)
+    else
+        ptestCase name ignore
 
 let findAvailablePort () =
     let listener = new TcpListener(IPAddress.Loopback, 0)
@@ -132,9 +140,7 @@ let startListenerWith (start: string -> FIO<HttpListener, WsError>) (host: strin
             let url = $"http://{host}:{port}/"
 
             let! outcome =
-                (start url)
-                    .Map(fun listener -> Ok(port, listener))
-                    .CatchAll(fun error -> FIO.succeed (Error error))
+                (start url).Map(fun listener -> Ok(port, listener)).CatchAll(fun error -> FIO.succeed (Error error))
 
             match outcome with
             | Ok result -> return result
@@ -151,15 +157,18 @@ let startListenerWith (start: string -> FIO<HttpListener, WsError>) (host: strin
 let startTestListenerOn (host: string) =
     startListenerWith WebSocketServer.start host
 
-let startTestListener () =
-    startTestListenerOn "localhost"
+let startTestListener () = startTestListenerOn "localhost"
 
 // A client connecting while the managed HttpListener starts can fail Start and hold the port (dotnet/runtime#28658).
 let private retryOnNewPort (error: WsError) =
     match error with
     | ConnectionFailed "Value cannot be null." -> true
     | ConnectionFailed message ->
-        [ "conflicts with an existing registration"; "already in use"; "being used by another process" ]
+        [
+            "conflicts with an existing registration"
+            "already in use"
+            "being used by another process"
+        ]
         |> List.exists message.Contains
     | _ -> false
 
@@ -183,14 +192,23 @@ let withServerOn (host: string) (startServer: string -> FIO<unit, WsError>) (act
                     .Fork()
 
             let serverDied =
-                server.Await().FlatMap(fun result ->
-                    match result with
-                    | Succeeded () -> FIO.fail (ConnectionFailed "server exited before the test was done with it")
-                    | Failed error -> FIO.fail error
-                    | Interrupted _ -> FIO.never ())
+                server
+                    .Await()
+                    .FlatMap(fun result ->
+                        match result with
+                        | Succeeded() -> FIO.fail (ConnectionFailed "server exited before the test was done with it")
+                        | Failed error -> FIO.fail error
+                        | Interrupted _ -> FIO.never ())
 
             let! outcome =
-                ((action { Server = server; Url = $"ws://{host}:{port}/"; Unwound = unwound.Task }).RaceFirst serverDied)
+                ((action
+                    {
+                        Server = server
+                        Url = $"ws://{host}:{port}/"
+                        Unwound = unwound.Task
+                    })
+                    .RaceFirst
+                    serverDied)
                     .Map(fun value -> Ok value)
                     .CatchAll(fun error -> FIO.succeed (Error error))
 
@@ -208,8 +226,7 @@ let withServedUrl (startServer: string -> FIO<unit, WsError>) (action: string ->
     withServerOn "localhost" startServer (fun served -> action served.Url)
 
 let connectWhenListening (url: string) =
-    (WebSocketClient.connectDefault url)
-        .Retry 60 (fun (_, _, _) -> FIO.sleep (TimeSpan.FromMilliseconds 50.0))
+    (WebSocketClient.connectDefault url).Retry 60 (fun (_, _, _) -> FIO.sleep (TimeSpan.FromMilliseconds 50.0))
 
 let withTestServer (handler: WebSocket -> FIO<unit, WsError>) (action: int -> FIO<'A, WsError>) (runtime: FIORuntime) =
     let effect =
@@ -221,10 +238,11 @@ let withTestServer (handler: WebSocket -> FIO<unit, WsError>) (action: int -> FI
                     let! ws = WebSocketServer.acceptDefault listener WebSocketConfig.defaultConfig
                     do! handler ws
                     do! ws.Close()
-                }).Fork()
+                })
+                    .Fork()
 
             let! result = action port
-            do! serverFiber.InterruptNow ()
+            do! serverFiber.InterruptNow()
             do! WebSocketServer.close listener
             return result
         }
@@ -246,7 +264,7 @@ let withTestEchoServerOn (host: string) (action: int -> FIO<'A, WsError>) (runti
                 (WebSocketServer.acceptLoop listener WebSocketConfig.defaultConfig closingEchoHandler).Fork()
 
             let! result = action port
-            do! serverFiber.InterruptNow ()
+            do! serverFiber.InterruptNow()
             do! WebSocketServer.close listener
             return result
         }

@@ -33,10 +33,9 @@ module internal Threadring =
     let private createActors channels =
         let allChannels = List.toArray channels
         let count = allChannels.Length
-        channels |> List.mapi (fun index channel ->
-            let receiveIndex =
-                if index = 0 then count - 1
-                else index - 1
+        channels
+        |> List.mapi (fun index channel ->
+            let receiveIndex = if index = 0 then count - 1 else index - 1
             {
                 SendChannel = channel
                 ReceiveChannel = allChannels[receiveIndex]
@@ -69,5 +68,5 @@ type ThreadringBenchmark() =
     [<ParamsSource("RoundCounts")>]
     member val RoundCount = 0 with get, set
 
-    override this.CreateEffect () =
+    override this.CreateEffect() =
         Threadring.effect this.ActorCount this.RoundCount

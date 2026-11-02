@@ -109,7 +109,10 @@ let typesTests =
                         Expect.equal config.ReceiveBufferSize 4096 "Default ReceiveBufferSize"
                         Expect.equal config.MaxMessageSize 1_048_576L "Default MaxMessageSize (1 MB)"
                         Expect.equal config.SendTimeout 30_000 "Default SendTimeout"
-                        Expect.equal config.ReceiveTimeout 0 "Default ReceiveTimeout: none, since a timed-out receive aborts the connection"
+                        Expect.equal
+                            config.ReceiveTimeout
+                            0
+                            "Default ReceiveTimeout: none, since a timed-out receive aborts the connection"
                         Expect.equal config.ShutdownTimeout 10_000 "Default ShutdownTimeout"
                         Expect.equal config.MaxConnections 0 "Default MaxConnections: no limit"
 

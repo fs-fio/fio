@@ -10,7 +10,10 @@ open FIO.Runtime.WorkStealing
 open Expecto
 open FsCheck.FSharp
 
-let testConfig = { WorkerConfig.Default with EvaluationWorkers = 2 }
+let testConfig =
+    { WorkerConfig.Default with
+        EvaluationWorkers = 2
+    }
 
 let allRuntimes () =
     [
@@ -51,28 +54,33 @@ let testAllRuntimes name (f: FIORuntime -> unit) =
                         disposeRuntime runtime)
         ]
 
-let testAllRuntimesSequenced name (f: FIORuntime -> unit) =
-    testSequenced <| testAllRuntimes name f
+let testAllRuntimesSequenced name (f: FIORuntime -> unit) = testSequenced <| testAllRuntimes name f
 
 module FsCheckProperties =
 
     // One pair for every property: FsCheck asks for the generator once per property and never disposes it.
     let private propertyRuntimes =
-        lazy [ new DirectRuntime() :> FIORuntime; new WorkStealingRuntime(testConfig) :> FIORuntime ]
+        lazy
+            [
+                new DirectRuntime() :> FIORuntime
+                new WorkStealingRuntime(testConfig) :> FIORuntime
+            ]
 
     type Generators =
 
         static member Runtime() =
             Gen.elements propertyRuntimes.Value |> Arb.fromGen
 
-    let stressEnabled =
-        Environment.GetEnvironmentVariable "FIO_RUN_STRESS" = "1"
+    let stressEnabled = Environment.GetEnvironmentVariable "FIO_RUN_STRESS" = "1"
 
     let stressTestCase name f =
         if stressEnabled then testCase name f else ptestCase name f
 
     let stressTestAllRuntimes name (f: FIORuntime -> unit) =
-        if stressEnabled then testAllRuntimes name f else ptestCase name ignore
+        if stressEnabled then
+            testAllRuntimes name f
+        else
+            ptestCase name ignore
 
     let fsCheckConfig =
         { FsCheckConfig.defaultConfig with

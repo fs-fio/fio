@@ -27,7 +27,10 @@ let webSocketClientTests =
                                     fio {
                                         let uri = Uri $"ws://localhost:{port}/"
                                         let! ws =
-                                            WebSocketClient.connect uri WebSocketConfig.defaultConfig CancellationToken.None
+                                            WebSocketClient.connect
+                                                uri
+                                                WebSocketConfig.defaultConfig
+                                                CancellationToken.None
                                         let! state = ws.State()
                                         do! ws.Close()
                                         return state
@@ -52,21 +55,23 @@ let webSocketClientTests =
 
                         Expect.equal state WebSocketState.Open "Should be connected")
 
-                    testAllRuntimes "connectString/connectStringWith/connectDefault - connect to a listening server" (fun runtime ->
-                        let state =
-                            withTestServer
-                                noopHandler
-                                (fun port ->
-                                    fio {
-                                        let url = $"ws://localhost:{port}/"
-                                        let! ws = WebSocketClient.connectDefault url
-                                        let! state = ws.State()
-                                        do! ws.Close()
-                                        return state
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "connectString/connectStringWith/connectDefault - connect to a listening server"
+                        (fun runtime ->
+                            let state =
+                                withTestServer
+                                    noopHandler
+                                    (fun port ->
+                                        fio {
+                                            let url = $"ws://localhost:{port}/"
+                                            let! ws = WebSocketClient.connectDefault url
+                                            let! state = ws.State()
+                                            do! ws.Close()
+                                            return state
+                                        })
+                                    runtime
 
-                        Expect.equal state WebSocketState.Open "Should be connected")
+                            Expect.equal state WebSocketState.Open "Should be connected")
 
                     testAllRuntimes "connect - fails for an unreachable host" (fun runtime ->
                         let effect =
@@ -116,11 +121,14 @@ let webSocketClientTests =
                                     fio {
                                         let uri = Uri $"ws://localhost:{port}/"
                                         let! wasOpen =
-                                            WebSocketClient.withConnection uri WebSocketConfig.defaultConfig (fun ws ->
-                                                fio {
-                                                    let! state = ws.State()
-                                                    return state = WebSocketState.Open
-                                                })
+                                            WebSocketClient.withConnection
+                                                uri
+                                                WebSocketConfig.defaultConfig
+                                                (fun ws ->
+                                                    fio {
+                                                        let! state = ws.State()
+                                                        return state = WebSocketState.Open
+                                                    })
                                         return wasOpen
                                     })
                                 runtime
@@ -128,49 +136,61 @@ let webSocketClientTests =
                         Expect.isTrue wasOpen "Should have been open during action")
 
                     testSequenced (
-                        testAllRuntimes "withConnection - stays quiet when an interrupted receive aborted the socket" (fun runtime ->
-                            let originalErr = Console.Error
-                            use captured = new IO.StringWriter()
-                            Console.SetError captured
+                        testAllRuntimes
+                            "withConnection - stays quiet when an interrupted receive aborted the socket"
+                            (fun runtime ->
+                                let originalErr = Console.Error
+                                use captured = new IO.StringWriter()
+                                Console.SetError captured
 
-                            let winner =
-                                try
-                                    withTestServer
-                                        noopHandler
-                                        (fun port ->
-                                            fio {
-                                                let uri = Uri $"ws://localhost:{port}/"
-                                                let! winner =
-                                                    WebSocketClient.withConnection uri WebSocketConfig.defaultConfig (fun ws ->
-                                                        (ws.ReceiveMessage().Map(fun _ -> "receiver"))
-                                                            .RaceFirst(FIO.succeed "quit"))
-                                                return winner
-                                            })
-                                        runtime
-                                finally
-                                    Console.SetError originalErr
+                                let winner =
+                                    try
+                                        withTestServer
+                                            noopHandler
+                                            (fun port ->
+                                                fio {
+                                                    let uri = Uri $"ws://localhost:{port}/"
+                                                    let! winner =
+                                                        WebSocketClient.withConnection
+                                                            uri
+                                                            WebSocketConfig.defaultConfig
+                                                            (fun ws ->
+                                                                (ws.ReceiveMessage().Map(fun _ -> "receiver"))
+                                                                    .RaceFirst(FIO.succeed "quit"))
+                                                    return winner
+                                                })
+                                            runtime
+                                    finally
+                                        Console.SetError originalErr
 
-                            Expect.equal winner "quit" "The immediate effect should win the race"
-                            Expect.equal (captured.ToString()) "" "Releasing an aborted socket must not log to stderr"))
+                                Expect.equal winner "quit" "The immediate effect should win the race"
+                                Expect.equal
+                                    (captured.ToString())
+                                    ""
+                                    "Releasing an aborted socket must not log to stderr")
+                    )
 
-                    testAllRuntimes "withConnection - its release is bounded by SendTimeout when the peer never answers the close" (fun runtime ->
-                        let elapsedSeconds =
-                            withTestServer
-                                (fun _ -> FIO.never ())
-                                (fun port ->
-                                    fio {
-                                        let uri = Uri $"ws://localhost:{port}/"
-                                        let config = WebSocketConfig.defaultConfig |> WebSocketConfig.withSendTimeout 500
-                                        let clock = Diagnostics.Stopwatch.StartNew()
-                                        do! WebSocketClient.withConnection uri config (fun _ -> FIO.unit ())
-                                        return clock.Elapsed.TotalSeconds
-                                    })
-                                runtime
+                    testAllRuntimes
+                        "withConnection - its release is bounded by SendTimeout when the peer never answers the close"
+                        (fun runtime ->
+                            let elapsedSeconds =
+                                withTestServer
+                                    (fun _ -> FIO.never ())
+                                    (fun port ->
+                                        fio {
+                                            let uri = Uri $"ws://localhost:{port}/"
+                                            let config =
+                                                WebSocketConfig.defaultConfig |> WebSocketConfig.withSendTimeout 500
+                                            let clock = Diagnostics.Stopwatch.StartNew()
+                                            do! WebSocketClient.withConnection uri config (fun _ -> FIO.unit ())
+                                            return clock.Elapsed.TotalSeconds
+                                        })
+                                    runtime
 
-                        Expect.isLessThan
-                            elapsedSeconds
-                            10.0
-                            "A peer that never reads must not hold the release beyond the send timeout")
+                            Expect.isLessThan
+                                elapsedSeconds
+                                10.0
+                                "A peer that never reads must not hold the release beyond the send timeout")
 
                     testAllRuntimes "withConnectionString - closes the connection when the scope ends" (fun runtime ->
                         let wasOpen =

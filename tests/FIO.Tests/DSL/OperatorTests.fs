@@ -90,8 +90,18 @@ let operatorTests =
                     testPropertyWithConfig fsCheckConfig "( *> ) - evaluates its operands left to right"
                     <| fun (runtime: FIORuntime, a: int, b: int) ->
                         let log = ResizeArray<string>()
-                        let left = FIO.attempt (fun () -> log.Add "left"; a) (fun ex -> ex.Message)
-                        let right = FIO.attempt (fun () -> log.Add "right"; b) (fun ex -> ex.Message)
+                        let left =
+                            FIO.attempt
+                                (fun () ->
+                                    log.Add "left"
+                                    a)
+                                (fun ex -> ex.Message)
+                        let right =
+                            FIO.attempt
+                                (fun () ->
+                                    log.Add "right"
+                                    b)
+                                (fun ex -> ex.Message)
 
                         let result = runtime.Run(left *> right).UnsafeSuccess()
 
@@ -101,8 +111,18 @@ let operatorTests =
                     testPropertyWithConfig fsCheckConfig "( <* ) - evaluates its operands left to right"
                     <| fun (runtime: FIORuntime, a: int, b: int) ->
                         let log = ResizeArray<string>()
-                        let left = FIO.attempt (fun () -> log.Add "left"; a) (fun ex -> ex.Message)
-                        let right = FIO.attempt (fun () -> log.Add "right"; b) (fun ex -> ex.Message)
+                        let left =
+                            FIO.attempt
+                                (fun () ->
+                                    log.Add "left"
+                                    a)
+                                (fun ex -> ex.Message)
+                        let right =
+                            FIO.attempt
+                                (fun () ->
+                                    log.Add "right"
+                                    b)
+                                (fun ex -> ex.Message)
 
                         let result = runtime.Run(left <* right).UnsafeSuccess()
 
@@ -112,8 +132,18 @@ let operatorTests =
                     testPropertyWithConfig fsCheckConfig "( <*> ) - evaluates its operands left to right"
                     <| fun (runtime: FIORuntime, a: int, b: int) ->
                         let log = ResizeArray<string>()
-                        let left = FIO.attempt (fun () -> log.Add "left"; a) (fun ex -> ex.Message)
-                        let right = FIO.attempt (fun () -> log.Add "right"; b) (fun ex -> ex.Message)
+                        let left =
+                            FIO.attempt
+                                (fun () ->
+                                    log.Add "left"
+                                    a)
+                                (fun ex -> ex.Message)
+                        let right =
+                            FIO.attempt
+                                (fun () ->
+                                    log.Add "right"
+                                    b)
+                                (fun ex -> ex.Message)
 
                         let result = runtime.Run(left <*> right).UnsafeSuccess()
 
@@ -123,21 +153,41 @@ let operatorTests =
                     testPropertyWithConfig fsCheckConfig "( >>= ) - evaluates the source before the continuation"
                     <| fun (runtime: FIORuntime, a: int, b: int) ->
                         let log = ResizeArray<string>()
-                        let source = FIO.attempt (fun () -> log.Add "source"; a) (fun ex -> ex.Message)
+                        let source =
+                            FIO.attempt
+                                (fun () ->
+                                    log.Add "source"
+                                    a)
+                                (fun ex -> ex.Message)
                         let effect =
-                            source >>= fun _ ->
-                                FIO.attempt (fun () -> log.Add "continuation"; b) (fun ex -> ex.Message)
+                            source
+                            >>= fun _ ->
+                                FIO.attempt
+                                    (fun () ->
+                                        log.Add "continuation"
+                                        b)
+                                    (fun ex -> ex.Message)
 
                         let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result b "( >>= ) should yield the continuation's value"
-                        Expect.sequenceEqual log [ "source"; "continuation" ] "( >>= ) must run the source before the continuation"
+                        Expect.sequenceEqual
+                            log
+                            [ "source"; "continuation" ]
+                            "( >>= ) must run the source before the continuation"
 
-                    testPropertyWithConfig fsCheckConfig "( *> ) - does not evaluate the right operand when the left fails"
+                    testPropertyWithConfig
+                        fsCheckConfig
+                        "( *> ) - does not evaluate the right operand when the left fails"
                     <| fun (runtime: FIORuntime, error: string) ->
                         let log = ResizeArray<string>()
                         let left: FIO<int, string> = FIO.fail error
-                        let right = FIO.attempt (fun () -> log.Add "right"; 0) (fun ex -> ex.Message)
+                        let right =
+                            FIO.attempt
+                                (fun () ->
+                                    log.Add "right"
+                                    0)
+                                (fun ex -> ex.Message)
 
                         let result = runtime.Run(left *> right).UnsafeError()
 
@@ -300,7 +350,10 @@ let operatorTests =
                         let operatorResult = runtime.Run(eff1 <+> eff2).UnsafeSuccess()
                         let methodResult = runtime.Run(eff1.OrElseEither eff2).UnsafeSuccess()
 
-                        Expect.equal operatorResult (Choice2Of2 fallback) "( <+> ) should return Choice2Of2 when fallback succeeds"
+                        Expect.equal
+                            operatorResult
+                            (Choice2Of2 fallback)
+                            "( <+> ) should return Choice2Of2 when fallback succeeds"
                         Expect.equal operatorResult methodResult "( <+> ) should equal OrElseEither on fallback"
 
                     testPropertyWithConfig fsCheckConfig "( <+> ) - returns the fallback's error when both fail"
@@ -311,7 +364,10 @@ let operatorTests =
                         let operatorResult = runtime.Run(eff1 <+> eff2).UnsafeError()
                         let methodResult = runtime.Run(eff1.OrElseEither eff2).UnsafeError()
 
-                        Expect.equal operatorResult fallbackErr "( <+> ) should propagate the fallback error when both fail"
+                        Expect.equal
+                            operatorResult
+                            fallbackErr
+                            "( <+> ) should propagate the fallback error when both fail"
                         Expect.equal operatorResult methodResult "( <+> ) should equal OrElseEither when both fail"
                 ]
 
@@ -321,12 +377,16 @@ let operatorTests =
                     testPropertyWithConfig fsCheckConfig "( <?> ) - returns Choice1Of2 when the first racer wins"
                     <| fun (runtime: FIORuntime) ->
                         let fast = FIO.succeed 1
-                        let slow = (FIO.sleep (TimeSpan.FromSeconds 10.0)).FlatMap(fun () -> FIO.succeed "slow")
+                        let slow =
+                            (FIO.sleep (TimeSpan.FromSeconds 10.0)).FlatMap(fun () -> FIO.succeed "slow")
 
                         let operatorResult = runtime.Run(fast <?> slow).UnsafeSuccess()
                         let methodResult = runtime.Run(fast.RaceEither slow).UnsafeSuccess()
 
-                        Expect.equal operatorResult (Choice1Of2 1) "( <?> ) should return Choice1Of2 when the left racer wins"
+                        Expect.equal
+                            operatorResult
+                            (Choice1Of2 1)
+                            "( <?> ) should return Choice1Of2 when the left racer wins"
                         Expect.equal operatorResult methodResult "( <?> ) should equal RaceEither"
 
                     testPropertyWithConfig fsCheckConfig "( <?> ) - returns Choice2Of2 when the second racer wins"
@@ -337,7 +397,10 @@ let operatorTests =
                         let operatorResult = runtime.Run(slow <?> fast).UnsafeSuccess()
                         let methodResult = runtime.Run(slow.RaceEither fast).UnsafeSuccess()
 
-                        Expect.equal operatorResult (Choice2Of2 "fast") "( <?> ) should return Choice2Of2 when the right racer wins"
+                        Expect.equal
+                            operatorResult
+                            (Choice2Of2 "fast")
+                            "( <?> ) should return Choice2Of2 when the right racer wins"
                         Expect.equal operatorResult methodResult "( <?> ) should equal RaceEither"
                 ]
 

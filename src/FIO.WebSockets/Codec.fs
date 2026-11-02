@@ -19,99 +19,103 @@ type WebSocketCodec<'A> =
 module Codec =
 
     /// A codec that passes WebSocket frames through unchanged.
-    let frame : WebSocketCodec<WebSocketFrame> =
+    let frame: WebSocketCodec<WebSocketFrame> =
         {
             Encode = fun frame -> FIO.succeed frame
             Decode = fun frame -> FIO.succeed frame
         }
 
     /// A codec for binary frames.
-    let binary : WebSocketCodec<byte[]> =
+    let binary: WebSocketCodec<byte[]> =
         {
             Encode = fun bytes -> FIO.succeed (Binary bytes)
-            Decode = fun frame ->
-                match frame with
-                | Binary bytes -> FIO.succeed bytes
-                | Text _ -> FIO.fail (CodecError "Expected binary frame, got text frame")
-                | Close _ -> FIO.fail (CodecError "Expected binary frame, got close frame")
+            Decode =
+                fun frame ->
+                    match frame with
+                    | Binary bytes -> FIO.succeed bytes
+                    | Text _ -> FIO.fail (CodecError "Expected binary frame, got text frame")
+                    | Close _ -> FIO.fail (CodecError "Expected binary frame, got close frame")
         }
 
     /// A codec for text frames.
-    let text : WebSocketCodec<string> =
+    let text: WebSocketCodec<string> =
         {
             Encode = fun str -> FIO.succeed (Text str)
-            Decode = fun frame ->
-                match frame with
-                | Text str -> FIO.succeed str
-                | Binary _ -> FIO.fail (CodecError "Expected text frame, got binary frame")
-                | Close _ -> FIO.fail (CodecError "Expected text frame, got close frame")
+            Decode =
+                fun frame ->
+                    match frame with
+                    | Text str -> FIO.succeed str
+                    | Binary _ -> FIO.fail (CodecError "Expected text frame, got binary frame")
+                    | Close _ -> FIO.fail (CodecError "Expected text frame, got close frame")
         }
 
     /// Creates a JSON codec using the given serializer options.
     let jsonWithOptions<'A> (options: JsonSerializerOptions) : WebSocketCodec<'A> =
         {
-            Encode = fun value ->
-                FIO.attempt
-                    (fun () ->
-                        let json = JsonSerializer.Serialize(value, options)
-                        Text json)
-                    WsError.codecError
-            Decode = fun frame ->
-                match frame with
-                | Text json ->
-                    FIO.attempt
-                        (fun () -> JsonSerializer.Deserialize<'A>(json, options))
-                        WsError.codecError
-                | Binary bytes ->
+            Encode =
+                fun value ->
                     FIO.attempt
                         (fun () ->
-                            let json = Encoding.UTF8.GetString bytes
-                            JsonSerializer.Deserialize<'A>(json, options))
+                            let json = JsonSerializer.Serialize(value, options)
+                            Text json)
                         WsError.codecError
-                | Close _ ->
-                    FIO.fail (CodecError "Cannot decode close frame as JSON")
+            Decode =
+                fun frame ->
+                    match frame with
+                    | Text json ->
+                        FIO.attempt (fun () -> JsonSerializer.Deserialize<'A>(json, options)) WsError.codecError
+                    | Binary bytes ->
+                        FIO.attempt
+                            (fun () ->
+                                let json = Encoding.UTF8.GetString bytes
+                                JsonSerializer.Deserialize<'A>(json, options))
+                            WsError.codecError
+                    | Close _ -> FIO.fail (CodecError "Cannot decode close frame as JSON")
         }
 
     /// A JSON codec using default serializer options.
-    let json<'A> : WebSocketCodec<'A> = jsonWithOptions<'A> JsonSerializerOptions.Default
+    let json<'A> : WebSocketCodec<'A> =
+        jsonWithOptions<'A> JsonSerializerOptions.Default
 
     /// Creates a newline-terminated JSON codec, optionally using the given serializer options.
     let jsonLine<'A> (options: JsonSerializerOptions option) : WebSocketCodec<'A> =
         let opts = defaultArg options JsonSerializerOptions.Default
         {
-            Encode = fun value ->
-                FIO.attempt
-                    (fun () ->
-                        let json = JsonSerializer.Serialize(value, opts)
-                        Text(json + "\n"))
-                    WsError.codecError
-            Decode = fun frame ->
-                match frame with
-                | Text json ->
+            Encode =
+                fun value ->
                     FIO.attempt
                         (fun () ->
-                            let trimmed = json.TrimEnd('\n', '\r')
-                            JsonSerializer.Deserialize<'A>(trimmed, opts))
+                            let json = JsonSerializer.Serialize(value, opts)
+                            Text(json + "\n"))
                         WsError.codecError
-                | Binary bytes ->
-                    FIO.attempt
-                        (fun () ->
-                            let json = Encoding.UTF8.GetString(bytes).TrimEnd('\n', '\r')
-                            JsonSerializer.Deserialize<'A>(json, opts))
-                        WsError.codecError
-                | Close _ ->
-                    FIO.fail (CodecError "Cannot decode close frame as JSON line")
+            Decode =
+                fun frame ->
+                    match frame with
+                    | Text json ->
+                        FIO.attempt
+                            (fun () ->
+                                let trimmed = json.TrimEnd('\n', '\r')
+                                JsonSerializer.Deserialize<'A>(trimmed, opts))
+                            WsError.codecError
+                    | Binary bytes ->
+                        FIO.attempt
+                            (fun () ->
+                                let json = Encoding.UTF8.GetString(bytes).TrimEnd('\n', '\r')
+                                JsonSerializer.Deserialize<'A>(json, opts))
+                            WsError.codecError
+                    | Close _ -> FIO.fail (CodecError "Cannot decode close frame as JSON line")
         }
 
     /// Adapts a codec to a new type using forward and backward conversions.
     let map (forward: 'A -> 'A1) (backward: 'A1 -> 'A) (codec: WebSocketCodec<'A>) : WebSocketCodec<'A1> =
         {
             Encode = fun value -> codec.Encode(backward value)
-            Decode = fun frame ->
-                fio {
-                    let! decoded = codec.Decode frame
-                    return forward decoded
-                }
+            Decode =
+                fun frame ->
+                    fio {
+                        let! decoded = codec.Decode frame
+                        return forward decoded
+                    }
         }
 
     /// Combines two codecs into one that encodes a pair of values into a single frame.
@@ -119,7 +123,11 @@ module Codec =
         let framePart (frame: WebSocketFrame) =
             match frame with
             | Text str -> {| kind = "text"; value = str |}
-            | Binary bytes -> {| kind = "binary"; value = Convert.ToBase64String bytes |}
+            | Binary bytes ->
+                {|
+                    kind = "binary"
+                    value = Convert.ToBase64String bytes
+                |}
             | Close _ -> raise (Exception "Cannot compose a close frame")
 
         let partFrame (element: JsonElement) =
@@ -130,51 +138,51 @@ module Codec =
             | "binary" -> Binary(Convert.FromBase64String value)
             | other -> raise (Exception $"Unknown composed frame kind: {other}")
         {
-            Encode = fun (first, second) ->
-                fio {
-                    let! frameA = codec.Encode first
-                    let! frameB = codec'.Encode second
-                    return!
-                        FIO.attempt
-                            (fun () -> Text(JsonSerializer.Serialize [| framePart frameA; framePart frameB |]))
-                            WsError.codecError
-                }
-            Decode = fun frame ->
-                fio {
-                    let! json =
-                        match frame with
-                        | Text str -> FIO.succeed str
-                        | Binary bytes -> FIO.succeed (Encoding.UTF8.GetString bytes)
-                        | Close _ -> FIO.fail (CodecError "Cannot decode close frame as composed value")
+            Encode =
+                fun (first, second) ->
+                    fio {
+                        let! frameA = codec.Encode first
+                        let! frameB = codec'.Encode second
+                        return!
+                            FIO.attempt
+                                (fun () -> Text(JsonSerializer.Serialize [| framePart frameA; framePart frameB |]))
+                                WsError.codecError
+                    }
+            Decode =
+                fun frame ->
+                    fio {
+                        let! json =
+                            match frame with
+                            | Text str -> FIO.succeed str
+                            | Binary bytes -> FIO.succeed (Encoding.UTF8.GetString bytes)
+                            | Close _ -> FIO.fail (CodecError "Cannot decode close frame as composed value")
 
-                    let! frameA, frameB =
-                        FIO.attempt (fun () ->
-                                use doc = JsonDocument.Parse json
-                                let elements = doc.RootElement.EnumerateArray() |> Seq.toArray
-                                if elements.Length <> 2 then
-                                    raise (Exception $"Expected 2 composed elements, got {elements.Length}")
-                                partFrame elements[0], partFrame elements[1])
-                            WsError.codecError
+                        let! frameA, frameB =
+                            FIO.attempt
+                                (fun () ->
+                                    use doc = JsonDocument.Parse json
+                                    let elements = doc.RootElement.EnumerateArray() |> Seq.toArray
+                                    if elements.Length <> 2 then
+                                        raise (Exception $"Expected 2 composed elements, got {elements.Length}")
+                                    partFrame elements[0], partFrame elements[1])
+                                WsError.codecError
 
-                    let! first = codec.Decode frameA
-                    let! second = codec'.Decode frameB
-                    return first, second
-                }
+                        let! first = codec.Decode frameA
+                        let! second = codec'.Decode frameB
+                        return first, second
+                    }
         }
 
     /// Creates a codec from effectful encode and decode functions.
-    let create (encode: 'A -> FIO<WebSocketFrame, WsError>) (decode: WebSocketFrame -> FIO<'A, WsError>) : WebSocketCodec<'A> =
+    let create
+        (encode: 'A -> FIO<WebSocketFrame, WsError>)
+        (decode: WebSocketFrame -> FIO<'A, WsError>)
+        : WebSocketCodec<'A> =
         { Encode = encode; Decode = decode }
 
     /// Creates a codec from pure encode and decode functions, mapping thrown exceptions to errors.
     let createPure (encode: 'A -> WebSocketFrame) (decode: WebSocketFrame -> 'A) : WebSocketCodec<'A> =
         {
-            Encode = fun value ->
-                FIO.attempt
-                    (fun () -> encode value)
-                    WsError.codecError
-            Decode = fun frame ->
-                FIO.attempt
-                    (fun () -> decode frame)
-                    WsError.codecError
+            Encode = fun value -> FIO.attempt (fun () -> encode value) WsError.codecError
+            Decode = fun frame -> FIO.attempt (fun () -> decode frame) WsError.codecError
         }

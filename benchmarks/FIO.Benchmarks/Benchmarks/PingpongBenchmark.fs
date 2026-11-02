@@ -53,7 +53,8 @@ module internal Pingpong =
                     ReceiveChannel = pingSendChannel
                 }
 
-            do! pingerEffect pinger roundCount startChannel
+            do!
+                pingerEffect pinger roundCount startChannel
                 <&&> pongerEffect ponger roundCount startChannel
         }
 
@@ -69,5 +70,4 @@ type PingpongBenchmark() =
     [<ParamsSource("RoundCounts")>]
     member val RoundCount = 0 with get, set
 
-    override this.CreateEffect () =
-        Pingpong.effect this.RoundCount
+    override this.CreateEffect() = Pingpong.effect this.RoundCount

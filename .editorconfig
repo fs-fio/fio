@@ -13,3 +13,7 @@ indent_size = 2
 
 [*.md]
 trim_trailing_whitespace = false
+
+[*.{fs,fsx,fsi}]
+# Fantomas defaults, except blank lines stay as written: in tests a blank line marks an Arrange/Act/Assert boundary.
+fsharp_blank_lines_around_nested_multiline_expressions = false

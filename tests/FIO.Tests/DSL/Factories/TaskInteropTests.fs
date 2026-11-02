@@ -26,8 +26,7 @@ let tests =
                     <| fun (runtime: FIORuntime) ->
                         let effect = FIO.awaitUnitTask Task.CompletedTask (fun ex -> ex.Message)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result () "FIO.awaitUnitTask should complete successfully"
 
@@ -35,8 +34,7 @@ let tests =
                         let effect =
                             FIO.awaitUnitTask (Task.FromException(Exception "task failed")) (fun ex -> ex.Message)
 
-                        let result =
-                            runtime.Run(effect).UnsafeError()
+                        let result = runtime.Run(effect).UnsafeError()
 
                         Expect.equal result "task failed" "FIO.awaitUnitTask should map exception to error")
 
@@ -46,8 +44,7 @@ let tests =
                         let faultedTask = Task.FromException ex
                         let effect = FIO.awaitUnitTask faultedTask id
 
-                        let result =
-                            runtime.Run(effect).UnsafeError()
+                        let result = runtime.Run(effect).UnsafeError()
 
                         Expect.stringContains result.Message "test error" "FIO.awaitUnitTask should propagate exception"
 
@@ -55,16 +52,16 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.awaitTask (Task.FromResult value) (fun ex -> ex.Message)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result value "FIO.awaitTask should return task result"
 
                     testAllRuntimes "awaitTask - maps exception on faulted task" (fun runtime ->
-                        let effect = FIO.awaitTask (Task.FromException<int>(Exception "generic task failed")) (fun ex -> ex.Message)
+                        let effect =
+                            FIO.awaitTask (Task.FromException<int>(Exception "generic task failed")) (fun ex ->
+                                ex.Message)
 
-                        let result =
-                            runtime.Run(effect).UnsafeError()
+                        let result = runtime.Run(effect).UnsafeError()
 
                         Expect.equal result "generic task failed" "FIO.awaitTask should map exception to error")
 
@@ -84,44 +81,45 @@ let tests =
                         let faultedTask = Task.FromException<int> ex
                         let effect = FIO.awaitTask faultedTask id
 
-                        let result =
-                            runtime.Run(effect).UnsafeError()
+                        let result = runtime.Run(effect).UnsafeError()
 
                         Expect.stringContains
                             result.Message
                             "generic task error"
                             "FIO.awaitTask should propagate exception"
 
-                    testCase "awaitTask - a throwing onError resumed on a worker thread surfaces the task error instead of crashing the process" (fun () ->
-                        use runtime = new WorkStealingRuntime()
-                        let faulting: Task<int> =
-                            task {
-                                do! Task.Delay 5
-                                return raise (Exception "task boom")
-                            }
-                        let throwingOnError: exn -> exn = fun _ -> raise (Exception "onError threw")
-                        let effect = FIO.awaitTask faulting throwingOnError
+                    testCase
+                        "awaitTask - a throwing onError resumed on a worker thread surfaces the task error instead of crashing the process"
+                        (fun () ->
+                            use runtime = new WorkStealingRuntime()
+                            let faulting: Task<int> =
+                                task {
+                                    do! Task.Delay 5
+                                    return raise (Exception "task boom")
+                                }
+                            let throwingOnError: exn -> exn = fun _ -> raise (Exception "onError threw")
+                            let effect = FIO.awaitTask faulting throwingOnError
 
-                        let result = runtime.Run(effect).UnsafeResult()
+                            let result = runtime.Run(effect).UnsafeResult()
 
-                        match result with
-                        | Interrupted ex ->
-                            match ex.cause with
-                            | Defect defect ->
-                                Expect.stringContains
-                                    defect.Message
-                                    "task boom"
-                                    $"{runtime.GetType().Name}: throwing onError must not crash; the raw task error should surface as the defect"
-                            | other -> failtest $"{runtime.GetType().Name}: expected a Defect cause but got {other}"
-                        | other -> failtest $"{runtime.GetType().Name}: expected Interrupted but got {other}")
+                            match result with
+                            | Interrupted ex ->
+                                match ex.cause with
+                                | Defect defect ->
+                                    Expect.stringContains
+                                        defect.Message
+                                        "task boom"
+                                        $"{runtime.GetType().Name}: throwing onError must not crash; the raw task error should surface as the defect"
+                                | other ->
+                                    failtest $"{runtime.GetType().Name}: expected a Defect cause but got {other}"
+                            | other -> failtest $"{runtime.GetType().Name}: expected Interrupted but got {other}")
 
                     testPropertyWithConfig fsCheckConfig "awaitAsync - returns async result"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let asyncComp = async { return value }
                         let effect = FIO.awaitAsync asyncComp id
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result value "FIO.awaitAsync should return async result"
 
@@ -129,8 +127,7 @@ let tests =
                         let asyncComp = async { return failwith "async failed" }
                         let effect = FIO.awaitAsync asyncComp (fun ex -> ex.Message)
 
-                        let result =
-                            runtime.Run(effect).UnsafeError()
+                        let result = runtime.Run(effect).UnsafeError()
 
                         Expect.stringContains result "async failed" "FIO.awaitAsync should map exception to error")
 
@@ -138,8 +135,7 @@ let tests =
                         let asyncComp = async { return failwith "async failed" }
                         let effect = FIO.awaitAsync asyncComp id
 
-                        let result =
-                            runtime.Run(effect).UnsafeError()
+                        let result = runtime.Run(effect).UnsafeError()
 
                         Expect.stringContains result.Message "async failed" "FIO.awaitAsync should propagate exception")
 
@@ -164,7 +160,7 @@ let tests =
                             fio {
                                 let! fiber = (FIO.awaitAsync asyncComp (fun ex -> ex.Message)).Fork()
                                 do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
-                                return! fiber.InterruptAwaitNow ()
+                                return! fiber.InterruptAwaitNow()
                             }
                         let sw = Stopwatch.StartNew()
 
@@ -194,8 +190,7 @@ let tests =
                                 return executed, result
                             }
 
-                        let wasExecuted, _ =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let wasExecuted, _ = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.isTrue wasExecuted "FIO.forkUnitTask should execute the task")
 
@@ -214,16 +209,14 @@ let tests =
                         let effect =
                             fio {
                                 let! fiber =
-                                    FIO.forkUnitTask
-                                        (fun () -> Task.FromException(Exception "task error"))
-                                        (fun ex -> ex.Message)
+                                    FIO.forkUnitTask (fun () -> Task.FromException(Exception "task error")) (fun ex ->
+                                        ex.Message)
 
                                 let! result = fiber.Join()
                                 return result
                             }
 
-                        let result =
-                            runtime.Run(effect).UnsafeError()
+                        let result = runtime.Run(effect).UnsafeError()
 
                         Expect.equal result "task error" "FIO.forkUnitTask should propagate faulted task error")
 
@@ -231,10 +224,7 @@ let tests =
                         let effect =
                             fio {
                                 let! fiber =
-                                    FIO.forkUnitTask
-                                        (fun () ->
-                                            Task.FromException(Exception "task error"))
-                                        id
+                                    FIO.forkUnitTask (fun () -> Task.FromException(Exception "task error")) id
 
                                 let! result = fiber.Join()
                                 return result
@@ -259,16 +249,12 @@ let tests =
                         let value = 42
                         let effect =
                             fio {
-                                let! fiber =
-                                    FIO.forkTask
-                                        (fun () -> Task.FromResult value)
-                                        id
+                                let! fiber = FIO.forkTask (fun () -> Task.FromResult value) id
                                 let! result = fiber.Join()
                                 return result
                             }
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result value "FIO.forkTask should return task result")
 
@@ -284,8 +270,7 @@ let tests =
                                 return result
                             }
 
-                        let result =
-                            runtime.Run(effect).UnsafeError()
+                        let result = runtime.Run(effect).UnsafeError()
 
                         Expect.equal result "generic error" "FIO.forkTask should propagate faulted task error")
 
@@ -293,40 +278,32 @@ let tests =
                         let effect =
                             fio {
                                 let! fiber =
-                                    FIO.forkTask
-                                        (fun () -> Task.FromException<int>(Exception "generic error"))
-                                        id
+                                    FIO.forkTask (fun () -> Task.FromException<int>(Exception "generic error")) id
 
                                 let! result = fiber.Join()
                                 return result
                             }
 
-                        let result =
-                            runtime.Run(effect).UnsafeError()
+                        let result = runtime.Run(effect).UnsafeError()
 
-                        Expect.stringContains
-                            result.Message
-                            "generic error"
-                            "FIO.forkTask should propagate exception")
+                        Expect.stringContains result.Message "generic error" "FIO.forkTask should propagate exception")
 
                     testAllRuntimes "forkUnitTask - outer error channel independent of inner" (fun runtime ->
                         let effect: FIO<int, int> =
-                            (FIO.forkUnitTask
-                                (fun () -> Task.CompletedTask)
-                                (fun ex -> ex.Message))
+                            (FIO.forkUnitTask (fun () -> Task.CompletedTask) (fun ex -> ex.Message))
                                 .FlatMap(fun _ -> FIO.succeed 1)
 
                         let result = runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.equal result 1 "Outer error channel should be free to differ from the inner fiber's error type")
+                        Expect.equal
+                            result
+                            1
+                            "Outer error channel should be free to differ from the inner fiber's error type")
 
                     testAllRuntimes "forkUnitTask - synchronous throw from factory surfaces via onError" (fun runtime ->
                         let effect =
                             fio {
-                                let! fiber =
-                                    FIO.forkUnitTask
-                                        (fun () -> failwith "boom")
-                                        (fun ex -> ex.Message)
+                                let! fiber = FIO.forkUnitTask (fun () -> failwith "boom") (fun ex -> ex.Message)
 
                                 let! result = fiber.Join()
                                 return result
@@ -340,9 +317,7 @@ let tests =
                         let effect =
                             fio {
                                 let! fiber =
-                                    FIO.forkTask
-                                        (fun () -> failwith "boom": Task<int>)
-                                        (fun ex -> ex.Message)
+                                    FIO.forkTask (fun () -> failwith "boom": Task<int>) (fun ex -> ex.Message)
 
                                 let! result = fiber.Join()
                                 return result
@@ -358,11 +333,9 @@ let tests =
                 [
                     testPropertyWithConfig fsCheckConfig "async - synchronous Ok callback yields success"
                     <| fun (runtime: FIORuntime, value: int) ->
-                        let effect =
-                            FIO.async (fun cb -> cb (Ok value)) (fun ex -> ex.Message)
+                        let effect = FIO.async (fun cb -> cb (Ok value)) (fun ex -> ex.Message)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result value "async should complete with the Ok value"
 
@@ -371,8 +344,7 @@ let tests =
                         let effect: FIO<int, string> =
                             FIO.async (fun cb -> cb (Error error)) (fun ex -> ex.Message)
 
-                        let result =
-                            runtime.Run(effect).UnsafeError()
+                        let result = runtime.Run(effect).UnsafeError()
 
                         Expect.equal result error "async should fail with the Error value"
 
@@ -380,14 +352,16 @@ let tests =
                     <| fun () ->
                         use runtime = new WorkStealingRuntime(testConfig) :> FIORuntime
                         let effect =
-                            FIO.async (fun cb ->
-                                let _ = Task.Run(fun () ->
-                                    Thread.Sleep 20
-                                    cb (Ok 42))
-                                ()) (fun ex -> ex.Message)
+                            FIO.async
+                                (fun cb ->
+                                    let _ =
+                                        Task.Run(fun () ->
+                                            Thread.Sleep 20
+                                            cb (Ok 42))
+                                    ())
+                                (fun ex -> ex.Message)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result 42 "async should complete when the callback fires after a delay"
 
@@ -395,28 +369,29 @@ let tests =
                     <| fun () ->
                         use runtime = new WorkStealingRuntime(testConfig) :> FIORuntime
                         let effect =
-                            FIO.async (fun cb ->
-                                cb (Ok 1)
-                                cb (Ok 2)
-                                cb (Error "boom")) (fun ex -> ex.Message)
+                            FIO.async
+                                (fun cb ->
+                                    cb (Ok 1)
+                                    cb (Ok 2)
+                                    cb (Error "boom"))
+                                (fun ex -> ex.Message)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result 1 "async should record only the first callback invocation"
 
-                    testAllRuntimes "async - register that throws synchronously surfaces error via onError" (fun runtime ->
-                        let effect: FIO<int, string> =
-                            FIO.async
-                                (fun _ -> failwith "register threw")
-                                (fun ex -> ex.Message)
+                    testAllRuntimes
+                        "async - register that throws synchronously surfaces error via onError"
+                        (fun runtime ->
+                            let effect: FIO<int, string> =
+                                FIO.async (fun _ -> failwith "register threw") (fun ex -> ex.Message)
 
-                        let result = runtime.Run(effect).UnsafeError()
+                            let result = runtime.Run(effect).UnsafeError()
 
-                        Expect.stringContains
-                            result
-                            "register threw"
-                            "Synchronous throw in register should surface via onError, not deadlock the fiber")
+                            Expect.stringContains
+                                result
+                                "register threw"
+                                "Synchronous throw in register should surface via onError, not deadlock the fiber")
 
                     testAllRuntimes "async - interruption cancels the awaiting fiber" (fun runtime ->
                         let effect =
@@ -424,7 +399,7 @@ let tests =
                                 let! fiber =
                                     (FIO.async (fun _ -> ()) (fun ex -> ex.Message): FIO<int, string>).Fork()
                                 do! FIO.sleep (TimeSpan.FromMilliseconds 50.0)
-                                return! fiber.InterruptAwaitNow ()
+                                return! fiber.InterruptAwaitNow()
                             }
                         let sw = Stopwatch.StartNew()
 

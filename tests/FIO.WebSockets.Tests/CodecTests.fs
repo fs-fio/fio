@@ -93,7 +93,8 @@ let codecTests =
                         let error = runtime.Run(effect).UnsafeError()
 
                         match error with
-                        | CodecError message -> Expect.stringContains message "close frame" "The failure should name the frame"
+                        | CodecError message ->
+                            Expect.stringContains message "close frame" "The failure should name the frame"
                         | other -> failtest $"Expected CodecError but got {other}")
                 ]
 
@@ -163,7 +164,8 @@ let codecTests =
                         let error = runtime.Run(effect).UnsafeError()
 
                         match error with
-                        | CodecError message -> Expect.stringContains message "close frame" "The failure should name the frame"
+                        | CodecError message ->
+                            Expect.stringContains message "close frame" "The failure should name the frame"
                         | other -> failtest $"Expected CodecError but got {other}")
                 ]
 
@@ -261,10 +263,12 @@ let codecTests =
                     testAllRuntimes "jsonLine - a Close frame produces CodecError" (fun runtime ->
                         let codec: WebSocketCodec<TestMessage> = Codec.jsonLine None
 
-                        let error = runtime.Run(codec.Decode(Close(WebSocketCloseStatus.NormalClosure, "bye"))).UnsafeError()
+                        let error =
+                            runtime.Run(codec.Decode(Close(WebSocketCloseStatus.NormalClosure, "bye"))).UnsafeError()
 
                         match error with
-                        | CodecError message -> Expect.stringContains message "close frame" "The failure should name the frame"
+                        | CodecError message ->
+                            Expect.stringContains message "close frame" "The failure should name the frame"
                         | other -> failtest $"Expected CodecError but got {other}")
                 ]
 
@@ -306,12 +310,14 @@ let codecTests =
 
                     testAllRuntimes "compose - refuses to encode a Close frame" (fun runtime ->
                         let pairCodec = Codec.compose Codec.frame Codec.text
-                        let effect = pairCodec.Encode(Close(WebSocketCloseStatus.NormalClosure, "bye"), "text")
+                        let effect =
+                            pairCodec.Encode(Close(WebSocketCloseStatus.NormalClosure, "bye"), "text")
 
                         let error = runtime.Run(effect).UnsafeError()
 
                         match error with
-                        | CodecError message -> Expect.stringContains message "close frame" "The failure should name the frame"
+                        | CodecError message ->
+                            Expect.stringContains message "close frame" "The failure should name the frame"
                         | other -> failtest $"Expected CodecError but got {other}")
 
                     testAllRuntimes "compose - an unknown part kind produces CodecError" (fun runtime ->
@@ -321,17 +327,26 @@ let codecTests =
                         let error = runtime.Run(pairCodec.Decode(Text json)).UnsafeError()
 
                         match error with
-                        | CodecError message -> Expect.stringContains message "Unknown composed frame kind: weird" "The failure should name the kind"
+                        | CodecError message ->
+                            Expect.stringContains
+                                message
+                                "Unknown composed frame kind: weird"
+                                "The failure should name the kind"
                         | other -> failtest $"Expected CodecError but got {other}")
 
                     testAllRuntimes "compose - a wrong number of parts produces CodecError" (fun runtime ->
                         let pairCodec = Codec.compose Codec.text Codec.text
-                        let json = """[{"kind":"text","value":"a"},{"kind":"text","value":"b"},{"kind":"text","value":"c"}]"""
+                        let json =
+                            """[{"kind":"text","value":"a"},{"kind":"text","value":"b"},{"kind":"text","value":"c"}]"""
 
                         let error = runtime.Run(pairCodec.Decode(Text json)).UnsafeError()
 
                         match error with
-                        | CodecError message -> Expect.stringContains message "Expected 2 composed elements, got 3" "The failure should count the parts"
+                        | CodecError message ->
+                            Expect.stringContains
+                                message
+                                "Expected 2 composed elements, got 3"
+                                "The failure should count the parts"
                         | other -> failtest $"Expected CodecError but got {other}")
                 ]
 

@@ -20,35 +20,47 @@ let tests =
                 "Mapping"
                 [
                     testAllRuntimes "Map - a throwing mapper becomes a Defect" (fun runtime ->
-                        let effect: FIO<int, string> = FIO.succeed(1).Map(fun (_: int) -> failwith "mapper throws")
+                        let effect: FIO<int, string> =
+                            FIO.succeed(1).Map(fun (_: int) -> failwith "mapper throws")
 
                         let result = runtime.Run(effect).UnsafeResult()
 
                         match result with
                         | Interrupted ex ->
                             match ex.cause with
-                            | Defect defect -> Expect.equal defect.Message "mapper throws" "The thrown exception should become the defect"
+                            | Defect defect ->
+                                Expect.equal
+                                    defect.Message
+                                    "mapper throws"
+                                    "The thrown exception should become the defect"
                             | other -> failtest $"Expected a Defect cause but got {other}"
                         | other -> failtest $"Expected Interrupted but got {other}")
 
                     testAllRuntimes "MapError - a throwing mapper becomes a Defect" (fun runtime ->
-                        let effect: FIO<int, string> = FIO.fail("error").MapError(fun (_: string) -> failwith "mapper throws")
+                        let effect: FIO<int, string> =
+                            FIO.fail("error").MapError(fun (_: string) -> failwith "mapper throws")
 
                         let result = runtime.Run(effect).UnsafeResult()
 
                         match result with
                         | Interrupted ex ->
                             match ex.cause with
-                            | Defect defect -> Expect.equal defect.Message "mapper throws" "The thrown exception should become the defect"
+                            | Defect defect ->
+                                Expect.equal
+                                    defect.Message
+                                    "mapper throws"
+                                    "The thrown exception should become the defect"
                             | other -> failtest $"Expected a Defect cause but got {other}"
                         | other -> failtest $"Expected Interrupted but got {other}")
 
-                    testAllRuntimes "Map - a mapper returning null succeeds with null, as a value rather than a missing effect" (fun runtime ->
-                        let effect: FIO<string, string> = FIO.succeed(1).Map(fun (_: int) -> null)
+                    testAllRuntimes
+                        "Map - a mapper returning null succeeds with null, as a value rather than a missing effect"
+                        (fun runtime ->
+                            let effect: FIO<string, string> = FIO.succeed(1).Map(fun (_: int) -> null)
 
-                        let result = runtime.Run(effect).UnsafeResult()
+                            let result = runtime.Run(effect).UnsafeResult()
 
-                        Expect.equal result (Succeeded null) "A null mapped value should be the success value")
+                            Expect.equal result (Succeeded null) "A null mapped value should be the success value")
 
                     testAllRuntimes "Map - maps through a three-deep chain of Maps" (fun runtime ->
                         let effect: FIO<string, string> = FIO.succeed(1).Map((+) 1).Map((*) 3).Map(string)
@@ -60,10 +72,14 @@ let tests =
                     testAllRuntimes "Map - a mapper that throws after a FlatMap dies with a Defect" (fun runtime ->
                         let ran = ref false
                         let effect: FIO<int, string> =
-                            FIO.succeed(1)
+                            FIO
+                                .succeed(1)
                                 .FlatMap(fun x -> FIO.succeed (x + 1))
                                 .Map(fun (_: int) -> failwith "mapper throws")
-                                .FlatMap(fun (x: int) -> FIO.succeedWith (fun () -> ran.Value <- true; x))
+                                .FlatMap(fun (x: int) ->
+                                    FIO.succeedWith (fun () ->
+                                        ran.Value <- true
+                                        x))
 
                         let result = runtime.Run(effect).UnsafeResult()
 
@@ -71,13 +87,22 @@ let tests =
                         match result with
                         | Interrupted ex ->
                             match ex.cause with
-                            | Defect defect -> Expect.equal defect.Message "mapper throws" "The thrown exception should become the defect"
+                            | Defect defect ->
+                                Expect.equal
+                                    defect.Message
+                                    "mapper throws"
+                                    "The thrown exception should become the defect"
                             | other -> failtest $"Expected a Defect cause but got {other}"
                         | other -> failtest $"Expected Interrupted but got {other}")
 
                     testAllRuntimes "Map - a failure skips the mapper" (fun runtime ->
                         let calls = ref 0
-                        let effect: FIO<int, string> = FIO.fail("error").Map(fun (x: int) -> calls.Value <- calls.Value + 1; x)
+                        let effect: FIO<int, string> =
+                            FIO
+                                .fail("error")
+                                .Map(fun (x: int) ->
+                                    calls.Value <- calls.Value + 1
+                                    x)
 
                         let result = runtime.Run(effect).UnsafeResult()
 
@@ -90,13 +115,16 @@ let tests =
                         let calls = ref 0
                         let waiting = new ManualResetEventSlim(false)
                         let effect: FIO<int, string> =
-                            FIO.succeedWith(fun () -> waiting.Set())
-                                .FlatMap(fun () -> FIO.never<int, string> ())
-                                .Map(fun x -> calls.Value <- calls.Value + 1; x)
+                            FIO
+                                .succeedWith(fun () -> waiting.Set())
+                                .FlatMap(fun () -> FIO.never<int, string>())
+                                .Map(fun x ->
+                                    calls.Value <- calls.Value + 1
+                                    x)
                         let fiber = runtime.Run effect
                         let started = waiting.Wait(TimeSpan.FromSeconds 5.0)
 
-                        let result = runtime.Run(fiber.InterruptAwaitNow<string> ()).UnsafeSuccess()
+                        let result = runtime.Run(fiber.InterruptAwaitNow<string>()).UnsafeSuccess()
 
                         Expect.isTrue started "The mapped effect should be waiting when it is interrupted"
                         Expect.equal calls.Value 0 "The mapper should not run on an interruption"
@@ -104,24 +132,31 @@ let tests =
                         | Interrupted _ -> ()
                         | other -> failtest $"Expected Interrupted but got {other}")
 
-                    testAllRuntimes "Map - over an Ensuring whose finalizer fails yields the finalizer's failure" (fun runtime ->
-                        let calls = ref 0
-                        let effect: FIO<int, string> =
-                            FIO.succeed(1).Ensuring(FIO.fail "f").Map(fun x -> calls.Value <- calls.Value + 1; x + 1)
+                    testAllRuntimes
+                        "Map - over an Ensuring whose finalizer fails yields the finalizer's failure"
+                        (fun runtime ->
+                            let calls = ref 0
+                            let effect: FIO<int, string> =
+                                FIO
+                                    .succeed(1)
+                                    .Ensuring(FIO.fail "f")
+                                    .Map(fun x ->
+                                        calls.Value <- calls.Value + 1
+                                        x + 1)
 
-                        let result = runtime.Run(effect).UnsafeResult()
+                            let result = runtime.Run(effect).UnsafeResult()
 
-                        Expect.equal calls.Value 0 "The mapper should not run when the finalizer fails"
-                        match result with
-                        | Failed error -> Expect.equal error "f" "The finalizer's failure should replace the success"
-                        | other -> failtest $"Expected Failed but got {other}")
+                            Expect.equal calls.Value 0 "The mapper should not run when the finalizer fails"
+                            match result with
+                            | Failed error ->
+                                Expect.equal error "f" "The finalizer's failure should replace the success"
+                            | other -> failtest $"Expected Failed but got {other}")
 
                     testPropertyWithConfig fsCheckConfig "Map - transforms success value"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.succeed value
 
-                        let result =
-                            runtime.Run(effect.Map(fun x -> x * 2)).UnsafeSuccess()
+                        let result = runtime.Run(effect.Map(fun x -> x * 2)).UnsafeSuccess()
 
                         Expect.equal result (value * 2) "Map should transform success value"
 
@@ -129,8 +164,7 @@ let tests =
                     <| fun (runtime: FIORuntime, error: string) ->
                         let effect = FIO.fail error
 
-                        let result =
-                            runtime.Run(effect.Map(fun x -> x * 2)).UnsafeError()
+                        let result = runtime.Run(effect.Map(fun x -> x * 2)).UnsafeError()
 
                         Expect.equal result error "Map should preserve error"
 
@@ -138,8 +172,7 @@ let tests =
                     <| fun (runtime: FIORuntime, error: int) ->
                         let effect = FIO.fail error
 
-                        let result =
-                            runtime.Run(effect.MapError(fun e -> e.ToString())).UnsafeError()
+                        let result = runtime.Run(effect.MapError(fun e -> e.ToString())).UnsafeError()
 
                         Expect.equal result (error.ToString()) "MapError should transform error"
 
@@ -147,8 +180,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: string) ->
                         let effect = FIO.succeed value
 
-                        let result =
-                            runtime.Run(effect.MapError(fun e -> e.ToString())).UnsafeSuccess()
+                        let result = runtime.Run(effect.MapError(fun e -> e.ToString())).UnsafeSuccess()
 
                         Expect.equal result value "MapError should preserve success"
 
@@ -166,7 +198,7 @@ let tests =
                         let effect = FIO.fail error
 
                         let result =
-                            runtime.Run(effect.MapBoth(fun x -> x * 2) (fun e -> e + 100)).UnsafeError()
+                            runtime.Run(effect.MapBoth (fun x -> x * 2) (fun e -> e + 100)).UnsafeError()
 
                         Expect.equal result (error + 100) "MapBoth should transform error"
 
@@ -184,7 +216,7 @@ let tests =
                         let effect = FIO.fail error
 
                         let result =
-                            runtime.Run(effect.MapAttempt(fun x -> x * 2) (fun ex -> ex.Message)).UnsafeError()
+                            runtime.Run(effect.MapAttempt (fun x -> x * 2) (fun ex -> ex.Message)).UnsafeError()
 
                         Expect.equal result error "MapAttempt should preserve the original typed error"
 
@@ -194,8 +226,7 @@ let tests =
                         let boom = "boom"
 
                         let result =
-                            runtime.Run(effect.MapAttempt (fun _ -> failwith boom) (fun ex -> ex.Message))
-                                .UnsafeError()
+                            runtime.Run(effect.MapAttempt (fun _ -> failwith boom) (fun ex -> ex.Message)).UnsafeError()
 
                         Expect.equal result boom "MapAttempt should route mapper exceptions through onError"
                 ]
@@ -221,8 +252,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.succeed value
 
-                        let result =
-                            runtime.Run(effect.Unit()).UnsafeSuccess()
+                        let result = runtime.Run(effect.Unit()).UnsafeSuccess()
 
                         Expect.equal result () "Unit should discard result and return unit"
 
@@ -230,8 +260,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int, constant: string) ->
                         let effect = FIO.succeed value
 
-                        let result =
-                            runtime.Run(effect.As constant).UnsafeSuccess()
+                        let result = runtime.Run(effect.As constant).UnsafeSuccess()
 
                         Expect.equal result constant "As should map to the constant value"
 
@@ -239,8 +268,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.succeed value
 
-                        let result =
-                            runtime.Run(effect.AsLeft ()).UnsafeSuccess()
+                        let result = runtime.Run(effect.AsLeft()).UnsafeSuccess()
 
                         Expect.equal result (Choice1Of2 value) "AsLeft should wrap success in Choice1Of2"
 
@@ -248,8 +276,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.succeed value
 
-                        let result =
-                            runtime.Run(effect.AsRight ()).UnsafeSuccess()
+                        let result = runtime.Run(effect.AsRight()).UnsafeSuccess()
 
                         Expect.equal result (Choice2Of2 value) "AsRight should wrap success in Choice2Of2"
 
@@ -257,8 +284,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.succeed value
 
-                        let result =
-                            runtime.Run(effect.AsSome()).UnsafeSuccess()
+                        let result = runtime.Run(effect.AsSome()).UnsafeSuccess()
 
                         Expect.equal result (Some value) "AsSome should wrap success in Some"
                 ]
@@ -270,8 +296,7 @@ let tests =
                     <| fun (runtime: FIORuntime, error: string) ->
                         let effect = FIO.fail error
 
-                        let result =
-                            runtime.Run(effect.AsLeftError ()).UnsafeError()
+                        let result = runtime.Run(effect.AsLeftError()).UnsafeError()
 
                         Expect.equal result (Choice1Of2 error) "AsLeftError should wrap error in Choice1Of2"
 
@@ -279,8 +304,7 @@ let tests =
                     <| fun (runtime: FIORuntime, error: string) ->
                         let effect = FIO.fail error
 
-                        let result =
-                            runtime.Run(effect.AsRightError ()).UnsafeError()
+                        let result = runtime.Run(effect.AsRightError()).UnsafeError()
 
                         Expect.equal result (Choice2Of2 error) "AsRightError should wrap error in Choice2Of2"
 
@@ -288,8 +312,7 @@ let tests =
                     <| fun (runtime: FIORuntime, error: string) ->
                         let effect = FIO.fail error
 
-                        let result =
-                            runtime.Run(effect.AsSomeError ()).UnsafeError()
+                        let result = runtime.Run(effect.AsSomeError()).UnsafeError()
 
                         Expect.equal result (Some error) "AsSomeError should wrap error in Some"
                 ]
@@ -301,8 +324,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.succeed value
 
-                        let result =
-                            runtime.Run(effect.Result ()).UnsafeSuccess()
+                        let result = runtime.Run(effect.Result()).UnsafeSuccess()
 
                         Expect.equal result (Ok value) "Result should convert success to Ok"
 
@@ -310,8 +332,7 @@ let tests =
                     <| fun (runtime: FIORuntime, error: string) ->
                         let effect = FIO.fail error
 
-                        let result =
-                            runtime.Run(effect.Result ()).UnsafeSuccess()
+                        let result = runtime.Run(effect.Result()).UnsafeSuccess()
 
                         Expect.equal result (Error error) "Result should convert error to Error"
 
@@ -319,8 +340,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.succeed value
 
-                        let result =
-                            runtime.Run(effect.Option ()).UnsafeSuccess()
+                        let result = runtime.Run(effect.Option()).UnsafeSuccess()
 
                         Expect.equal result (Some value) "Option should convert success to Some"
 
@@ -328,8 +348,7 @@ let tests =
                     <| fun (runtime: FIORuntime, error: string) ->
                         let effect = FIO.fail error
 
-                        let result =
-                            runtime.Run(effect.Option ()).UnsafeSuccess()
+                        let result = runtime.Run(effect.Option()).UnsafeSuccess()
 
                         Expect.equal result None "Option should convert error to None"
 
@@ -337,8 +356,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.succeed value
 
-                        let result =
-                            runtime.Run(effect.Choice ()).UnsafeSuccess()
+                        let result = runtime.Run(effect.Choice()).UnsafeSuccess()
 
                         Expect.equal result (Choice1Of2 value) "Choice should convert success to Choice1Of2"
 
@@ -346,8 +364,7 @@ let tests =
                     <| fun (runtime: FIORuntime, error: string) ->
                         let effect = FIO.fail error
 
-                        let result =
-                            runtime.Run(effect.Choice ()).UnsafeSuccess()
+                        let result = runtime.Run(effect.Choice()).UnsafeSuccess()
 
                         Expect.equal result (Choice2Of2 error) "Choice should convert error to Choice2Of2"
 
@@ -355,8 +372,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.succeed value
 
-                        let result =
-                            runtime.Run(effect.Flip ()).UnsafeError()
+                        let result = runtime.Run(effect.Flip()).UnsafeError()
 
                         Expect.equal result value "Flip should move success value to error channel"
 
@@ -364,8 +380,7 @@ let tests =
                     <| fun (runtime: FIORuntime, error: string) ->
                         let effect = FIO.fail error
 
-                        let result =
-                            runtime.Run(effect.Flip ()).UnsafeSuccess()
+                        let result = runtime.Run(effect.Flip()).UnsafeSuccess()
 
                         Expect.equal result error "Flip should move typed error to success channel"
 
@@ -373,8 +388,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let effect = FIO.succeed value
 
-                        let result =
-                            runtime.Run(effect.Flip().Flip ()).UnsafeSuccess()
+                        let result = runtime.Run(effect.Flip().Flip()).UnsafeSuccess()
 
                         Expect.equal result value "Flip().Flip() should restore the original success"
 
@@ -382,8 +396,7 @@ let tests =
                     <| fun (runtime: FIORuntime, error: string) ->
                         let effect = FIO.fail error
 
-                        let result =
-                            runtime.Run(effect.Flip().Flip ()).UnsafeError()
+                        let result = runtime.Run(effect.Flip().Flip()).UnsafeError()
 
                         Expect.equal result error "Flip().Flip() should restore the original error"
                 ]

@@ -22,15 +22,12 @@ type FIOWorkerRuntime internal (config: WorkerConfig) =
     do validateWorkerConfiguration ()
 
     /// The worker configuration this runtime was created with.
-    member _.WorkerConfig : WorkerConfig =
-        config
+    member _.WorkerConfig: WorkerConfig = config
 
     /// This runtime's worker configuration, as EWC and EWS labels.
-    override _.ConfigString : string =
-        describe config
+    override _.ConfigString: string = describe config
 
-    override this.ToString () : string =
-        $"{this.Name} ({this.ConfigString})"
+    override this.ToString() : string = $"{this.Name} ({this.ConfigString})"
 
 module internal WorkerLifecycle =
 
@@ -39,20 +36,25 @@ module internal WorkerLifecycle =
         let cancellationToken = cancelSource.Token
 
         let workerTask =
-            Task.Factory.StartNew(Func<Task>(fun () ->
-                task {
-                    try
-                        do! innerLoop cancellationToken
-                    with
-                    | :? OperationCanceledException -> ()
-                    | :? ObjectDisposedException -> ()
-                    | ex ->
-                        Console.Error.WriteLine $"FIO Worker '{workerName}' encountered an unhandled exception: {ex}"
-                        raise ex
-                } :> Task),
-            CancellationToken.None,
-            TaskCreationOptions.LongRunning,
-            TaskScheduler.Default
-            ).Unwrap()
+            Task.Factory
+                .StartNew(
+                    Func<Task>(fun () ->
+                        task {
+                            try
+                                do! innerLoop cancellationToken
+                            with
+                            | :? OperationCanceledException -> ()
+                            | :? ObjectDisposedException -> ()
+                            | ex ->
+                                Console.Error.WriteLine
+                                    $"FIO Worker '{workerName}' encountered an unhandled exception: {ex}"
+                                raise ex
+                        }
+                        :> Task),
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default
+                )
+                .Unwrap()
 
         struct (cancelSource, workerTask)

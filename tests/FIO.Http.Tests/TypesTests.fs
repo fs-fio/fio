@@ -61,9 +61,13 @@ let typesTests =
                                 JsonFailed original
                             ]
 
-                        let inners = errors |> List.map (fun error -> (HttpError.toException error).InnerException)
+                        let inners =
+                            errors |> List.map (fun error -> (HttpError.toException error).InnerException)
 
-                        Expect.all inners (fun inner -> Object.ReferenceEquals(inner, original)) "Every wrapped exception should be kept"
+                        Expect.all
+                            inners
+                            (fun inner -> Object.ReferenceEquals(inner, original))
+                            "Every wrapped exception should be kept"
 
                     testCase "ToString - produces readable messages"
                     <| fun () ->
@@ -470,8 +474,7 @@ let typesTests =
                     testCase "header - lookup on a response is case-insensitive"
                     <| fun () ->
                         let resp =
-                            HttpResponse.create HttpStatusCode.OK
-                            |> HttpResponse.withHeader "X-Custom" "v"
+                            HttpResponse.create HttpStatusCode.OK |> HttpResponse.withHeader "X-Custom" "v"
 
                         let actual = HttpResponse.header "x-custom" resp
 
@@ -497,7 +500,13 @@ let typesTests =
 
                         Expect.equal cfg.Host "0.0.0.0" "Host"
                         Expect.equal cfg.Port 3000 "Port"
-                        Expect.equal cfg { ServerConfig.defaultConfig with Host = "0.0.0.0"; Port = 3000 } "Other fields"
+                        Expect.equal
+                            cfg
+                            { ServerConfig.defaultConfig with
+                                Host = "0.0.0.0"
+                                Port = 3000
+                            }
+                            "Other fields"
 
                     testCase "withShutdownTimeout - updates the field"
                     <| fun () ->

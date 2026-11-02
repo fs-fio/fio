@@ -104,7 +104,10 @@ let refTests =
                         let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result $"was {initial}" "Modify should yield the transition's result"
-                        Expect.equal (cell.UnsafeGet()) (initial + delta) "Modify should store the transition's new value"
+                        Expect.equal
+                            (cell.UnsafeGet())
+                            (initial + delta)
+                            "Modify should store the transition's new value"
 
                     testAllRuntimes "Update - constructing the effect does not run the function" (fun runtime ->
                         let cell = Ref<int> 0
@@ -131,7 +134,11 @@ let refTests =
                         match result with
                         | Interrupted ex ->
                             match ex.cause with
-                            | Defect inner -> Expect.equal inner.Message "transition threw" "The defect should carry the thrown exception"
+                            | Defect inner ->
+                                Expect.equal
+                                    inner.Message
+                                    "transition threw"
+                                    "The defect should carry the thrown exception"
                             | other -> failtest $"Expected a Defect cause but got {other}"
                         | other -> failtest $"Expected Interrupted but got {other}"
                         Expect.equal (cell.UnsafeGet()) 1 "A failed transition must leave the value untouched")
@@ -145,22 +152,28 @@ let refTests =
                         let increments = 1000
                         let cell = Ref<int> 0
                         let effect: FIO<unit, string> =
-                            FIO.forEachParDiscard (seq { 1 .. fibers }) (fun _ ->
+                            FIO.forEachParDiscard (seq { 1..fibers }) (fun _ ->
                                 FIO.replicateFIODiscard increments (cell.Update(fun value -> value + 1)))
 
                         runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.equal (cell.UnsafeGet()) (fibers * increments) "Every increment must be applied exactly once")
+                        Expect.equal
+                            (cell.UnsafeGet())
+                            (fibers * increments)
+                            "Every increment must be applied exactly once")
 
                     testAllRuntimes "Modify - concurrent transitions hand out unique results" (fun runtime ->
                         let fibers = 8
                         let cell = Ref<int> 0
                         let effect: FIO<int list, string> =
-                            FIO.forEachPar (seq { 1 .. fibers }) (fun _ -> cell.Modify(fun value -> value, value + 1))
+                            FIO.forEachPar (seq { 1..fibers }) (fun _ -> cell.Modify(fun value -> value, value + 1))
 
                         let results = runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.equal (List.sort results) [ 0 .. fibers - 1 ] "Each transition should observe a distinct previous value")
+                        Expect.equal
+                            (List.sort results)
+                            [ 0 .. fibers - 1 ]
+                            "Each transition should observe a distinct previous value")
                 ]
 
             testList

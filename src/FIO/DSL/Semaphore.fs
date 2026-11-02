@@ -22,20 +22,23 @@ type Semaphore(permits: int) =
             gate.Release() |> ignore
         else
             wait.ContinueWith(
-                (fun (granted: Task) -> if granted.IsCompletedSuccessfully then gate.Release() |> ignore),
+                (fun (granted: Task) ->
+                    if granted.IsCompletedSuccessfully then
+                        gate.Release() |> ignore),
                 CancellationToken.None,
                 TaskContinuationOptions.ExecuteSynchronously,
-                TaskScheduler.Default)
+                TaskScheduler.Default
+            )
             |> ignore
 
     /// The number of permits no fiber holds.
-    member _.Available : int =
-        gate.CurrentCount
+    member _.Available: int = gate.CurrentCount
 
     /// Returns an effect that waits for a permit, interruptibly unless the caller is uninterruptible, runs the given
     /// effect holding it, and returns the permit however the effect ends.
-    member _.WithPermit<'A, 'E> (effect: FIO<'A, 'E>) : FIO<'A, 'E> =
-        FIO.cancellationToken().FlatMap <| fun cancellationToken ->
+    member _.WithPermit<'A, 'E>(effect: FIO<'A, 'E>) : FIO<'A, 'E> =
+        FIO.cancellationToken().FlatMap
+        <| fun cancellationToken ->
             FIO.acquireReleaseWith
                 (FIO.succeedWith (fun () -> gate.WaitAsync cancellationToken))
                 (fun wait -> FIO.succeedWith (fun () -> returnWhenGranted wait))
