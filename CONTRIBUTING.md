@@ -45,7 +45,8 @@ bash scripts/stress-test.sh 50   # build Release and run the whole suite 50 time
 
 - **Formatting is Fantomas's.** Run `dotnet tool restore` once, then `dotnet fantomas .` before you commit; CI
   checks it with `dotnet fantomas --check .`. Naming and idiom still follow the surrounding code in `src/` and
-  `tests/`.
+  `tests/`. Reformat-only commits are listed in `.git-blame-ignore-revs`; run
+  `git config blame.ignoreRevsFile .git-blame-ignore-revs` once so local `git blame` skips them, as GitHub's does.
 - **`TreatWarningsAsErrors=true`** (in [`Directory.Build.props`](Directory.Build.props)) — fix every warning.
 - **F# compile order matters** — file order in each `.fsproj` is the compile order.
 - **Comment style:** two tiers — see [`docs/COMMENT_STYLE.md`](docs/COMMENT_STYLE.md).
