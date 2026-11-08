@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794150056645,
+  "lastUpdate": 1794151153241,
   "repoUrl": "https://github.com/fs-fio/fio",
   "entries": {
     "Benchmark": [
@@ -595,6 +595,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "Pingpong - WorkStealing-2-200",
             "value": 99.009718875,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hey@itsdaniel.dk",
+            "name": "Daniel Larsen",
+            "username": "itsdanieldk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "8b29af90fa7faa6679dfb103383d946466e891e2",
+          "message": "Adopt Fantomas (#85)\n\n* Add Fantomas tooling, format check and docs\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015Sd1WiRtbfRhEhpdiL2296\n\n* Format with Fantomas\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015Sd1WiRtbfRhEhpdiL2296\n\n---------\n\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "timestamp": "2026-11-08T16:18:08+01:00",
+          "tree_id": "16f6d82a811ca04ab015a54fa5056841212d8d4a",
+          "url": "https://github.com/fs-fio/fio/commit/8b29af90fa7faa6679dfb103383d946466e891e2"
+        },
+        "date": 1794151152441,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Pingpong - Direct",
+            "value": 79.24783625,
+            "unit": "ms"
+          },
+          {
+            "name": "Pingpong - WorkStealing-2-200",
+            "value": 52.823977299999996,
             "unit": "ms"
           }
         ]
