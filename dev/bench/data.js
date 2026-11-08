@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794151677432,
+  "lastUpdate": 1794157934523,
   "repoUrl": "https://github.com/fs-fio/fio",
   "entries": {
     "Benchmark": [
@@ -663,6 +663,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "Pingpong - WorkStealing-2-200",
             "value": 127.6874632,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hey@itsdaniel.dk",
+            "name": "Daniel Larsen",
+            "username": "itsdanieldk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "2086b78ed733c02b6ac8b2cb0631a9e3918b5126",
+          "message": "Fix three timing-dependent soak tests (#88)\n\nThe nightly soak has failed every night since 2026-11-02 on three tests that relied on wall-clock timing:\n\n- Console.readLine (a line for an interrupted fiber): handshakes replace the sleeps, so the only worker is held\n  until after the interrupt and the reading fiber cannot use the line first.\n- Shutdown (a fiber that only waits for its child): wait for the child's finalizer, which starts only once the\n  root has finished its effect, instead of sleeping 100 ms.\n- Join (10,000-deep chain): time from the chain's publish to the joiner, bounded at 500 ms, so the resumption of\n  10,000 fibers on a slow runner no longer counts against the bound.\n\n\nClaude-Session: https://claude.ai/code/session_015Sd1WiRtbfRhEhpdiL2296\n\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "timestamp": "2026-11-08T18:10:47+01:00",
+          "tree_id": "125f9a7bc8136872a2c4a296160c97441e0b5e57",
+          "url": "https://github.com/fs-fio/fio/commit/2086b78ed733c02b6ac8b2cb0631a9e3918b5126"
+        },
+        "date": 1794157933950,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Pingpong - Direct",
+            "value": 136.803004,
+            "unit": "ms"
+          },
+          {
+            "name": "Pingpong - WorkStealing-2-200",
+            "value": 111.9034265,
             "unit": "ms"
           }
         ]
