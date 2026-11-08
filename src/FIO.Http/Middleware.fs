@@ -11,12 +11,10 @@ type Middleware<'E> = Routes<'E> -> Routes<'E>
 module Middleware =
 
     /// Applies a middleware to a route collection.
-    let apply (middleware: Middleware<'E>) (routes: Routes<'E>) : Routes<'E> =
-        middleware routes
+    let apply (middleware: Middleware<'E>) (routes: Routes<'E>) : Routes<'E> = middleware routes
 
     /// Composes two middlewares, applying the inner one first, so the outer one wraps it.
-    let compose (outer: Middleware<'E>) (inner: Middleware<'E>) : Middleware<'E> =
-        fun routes -> outer (inner routes)
+    let compose (outer: Middleware<'E>) (inner: Middleware<'E>) : Middleware<'E> = fun routes -> outer (inner routes)
 
     /// Creates a middleware that transforms every handler in a route collection.
     let create (transform: HttpHandler<'E> -> HttpHandler<'E>) : Middleware<'E> =
@@ -24,7 +22,8 @@ module Middleware =
 
     /// Creates a middleware that runs an effect before each handler.
     let before (effect: HttpRequest -> FIO<unit, 'E>) : Middleware<'E> =
-        create <| fun handler ->
+        create
+        <| fun handler ->
             fun request ->
                 fio {
                     do! effect request
@@ -33,7 +32,8 @@ module Middleware =
 
     /// Creates a middleware that runs an effect after each handler, given the request and response.
     let after (effect: HttpRequest -> HttpResponse -> FIO<unit, 'E>) : Middleware<'E> =
-        create <| fun handler ->
+        create
+        <| fun handler ->
             fun request ->
                 fio {
                     let! response = handler request
@@ -43,7 +43,8 @@ module Middleware =
 
     /// Creates a middleware that adds a header to every response.
     let addHeader (name: string) (value: string) : Middleware<'E> =
-        create <| fun handler ->
+        create
+        <| fun handler ->
             fun request ->
                 fio {
                     let! response = handler request
@@ -52,7 +53,8 @@ module Middleware =
 
     /// Creates a middleware that adds several headers to every response.
     let addHeaders (headers: (string * string) list) : Middleware<'E> =
-        create <| fun handler ->
+        create
+        <| fun handler ->
             fun request ->
                 fio {
                     let! response = handler request
@@ -63,12 +65,12 @@ module Middleware =
                 }
 
     /// Creates a middleware that logs each request.
-    let logging (logger: HttpRequest -> FIO<unit, 'E>) : Middleware<'E> =
-        before logger
+    let logging (logger: HttpRequest -> FIO<unit, 'E>) : Middleware<'E> = before logger
 
     /// Creates a middleware that assigns a request id and echoes it in an X-Request-ID header.
     let requestId (generator: unit -> string) : Middleware<'E> =
-        create <| fun handler ->
+        create
+        <| fun handler ->
             fun request ->
                 let reqId = generator ()
                 let requestWithId = HttpRequest.withMetadata "RequestId" (box reqId) request
@@ -79,7 +81,8 @@ module Middleware =
 
     /// Creates a middleware that fails over to 408 Request Timeout if a handler exceeds the duration.
     let timeout (duration: TimeSpan) : Middleware<'E> =
-        create <| fun handler ->
+        create
+        <| fun handler ->
             fun request ->
                 let handlerEffect = handler request
                 let timeoutEffect = (FIO.succeed Response.requestTimeout).Delay duration
@@ -89,8 +92,10 @@ module Middleware =
     let cors
         (allowedOrigins: string list)
         (allowedMethods: string list)
-        (allowedHeaders: string list) : Middleware<'E> =
-        create <| fun handler ->
+        (allowedHeaders: string list)
+        : Middleware<'E> =
+        create
+        <| fun handler ->
             fun request ->
                 let origin = HttpRequest.header "Origin" request
 
@@ -117,9 +122,7 @@ module Middleware =
 
                         let withCors =
                             response
-                            |> HttpResponse.withHeader
-                                "Access-Control-Allow-Origin"
-                                (origin |> Option.defaultValue "*")
+                            |> HttpResponse.withHeader "Access-Control-Allow-Origin" (origin |> Option.defaultValue "*")
                             |> HttpResponse.withHeader
                                 "Access-Control-Allow-Methods"
                                 (String.concat ", " allowedMethods)
@@ -133,7 +136,8 @@ module Middleware =
 
     /// Creates a middleware that enforces HTTP Basic authentication.
     let basicAuth (authenticate: string -> string -> FIO<bool, 'E>) : Middleware<'E> =
-        create <| fun handler ->
+        create
+        <| fun handler ->
             fun request ->
                 fio {
                     match HttpRequest.header "Authorization" request with
@@ -164,7 +168,8 @@ module Middleware =
 
     /// Creates a middleware that enforces Bearer-token authentication, attaching the authenticated user to the request.
     let bearerAuth (authenticate: string -> FIO<'A option, 'E>) : Middleware<'E> =
-        create <| fun handler ->
+        create
+        <| fun handler ->
             fun request ->
                 fio {
                     match HttpRequest.header "Authorization" request with
@@ -185,15 +190,13 @@ module Middleware =
 
     /// Creates a middleware that converts handler errors into responses.
     let errorHandler (handleError: 'E -> HttpResponse) : Middleware<'E> =
-        create <| fun handler ->
-            fun request ->
-                (handler request).CatchAll(fun error -> FIO.succeed (handleError error))
+        create
+        <| fun handler -> fun request -> (handler request).CatchAll(fun error -> FIO.succeed (handleError error))
 
 module MiddlewareOperators =
 
     /// <summary>Applies a middleware to a route collection. Operator form of <c>Middleware.apply</c>.</summary>
-    let (@@) (routes: Routes<'E>) (middleware: Middleware<'E>) : Routes<'E> =
-        Middleware.apply middleware routes
+    let (@@) (routes: Routes<'E>) (middleware: Middleware<'E>) : Routes<'E> = Middleware.apply middleware routes
 
     /// <summary>Composes two middlewares. Operator form of <c>Middleware.compose</c>.</summary>
     let (+++) (middleware: Middleware<'E>) (middleware': Middleware<'E>) : Middleware<'E> =

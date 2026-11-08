@@ -24,8 +24,10 @@ type private SignalApp(hangInFinalizer: bool) =
 
     override _.effect =
         let finalizer =
-            if hangInFinalizer then (print "finalizing").FlatMap(fun () -> FIO.never ())
-            else print "finalized"
+            if hangInFinalizer then
+                (print "finalizing").FlatMap(fun () -> FIO.never ())
+            else
+                print "finalized"
 
         FIO.never<unit, exn>().Ensuring finalizer
 
@@ -36,8 +38,7 @@ type private SignalApp(hangInFinalizer: bool) =
         | AppInterrupted _ -> print "outcome:Interrupted"
         | AppFatalError _ -> print "outcome:FatalError"
 
-    override _.onShutdown () =
-        print "shutdown"
+    override _.onShutdown() = print "shutdown"
 
 type private SlowRuntimeApp() =
     inherit SignalApp false
@@ -64,7 +65,11 @@ let private disposeParkedOnTask () =
     source.SetCanceled()
 
     match fiber.Task().Wait(TimeSpan.FromSeconds 5.0), fiber.Task() with
-    | true, ended when (match ended.Result with Failed _ -> true | _ -> false) ->
+    | true, ended when
+        (match ended.Result with
+         | Failed _ -> true
+         | _ -> false)
+        ->
         Console.Out.WriteLine $"survived {runtime.GetType().Name}"
         0
     | _ -> 1
@@ -79,7 +84,11 @@ let private disposeParkedWriter () =
     runtime.Run(channel.Read()).UnsafeResult() |> ignore
 
     match fiber.Task().Wait(TimeSpan.FromSeconds 5.0), fiber.Task() with
-    | true, ended when (match ended.Result with Succeeded 2 -> true | _ -> false) ->
+    | true, ended when
+        (match ended.Result with
+         | Succeeded 2 -> true
+         | _ -> false)
+        ->
         Console.Out.WriteLine $"survived {runtime.GetType().Name}"
         0
     | _ -> 1
@@ -90,7 +99,8 @@ let private runAppBesideCancelingHandler () =
 
 let private runAppBesideCancelingSigtermHandler () =
     let running = (SignalApp true).RunAsync()
-    use _registration = PosixSignalRegistration.Create(PosixSignal.SIGTERM, fun context -> context.Cancel <- true)
+    use _registration =
+        PosixSignalRegistration.Create(PosixSignal.SIGTERM, fun context -> context.Cancel <- true)
     Console.Out.WriteLine "ready"
     Console.Out.Flush()
     running.GetAwaiter().GetResult()

@@ -26,26 +26,18 @@ type SocketError =
     /// An otherwise-unclassified error.
     | GeneralError of exn
 
-    override this.ToString () : string =
+    override this.ToString() : string =
         match this with
-        | ConnectionFailed(host, port, ex) ->
-            $"Failed to connect to {host}:{port}: {ex.Message}"
-        | ConnectionClosed msg ->
-            $"Connection closed: {msg}"
-        | TimeoutError msg ->
-            $"Timeout: {msg}"
+        | ConnectionFailed(host, port, ex) -> $"Failed to connect to {host}:{port}: {ex.Message}"
+        | ConnectionClosed msg -> $"Connection closed: {msg}"
+        | TimeoutError msg -> $"Timeout: {msg}"
         | BufferOverflow(requested, available) ->
             $"Buffer overflow: requested {requested} bytes, only {available} available"
-        | InvalidState(expected, actual) ->
-            $"Invalid state: expected {expected}, actual {actual}"
-        | BindFailed(addr, port, ex) ->
-            $"Failed to bind to {addr}:{port}: {ex.Message}"
-        | AcceptFailed ex ->
-            $"Accept failed: {ex.Message}"
-        | CodecError(msg, ex) ->
-            $"Codec error: {msg} - {ex.Message}"
-        | GeneralError ex ->
-            $"Socket error: {ex.Message}"
+        | InvalidState(expected, actual) -> $"Invalid state: expected {expected}, actual {actual}"
+        | BindFailed(addr, port, ex) -> $"Failed to bind to {addr}:{port}: {ex.Message}"
+        | AcceptFailed ex -> $"Accept failed: {ex.Message}"
+        | CodecError(msg, ex) -> $"Codec error: {msg} - {ex.Message}"
+        | GeneralError ex -> $"Socket error: {ex.Message}"
 
 [<RequireQualifiedAccess>]
 module SocketError =
@@ -125,29 +117,29 @@ module SocketConfig =
         }
 
     /// Sets the send buffer size on a configuration.
-    let withSendBufferSize (size: int) (config: SocketConfig) : SocketConfig =
-        { config with SendBufferSize = size }
+    let withSendBufferSize (size: int) (config: SocketConfig) : SocketConfig = { config with SendBufferSize = size }
 
     /// Sets the receive buffer size on a configuration.
     let withReceiveBufferSize (size: int) (config: SocketConfig) : SocketConfig =
         { config with ReceiveBufferSize = size }
 
     /// Sets the send timeout on a configuration.
-    let withSendTimeout (timeout: int) (config: SocketConfig) : SocketConfig =
-        { config with SendTimeout = timeout }
+    let withSendTimeout (timeout: int) (config: SocketConfig) : SocketConfig = { config with SendTimeout = timeout }
 
     /// Sets the receive timeout on a configuration.
     let withReceiveTimeout (timeout: int) (config: SocketConfig) : SocketConfig =
         { config with ReceiveTimeout = timeout }
 
     /// Sets whether Nagle's algorithm is disabled on a configuration.
-    let withNoDelay (noDelay: bool) (config: SocketConfig) : SocketConfig =
-        { config with NoDelay = noDelay }
+    let withNoDelay (noDelay: bool) (config: SocketConfig) : SocketConfig = { config with NoDelay = noDelay }
 
     /// Sets how closing treats unsent data: disabled closes gracefully, enabled with 0 resets the connection at once,
     /// and enabled with a positive timeoutSeconds asks the system to bound the graceful close by that time.
     let withLinger (enabled: bool) (timeoutSeconds: int) (config: SocketConfig) : SocketConfig =
-        { config with LingerEnabled = enabled; LingerTimeout = timeoutSeconds }
+        { config with
+            LingerEnabled = enabled
+            LingerTimeout = timeoutSeconds
+        }
 
     /// Sets the address family on a configuration.
     let withAddressFamily (family: Sockets.AddressFamily) (config: SocketConfig) : SocketConfig =
@@ -176,7 +168,7 @@ type ServerSocketConfig =
 module ServerSocketConfig =
 
     /// The default server socket configuration (binds 127.0.0.1:8080, backlog 100).
-    let defaultConfig : ServerSocketConfig =
+    let defaultConfig: ServerSocketConfig =
         {
             BindAddress = "127.0.0.1"
             BindPort = 8080
@@ -209,12 +201,13 @@ module ServerSocketConfig =
         }
 
     /// Sets the pending-connection backlog on a configuration.
-    let withBacklog (backlog: int) (config: ServerSocketConfig) : ServerSocketConfig =
-        { config with Backlog = backlog }
+    let withBacklog (backlog: int) (config: ServerSocketConfig) : ServerSocketConfig = { config with Backlog = backlog }
 
     /// Sets the configuration applied to accepted client sockets.
     let withAcceptedConfig (acceptedConfig: SocketConfig) (config: ServerSocketConfig) : ServerSocketConfig =
-        { config with AcceptedSocketConfig = Some acceptedConfig }
+        { config with
+            AcceptedSocketConfig = Some acceptedConfig
+        }
 
     /// Sets the address family on a configuration.
     let withAddressFamily (family: Sockets.AddressFamily) (config: ServerSocketConfig) : ServerSocketConfig =

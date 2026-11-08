@@ -23,8 +23,7 @@ let tests =
                         let mutable sideEffect = 0
                         let effect = FIO.succeed(value).Tap(fun r -> FIO.succeed (sideEffect <- r * 2))
 
-                        let actual =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let actual = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal actual value "Tap should preserve original value"
                         Expect.equal sideEffect (value * 2) "Tap should execute side effect"
@@ -33,8 +32,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int, error: int) ->
                         let effect = FIO.succeed(value).Tap(fun _ -> FIO.fail error)
 
-                        let actual =
-                            runtime.Run(effect).UnsafeError()
+                        let actual = runtime.Run(effect).UnsafeError()
 
                         Expect.equal actual error "Tap should propagate tap error"
 
@@ -43,8 +41,7 @@ let tests =
                         let mutable executed = false
                         let effect = FIO.fail(error).Tap(fun _ -> FIO.succeed (executed <- true))
 
-                        let actual =
-                            runtime.Run(effect).UnsafeError()
+                        let actual = runtime.Run(effect).UnsafeError()
 
                         Expect.equal actual error "Tap should preserve original error"
                         Expect.isFalse executed "Tap should not execute on original error"
@@ -54,8 +51,7 @@ let tests =
                         let mutable sideEffect = 0
                         let effect = FIO.fail(error).TapError(fun e -> FIO.succeed (sideEffect <- e * 2))
 
-                        let actual =
-                            runtime.Run(effect).UnsafeError()
+                        let actual = runtime.Run(effect).UnsafeError()
 
                         Expect.equal actual error "TapError should preserve error"
                         Expect.equal sideEffect (error * 2) "TapError should execute side effect"
@@ -64,8 +60,7 @@ let tests =
                     <| fun (runtime: FIORuntime, error: int, newErr: int) ->
                         let effect = FIO.fail(error).TapError(fun _ -> FIO.fail newErr)
 
-                        let actual =
-                            runtime.Run(effect).UnsafeError()
+                        let actual = runtime.Run(effect).UnsafeError()
 
                         Expect.equal actual newErr "TapError should propagate tap error"
 
@@ -74,8 +69,7 @@ let tests =
                         let mutable executed = false
                         let effect = FIO.succeed(value).TapError(fun _ -> FIO.succeed (executed <- true))
 
-                        let actual =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let actual = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal actual value "TapError should preserve success"
                         Expect.isFalse executed "TapError should not execute on success"
@@ -85,11 +79,10 @@ let tests =
                         let mutable successTap = false
                         let mutable errorTap = false
                         let effect =
-                            FIO.succeed(value)
-                                .TapBoth (fun _ -> FIO.succeed (successTap <- true)) (fun _ -> FIO.succeed (errorTap <- true))
+                            FIO.succeed(value).TapBoth (fun _ -> FIO.succeed (successTap <- true)) (fun _ ->
+                                FIO.succeed (errorTap <- true))
 
-                        let actual =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let actual = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal actual value "TapBoth should preserve success"
                         Expect.isTrue successTap "TapBoth should execute success tap"
@@ -100,8 +93,8 @@ let tests =
                         let mutable successTap = false
                         let mutable errorTap = false
                         let effect =
-                            FIO.fail(error)
-                                .TapBoth (fun _ -> FIO.succeed (successTap <- true)) (fun _ -> FIO.succeed (errorTap <- true))
+                            FIO.fail(error).TapBoth (fun _ -> FIO.succeed (successTap <- true)) (fun _ ->
+                                FIO.succeed (errorTap <- true))
 
                         let actual = runtime.Run(effect).UnsafeError()
 
@@ -113,8 +106,8 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int, error: int) ->
                         let mutable errorTap = false
                         let effect =
-                            FIO.succeed(value)
-                                .TapBoth (fun _ -> FIO.fail error) (fun _ -> FIO.succeed (errorTap <- true))
+                            FIO.succeed(value).TapBoth (fun _ -> FIO.fail error) (fun _ ->
+                                FIO.succeed (errorTap <- true))
 
                         let actual = runtime.Run(effect).UnsafeError()
 
@@ -134,8 +127,7 @@ let tests =
                                     Console.SetError TextWriter.Null
 
                                     try
-                                        let result =
-                                            runtime.Run(effect).UnsafeSuccess()
+                                        let result = runtime.Run(effect).UnsafeSuccess()
 
                                         Expect.equal result value "Debug should preserve success value"
                                     finally
@@ -151,8 +143,7 @@ let tests =
                                     Console.SetError TextWriter.Null
 
                                     try
-                                        let result =
-                                            runtime.Run(effect).UnsafeSuccess()
+                                        let result = runtime.Run(effect).UnsafeSuccess()
 
                                         Expect.equal result value "Debug with message should preserve success value"
                                     finally
@@ -168,8 +159,7 @@ let tests =
                                     Console.SetError TextWriter.Null
 
                                     try
-                                        let result =
-                                            runtime.Run(effect).UnsafeError()
+                                        let result = runtime.Run(effect).UnsafeError()
 
                                         Expect.equal result error "DebugError should preserve error value"
                                     finally
@@ -185,8 +175,7 @@ let tests =
                                     Console.SetError TextWriter.Null
 
                                     try
-                                        let result =
-                                            runtime.Run(effect).UnsafeError()
+                                        let result = runtime.Run(effect).UnsafeError()
 
                                         Expect.equal result error "DebugError with message should preserve error value"
                                     finally

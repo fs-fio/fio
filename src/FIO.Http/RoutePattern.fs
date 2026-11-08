@@ -16,57 +16,41 @@ type RoutePath =
 module RoutePath =
 
     [<TailCall>]
-    let rec private matchSegments
-        (patternSegments: string list)
-        (urlSegments: string list)
-        (captured: obj list) =
+    let rec private matchSegments (patternSegments: string list) (urlSegments: string list) (captured: obj list) =
         match patternSegments, urlSegments with
-        | [], [] ->
-            Some(List.rev captured, [])
+        | [], [] -> Some(List.rev captured, [])
         | patternSegment :: patternRest, urlSegment :: urlRest when patternSegment.StartsWith ":" ->
             matchSegments patternRest urlRest (box urlSegment :: captured)
         | patternSegment :: patternRest, urlSegment :: urlRest when patternSegment = urlSegment ->
             matchSegments patternRest urlRest captured
-        | _ ->
-            None
+        | _ -> None
 
     [<TailCall>]
     let rec private matchPrefix (exp: string list) (seg: string list) =
         match exp, seg with
-        | [], remaining ->
-            Some([], remaining)
-        | e :: et, s :: st when e = s ->
-            matchPrefix et st
-        | _ ->
-            None
+        | [], remaining -> Some([], remaining)
+        | e :: et, s :: st when e = s -> matchPrefix et st
+        | _ -> None
 
     [<TailCall>]
     let rec private matchBefore (b: string list) (s: string list) =
         match b, s with
-        | [], remaining ->
-            Some remaining
-        | bh :: bt, sh :: st when bh = sh ->
-            matchBefore bt st
-        | _ ->
-            None
+        | [], remaining -> Some remaining
+        | bh :: bt, sh :: st when bh = sh -> matchBefore bt st
+        | _ -> None
 
     [<TailCall>]
     let rec private matchAfter (a: string list) (s: string list) (acc: obj list) =
         match a, s with
-        | [], remaining ->
-            Some(List.rev acc, remaining)
-        | ah :: at, sh :: st when ah = sh ->
-            matchAfter at st acc
-        | _ ->
-            None
+        | [], remaining -> Some(List.rev acc, remaining)
+        | ah :: at, sh :: st when ah = sh -> matchAfter at st acc
+        | _ -> None
 
     /// Creates a path that matches the given segments exactly.
-    let exact (segments: string list) : RoutePath =
-        Exact segments
+    let exact (segments: string list) : RoutePath = Exact segments
 
     /// Creates a path that matches any request beginning with the given segments.
-    let prefix (segments: string list) : RoutePath =
-        Prefix segments
+    let prefix (segments: string list) : RoutePath = Prefix segments
 
     /// <summary>Parses a path string into a route path, treating <c>:name</c> segments as parameters.</summary>
     let parse (path: string) : RoutePath =
@@ -74,47 +58,40 @@ module RoutePath =
             path.Split([| '/' |], StringSplitOptions.RemoveEmptyEntries) |> Array.toList
 
         if segments |> List.exists (fun (segment: string) -> segment.StartsWith ":") then
-            Pattern <| fun requestSegments ->
-                matchSegments segments requestSegments []
+            Pattern <| fun requestSegments -> matchSegments segments requestSegments []
         else
             Exact segments
 
     /// Parses a path string into a route path.
-    let fromString (path: string) : RoutePath =
-        parse path
+    let fromString (path: string) : RoutePath = parse path
 
     /// Tries to match segments against a route path, returning captured parameters and any remainder.
     let tryMatch (routePath: RoutePath) (segments: string list) : (obj list * string list) option =
         match routePath with
         | Exact expected -> if segments = expected then Some([], []) else None
-        | Prefix expected ->
-            matchPrefix expected segments
-        | Pattern matcher ->
-            matcher segments
+        | Prefix expected -> matchPrefix expected segments
+        | Pattern matcher -> matcher segments
 
     /// Creates a pattern matching an integer parameter between the given before and after segments.
     let withInt (before: string list) (after: string list) : RoutePath =
-        Pattern <| fun segments ->
+        Pattern
+        <| fun segments ->
             match matchBefore before segments with
             | Some(param :: remaining) ->
                 let style = NumberStyles.AllowLeadingSign
 
                 match Int32.TryParse(param, style, CultureInfo.InvariantCulture) with
-                | true, value when not (param.StartsWith '+') ->
-                    matchAfter after remaining [ box value ]
-                | _ ->
-                    None
-            | _ ->
-                None
+                | true, value when not (param.StartsWith '+') -> matchAfter after remaining [ box value ]
+                | _ -> None
+            | _ -> None
 
     /// Creates a pattern matching a string parameter between the given before and after segments.
     let withString (before: string list) (after: string list) : RoutePath =
-        Pattern <| fun segments ->
+        Pattern
+        <| fun segments ->
             match matchBefore before segments with
-            | Some(param :: remaining) ->
-                matchAfter after remaining [ box param ]
-            | _ ->
-                None
+            | Some(param :: remaining) -> matchAfter after remaining [ box param ]
+            | _ -> None
 
 /// A route pattern: a method plus a path matcher that extracts parameters.
 type RoutePattern =
@@ -140,41 +117,31 @@ module RoutePattern =
                     match RoutePath.tryMatch path segments with
                     | Some(parameters, remaining) ->
                         match path with
-                        | Prefix _ ->
-                            Some parameters
-                        | _ ->
-                            if List.isEmpty remaining then Some parameters
-                            else None
+                        | Prefix _ -> Some parameters
+                        | _ -> if List.isEmpty remaining then Some parameters else None
                     | None -> None
         }
 
     /// Creates a GET route pattern for the given path.
-    let get (path: RoutePath) : RoutePattern =
-        create HttpMethod.GET path
+    let get (path: RoutePath) : RoutePattern = create HttpMethod.GET path
 
     /// Creates a POST route pattern for the given path.
-    let post (path: RoutePath) : RoutePattern =
-        create HttpMethod.POST path
+    let post (path: RoutePath) : RoutePattern = create HttpMethod.POST path
 
     /// Creates a PUT route pattern for the given path.
-    let put (path: RoutePath) : RoutePattern =
-        create HttpMethod.PUT path
+    let put (path: RoutePath) : RoutePattern = create HttpMethod.PUT path
 
     /// Creates a DELETE route pattern for the given path.
-    let delete (path: RoutePath) : RoutePattern =
-        create HttpMethod.DELETE path
+    let delete (path: RoutePath) : RoutePattern = create HttpMethod.DELETE path
 
     /// Creates a PATCH route pattern for the given path.
-    let patch (path: RoutePath) : RoutePattern =
-        create HttpMethod.PATCH path
+    let patch (path: RoutePath) : RoutePattern = create HttpMethod.PATCH path
 
     /// Creates a HEAD route pattern for the given path.
-    let head (path: RoutePath) : RoutePattern =
-        create HttpMethod.HEAD path
+    let head (path: RoutePath) : RoutePattern = create HttpMethod.HEAD path
 
     /// Creates an OPTIONS route pattern for the given path.
-    let options (path: RoutePath) : RoutePattern =
-        create HttpMethod.OPTIONS path
+    let options (path: RoutePath) : RoutePattern = create HttpMethod.OPTIONS path
 
     /// Tries to match a request against a pattern, returning captured parameters.
     let tryMatch (pattern: RoutePattern) (request: HttpRequest) : obj list option =

@@ -17,8 +17,16 @@ let workerInfrastructureTests =
                 [
                     let invalid =
                         [
-                            "EvaluationWorkers = 0", { WorkerConfig.Default with EvaluationWorkers = 0 }, "EWC: 0"
-                            "EvaluationSteps = 0", { WorkerConfig.Default with EvaluationSteps = 0 }, "EWS: 0"
+                            "EvaluationWorkers = 0",
+                            { WorkerConfig.Default with
+                                EvaluationWorkers = 0
+                            },
+                            "EWC: 0"
+                            "EvaluationSteps = 0",
+                            { WorkerConfig.Default with
+                                EvaluationSteps = 0
+                            },
+                            "EWS: 0"
                         ]
 
                     for runtimeName, make in
@@ -36,8 +44,14 @@ let workerInfrastructureTests =
 
                                 match thrown with
                                 | Some(:? ArgumentException as ex) ->
-                                    Expect.stringContains ex.Message "Invalid worker configuration" "The message should say what is wrong"
-                                    Expect.stringContains ex.Message shown "The message should show the offending count"
+                                    Expect.stringContains
+                                        ex.Message
+                                        "Invalid worker configuration"
+                                        "The message should say what is wrong"
+                                    Expect.stringContains
+                                        ex.Message
+                                        shown
+                                        "The message should show the offending count"
                                 | other -> failtest $"Expected ArgumentException, got {other}")
                 ]
         ]

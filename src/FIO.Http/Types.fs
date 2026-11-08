@@ -42,10 +42,14 @@ module internal HeaderHelpers =
     let tryFind (name: string) (map: Map<string, string list>) =
         map
         |> Map.tryPick (fun key value ->
-            if String.Equals(key, name, StringComparison.OrdinalIgnoreCase) then Some value else None)
+            if String.Equals(key, name, StringComparison.OrdinalIgnoreCase) then
+                Some value
+            else
+                None)
 
     let contains (name: string) (map: Map<string, string list>) =
-        map |> Map.exists (fun key _ -> String.Equals(key, name, StringComparison.OrdinalIgnoreCase))
+        map
+        |> Map.exists (fun key _ -> String.Equals(key, name, StringComparison.OrdinalIgnoreCase))
 
 /// An error for modelling failures inside a route handler; the server itself never produces one.
 type HttpError =
@@ -68,7 +72,7 @@ type HttpError =
     /// An otherwise-unclassified error.
     | GeneralError of exn
 
-    override this.ToString () : string =
+    override this.ToString() : string =
         match this with
         | InvalidRoute pattern -> $"Invalid route: {pattern}"
         | ParsingFailed(message, ex) -> $"Parsing failed: {message} - {ex.Message}"
@@ -84,8 +88,7 @@ type HttpError =
 module HttpError =
 
     /// Wraps an exception as a general HTTP error.
-    let fromException (ex: exn) : HttpError =
-        GeneralError ex
+    let fromException (ex: exn) : HttpError = GeneralError ex
 
     /// Converts an HTTP error back into an exception: a GeneralError's own, else a new one wrapping any inner exception.
     let toException (error: HttpError) : exn =
@@ -124,7 +127,7 @@ type HttpMethod =
     /// Any other method, by name.
     | Custom of string
 
-    override this.ToString () : string =
+    override this.ToString() : string =
         match this with
         | GET -> "GET"
         | POST -> "POST"
@@ -287,14 +290,14 @@ type RequestBody =
     | Text of string
 
     /// Returns this body as a byte array.
-    member this.AsBytes () : byte[] =
+    member this.AsBytes() : byte[] =
         match this with
         | Empty -> Array.empty
         | Bytes bytes -> bytes
         | Text text -> Encoding.UTF8.GetBytes text
 
     /// Returns this body as a string.
-    member this.AsString () : string =
+    member this.AsString() : string =
         match this with
         | Empty -> ""
         | Text text -> text
@@ -315,7 +318,7 @@ type ResponseBody =
     | Json of obj
 
     /// This body's content length in bytes, if known.
-    member this.ContentLength : int64 option =
+    member this.ContentLength: int64 option =
         match this with
         | Empty -> Some 0L
         | Bytes bytes -> Some <| int64 bytes.Length
@@ -384,8 +387,7 @@ module HttpRequest =
         }
 
     /// Sets a request's body.
-    let withBody body request : HttpRequest =
-        { request with Body = body }
+    let withBody body request : HttpRequest = { request with Body = body }
 
     /// Attaches a metadata value to a request.
     let withMetadata key value request : HttpRequest =
@@ -395,25 +397,19 @@ module HttpRequest =
 
     /// Returns the first value of a query parameter, if present.
     let queryParam name request : string option =
-        request.QueryParams
-        |> Map.tryFind name
-        |> Option.bind List.tryHead
+        request.QueryParams |> Map.tryFind name |> Option.bind List.tryHead
 
     /// Returns all values of a query parameter.
     let queryParams name request : string list =
-        request.QueryParams
-        |> Map.tryFind name
-        |> Option.defaultValue []
+        request.QueryParams |> Map.tryFind name |> Option.defaultValue []
 
     /// Returns the first value of a header, if present.
     let header name request : string option =
-        HeaderHelpers.tryFind name request.Headers
-        |> Option.bind List.tryHead
+        HeaderHelpers.tryFind name request.Headers |> Option.bind List.tryHead
 
     /// Returns all values of a header.
     let headers name request : string list =
-        HeaderHelpers.tryFind name request.Headers
-        |> Option.defaultValue []
+        HeaderHelpers.tryFind name request.Headers |> Option.defaultValue []
 
     let private encodingFromContentType (contentType: string option) =
         match contentType with
@@ -423,7 +419,10 @@ module HttpRequest =
                 let part = part.Trim()
                 if part.StartsWith("charset=", StringComparison.OrdinalIgnoreCase) then
                     let name = part.Substring(8).Trim().Trim '"'
-                    try Some(Encoding.GetEncoding name) with _ -> None
+                    try
+                        Some(Encoding.GetEncoding name)
+                    with _ ->
+                        None
                 else
                     None)
             |> Option.defaultValue Encoding.UTF8
@@ -463,7 +462,11 @@ module HttpResponse =
 
     /// Creates a response with the given status and an empty body.
     let create status : HttpResponse =
-        { Status = status; Headers = Map.empty; Body = ResponseBody.Empty }
+        {
+            Status = status
+            Headers = Map.empty
+            Body = ResponseBody.Empty
+        }
 
     /// Adds a header value to a response.
     let withHeader name value response : HttpResponse =
@@ -481,19 +484,15 @@ module HttpResponse =
         }
 
     /// Sets a response's body.
-    let withBody (body: ResponseBody) (response: HttpResponse) : HttpResponse =
-        { response with Body = body }
+    let withBody (body: ResponseBody) (response: HttpResponse) : HttpResponse = { response with Body = body }
 
     /// Sets a response's status code.
-    let withStatus status response : HttpResponse =
-        { response with Status = status }
+    let withStatus status response : HttpResponse = { response with Status = status }
 
     /// Returns the first value of a header, if present.
     let header name response : string option =
-        HeaderHelpers.tryFind name response.Headers
-        |> Option.bind List.tryHead
+        HeaderHelpers.tryFind name response.Headers |> Option.bind List.tryHead
 
     /// Returns all values of a header.
     let headers name response : string list =
-        HeaderHelpers.tryFind name response.Headers
-        |> Option.defaultValue []
+        HeaderHelpers.tryFind name response.Headers |> Option.defaultValue []

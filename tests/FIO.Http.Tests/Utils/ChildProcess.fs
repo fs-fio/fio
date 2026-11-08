@@ -17,25 +17,25 @@ let private print (line: string) =
             Console.Out.Flush())
         id
 
-let private stuckRoutes : Routes<exn> =
+let private stuckRoutes: Routes<exn> =
     get "/ok" (HttpHandler.text "ok")
     |> Routes.combine (get "/stuck" (fun _ -> (print "entered").FlatMap(fun () -> FIO.never ())))
 
 let private stuckConfig (port: int) (shutdownTimeout: int) =
-    ServerConfig.create "127.0.0.1" port |> ServerConfig.withShutdownTimeout shutdownTimeout
+    ServerConfig.create "127.0.0.1" port
+    |> ServerConfig.withShutdownTimeout shutdownTimeout
 
 let private serve (port: int) (shutdownTimeout: int) =
     use runtime = new WorkStealingRuntime(testConfig)
 
     match runtime.Run(Server.runServer (stuckConfig port shutdownTimeout) stuckRoutes).UnsafeResult() with
-    | Succeeded () -> 0
+    | Succeeded() -> 0
     | _ -> 1
 
 type private ServerApp(port: int, shutdownTimeout: int) =
     inherit FIOApp<unit, exn>()
 
-    override _.effect =
-        Server.runServer (stuckConfig port shutdownTimeout) stuckRoutes
+    override _.effect = Server.runServer (stuckConfig port shutdownTimeout) stuckRoutes
 
 let run (args: string list) : int =
     match args with

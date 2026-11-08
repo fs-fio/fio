@@ -8,8 +8,7 @@ open FIO.Runtime.WorkStealing
 
 open System
 
-let private defaultRuntimes =
-    [| "Direct"; "WorkStealing-12-200" |]
+let private defaultRuntimes = [| "Direct"; "WorkStealing-12-200" |]
 
 let private parseWorker (spec: string) (part: string) =
     match Int32.TryParse part with
@@ -21,11 +20,10 @@ let create (spec: string) : FIORuntime =
     match spec.Split '-' with
     | [| "Direct" |] -> new DirectRuntime()
     | [| "WorkStealing"; ewc; ews |] ->
-        new WorkStealingRuntime
-            {
-                EvaluationWorkers = parseWorker spec ewc
-                EvaluationSteps = parseWorker spec ews
-            }
+        new WorkStealingRuntime {
+            EvaluationWorkers = parseWorker spec ewc
+            EvaluationSteps = parseWorker spec ews
+        }
     | _ -> raise (ArgumentException $"Unknown runtime spec: {spec}")
 
 let runtimes () =

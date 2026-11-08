@@ -73,8 +73,7 @@ let helloWorld5 () =
 // Forks an effect onto its own fiber and joins it back, wired with .Fork().FlatMap.
 let concurrency1 () =
     let concurrent =
-        FIO.succeed("Hello, concurrency! 🚀")
-            .Fork().FlatMap <| fun fiber -> fiber.Join()
+        FIO.succeed("Hello, concurrency! 🚀").Fork().FlatMap <| fun fiber -> fiber.Join()
 
     let fiber = runtime.Run concurrent
     fiber.UnsafePrintResult()
@@ -82,8 +81,7 @@ let concurrency1 () =
 // The same fork/join, expressed with the >>= bind operator instead.
 let concurrency2 () =
     let concurrent =
-        FIO.succeed("Hello, concurrency! 🚀").Fork()
-        >>= fun fiber -> fiber.Join()
+        FIO.succeed("Hello, concurrency! 🚀").Fork() >>= fun fiber -> fiber.Join()
 
     let fiber = runtime.Run concurrent
     fiber.UnsafePrintResult()
@@ -98,20 +96,14 @@ let concurrency3 () =
 
 // Builds a successful effect with the fio { } computation expression.
 let computationExpression1 () =
-    let hello: FIO<string, obj> =
-        fio {
-            return "Hello world! 🪻"
-        }
+    let hello: FIO<string, obj> = fio { return "Hello world! 🪻" }
 
     let fiber = runtime.Run hello
     fiber.UnsafePrintResult()
 
 // Fails from inside a computation expression with return! FIO.fail.
 let computationExpression2 () =
-    let hello: FIO<obj, string> =
-        fio {
-            return! FIO.fail "Hello world! 🪻"
-        }
+    let hello: FIO<obj, string> = fio { return! FIO.fail "Hello world! 🪻" }
 
     let fiber = runtime.Run hello
     fiber.UnsafePrintResult()
@@ -177,7 +169,8 @@ let examples =
         nameof operatorsTour, operatorsTour
     ]
 
-examples |> List.iteri (fun index (name, example) ->
+examples
+|> List.iteri (fun index (name, example) ->
     printfn $"Running example: {name}\n"
     example ()
 

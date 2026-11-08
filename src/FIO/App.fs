@@ -65,13 +65,15 @@ type FIOApp<'A, 'E>() as this =
     // An interrupted fiber publishes before its finalizers run; a completing one waits for its children
     // to unwind. Awaiting the effect as a child of the root puts every finalizer before the hooks.
     let scoped (effect: FIO<'A, 'E>) : FIO<FiberResult<'A, 'E>, 'E> =
-        effect.Fork().FlatMap(fun child ->
-            Interlocked.Exchange(&effectContext, Some child.Context) |> ignore
+        effect
+            .Fork()
+            .FlatMap(fun child ->
+                Interlocked.Exchange(&effectContext, Some child.Context) |> ignore
 
-            if Volatile.Read &shutdownRequested = 1 then
-                interruptEffect child.Context "before the effect started"
+                if Volatile.Read &shutdownRequested = 1 then
+                    interruptEffect child.Context "before the effect started"
 
-            child.Await())
+                child.Await())
 
     // The exit code is computed after the hooks, outside anything that would run them again.
     let exitCodeOf (outcome: AppResult<'A, 'E>) =
@@ -86,7 +88,7 @@ type FIOApp<'A, 'E>() as this =
 
     /// The runtime used to run the effect, disposed when this application ends. Defaults to the recommended runtime.
     abstract member runtime: FIORuntime
-    default _.runtime : FIORuntime = new DefaultRuntime()
+    default _.runtime: FIORuntime = new DefaultRuntime()
 
     /// An effect run with this application's settled outcome, after the effect's finalizers and before onShutdown;
     /// no-op by default.
@@ -96,17 +98,17 @@ type FIOApp<'A, 'E>() as this =
     /// How long to wait for the outcome effect, 10 seconds by default: 0 to Int32.MaxValue milliseconds or
     /// Timeout.InfiniteTimeSpan; any other value makes Run throw before the effect starts.
     abstract member onOutcomeTimeout: TimeSpan
-    default _.onOutcomeTimeout : TimeSpan = TimeSpan.FromSeconds 10.0
+    default _.onOutcomeTimeout: TimeSpan = TimeSpan.FromSeconds 10.0
 
     /// An effect run after onOutcome, before the process exits; the effect's finalizers have already run, so this is
     /// for process-level work. No-op by default.
     abstract member onShutdown: unit -> FIO<unit, 'E>
-    default _.onShutdown () : FIO<unit, 'E> = FIO.unit ()
+    default _.onShutdown() : FIO<unit, 'E> = FIO.unit ()
 
     /// How long to wait for the shutdown effect, 10 seconds by default: 0 to Int32.MaxValue milliseconds or
     /// Timeout.InfiniteTimeSpan; any other value makes Run throw before the effect starts.
     abstract member onShutdownTimeout: TimeSpan
-    default _.onShutdownTimeout : TimeSpan = TimeSpan.FromSeconds 10.0
+    default _.onShutdownTimeout: TimeSpan = TimeSpan.FromSeconds 10.0
 
     /// Maps this application's outcome to a process exit code: 0 on success, 1 on a failure or a fatal error (as in
     /// ZIO), 130 when interrupted. If it throws, the exit code is 1.
@@ -119,15 +121,19 @@ type FIOApp<'A, 'E>() as this =
         | AppFatalError _ -> 1
 
     /// Returns true from Run or RunAsync until onShutdown has finished.
-    member _.IsRunning : bool =
-        Volatile.Read &running = 1
+    member _.IsRunning: bool = Volatile.Read &running = 1
 
     /// Requests shutdown, interrupting the running effect; before Run it does nothing. Once shutdown was requested,
     /// by this or by a signal, a further Ctrl+C or SIGTERM is no longer handled and ends the process.
-    member _.Stop () : unit =
+    member _.Stop() : unit =
         requestShutdown "programmatically" |> ignore
 
-    member private _.RunHookAsync (runtime: FIORuntime) (label: string) (timeout: TimeSpan) (hook: unit -> FIO<unit, 'E>) =
+    member private _.RunHookAsync
+        (runtime: FIORuntime)
+        (label: string)
+        (timeout: TimeSpan)
+        (hook: unit -> FIO<unit, 'E>)
+        =
         task {
             let mutable fiberOpt = None
             let mutable timedOut = false
@@ -141,8 +147,7 @@ type FIOApp<'A, 'E>() as this =
             | :? TimeoutException ->
                 timedOut <- true
                 eprintfn "FIOApp %s hook exceeded timeout (%O)" label timeout
-            | ex ->
-                eprintfn "FIOApp %s hook threw: %s" label ex.Message
+            | ex -> eprintfn "FIOApp %s hook threw: %s" label ex.Message
 
             match fiberOpt with
             | Some fiber when timedOut ->
@@ -151,14 +156,19 @@ type FIOApp<'A, 'E>() as this =
             | None -> ()
         }
 
-    member private this.RunHooksAsync (runtime: FIORuntime) (outcomeTimeout: TimeSpan) (shutdownTimeout: TimeSpan) (outcome: AppResult<'A, 'E>) =
+    member private this.RunHooksAsync
+        (runtime: FIORuntime)
+        (outcomeTimeout: TimeSpan)
+        (shutdownTimeout: TimeSpan)
+        (outcome: AppResult<'A, 'E>)
+        =
         task {
             do! this.RunHookAsync runtime "outcome" outcomeTimeout (fun () -> this.onOutcome outcome)
             do! this.RunHookAsync runtime "shutdown" shutdownTimeout (fun () -> this.onShutdown ())
         }
 
     /// Runs this application asynchronously and returns its process exit code.
-    member this.RunAsync () : Task<int> =
+    member this.RunAsync() : Task<int> =
         let outcomeTimeout = this.onOutcomeTimeout
         let shutdownTimeout = this.onShutdownTimeout
         validateTimeout (nameof this.onOutcomeTimeout) outcomeTimeout
@@ -192,7 +202,9 @@ type FIOApp<'A, 'E>() as this =
                                         signal,
                                         fun context ->
                                             if requestShutdownFrom (string context.Signal) then
-                                                context.Cancel <- true))
+                                                context.Cancel <- true
+                                    )
+                                )
                             with ex ->
                                 eprintfn "FIOApp failed to register %O handler: %s" signal ex.Message
                                 None)
@@ -211,22 +223,17 @@ type FIOApp<'A, 'E>() as this =
                         eprintfn "FIOApp failed to register CancelKeyPress handler: %s" ex.Message
 
                     let runtime = lazyRuntime.Value
-                    let fiber = runtime.Run (scoped this.effect)
+                    let fiber = runtime.Run(scoped this.effect)
 
                     try
                         let! settled =
                             task {
                                 match! fiber.Task() with
-                                | Succeeded(Succeeded value) ->
-                                    return AppSucceeded value
-                                | Succeeded(Failed error) ->
-                                    return AppFailed error
-                                | Succeeded(Interrupted ex) ->
-                                    return outcomeOfInterruption ex
-                                | Failed error ->
-                                    return AppFailed error
-                                | Interrupted ex ->
-                                    return outcomeOfInterruption ex
+                                | Succeeded(Succeeded value) -> return AppSucceeded value
+                                | Succeeded(Failed error) -> return AppFailed error
+                                | Succeeded(Interrupted ex) -> return outcomeOfInterruption ex
+                                | Failed error -> return AppFailed error
+                                | Interrupted ex -> return outcomeOfInterruption ex
                             }
 
                         do! this.RunHooksAsync runtime outcomeTimeout shutdownTimeout settled
@@ -278,5 +285,5 @@ type FIOApp<'A, 'E>() as this =
         }
 
     /// Runs this application and returns its process exit code.
-    member this.Run () : int =
+    member this.Run() : int =
         this.RunAsync().GetAwaiter().GetResult()

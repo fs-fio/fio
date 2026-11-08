@@ -10,7 +10,7 @@ open System.Threading.Tasks
 type InterruptibilityRestorer internal (level: int) =
 
     /// Returns an effect that runs the given effect with the interruptibility in force outside the region.
-    member _.Restore<'A, 'E> (effect: FIO<'A, 'E>) : FIO<'A, 'E> =
+    member _.Restore<'A, 'E>(effect: FIO<'A, 'E>) : FIO<'A, 'E> =
         SuppressionNode<'A, 'E>((fun _ -> level), fun _ -> effect)
 
 [<RequireQualifiedAccess>]
@@ -19,16 +19,13 @@ module FIO =
     let private raiseSuppression (level: int) = level + 1
 
     /// Creates an effect that succeeds with unit.
-    let unit<'E> () : FIO<unit, 'E> =
-        NullSuccess<unit, 'E>.Instance
+    let unit<'E> () : FIO<unit, 'E> = NullSuccess<unit, 'E>.Instance
 
     /// Creates an effect that always succeeds with the given value.
-    let succeed<'A, 'E> (value: 'A) : FIO<'A, 'E> =
-        SuccessNode<'A, 'E> value
+    let succeed<'A, 'E> (value: 'A) : FIO<'A, 'E> = SuccessNode<'A, 'E> value
 
     /// Creates an effect that always fails with the given error.
-    let fail<'A, 'E> (error: 'E) : FIO<'A, 'E> =
-        FailureNode<'A, 'E> error
+    let fail<'A, 'E> (error: 'E) : FIO<'A, 'E> = FailureNode<'A, 'E> error
 
     /// Creates an effect that interrupts the current fiber with the given cause and message.
     let interrupt<'A, 'E> (cause: InterruptionCause) (message: string) : FIO<'A, 'E> =
@@ -39,15 +36,15 @@ module FIO =
         interrupt ExplicitInterrupt "Fiber interrupted"
 
     /// Creates an effect that runs a side-effecting function, mapping any thrown exception to a typed error via onError.
-    let attempt<'A, 'E> (func: unit -> 'A) (onError: exn -> 'E) : FIO<'A, 'E> =
-        ActionNode<'A, 'E>(func, onError)
+    let attempt<'A, 'E> (func: unit -> 'A) (onError: exn -> 'E) : FIO<'A, 'E> = ActionNode<'A, 'E>(func, onError)
 
     /// Creates an effect that succeeds with the result of the given function, which must not throw; a throw is a defect, not a typed error.
     let succeedWith<'A, 'E> (func: unit -> 'A) : FIO<'A, 'E> =
         ActionNode<'A, 'E>(func, Rethrow<_>.Instance)
 
     /// Creates an effect that succeeds or fails according to the given Result.
-    let inline fromResult<'A, 'E> : Result<'A, 'E> -> FIO<'A, 'E> = function
+    let inline fromResult<'A, 'E> : Result<'A, 'E> -> FIO<'A, 'E> =
+        function
         | Ok value -> succeed value
         | Error error -> fail error
 
@@ -64,13 +61,11 @@ module FIO =
         | Choice2Of2 error -> fail error
 
     /// Defers construction of an effect until it is run.
-    let suspend<'A, 'E> (effect: unit -> FIO<'A, 'E>) : FIO<'A, 'E> =
-        SuspendNode<'A, 'E> effect
+    let suspend<'A, 'E> (effect: unit -> FIO<'A, 'E>) : FIO<'A, 'E> = SuspendNode<'A, 'E> effect
 
     /// Creates an effect that yields the current fiber's cancellation token; inside an uninterruptible region, a
     /// finalizer for instance, the token never cancels, so cleanup started there runs to completion.
-    let cancellationToken<'E> () : FIO<CancellationToken, 'E> =
-        CancellationTokenNode<'E>.Instance
+    let cancellationToken<'E> () : FIO<CancellationToken, 'E> = CancellationTokenNode<'E>.Instance
 
     /// Creates an effect that awaits a non-generic task, mapping any exception to a typed error.
     let awaitUnitTask<'E> (task: Task) (onError: exn -> 'E) : FIO<unit, 'E> =
@@ -82,34 +77,42 @@ module FIO =
 
     /// Creates an effect that runs an F# async and yields its result, mapping any exception to a typed error.
     let inline awaitAsync<'A, 'E> (async: Async<'A>) (onError: exn -> 'E) : FIO<'A, 'E> =
-        cancellationToken().FlatMap <| fun cancellationToken ->
-            awaitTask (Async.StartAsTask(async, cancellationToken = cancellationToken)) onError
+        cancellationToken().FlatMap
+        <| fun cancellationToken -> awaitTask (Async.StartAsTask(async, cancellationToken = cancellationToken)) onError
 
     /// Creates an effect that starts a non-generic task on the current fiber and awaits it on a new one, mapping any exception via onError.
     let inline forkUnitTask<'E, 'E1> (taskFactory: unit -> Task) (onError: exn -> 'E) : FIO<Fiber<unit, 'E>, 'E1> =
-        suspend <| fun () ->
+        suspend
+        <| fun () ->
             let task =
-                try taskFactory ()
-                with ex -> Task.FromException ex
+                try
+                    taskFactory ()
+                with ex ->
+                    Task.FromException ex
             (awaitUnitTask task onError).Fork()
 
     /// Creates an effect that starts a task on the current fiber and awaits it on a new one, mapping any exception via onError.
     let inline forkTask<'A, 'E, 'E1> (taskFactory: unit -> Task<'A>) (onError: exn -> 'E) : FIO<Fiber<'A, 'E>, 'E1> =
-        suspend <| fun () ->
+        suspend
+        <| fun () ->
             let task =
-                try taskFactory ()
-                with ex -> Task.FromException<'A> ex
+                try
+                    taskFactory ()
+                with ex ->
+                    Task.FromException<'A> ex
             (awaitTask task onError).Fork()
 
     /// Creates an effect from a callback-based asynchronous operation, completed by invoking the registered callback;
     /// an exception from register goes through onError.
     let inline async<'A, 'E> (register: (Result<'A, 'E> -> unit) -> unit) (onError: exn -> 'E) : FIO<'A, 'E> =
-        cancellationToken().FlatMap <| fun cancellationToken ->
+        cancellationToken().FlatMap
+        <| fun cancellationToken ->
             let resultSource = TaskCompletionSource<Result<'A, 'E>>()
-            let registration = cancellationToken.Register(fun () ->
-                resultSource.TrySetCanceled cancellationToken |> ignore)
+            let registration =
+                cancellationToken.Register(fun () -> resultSource.TrySetCanceled cancellationToken |> ignore)
             try
-                register <| fun result ->
+                register
+                <| fun result ->
                     if resultSource.TrySetResult result then
                         registration.Dispose()
             with ex ->
@@ -123,15 +126,17 @@ module FIO =
         if duration < TimeSpan.Zero && duration <> Timeout.InfiniteTimeSpan then
             interrupt (InvalidArgument("duration", "must not be negative")) $"Cannot sleep for {duration}"
         elif duration.TotalMilliseconds > float (UInt32.MaxValue - 1u) then
-            interrupt (InvalidArgument("duration", "must not exceed 4294967294 ms (about 49.7 days)")) $"Cannot sleep for {duration}"
+            interrupt
+                (InvalidArgument("duration", "must not exceed 4294967294 ms (about 49.7 days)"))
+                $"Cannot sleep for {duration}"
         else
-            cancellationToken().FlatMap <| fun cancellationToken ->
-                awaitUnitTask (Task.Delay(duration, cancellationToken)) Rethrow<_>.Instance
+            cancellationToken().FlatMap
+            <| fun cancellationToken -> awaitUnitTask (Task.Delay(duration, cancellationToken)) Rethrow<_>.Instance
 
     /// Creates an effect that yields control, letting other fibers run before continuing.
     let yieldNow<'E> () : FIO<unit, 'E> =
-        cancellationToken().FlatMap <| fun _ ->
-            awaitUnitTask (Task.Run(fun () -> ())) Rethrow<_>.Instance
+        cancellationToken().FlatMap
+        <| fun _ -> awaitUnitTask (Task.Run(fun () -> ())) Rethrow<_>.Instance
 
     /// Creates an effect that never completes.
     let never<'A, 'E> () : FIO<'A, 'E> =
@@ -139,7 +144,9 @@ module FIO =
 
     let internal joinFirst<'E> (fiberContexts: FiberContext list) : FIO<int, 'E> =
         if List.isEmpty fiberContexts then
-            interrupt (InvalidArgument("fiberContexts", "list must not be empty")) "Cannot join the first of an empty list of fibers"
+            interrupt
+                (InvalidArgument("fiberContexts", "list must not be empty"))
+                "Cannot join the first of an empty list of fibers"
         else
             JoinFirstNode<'E> fiberContexts
 
@@ -184,7 +191,8 @@ module FIO =
                     with ex ->
                         interrupt (Defect ex) ex.Message
 
-                FinalizeNode<'A, 'E>(used, finalizer))
+                FinalizeNode<'A, 'E>(used, finalizer)
+        )
 
     /// Acquires a resource, uses it, and releases it as acquireReleaseWith does, handing release the outcome of use:
     /// success, failure, or interruption and its cause, so release can commit or roll back.
@@ -209,37 +217,41 @@ module FIO =
                     with ex ->
                         interrupt (Defect ex) ex.Message
 
-                used.OnExit finalizer)
+                used.OnExit finalizer
+        )
 
     /// Runs the given effect for each item in sequence, collecting the results into a list.
     let inline forEach<'A, 'A1, 'E> (items: seq<'A1>) (func: 'A1 -> FIO<'A, 'E>) : FIO<'A list, 'E> =
-        suspend <| fun () ->
+        suspend
+        <| fun () ->
             let arr = Seq.toArray items
             let results = ResizeArray<'A> arr.Length
             let rec loop i =
                 if i >= arr.Length then
                     succeed (List.ofSeq results)
                 else
-                    (func arr[i]).FlatMap <| fun value ->
+                    (func arr[i]).FlatMap
+                    <| fun value ->
                         results.Add value
                         loop (i + 1)
             loop 0
 
     /// Runs the given effect for each item in sequence, discarding the results.
     let inline forEachDiscard<'A, 'A1, 'E> (items: seq<'A1>) (func: 'A1 -> FIO<'A, 'E>) : FIO<unit, 'E> =
-        suspend <| fun () ->
+        suspend
+        <| fun () ->
             let arr = Seq.toArray items
             let rec loop i =
                 if i >= arr.Length then
                     unit ()
                 else
-                    (func arr[i]).FlatMap <| fun _ ->
-                        loop (i + 1)
+                    (func arr[i]).FlatMap <| fun _ -> loop (i + 1)
             loop 0
 
     /// Runs the given effect for each item concurrently, collecting the results into a list.
     let forEachPar<'A, 'A1, 'E> (items: seq<'A1>) (func: 'A1 -> FIO<'A, 'E>) : FIO<'A list, 'E> =
-        suspend <| fun () ->
+        suspend
+        <| fun () ->
             let arr = Seq.toArray items
 
             if arr.Length = 0 then
@@ -249,10 +261,10 @@ module FIO =
                     if i >= arr.Length then
                         succeed (List.rev forked |> List.toArray)
                     else
-                        (func arr[i]).Fork().FlatMap <| fun fiber ->
-                            forkAll (i + 1) (fiber :: forked)
+                        (func arr[i]).Fork().FlatMap <| fun fiber -> forkAll (i + 1) (fiber :: forked)
 
-                (forkAll 0 []).FlatMap <| fun fiberArr ->
+                (forkAll 0 []).FlatMap
+                <| fun fiberArr ->
                     let interruptAll () : FIO<unit, 'E> =
                         let rec loop i =
                             if i >= fiberArr.Length then
@@ -260,25 +272,28 @@ module FIO =
                             else
                                 (fiberArr[i].Interrupt ExplicitInterrupt "forEachPar peer failed")
                                     .CatchAll(fun _ -> unit ())
-                                    .FlatMap <| fun () -> loop (i + 1)
+                                    .FlatMap
+                                <| fun () -> loop (i + 1)
                         loop 0
 
                     let contexts = fiberArr |> Array.map (fun fiber -> fiber.Context)
 
-                    (joinAllFailFast contexts).FlatMap <| fun outcome ->
+                    (joinAllFailFast contexts).FlatMap
+                    <| fun outcome ->
                         match outcome with
                         | ValueNone ->
                             let rec collect i (acc: 'A list) : FIO<'A list, 'E> =
                                 if i < 0 then
                                     succeed acc
                                 else
-                                    fiberArr[i].Join().FlatMap <| fun value ->
-                                        collect (i - 1) (value :: acc)
+                                    fiberArr[i].Join().FlatMap <| fun value -> collect (i - 1) (value :: acc)
 
                             collect (arr.Length - 1) []
                         | ValueSome index ->
-                            fiberArr[index].Await().FlatMap <| fun result ->
-                                (interruptAll ()).FlatMap <| fun () ->
+                            fiberArr[index].Await().FlatMap
+                            <| fun result ->
+                                (interruptAll ()).FlatMap
+                                <| fun () ->
                                     match result with
                                     | Failed error -> fail error
                                     | Interrupted ex -> interrupt ex.cause ex.message
@@ -297,7 +312,8 @@ module FIO =
         if parallelism < 1 then
             interrupt (InvalidArgument("parallelism", "must be >= 1")) "Invalid argument: parallelism must be >= 1"
         else
-            suspend <| fun () ->
+            suspend
+            <| fun () ->
                 let arr = Seq.toArray items
 
                 if arr.Length = 0 then
@@ -307,55 +323,60 @@ module FIO =
                     let next = ref -1
 
                     let rec work () : FIO<unit, 'E> =
-                        suspend <| fun () ->
+                        suspend
+                        <| fun () ->
                             let index = Interlocked.Increment &next.contents
 
                             if index >= arr.Length then
                                 unit ()
                             else
-                                (func arr[index]).FlatMap <| fun value ->
+                                (func arr[index]).FlatMap
+                                <| fun value ->
                                     results[index] <- value
                                     work ()
 
                     (forEachPar (Array.create (min parallelism arr.Length) ()) work).Map(fun _ -> List.ofArray results)
 
     /// Runs the given effects in sequence, collecting their results into a list.
-    let inline collectAll<'A, 'E> (effects: seq<FIO<'A, 'E>>) : FIO<'A list, 'E> =
-        forEach effects id
+    let inline collectAll<'A, 'E> (effects: seq<FIO<'A, 'E>>) : FIO<'A list, 'E> = forEach effects id
 
     /// Runs the given effects in sequence, discarding their results.
-    let inline collectAllDiscard<'A, 'E> (effects: seq<FIO<'A, 'E>>) : FIO<unit, 'E> =
-        forEachDiscard effects id
+    let inline collectAllDiscard<'A, 'E> (effects: seq<FIO<'A, 'E>>) : FIO<unit, 'E> = forEachDiscard effects id
 
     /// Runs the given effects concurrently, collecting their results into a list.
-    let inline collectAllPar<'A, 'E> (effects: seq<FIO<'A, 'E>>) : FIO<'A list, 'E> =
-        forEachPar effects id
+    let inline collectAllPar<'A, 'E> (effects: seq<FIO<'A, 'E>>) : FIO<'A list, 'E> = forEachPar effects id
 
     /// Runs the given effects concurrently, discarding their results.
-    let inline collectAllParDiscard<'A, 'E> (effects: seq<FIO<'A, 'E>>) : FIO<unit, 'E> =
-        forEachParDiscard effects id
+    let inline collectAllParDiscard<'A, 'E> (effects: seq<FIO<'A, 'E>>) : FIO<unit, 'E> = forEachParDiscard effects id
 
     /// Runs the given effect n times in sequence, collecting the results into a list.
     let inline replicateFIO<'A, 'E> (n: int) (effect: FIO<'A, 'E>) : FIO<'A list, 'E> =
         if n <= 0 then
             succeed []
         else
-            forEach (seq { 1 .. n }) (fun _ -> effect)
+            forEach (seq { 1..n }) (fun _ -> effect)
 
     /// Runs the given effect n times in sequence, discarding the results.
     let inline replicateFIODiscard<'A, 'E> (n: int) (effect: FIO<'A, 'E>) : FIO<unit, 'E> =
         if n <= 0 then
             unit ()
         else
-            forEachDiscard (seq { 1 .. n }) (fun _ -> effect)
+            forEachDiscard (seq { 1..n }) (fun _ -> effect)
 
     /// Repeatedly runs the body while the condition holds, stepping the state each time and collecting the results.
-    let inline loop<'S, 'A, 'E> (initial: 'S) (cont: 'S -> bool) (inc: 'S -> 'S) (body: 'S -> FIO<'A, 'E>) : FIO<'A list, 'E> =
-        suspend <| fun () ->
+    let inline loop<'S, 'A, 'E>
+        (initial: 'S)
+        (cont: 'S -> bool)
+        (inc: 'S -> 'S)
+        (body: 'S -> FIO<'A, 'E>)
+        : FIO<'A list, 'E> =
+        suspend
+        <| fun () ->
             let results = ResizeArray<'A>()
             let rec go state =
                 if cont state then
-                    (body state).FlatMap <| fun value ->
+                    (body state).FlatMap
+                    <| fun value ->
                         results.Add value
                         go (inc state)
                 else
@@ -363,37 +384,42 @@ module FIO =
             go initial
 
     /// Repeatedly runs the body while the condition holds, stepping the state each time and discarding the results.
-    let inline loopDiscard<'S, 'A, 'E> (initial: 'S) (cont: 'S -> bool) (inc: 'S -> 'S) (body: 'S -> FIO<'A, 'E>) : FIO<unit, 'E> =
-        suspend <| fun () ->
+    let inline loopDiscard<'S, 'A, 'E>
+        (initial: 'S)
+        (cont: 'S -> bool)
+        (inc: 'S -> 'S)
+        (body: 'S -> FIO<'A, 'E>)
+        : FIO<unit, 'E> =
+        suspend
+        <| fun () ->
             let rec go state =
                 if cont state then
-                    (body state).FlatMap <| fun _ ->
-                        go (inc state)
+                    (body state).FlatMap <| fun _ -> go (inc state)
                 else
                     unit ()
             go initial
 
     /// Repeatedly runs the body while the condition holds, threading the state through each step and yielding the final state.
     let inline iterate<'S, 'E> (initial: 'S) (cont: 'S -> bool) (body: 'S -> FIO<'S, 'E>) : FIO<'S, 'E> =
-        suspend <| fun () ->
+        suspend
+        <| fun () ->
             let rec go state =
                 if cont state then
-                    (body state).FlatMap <| fun next ->
-                        go next
+                    (body state).FlatMap <| fun next -> go next
                 else
                     succeed state
             go initial
 
     /// Runs the given effects in sequence, folding their results into a single value.
     let inline mergeAll<'A, 'A1, 'E> (effects: seq<FIO<'A1, 'E>>) (zero: 'A) (func: 'A -> 'A1 -> 'A) : FIO<'A, 'E> =
-        suspend <| fun () ->
+        suspend
+        <| fun () ->
             let arr = Seq.toArray effects
             let rec go i acc =
                 if i >= arr.Length then
                     succeed acc
                 else
-                    arr[i].FlatMap <| fun x ->
-                        go (i + 1) (func acc x)
+                    arr[i].FlatMap <| fun x -> go (i + 1) (func acc x)
             go 0 zero
 
     /// Runs the given effects concurrently, folding their results into a single value.
@@ -410,7 +436,8 @@ module FIO =
         (collectAllPar all).Map(List.reduce func)
 
     let inline private splitResults<'A, 'E> (results: Result<'A, 'E> list) =
-        let folder (errors, values) = function
+        let folder (errors, values) =
+            function
             | Ok value -> errors, value :: values
             | Error error -> error :: errors, values
         let errors, values = List.fold folder ([], []) results
@@ -421,37 +448,38 @@ module FIO =
         (forEach items (fun value -> (func value).Result())).Map splitResults
 
     /// Runs the given effect for each item concurrently, partitioning the outcomes into errors and successes.
-    let inline partitionPar<'A, 'A1, 'E, 'E1> (items: seq<'A1>) (func: 'A1 -> FIO<'A, 'E>) : FIO<'E list * 'A list, 'E1> =
+    let inline partitionPar<'A, 'A1, 'E, 'E1>
+        (items: seq<'A1>)
+        (func: 'A1 -> FIO<'A, 'E>)
+        : FIO<'E list * 'A list, 'E1> =
         (forEachPar items (fun value -> (func value).Result())).Map splitResults
 
     /// Runs the given effect for each item in sequence, succeeding with all values or failing with every collected error.
     let inline validate<'A, 'A1, 'E> (items: seq<'A1>) (func: 'A1 -> FIO<'A, 'E>) : FIO<'A list, 'E list> =
-        (forEach items (fun value -> (func value).Result())).FlatMap <| fun results ->
+        (forEach items (fun value -> (func value).Result())).FlatMap
+        <| fun results ->
             let errors, values = splitResults results
-            if List.isEmpty errors then succeed values
-            else fail errors
+            if List.isEmpty errors then succeed values else fail errors
 
     /// Runs the given effect for each item concurrently, succeeding with all values or failing with every collected error.
     let inline validatePar<'A, 'A1, 'E> (items: seq<'A1>) (func: 'A1 -> FIO<'A, 'E>) : FIO<'A list, 'E list> =
-        (forEachPar items (fun value -> (func value).Result())).FlatMap <| fun results ->
+        (forEachPar items (fun value -> (func value).Result())).FlatMap
+        <| fun results ->
             let errors, values = splitResults results
-            if List.isEmpty errors then succeed values
-            else fail errors
+            if List.isEmpty errors then succeed values else fail errors
 
     /// Runs the given effects in sequence, keeping only the successful results.
     let inline collectAllSuccesses<'A, 'E, 'E1> (effects: seq<FIO<'A, 'E>>) : FIO<'A list, 'E1> =
-        (forEach effects (fun effect ->
-            effect.Option())).Map(List.choose id)
+        (forEach effects (fun effect -> effect.Option())).Map(List.choose id)
 
     /// Runs onTrue or onFalse depending on the result of the predicate effect.
     let inline ifFIO<'A, 'E> (predicate: FIO<bool, 'E>) (onTrue: FIO<'A, 'E>) (onFalse: FIO<'A, 'E>) : FIO<'A, 'E> =
-        predicate.FlatMap <| fun bool ->
-            if bool then onTrue
-            else onFalse
+        predicate.FlatMap <| fun bool -> if bool then onTrue else onFalse
 
     /// Unwraps an optional success, failing with the given error when it is None.
     let inline someOrFail<'A, 'E> (error: 'E) (effect: FIO<'A option, 'E>) : FIO<'A, 'E> =
-        effect.FlatMap <| function
+        effect.FlatMap
+        <| function
             | Some value -> succeed value
             | None -> fail error
 
@@ -461,20 +489,20 @@ module FIO =
 
     /// Unwraps an optional success, falling back to the given effect when it is None.
     let inline someOrElseFIO<'A, 'E> (defaultEffect: FIO<'A, 'E>) (effect: FIO<'A option, 'E>) : FIO<'A, 'E> =
-        effect.FlatMap <| function
+        effect.FlatMap
+        <| function
             | Some value -> succeed value
             | None -> defaultEffect
 
     /// Returns the first effect to succeed, trying each in turn.
     let inline firstSuccessOf<'A, 'E> (head: FIO<'A, 'E>) (tail: seq<FIO<'A, 'E>>) : FIO<'A, 'E> =
-        tail |> Seq.fold (fun acc effect ->
-            acc.CatchAll <| fun _ ->
-                effect) head
+        tail |> Seq.fold (fun acc effect -> acc.CatchAll <| fun _ -> effect) head
 
     /// Runs the given effects concurrently, succeeding with the first to succeed and interrupting the rest; when none
     /// succeeds it fails with the last error, or is interrupted with a crashed racer's cause if there was one.
     let raceAll<'A, 'E> (effects: seq<FIO<'A, 'E>>) : FIO<'A, 'E> =
-        suspend <| fun () ->
+        suspend
+        <| fun () ->
             let arr = Seq.toArray effects
 
             if arr.Length = 0 then
@@ -486,17 +514,15 @@ module FIO =
                     if i >= arr.Length then
                         succeed (List.rev forked)
                     else
-                        arr[i].Fork().FlatMap <| fun fiber ->
-                            forkAll (i + 1) (fiber :: forked)
+                        arr[i].Fork().FlatMap <| fun fiber -> forkAll (i + 1) (fiber :: forked)
 
                 let interruptAll (fibers: Fiber<'A, 'E> list) : FIO<unit, 'E> =
                     let rec go remaining =
                         match remaining with
                         | [] -> unit ()
                         | (fiber: Fiber<'A, 'E>) :: rest ->
-                            (fiber.Interrupt ExplicitInterrupt "Lost race")
-                                .CatchAll(fun _ -> unit ())
-                                .FlatMap <| fun () -> go rest
+                            (fiber.Interrupt ExplicitInterrupt "Lost race").CatchAll(fun _ -> unit ()).FlatMap
+                            <| fun () -> go rest
                     go fibers
 
                 let rec awaitFirstSuccess
@@ -511,19 +537,19 @@ module FIO =
                         | ValueNone, ValueSome crash -> interrupt crash.cause crash.message
                         | ValueNone, ValueNone -> interrupt ExplicitInterrupt "Every racer was interrupted"
                     | _ ->
-                        (joinFirst (remaining |> List.map (fun fiber -> fiber.Context))).FlatMap <| fun index ->
+                        (joinFirst (remaining |> List.map (fun fiber -> fiber.Context))).FlatMap
+                        <| fun index ->
                             let settled = remaining[index]
                             let rest =
                                 remaining
                                 |> List.indexed
                                 |> List.choose (fun (i, fiber) -> if i = index then None else Some fiber)
 
-                            settled.Await().FlatMap <| fun result ->
+                            settled.Await().FlatMap
+                            <| fun result ->
                                 match result with
-                                | Succeeded value ->
-                                    (interruptAll rest).FlatMap <| fun () -> succeed value
-                                | Failed error ->
-                                    awaitFirstSuccess rest (ValueSome error) crash
+                                | Succeeded value -> (interruptAll rest).FlatMap <| fun () -> succeed value
+                                | Failed error -> awaitFirstSuccess rest (ValueSome error) crash
                                 | Interrupted ex ->
                                     match ex.cause with
                                     | ExplicitInterrupt
@@ -532,5 +558,5 @@ module FIO =
                                     | InvalidArgument _
                                     | ResourceExhaustion _ -> awaitFirstSuccess rest lastError (ValueSome ex)
 
-                (forkAll 0 []).FlatMap <| fun fibers ->
-                    awaitFirstSuccess fibers ValueNone ValueNone
+                (forkAll 0 []).FlatMap
+                <| fun fibers -> awaitFirstSuccess fibers ValueNone ValueNone

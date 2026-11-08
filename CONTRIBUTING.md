@@ -43,7 +43,9 @@ bash scripts/stress-test.sh 50   # build Release and run the whole suite 50 time
 
 ## Coding conventions
 
-- **4-space indentation.** Match the surrounding style in `src/` and `tests/`.
+- **Formatting is Fantomas's.** Run `dotnet tool restore` once, then `dotnet fantomas .` before you commit; CI
+  checks it with `dotnet fantomas --check .`. Naming and idiom still follow the surrounding code in `src/` and
+  `tests/`.
 - **`TreatWarningsAsErrors=true`** (in [`Directory.Build.props`](Directory.Build.props)) — fix every warning.
 - **F# compile order matters** — file order in each `.fsproj` is the compile order.
 - **Comment style:** two tiers — see [`docs/COMMENT_STYLE.md`](docs/COMMENT_STYLE.md).
@@ -68,7 +70,7 @@ bash scripts/stress-test.sh 50   # build Release and run the whole suite 50 time
 
 1. Branch off `main`.
 2. Keep changes focused; update tests and examples to match behavior changes.
-3. Ensure `dotnet build` and `dotnet test` pass.
+3. Ensure `dotnet build` and `dotnet test` pass, and `dotnet fantomas --check .` finds nothing to format.
 4. Use short, descriptive, sentence-style commit messages (e.g. "Fix benchmark output") — no strict prefixes.
 5. Open the PR against `main` and fill out the template.
 

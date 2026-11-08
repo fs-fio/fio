@@ -24,8 +24,7 @@ let tests =
                     <| fun (runtime: FIORuntime, x: int, y: int) ->
                         let effect = FIO.ifFIO (FIO.succeed true) (FIO.succeed x) (FIO.succeed y)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result x "ifFIO with true predicate should yield onTrue's result"
 
@@ -33,12 +32,13 @@ let tests =
                     <| fun (runtime: FIORuntime, x: int, y: int) ->
                         let effect = FIO.ifFIO (FIO.succeed false) (FIO.succeed x) (FIO.succeed y)
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result y "ifFIO with false predicate should yield onFalse's result"
 
-                    testPropertyWithConfig fsCheckConfig "ifFIO - predicate failure propagates without running either branch"
+                    testPropertyWithConfig
+                        fsCheckConfig
+                        "ifFIO - predicate failure propagates without running either branch"
                     <| fun (runtime: FIORuntime) ->
                         let mutable branchEvaluated = 0
                         let mk =
@@ -49,8 +49,7 @@ let tests =
                                 (fun ex -> ex.Message)
                         let effect = FIO.ifFIO (FIO.fail "boom") mk mk
 
-                        let error =
-                            runtime.Run(effect).UnsafeError()
+                        let error = runtime.Run(effect).UnsafeError()
 
                         Expect.equal error "boom" "ifFIO should propagate predicate failure"
                         Expect.equal branchEvaluated 0 "ifFIO should not evaluate either branch on predicate failure"
@@ -72,8 +71,7 @@ let tests =
                                     2)
                                 (fun ex -> ex.Message)
 
-                        let _ =
-                            runtime.Run(FIO.ifFIO (FIO.succeed pick) onTrue onFalse).UnsafeSuccess()
+                        let _ = runtime.Run(FIO.ifFIO (FIO.succeed pick) onTrue onFalse).UnsafeSuccess()
 
                         if pick then
                             Expect.equal trueRan 1 "onTrue should run when predicate is true"
@@ -87,11 +85,12 @@ let tests =
                         let other = FIO.succeed 0
                         let failing = FIO.fail "branch boom"
                         let effect =
-                            if pick then FIO.ifFIO (FIO.succeed true) failing other
-                            else FIO.ifFIO (FIO.succeed false) other failing
+                            if pick then
+                                FIO.ifFIO (FIO.succeed true) failing other
+                            else
+                                FIO.ifFIO (FIO.succeed false) other failing
 
-                        let error =
-                            runtime.Run(effect).UnsafeError()
+                        let error = runtime.Run(effect).UnsafeError()
 
                         Expect.equal error "branch boom" "ifFIO should propagate failure from the selected branch"
                 ]
@@ -103,8 +102,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int, error: string) ->
                         let effect = FIO.succeed (Some value)
 
-                        let result =
-                            runtime.Run(effect |> FIO.someOrFail error).UnsafeSuccess()
+                        let result = runtime.Run(effect |> FIO.someOrFail error).UnsafeSuccess()
 
                         Expect.equal result value "someOrFail should unwrap Some to the underlying value"
 
@@ -112,8 +110,7 @@ let tests =
                     <| fun (runtime: FIORuntime, error: string) ->
                         let effect = FIO.succeed None
 
-                        let result =
-                            runtime.Run(effect |> FIO.someOrFail error).UnsafeError()
+                        let result = runtime.Run(effect |> FIO.someOrFail error).UnsafeError()
 
                         Expect.equal result error "someOrFail should fail with the supplied error on None"
 
@@ -121,8 +118,7 @@ let tests =
                     <| fun (runtime: FIORuntime, originalError: string, replacement: string) ->
                         let effect = FIO.fail originalError
 
-                        let result =
-                            runtime.Run(effect |> FIO.someOrFail replacement).UnsafeError()
+                        let result = runtime.Run(effect |> FIO.someOrFail replacement).UnsafeError()
 
                         Expect.equal result originalError "someOrFail should propagate the original failure unchanged"
 
@@ -130,8 +126,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int, fallback: int) ->
                         let effect = FIO.succeed (Some value)
 
-                        let result =
-                            runtime.Run(effect |> FIO.someOrElse fallback).UnsafeSuccess()
+                        let result = runtime.Run(effect |> FIO.someOrElse fallback).UnsafeSuccess()
 
                         Expect.equal result value "someOrElse should unwrap Some to the underlying value"
 
@@ -139,12 +134,13 @@ let tests =
                     <| fun (runtime: FIORuntime, fallback: int) ->
                         let effect = FIO.succeed None
 
-                        let result =
-                            runtime.Run(effect |> FIO.someOrElse fallback).UnsafeSuccess()
+                        let result = runtime.Run(effect |> FIO.someOrElse fallback).UnsafeSuccess()
 
                         Expect.equal result fallback "someOrElse should substitute the default value on None"
 
-                    testPropertyWithConfig fsCheckConfig "someOrElseFIO - Some unwraps to success without evaluating the fallback"
+                    testPropertyWithConfig
+                        fsCheckConfig
+                        "someOrElseFIO - Some unwraps to success without evaluating the fallback"
                     <| fun (runtime: FIORuntime, value: int) ->
                         let mutable evaluated = 0
                         let fallback =
@@ -155,8 +151,7 @@ let tests =
                                 (fun ex -> ex.Message)
                         let effect = FIO.succeed (Some value)
 
-                        let result =
-                            runtime.Run(effect |> FIO.someOrElseFIO fallback).UnsafeSuccess()
+                        let result = runtime.Run(effect |> FIO.someOrElseFIO fallback).UnsafeSuccess()
 
                         Expect.equal result value "someOrElseFIO should unwrap Some to the underlying value"
                         Expect.equal evaluated 0 "someOrElseFIO should not evaluate the fallback when Some"
@@ -174,8 +169,7 @@ let tests =
                     <| fun (runtime: FIORuntime, error: string) ->
                         let effect = FIO.succeed None
 
-                        let result =
-                            runtime.Run(effect |> FIO.someOrElseFIO (FIO.fail error)).UnsafeError()
+                        let result = runtime.Run(effect |> FIO.someOrElseFIO (FIO.fail error)).UnsafeError()
 
                         Expect.equal result error "someOrElseFIO should propagate the fallback's failure on None"
                 ]
@@ -187,8 +181,7 @@ let tests =
                     <| fun (runtime: FIORuntime, value: int) ->
                         let head = FIO.succeed value
 
-                        let result =
-                            runtime.Run(FIO.firstSuccessOf head Seq.empty).UnsafeSuccess()
+                        let result = runtime.Run(FIO.firstSuccessOf head Seq.empty).UnsafeSuccess()
 
                         Expect.equal result value "firstSuccessOf with empty tail should yield head's success"
 
@@ -196,46 +189,48 @@ let tests =
                     <| fun (runtime: FIORuntime, error: string) ->
                         let head = FIO.fail error
 
-                        let result =
-                            runtime.Run(FIO.firstSuccessOf head Seq.empty).UnsafeError()
+                        let result = runtime.Run(FIO.firstSuccessOf head Seq.empty).UnsafeError()
 
                         Expect.equal result error "firstSuccessOf with empty tail should propagate head's failure"
 
                     testPropertyWithConfig fsCheckConfig "firstSuccessOf - head succeeds returns head"
                     <| fun (runtime: FIORuntime, value: int, tailValue: int) ->
                         let head = FIO.succeed value
-                        let tail = seq { FIO.succeed tailValue; FIO.succeed (tailValue + 1) }
+                        let tail =
+                            seq {
+                                FIO.succeed tailValue
+                                FIO.succeed (tailValue + 1)
+                            }
 
-                        let result =
-                            runtime.Run(FIO.firstSuccessOf head tail).UnsafeSuccess()
+                        let result = runtime.Run(FIO.firstSuccessOf head tail).UnsafeSuccess()
 
                         Expect.equal result value "firstSuccessOf should return head when it succeeds"
 
                     testPropertyWithConfig fsCheckConfig "firstSuccessOf - first successful tail entry wins"
                     <| fun (runtime: FIORuntime, winner: int) ->
                         let head = FIO.fail "h"
-                        let tail = seq {
-                            FIO.fail "t0"
-                            FIO.succeed winner
-                            FIO.succeed (winner + 1)
-                        }
+                        let tail =
+                            seq {
+                                FIO.fail "t0"
+                                FIO.succeed winner
+                                FIO.succeed (winner + 1)
+                            }
 
-                        let result =
-                            runtime.Run(FIO.firstSuccessOf head tail).UnsafeSuccess()
+                        let result = runtime.Run(FIO.firstSuccessOf head tail).UnsafeSuccess()
 
                         Expect.equal result winner "firstSuccessOf should return the first successful tail entry"
 
                     testPropertyWithConfig fsCheckConfig "firstSuccessOf - all fail returns last failure"
                     <| fun (runtime: FIORuntime, lastError: string) ->
                         let head = FIO.fail "h"
-                        let tail = seq {
-                            FIO.fail "t0"
-                            FIO.fail "t1"
-                            FIO.fail lastError
-                        }
+                        let tail =
+                            seq {
+                                FIO.fail "t0"
+                                FIO.fail "t1"
+                                FIO.fail lastError
+                            }
 
-                        let result =
-                            runtime.Run(FIO.firstSuccessOf head tail).UnsafeError()
+                        let result = runtime.Run(FIO.firstSuccessOf head tail).UnsafeError()
 
                         Expect.equal result lastError "firstSuccessOf should return the last failure when all fail"
 
@@ -248,14 +243,14 @@ let tests =
                                 evaluated <- evaluated + 1
                                 effect)
                         let head = bump (FIO.fail "h")
-                        let tail = seq {
-                            bump (FIO.fail "t0")
-                            bump (FIO.succeed 42)
-                            bump (FIO.succeed 99)
-                        }
+                        let tail =
+                            seq {
+                                bump (FIO.fail "t0")
+                                bump (FIO.succeed 42)
+                                bump (FIO.succeed 99)
+                            }
 
-                        let result =
-                            runtime.Run(FIO.firstSuccessOf head tail).UnsafeSuccess()
+                        let result = runtime.Run(FIO.firstSuccessOf head tail).UnsafeSuccess()
 
                         Expect.equal result 42 "firstSuccessOf should yield the first success"
                         Expect.equal evaluated 3 "firstSuccessOf should stop evaluating once an effect succeeds"
@@ -265,8 +260,7 @@ let tests =
                         let effect = FIO.raceAll Seq.empty
 
                         let fiber = runtime.Run effect
-                        let fiberResult =
-                            fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
+                        let fiberResult = fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously
 
                         match fiberResult with
                         | Interrupted ex ->
@@ -279,8 +273,7 @@ let tests =
                     testAllRuntimes "raceAll - single-element sequence passes through success" (fun runtime ->
                         let effect = FIO.raceAll (seq { FIO.succeed 42 })
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result 42 "raceAll over a single success should yield that value")
 
@@ -288,21 +281,28 @@ let tests =
                         let error = exn "single failure"
                         let effect = FIO.raceAll (seq { FIO.fail error })
 
-                        let result =
-                            runtime.Run(effect).UnsafeError()
+                        let result = runtime.Run(effect).UnsafeError()
 
-                        Expect.equal result.Message error.Message "raceAll over a single failure should propagate that error")
+                        Expect.equal
+                            result.Message
+                            error.Message
+                            "raceAll over a single failure should propagate that error")
 
                     testAllRuntimes "raceAll - fastest success wins" (fun runtime ->
                         let fast = FIO.succeed 1
                         let medium =
                             (FIO.sleep (TimeSpan.FromSeconds 10.0)).FlatMap(fun () -> FIO.succeed 2)
-                        let slow =
-                            (FIO.sleep (TimeSpan.FromSeconds 20.0)).FlatMap(fun () -> FIO.succeed 3)
-                        let effect = FIO.raceAll (seq { fast; medium; slow })
+                        let slow = (FIO.sleep (TimeSpan.FromSeconds 20.0)).FlatMap(fun () -> FIO.succeed 3)
+                        let effect =
+                            FIO.raceAll (
+                                seq {
+                                    fast
+                                    medium
+                                    slow
+                                }
+                            )
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result 1 "raceAll should return the fastest successful value")
 
@@ -311,10 +311,16 @@ let tests =
                         let fastFail2 = FIO.fail (exn "fast 2")
                         let slowSucceed =
                             (FIO.sleep (TimeSpan.FromMilliseconds 50.0)).FlatMap(fun () -> FIO.succeed 99)
-                        let effect = FIO.raceAll (seq { fastFail1; fastFail2; slowSucceed })
+                        let effect =
+                            FIO.raceAll (
+                                seq {
+                                    fastFail1
+                                    fastFail2
+                                    slowSucceed
+                                }
+                            )
 
-                        let result =
-                            runtime.Run(effect).UnsafeSuccess()
+                        let result = runtime.Run(effect).UnsafeSuccess()
 
                         Expect.equal result 99 "raceAll should wait for a success even when other racers fail fast")
 
@@ -324,10 +330,16 @@ let tests =
                             (FIO.sleep (TimeSpan.FromMilliseconds 30.0)).FlatMap(fun () -> FIO.fail (exn "medium"))
                         let slowFail =
                             (FIO.sleep (TimeSpan.FromMilliseconds 80.0)).FlatMap(fun () -> FIO.fail (exn "slow"))
-                        let effect = FIO.raceAll (seq { fastFail; mediumFail; slowFail })
+                        let effect =
+                            FIO.raceAll (
+                                seq {
+                                    fastFail
+                                    mediumFail
+                                    slowFail
+                                }
+                            )
 
-                        let result =
-                            runtime.Run(effect).UnsafeError()
+                        let result = runtime.Run(effect).UnsafeError()
 
                         Expect.contains
                             [ "fast"; "medium"; "slow" ]
@@ -335,81 +347,126 @@ let tests =
                             "raceAll should fail with one of the racers' error messages when all racers fail")
 
                     testAllRuntimes "raceAll - interrupted racers retire without breaking the race" (fun runtime ->
-                        let interrupted = FIO.interruptNow<int, exn> ()
+                        let interrupted = FIO.interruptNow<int, exn>()
                         let failing =
                             (FIO.sleep (TimeSpan.FromMilliseconds 30.0)).FlatMap(fun () -> FIO.fail (exn "failing"))
                         let succeeding =
                             (FIO.sleep (TimeSpan.FromMilliseconds 60.0)).FlatMap(fun () -> FIO.succeed 7)
-                        let effect = FIO.raceAll (seq { interrupted; failing; succeeding })
-                        let bounded =
-                            effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
+                        let effect =
+                            FIO.raceAll (
+                                seq {
+                                    interrupted
+                                    failing
+                                    succeeding
+                                }
+                            )
+                        let bounded = effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
 
                         let result = runtime.Run(bounded).UnsafeSuccess()
 
-                        Expect.equal result 7 "raceAll should still yield the success after other racers were interrupted or failed")
+                        Expect.equal
+                            result
+                            7
+                            "raceAll should still yield the success after other racers were interrupted or failed")
 
-                    testAllRuntimes "raceAll - terminates when the remaining racers fail after one is interrupted" (fun runtime ->
-                        let interrupted = FIO.interruptNow<int, exn> ()
-                        let fail1 =
-                            (FIO.sleep (TimeSpan.FromMilliseconds 30.0)).FlatMap(fun () -> FIO.fail (exn "first"))
-                        let fail2 =
-                            (FIO.sleep (TimeSpan.FromMilliseconds 60.0)).FlatMap(fun () -> FIO.fail (exn "last"))
-                        let effect = FIO.raceAll (seq { interrupted; fail1; fail2 })
-                        let bounded =
-                            effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
+                    testAllRuntimes
+                        "raceAll - terminates when the remaining racers fail after one is interrupted"
+                        (fun runtime ->
+                            let interrupted = FIO.interruptNow<int, exn>()
+                            let fail1 =
+                                (FIO.sleep (TimeSpan.FromMilliseconds 30.0)).FlatMap(fun () -> FIO.fail (exn "first"))
+                            let fail2 =
+                                (FIO.sleep (TimeSpan.FromMilliseconds 60.0)).FlatMap(fun () -> FIO.fail (exn "last"))
+                            let effect =
+                                FIO.raceAll (
+                                    seq {
+                                        interrupted
+                                        fail1
+                                        fail2
+                                    }
+                                )
+                            let bounded = effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
 
-                        let result = runtime.Run(bounded).UnsafeError()
+                            let result = runtime.Run(bounded).UnsafeError()
 
-                        Expect.contains
-                            [ "first"; "last" ]
-                            result.Message
-                            "raceAll must terminate with a racer error, not hang, when an interrupted racer leaves the race")
+                            Expect.contains
+                                [ "first"; "last" ]
+                                result.Message
+                                "raceAll must terminate with a racer error, not hang, when an interrupted racer leaves the race")
 
                     testAllRuntimes "raceAll - racers that all crashed pass a racer's defect on" (fun runtime ->
                         let crashing (message: string) : FIO<int, exn> =
                             FIO.succeedWith (fun () -> failwith message)
-                        let effect = FIO.raceAll (seq { crashing "first crash"; crashing "second crash" })
+                        let effect =
+                            FIO.raceAll (
+                                seq {
+                                    crashing "first crash"
+                                    crashing "second crash"
+                                }
+                            )
 
                         let result = runtime.Run(effect).UnsafeResult()
 
                         match result with
                         | Interrupted ex ->
                             match ex.cause with
-                            | Defect inner -> Expect.contains [ "first crash"; "second crash" ] inner.Message "The defect should be a racer's"
+                            | Defect inner ->
+                                Expect.contains
+                                    [ "first crash"; "second crash" ]
+                                    inner.Message
+                                    "The defect should be a racer's"
                             | other -> failtest $"Expected a racer's Defect, got {other}"
                         | other -> failtest $"Expected Interrupted, got {other}")
 
                     testAllRuntimes "raceAll - a typed failure wins over a racer's crash" (fun runtime ->
                         let crashing: FIO<int, exn> = FIO.succeedWith (fun () -> failwith "crash")
                         let failing: FIO<int, exn> = FIO.fail (exn "typed")
-                        let effect = FIO.raceAll (seq { crashing; failing })
+                        let effect =
+                            FIO.raceAll (
+                                seq {
+                                    crashing
+                                    failing
+                                }
+                            )
 
                         let result = runtime.Run(effect).UnsafeError()
 
-                        Expect.equal result.Message "typed" "raceAll should fail with the typed error when one racer failed")
+                        Expect.equal
+                            result.Message
+                            "typed"
+                            "raceAll should fail with the typed error when one racer failed")
 
                     testAllRuntimes "raceAll - every racer interrupted yields Interrupted" (fun runtime ->
                         let effect =
-                            FIO.raceAll (seq {
-                                FIO.interruptNow<int, exn> ()
-                                (FIO.sleep (TimeSpan.FromMilliseconds 30.0)).FlatMap(fun () -> FIO.interruptNow<int, exn> ())
-                            })
-                        let bounded =
-                            effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
+                            FIO.raceAll (
+                                seq {
+                                    FIO.interruptNow<int, exn>()
+                                    (FIO.sleep (TimeSpan.FromMilliseconds 30.0))
+                                        .FlatMap(fun () -> FIO.interruptNow<int, exn>())
+                                }
+                            )
+                        let bounded = effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
 
                         let result = runtime.Run(bounded).UnsafeResult()
 
                         match result with
                         | Interrupted _ -> ()
-                        | other -> failtest $"raceAll should propagate interruption when every racer is interrupted, got: %A{other}")
+                        | other ->
+                            failtest
+                                $"raceAll should propagate interruption when every racer is interrupted, got: %A{other}")
 
                     testAllRuntimes "raceAll - a stuck racer does not block a later success" (fun runtime ->
-                        let stuck = FIO.never<int, exn> ()
+                        let stuck = FIO.never<int, exn>()
                         let succeeding =
                             (FIO.sleep (TimeSpan.FromMilliseconds 50.0)).FlatMap(fun () -> FIO.succeed 3)
-                        let effect = FIO.raceAll (seq { stuck; succeeding })
-                        let bounded =
-                            effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
+                        let effect =
+                            FIO.raceAll (
+                                seq {
+                                    stuck
+                                    succeeding
+                                }
+                            )
+                        let bounded = effect.TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 5.0)
 
                         let result = runtime.Run(bounded).UnsafeSuccess()
 
@@ -422,13 +479,20 @@ let tests =
                                 FIO.unit ()
                             else
                                 let round =
-                                    FIO.raceAll (seq {
-                                        FIO.fail (exn "retired")
-                                        FIO.interruptNow<int, exn> ()
-                                        (FIO.sleep (TimeSpan.FromMilliseconds 1.0)).FlatMap(fun () -> FIO.succeed i)
-                                    })
-                                round.FlatMap <| fun value ->
-                                    if value = i then loop (i - 1) else FIO.fail (exn $"wrong winner in round {i}")
+                                    FIO.raceAll (
+                                        seq {
+                                            FIO.fail (exn "retired")
+                                            FIO.interruptNow<int, exn>()
+                                            (FIO.sleep (TimeSpan.FromMilliseconds 1.0))
+                                                .FlatMap(fun () -> FIO.succeed i)
+                                        }
+                                    )
+                                round.FlatMap
+                                <| fun value ->
+                                    if value = i then
+                                        loop (i - 1)
+                                    else
+                                        FIO.fail (exn $"wrong winner in round {i}")
                         let bounded =
                             (loop iterations).TimeoutFail (exn "timeout") (TimeSpan.FromSeconds 120.0)
 

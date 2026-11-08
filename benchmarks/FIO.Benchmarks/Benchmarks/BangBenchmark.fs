@@ -8,10 +8,7 @@ open BenchmarkDotNet.Attributes
 [<RequireQualifiedAccess>]
 module internal Bang =
 
-    type private Actor =
-        {
-            Channel: Channel<int>
-        }
+    type private Actor = { Channel: Channel<int> }
 
     // Repeatedly sends a fixed message to the shared receiver's channel.
     let private sendingActorEffect actor roundCount message =
@@ -40,8 +37,7 @@ module internal Bang =
 
             let sendingEffects =
                 sendingActors
-                |> List.mapi (fun index actor ->
-                    sendingActorEffect actor roundCount (index + 1))
+                |> List.mapi (fun index actor -> sendingActorEffect actor roundCount (index + 1))
 
             do! FIO.collectAllParDiscard (receiverEffect :: sendingEffects)
         }
@@ -52,8 +48,7 @@ module internal Bang =
 type BangBenchmark() =
     inherit FIOBenchmark()
 
-    member _.ActorCounts =
-        RuntimeParam.intParams "FIO_BENCH_BANG_ACTORS" [| 50; 200 |]
+    member _.ActorCounts = RuntimeParam.intParams "FIO_BENCH_BANG_ACTORS" [| 50; 200 |]
 
     member _.RoundCounts =
         RuntimeParam.intParams "FIO_BENCH_BANG_ROUNDS" [| 1_000; 5_000 |]
@@ -64,5 +59,5 @@ type BangBenchmark() =
     [<ParamsSource("RoundCounts")>]
     member val RoundCount = 0 with get, set
 
-    override this.CreateEffect () =
+    override this.CreateEffect() =
         Bang.effect this.ActorCount this.RoundCount
