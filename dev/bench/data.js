@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1793550657117,
+  "lastUpdate": 1794150056645,
   "repoUrl": "https://github.com/fs-fio/fio",
   "entries": {
     "Benchmark": [
@@ -561,6 +561,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "Pingpong - WorkStealing-2-200",
             "value": 77.468691,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hey@itsdaniel.dk",
+            "name": "Daniel Larsen",
+            "username": "itsdanieldk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ca72e3ce361d83de6513ace45fd3b907c0f91e14",
+          "message": "Publish with NuGet trusted publishing (#84)\n\nClaude-Session: https://claude.ai/code/session_015Sd1WiRtbfRhEhpdiL2296\n\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "timestamp": "2026-11-08T15:59:25+01:00",
+          "tree_id": "ab653373ee31091cc41832abbe2e97e359cd8a70",
+          "url": "https://github.com/fs-fio/fio/commit/ca72e3ce361d83de6513ace45fd3b907c0f91e14"
+        },
+        "date": 1794150055723,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Pingpong - Direct",
+            "value": 140.1565326,
+            "unit": "ms"
+          },
+          {
+            "name": "Pingpong - WorkStealing-2-200",
+            "value": 99.009718875,
             "unit": "ms"
           }
         ]
