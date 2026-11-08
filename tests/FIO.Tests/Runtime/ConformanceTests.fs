@@ -1133,22 +1133,26 @@ let conformanceTests =
                         "Shutdown - a fiber that only waits for its child gets its result when the timeout abandons it"
                         (fun runtime ->
                             let childStarted = TaskCompletionSource()
+                            let childFinalizing = TaskCompletionSource()
                             let child: FIO<unit, string> =
                                 (FIO.succeedWith(fun () -> childStarted.SetResult()).FlatMap(fun () -> FIO.never ()))
-                                    .Ensuring(FIO.sleep (TimeSpan.FromSeconds 3.0))
+                                    .Ensuring(
+                                        FIO
+                                            .succeedWith(fun () -> childFinalizing.SetResult())
+                                            .FlatMap(fun () -> FIO.sleep (TimeSpan.FromSeconds 3.0))
+                                    )
                             let root =
                                 child
                                     .Fork()
                                     .FlatMap(fun _ -> FIO.awaitUnitTask childStarted.Task (fun ex -> ex.Message))
                                     .FlatMap(fun () -> FIO.succeed 1)
                             let fiber = runtime.Run root
-                            let started = childStarted.Task.Wait(TimeSpan.FromSeconds 5.0)
-                            Thread.Sleep 100
+                            let waiting = childFinalizing.Task.Wait(TimeSpan.FromSeconds 5.0)
 
                             runtime.Shutdown(TimeSpan.FromMilliseconds 500.0)
                             let published = fiber.Task().Wait(TimeSpan.FromSeconds 1.0)
 
-                            Expect.isTrue started "The child should start"
+                            Expect.isTrue waiting "The root should finish its effect and interrupt its child"
                             Expect.isTrue
                                 published
                                 "A root that had finished its effect should not be left without a result"
