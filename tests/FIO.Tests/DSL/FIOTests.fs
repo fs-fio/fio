@@ -842,6 +842,8 @@ let fioTests =
                     <| fun (runtime: FIORuntime) ->
                         let gate = TaskCompletionSource()
                         let leafReached = new ManualResetEventSlim false
+                        let target =
+                            TaskCompletionSource<Fiber<unit, string>> TaskCreationOptions.RunContinuationsAsynchronously
                         let rec chain (level: int) : FIO<unit, string> =
                             if level = 0 then
                                 FIO.succeedWith(fun () -> leafReached.Set()).FlatMap(fun () -> FIO.never ())
@@ -850,19 +852,27 @@ let fioTests =
                                     .suspend(fun () -> chain (level - 1))
                                     .Fork()
                                     .FlatMap(fun _ -> FIO.awaitUnitTask gate.Task (fun ex -> ex.Message))
-                        let joiner = runtime.Run((chain 10000).Fork().FlatMap(fun top -> top.Join()))
+                        let joiner =
+                            runtime.Run(
+                                (chain 10000)
+                                    .Fork()
+                                    .FlatMap(fun top ->
+                                        FIO.succeedWith(fun () -> target.SetResult top).FlatMap(fun () -> top.Join()))
+                            )
                         let reached = leafReached.Wait(TimeSpan.FromSeconds 60.0)
+                        gate.SetResult()
+                        let published = target.Task.Result.Task().Wait(TimeSpan.FromSeconds 60.0)
                         let clock = Stopwatch.StartNew()
 
-                        gate.SetResult()
                         let joined = joiner.Task().Wait(TimeSpan.FromSeconds 60.0)
                         let elapsed = clock.ElapsedMilliseconds
 
                         Expect.isTrue reached "Every level should have forked and be waiting on the gate"
+                        Expect.isTrue published "The chain should publish once its levels have unwound"
                         Expect.isTrue joined "The joiner should resume"
                         Expect.isLessThan
                             elapsed
-                            800L
+                            500L
                             "The joiner should be rescheduled when the chain publishes, not at a worker's idle timeout"
                 ]
 

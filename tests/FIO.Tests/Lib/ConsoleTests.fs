@@ -42,11 +42,17 @@ type private BlockingReader(gate: ManualResetEventSlim, line: string) =
 type private SequencedReader(gate: ManualResetEventSlim, lines: string array) =
     inherit StringReader("")
     let mutable next = 0
+    let entered = new ManualResetEventSlim false
+
+    member _.Entered = entered
+
+    member _.Returned = Volatile.Read &next
 
     override _.ReadLine() =
+        entered.Set()
         gate.Wait()
         let line = lines[min next (lines.Length - 1)]
-        next <- next + 1
+        Volatile.Write(&next, next + 1)
         line
 
 // Feeds readKey from a queue, since Console.ReadKey cannot be driven without a terminal, and signals the reader's entry.
@@ -354,6 +360,12 @@ let consoleTests =
                         let originalIn = Console.In
                         use gate = new ManualResetEventSlim false
                         use reader = new SequencedReader(gate, [| "first"; "second" |])
+                        use holding = new ManualResetEventSlim false
+                        use release = new ManualResetEventSlim false
+                        let hold: FIO<unit, exn> =
+                            FIO.succeedWith (fun () ->
+                                holding.Set()
+                                release.Wait())
                         Console.SetIn reader
                         use runtime =
                             new WorkStealingRuntime(
@@ -364,19 +376,25 @@ let consoleTests =
 
                         try
                             let reading = runtime.Run(Console.readLine<exn> id)
-                            Thread.Sleep 50
-                            runtime.Run(FIO.succeedWith (fun () -> Thread.Sleep 300): FIO<unit, exn>)
-                            |> ignore
-                            Thread.Sleep 50
+                            let requested = reader.Entered.Wait(TimeSpan.FromSeconds 5.0)
+                            runtime.Run hold |> ignore
+                            let held = holding.Wait(TimeSpan.FromSeconds 5.0)
                             gate.Set()
-                            Thread.Sleep 50
+                            let arrived = SpinWait.SpinUntil((fun () -> reader.Returned = 1), 5_000)
                             reading.Context.Interrupt(ExplicitInterrupt, "interrupted after the line arrived")
+                            release.Set()
                             let unwound = SpinWait.SpinUntil((fun () -> runtime.TrackedCount = 0), 5_000)
                             let next = runtime.Run(Console.readLine<exn> id).UnsafeSuccess()
 
+                            Expect.isTrue requested "The read should reach standard input"
+                            Expect.isTrue
+                                held
+                                "The only worker should be held, so the reading fiber cannot use the line"
+                            Expect.isTrue arrived "The line should arrive"
                             Expect.isTrue unwound "The interrupted read should unwind"
                             Expect.equal next "first" "A line no fiber used must not be lost"
                         finally
+                            release.Set()
                             gate.Set()
                             Console.SetIn originalIn)
 
