@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794151153241,
+  "lastUpdate": 1794151677432,
   "repoUrl": "https://github.com/fs-fio/fio",
   "entries": {
     "Benchmark": [
@@ -629,6 +629,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "Pingpong - WorkStealing-2-200",
             "value": 52.823977299999996,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hey@itsdaniel.dk",
+            "name": "Daniel Larsen",
+            "username": "itsdanieldk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b4f4b10e5cd6024364c2af36aafe462ced3f56e6",
+          "message": "Skip the Fantomas reformat in git blame (#87)\n\nClaude-Session: https://claude.ai/code/session_015Sd1WiRtbfRhEhpdiL2296\n\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "timestamp": "2026-11-08T16:26:34+01:00",
+          "tree_id": "f03971e4a17b510bb21b200e3a92d95450ebeca9",
+          "url": "https://github.com/fs-fio/fio/commit/b4f4b10e5cd6024364c2af36aafe462ced3f56e6"
+        },
+        "date": 1794151676818,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Pingpong - Direct",
+            "value": 197.33734875,
+            "unit": "ms"
+          },
+          {
+            "name": "Pingpong - WorkStealing-2-200",
+            "value": 127.6874632,
             "unit": "ms"
           }
         ]
