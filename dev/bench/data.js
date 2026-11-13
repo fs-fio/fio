@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794157934523,
+  "lastUpdate": 1794598555803,
   "repoUrl": "https://github.com/fs-fio/fio",
   "entries": {
     "Benchmark": [
@@ -697,6 +697,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "Pingpong - WorkStealing-2-200",
             "value": 111.9034265,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hey@itsdaniel.dk",
+            "name": "Daniel Larsen",
+            "username": "itsdanieldk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "96e6c142601078a624d1bc1bf75fd7e07764352b",
+          "message": "Clean-ups: blame-ignore file, PublicApiTests notes, FSharp.Core 11.0.101 (#89)\n\n* Remove .git-blame-ignore-revs\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015Sd1WiRtbfRhEhpdiL2296\n\n* Drop the PublicApiTests notes from CLAUDE.md\n\nNeither PublicApiTests.fs nor PublicApi.txt was ever in the repository.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015Sd1WiRtbfRhEhpdiL2296\n\n* Raise FSharp.Core to 11.0.101\n\nFSharp.Core 11.0.101 is now the consumers' floor (packed as >= 11.0.101); README and CLAUDE.md say so.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_015Sd1WiRtbfRhEhpdiL2296\n\n---------\n\nCo-authored-by: Claude Opus 5.5 <noreply@anthropic.com>",
+          "timestamp": "2026-11-13T20:34:49+01:00",
+          "tree_id": "6f95db7f537b95cc1570490969e1007d9baab474",
+          "url": "https://github.com/fs-fio/fio/commit/96e6c142601078a624d1bc1bf75fd7e07764352b"
+        },
+        "date": 1794598555323,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Pingpong - Direct",
+            "value": 102.7651574,
+            "unit": "ms"
+          },
+          {
+            "name": "Pingpong - WorkStealing-2-200",
+            "value": 43.741731625,
             "unit": "ms"
           }
         ]
