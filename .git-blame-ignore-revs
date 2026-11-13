@@ -1,5 +1,0 @@
-# Commits that only reformat code, which `git blame` skips. GitHub's blame view reads this file; for local blame,
-# run once per clone: git config blame.ignoreRevsFile .git-blame-ignore-revs
-
-# Adopt Fantomas (#85): Fantomas 8.1.0 reformats every F# file (the squash also holds its tooling, CI and docs edits)
-8b29af90fa7faa6679dfb103383d946466e891e2
