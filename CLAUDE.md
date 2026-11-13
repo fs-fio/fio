@@ -270,7 +270,6 @@ is the source of truth (parameters and defaults, tuning, result interpretation, 
 - `InternalsVisibleTo` exposes the core project to `FIO.Tests`, `FIO.Sockets` to `FIO.Sockets.Tests` (a socket's OS options, via the internal `Socket.NetSocket`) and `FIO.Http` to `FIO.Http.Tests` (a server's own runtime, via `Server.runtimeOf`); `FIO.WebSockets` exposes nothing. The three `InternalsVisibleTo` items are conditional on `StripInternals != true`, which `publish.yml` and `scripts/pack.sh` set when packing, so published assemblies grant no friend access
 - `tests/FIO.Tests/Runtime/InterpreterSizeTests.fs` guards the JIT's optimization limit for each runtime's interpreter loop (see **Cont** above). Its two loop-size tests skip in Debug (its `Cont - stays 56 bytes` test runs in every configuration), so the loop guard is enforced by `dotnet test -c Release` — `test.yml`'s `release` job and `publish.yml` run it
 - Stack-safety canaries live in `tests/FIO.Tests/DSL/FIOTests.fs` — the eight "Stack safety - deep left-chained FlatMap/CatchAll/Ensuring/OnExit/MapBoth/Map/TapBoth and Fold/Unit and As" tests at depth 10000 guard that building and running a deep chain never recurses: a node's constructor only stores its child, and the interpreter walks children and continuation frames (`MappedCont` included) in its loop. Keep both properties for every node kind.
-- `tests/FIO.Tests/Runtime/PublicApiTests.fs` pins the core assembly's public API to the listing in `tests/FIO.Tests/Runtime/PublicApi.txt` (embedded in the test assembly): every exported type with its kind, base type, declared interfaces and generic constraints, and every public constructor, method, property, field and event with parameter types and names, return type and constraints (Debug-only compiler-generated helpers are skipped, so both configurations read the same). A type or member added, removed or changed in any of those fails it, listing the lines that differ; attributes, default values and `inline` bodies are not covered. Update the listing in the same change as an approved API change.
 
 ## Semantic Invariants (Do Not Break)
 
@@ -336,7 +335,7 @@ is the source of truth (parameters and defaults, tuning, result interpretation, 
   `Shutdown`/`Dispose` interrupt running fibers, and they wait up to their timeout for them to unwind rather than discard them
 - **Extension change**: update error model, DSL surface, and extension README
 - **Behavior change**: update examples and tests to match new semantics
-- **New public API**: add a concise XML doc comment per [`docs/COMMENT_STYLE.md`](docs/COMMENT_STYLE.md), and update `tests/FIO.Tests/Runtime/PublicApi.txt`
+- **New public API**: add a concise XML doc comment per [`docs/COMMENT_STYLE.md`](docs/COMMENT_STYLE.md)
 
 ## CI
 
