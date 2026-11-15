@@ -12,14 +12,9 @@ open System.Threading.Tasks
 module ServerSocket =
 
     let private logAndSuppress (context: string) (error: SocketError) =
-        fio {
-            let str = error.ToString()
-            do!
-                FIO.attempt
-                    (fun () -> eprintfn $"SocketServer encountered error during {context}: {str}")
-                    SocketError.fromException
-            return ()
-        }
+        FIO.attempt
+            (fun () -> eprintfn $"SocketServer encountered error during {context}: {error}")
+            SocketError.fromException
 
     let private resolveBindAddress (config: ServerSocketConfig) =
         match IPAddress.TryParse config.BindAddress with
@@ -83,18 +78,12 @@ module ServerSocket =
             SocketError.fromException)
             .CatchAll(logAndSuppress "server socket close")
 
-    /// Binds a server socket for use as a resource acquisition. Alias for bind.
-    let acquire (config: ServerSocketConfig) : FIO<ServerSocket, SocketError> = bind config
-
-    /// Closes a server socket for use as a resource release. Alias for close.
-    let release (serverSocket: ServerSocket) : FIO<unit, SocketError> = close serverSocket
-
     /// Binds a server socket, runs an action with it, then closes it.
     let withServerSocket
         (config: ServerSocketConfig)
         (action: ServerSocket -> FIO<'A, SocketError>)
         : FIO<'A, SocketError> =
-        FIO.acquireReleaseWith (acquire config) release action
+        FIO.acquireReleaseWith (bind config) close action
 
     // AcceptAsync throws at once on a closed server socket; as a faulted task that still fails as AcceptFailed.
     let private acceptAsync (listener: Sockets.Socket) (cancellationToken: CancellationToken) =

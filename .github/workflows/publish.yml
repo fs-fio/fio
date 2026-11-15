@@ -4,10 +4,6 @@ on:
   push:
     tags:
       - "v*"
-      - "core-v*"
-      - "http-v*"
-      - "sockets-v*"
-      - "websockets-v*"
   workflow_dispatch:
 
 permissions:
@@ -37,51 +33,17 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nuget-
 
-      - name: Resolve release target
+      # Every release is lockstep: tag v<Version> releases all four packages at Directory.Build.props' <Version>. A
+      # dispatch on a branch is a dry run that stops after packing.
+      - name: Check the tag against the version
         id: release
         run: |
-          ref="${GITHUB_REF_NAME}"
-          props_version="$(grep -oE '<Version>[^<]+</Version>' Directory.Build.props | head -1 | sed -E 's#</?Version>##g')"
-          all="src/FIO/FIO.fsproj src/FIO.Sockets/FIO.Sockets.fsproj src/FIO.WebSockets/FIO.WebSockets.fsproj src/FIO.Http/FIO.Http.fsproj"
-          mode=""; version=""; projects=""; pack_arg=""
-
-          # Only a tag names a release; a dispatch on a branch is a dry run of the lockstep pack.
-          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
-            mode="manual"; projects="$all"
-          else
-            case "$ref" in
-              core-v*)       version="${ref#core-v}";       mode="core";      projects="src/FIO/FIO.fsproj";                       pack_arg="-p:Version=${version}" ;;
-              http-v*)       version="${ref#http-v}";       mode="extension"; projects="src/FIO.Http/FIO.Http.fsproj";             pack_arg="-p:PackageReleaseVersion=${version}" ;;
-              sockets-v*)    version="${ref#sockets-v}";    mode="extension"; projects="src/FIO.Sockets/FIO.Sockets.fsproj";       pack_arg="-p:PackageReleaseVersion=${version}" ;;
-              websockets-v*) version="${ref#websockets-v}"; mode="extension"; projects="src/FIO.WebSockets/FIO.WebSockets.fsproj"; pack_arg="-p:PackageReleaseVersion=${version}" ;;
-              v*)            version="${ref#v}";            mode="lockstep";  projects="$all";                                     pack_arg="-p:Version=${version}" ;;
-              *)
-                echo "::error::Tag '$ref' matches no release pattern (v*, core-v*, http-v*, sockets-v*, websockets-v*)."
-                exit 1 ;;
-            esac
-          fi
-
-          if [[ -n "$version" && ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
-            echo "::error::Invalid version '$version' parsed from tag '$ref'."
+          version="$(grep -oE '<Version>[^<]+</Version>' Directory.Build.props | sed -E 's#</?Version>##g')"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" != "v${version}" ]]; then
+            echo "::error::Tag '${GITHUB_REF_NAME}' does not match Directory.Build.props <Version> '${version}'."
             exit 1
           fi
-
-          if [[ "$mode" == "lockstep" || "$mode" == "core" ]]; then
-            if [[ "$version" != "$props_version" ]]; then
-              echo "::error::Tag version '$version' does not match Directory.Build.props <Version> '$props_version'. Bump the baseline version to match the tag before a core/lockstep release."
-              exit 1
-            fi
-          fi
-
-          prerelease=false
-          if [[ "$version" == *-* ]]; then prerelease=true; fi
-
-          {
-            echo "prerelease=$prerelease"
-            echo "projects=$projects"
-            echo "pack_arg=$pack_arg"
-          } >> "$GITHUB_OUTPUT"
-          echo "Release mode: ${mode} | version: ${version:-<props default>} | projects: ${projects}"
+          if [[ "$version" == *-* ]]; then echo "prerelease=true"; else echo "prerelease=false"; fi >> "$GITHUB_OUTPUT"
 
       - name: Restore dependencies
         run: dotnet restore ./FIO.slnx
@@ -94,21 +56,15 @@ jobs:
           dotnet test -c Release --no-build --verbosity normal ./FIO.slnx
           --blame-hang-timeout 5m --blame-hang-dump-type none
 
+      # StripInternals=true leaves the test projects' InternalsVisibleTo out of the packed assemblies.
       - name: Pack NuGet packages
-        env:
-          PROJECTS: ${{ steps.release.outputs.projects }}
-          PACK_ARG: ${{ steps.release.outputs.pack_arg }}
-        run: |
-          # The packed assemblies grant no friend access: the test projects' InternalsVisibleTo is left out.
-          for proj in $PROJECTS; do
-            dotnet pack "$proj" -c Release $PACK_ARG -p:StripInternals=true -o ./nupkgs
-          done
+        run: dotnet pack ./FIO.slnx -c Release -p:StripInternals=true -o ./artifacts
 
       - name: Upload packages as artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: nuget-packages
-          path: ./nupkgs/*.nupkg
+          path: ./artifacts/*.nupkg
 
   # Only a pushed tag publishes; a manual run, on a branch or on a tag, is a dry run that stops after packing. This job
   # runs none of the repository's code, so only it holds the release permissions. Trusted publishing: NuGet/login swaps

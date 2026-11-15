@@ -2,11 +2,24 @@ namespace FIO.WebSockets
 
 open FIO.DSL
 
-open System
 open System.Text.Json
 open System.Threading
 
 module WebSocketExtensions =
+
+    let private tokenOr (cancellationToken: CancellationToken option) =
+        match cancellationToken with
+        | Some token -> FIO.succeed token
+        | None -> FIO.cancellationToken ()
+
+    // One default-options codec per type, so a message sent or received with default options builds no codec.
+    type private DefaultJsonCodec<'A>() =
+        static member val Instance: WebSocketCodec<'A> = Codec.jsonWithOptions<'A> JsonSerializerOptions.Default
+
+    let private jsonCodec<'A> (options: JsonSerializerOptions option) =
+        match options with
+        | None -> DefaultJsonCodec<'A>.Instance
+        | Some options -> Codec.jsonWithOptions<'A> options
 
     type WebSocket with
 
@@ -14,66 +27,24 @@ module WebSocketExtensions =
         member this.SendJson<'A>
             (value: 'A, ?options: JsonSerializerOptions, ?cancellationToken: CancellationToken)
             : FIO<unit, WsError> =
-            fio {
-                let opts = defaultArg options JsonSerializerOptions.Default
-
-                let! cancellationToken =
-                    match cancellationToken with
-                    | Some token -> FIO.succeed token
-                    | None -> FIO.cancellationToken ()
-
-                let! jsonString =
-                    FIO.attempt (fun () -> JsonSerializer.Serialize(value, opts)) WsError.codecError
-
-                do! this.SendText(jsonString, cancellationToken)
-            }
+            let codec = jsonCodec<'A> options
+            (tokenOr cancellationToken).FlatMap(fun token -> this.Send(codec, value, token))
 
         /// Receives a JSON value, optionally using the given serializer options and cancellation token.
         member this.ReceiveJson<'A>
             (?options: JsonSerializerOptions, ?cancellationToken: CancellationToken)
             : FIO<'A, WsError> =
-            fio {
-                let opts = defaultArg options JsonSerializerOptions.Default
-
-                let! cancellationToken =
-                    match cancellationToken with
-                    | Some token -> FIO.succeed token
-                    | None -> FIO.cancellationToken ()
-
-                match! this.ReceiveMessage cancellationToken with
-                | Frame(Text json) ->
-                    return! FIO.attempt (fun () -> JsonSerializer.Deserialize<'A>(json, opts)) WsError.codecError
-                | Frame(Binary data) ->
-                    return!
-                        FIO.attempt
-                            (fun () -> JsonSerializer.Deserialize<'A>(ReadOnlySpan<byte> data, opts))
-                            WsError.codecError
-                | Frame(Close _) -> return! FIO.fail (Closed "Connection closed while waiting for JSON")
-                | ConnectionClosed(status, desc) -> return! FIO.fail (Closed(WsError.describeClose status desc))
-            }
+            let codec = jsonCodec<'A> options
+            (tokenOr cancellationToken).FlatMap(fun token -> this.Receive(codec, token))
 
         /// Sends a text message.
         member this.SendString(text: string) : FIO<unit, WsError> = this.SendText text
 
         /// Receives a text message, failing if the next frame is not text.
-        member this.ReceiveString() : FIO<string, WsError> =
-            fio {
-                match! this.ReceiveMessage() with
-                | Frame(Text text) -> return text
-                | Frame(Binary _) -> return! FIO.fail (CodecError "Expected text frame, got binary")
-                | Frame(Close _) -> return! FIO.fail (Closed "Connection closed while waiting for text")
-                | ConnectionClosed(status, desc) -> return! FIO.fail (Closed(WsError.describeClose status desc))
-            }
+        member this.ReceiveString() : FIO<string, WsError> = this.Receive Codec.text
 
         /// Sends a binary message.
         member this.SendBytes(data: byte[]) : FIO<unit, WsError> = this.SendBinary data
 
         /// Receives a binary message, failing if the next frame is not binary.
-        member this.ReceiveBytes() : FIO<byte[], WsError> =
-            fio {
-                match! this.ReceiveMessage() with
-                | Frame(Binary data) -> return data
-                | Frame(Text _) -> return! FIO.fail (CodecError "Expected binary frame, got text")
-                | Frame(Close _) -> return! FIO.fail (Closed "Connection closed while waiting for binary")
-                | ConnectionClosed(status, desc) -> return! FIO.fail (Closed(WsError.describeClose status desc))
-            }
+        member this.ReceiveBytes() : FIO<byte[], WsError> = this.Receive Codec.binary

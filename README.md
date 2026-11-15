@@ -5,15 +5,11 @@
 [![NuGet](https://img.shields.io/nuget/v/FSharp.FIO.svg?logo=nuget&label=nuget)](https://www.nuget.org/packages/FSharp.FIO)
 [![Run Tests](https://github.com/fs-fio/fio/actions/workflows/test.yml/badge.svg)](https://github.com/fs-fio/fio/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/fs-fio/fio/blob/main/LICENSE.md)
-![.NET 10](https://img.shields.io/badge/.NET-10-512BD4.svg?logo=dotnet)
+![.NET 11](https://img.shields.io/badge/.NET-11-512BD4.svg?logo=dotnet)
 
----
-
-FIO is an [IO monad](https://en.wikipedia.org/wiki/Monad_(functional_programming)) plus
-lightweight fibers (green threads) for building concurrent and asynchronous F# applications.
-Effects are described as pure, lazy values and run by a pluggable runtime — so your program
-is a composable description that stays referentially transparent until you hand it to a runtime.
-The API takes its cues from [ZIO](https://zio.dev).
+FIO is an [IO monad](https://en.wikipedia.org/wiki/Monad_(functional_programming)) plus lightweight fibers (green
+threads) for concurrent and asynchronous F# applications. Effects are lazy values that a runtime interprets, and the API
+takes its cues from [ZIO](https://zio.dev).
 
 - **Typed effects** — `FIO<'A, 'E>` tracks both the success value and the error in the type
 - **Fibers & channels** — green threads via `.Fork()` / `.Join()` and typed message passing
@@ -29,10 +25,9 @@ The API takes its cues from [ZIO](https://zio.dev).
 dotnet add package FSharp.FIO --prerelease
 ```
 
-FSharp.FIO needs FSharp.Core 11.0.101 or newer: an F# project on an older FSharp.Core (one it pins, or the
-implicit one of an older SDK) builds with only a downgrade warning (NU1605) and then fails at run time.
+FSharp.FIO needs FSharp.Core 11.0.101 or newer.
 
-## Quick Start
+## Quick start
 
 ```fsharp
 open FIO.DSL
@@ -52,23 +47,10 @@ type App() =
 let main _ = App().Run()
 ```
 
-`FIOApp` runs `effect`, then `onOutcome` with the settled result, then `onShutdown`, and exits with
-`mapExitCode`. Ctrl+C, SIGTERM and SIGQUIT (`Ctrl+\`, or Ctrl+Break on Windows) interrupt the
-effect; its finalizers run before the hooks, so cleanup that needs effect state belongs in
-`Ensuring`/`acquireReleaseWith`, and `onShutdown` is for process-level goodbyes. A finalizer that
-never completes holds shutdown; a second such signal terminates the process, and so does the first
-one after `Stop()`. Once the effect has ended, the first signal during `onOutcome` or `onShutdown`
-does not interrupt the hook and the next one ends the process; a signal after the hooks, while the
-runtime is disposed, ends it at once. SIGHUP is not handled: it ends the process without running
-finalizers or hooks. A defect, an invalid argument or resource exhaustion in
-the effect is a fatal error, not an interruption: like a typed failure it exits with 1, as every
-non-success exit does in ZIO; an interruption exits with 130. The default hooks print nothing, so
-report a failure from `onOutcome`.
+`FIOApp` runs `effect`, then the `onOutcome` and `onShutdown` hooks, and exits with `mapExitCode`: 0 on success, 1 on a
+failure, 130 when interrupted. Ctrl+C, SIGTERM and SIGQUIT interrupt the effect, and its finalizers run before the hooks.
 
 ## Concurrency
-
-Fork effects onto fibers, run them in parallel, and compose the results — losers are
-interrupted automatically on the first failure.
 
 ```fsharp
 open FIO.DSL
@@ -83,11 +65,9 @@ let forked: FIO<string, exn> =
     FIO.succeed("Hello, concurrency! 🚀").Fork() >>= fun fiber -> fiber.Join()
 ```
 
-More in [examples/](https://github.com/fs-fio/fio/tree/main/examples) — the DSL, App, HTTP, Sockets, and WebSockets tours.
+More in [examples/](https://github.com/fs-fio/fio/tree/main/examples): the DSL, App, HTTP, Sockets, and WebSockets tours.
 
 ## Combinators
-
-The methods on `FIO<'A, 'E>` cover most control flow; reach for one before writing it by hand.
 
 | To… | Use |
 |-----|-----|
@@ -104,36 +84,11 @@ The methods on `FIO<'A, 'E>` cover most control flow; reach for one before writi
 | Clean up | `.Ensuring finalizer`, `.OnExit finalizer` (told how the effect ended), `FIO.acquireReleaseWith`, `FIO.acquireReleaseExitWith` |
 | Shield from interruption | `.Uninterruptible()`, `FIO.uninterruptibleMask` |
 
-As in ZIO, `FoldFIO` and `TapBoth` hand `onError` only this effect's failure; a failure raised by
-`onSuccess` propagates. `Forever()` never succeeds, so it takes whatever result type its context needs.
-
 ## Resource safety
 
-`Ensuring` runs its finalizer on success, failure and interruption, and so does
-`FIO.acquireReleaseWith acquire release use`, which also runs `acquire` and `release`
-uninterruptibly: a resource that was acquired is always released. For regions of your own, as in
-ZIO, `FIO.uninterruptible` (or `.Uninterruptible()`) defers an interruption until the region ends,
-where it takes effect at once (nothing after the region runs), and `FIO.uninterruptibleMask` gives
-the body a restorer that makes chosen parts interruptible again:
-
-```fsharp
-// Waiting for a job can be interrupted; once taken, a job always runs to the end.
-let worker (jobs: Channel<Job>) (run: Job -> FIO<unit, exn>) =
-    FIO.uninterruptibleMask <| fun restore ->
-        fio {
-            let! job = restore.Restore(jobs.Read())
-            do! run job
-        }
-```
-
-Inside an uninterruptible region, `FIO.cancellationToken()` yields a token that never cancels, and
-work the region forks, or that a finalizer forks (a `Timeout`, a `ZipPar`), keeps running until the
-fiber exits instead of being interrupted with it. Use a restorer only in the body of its own mask:
-in a finalizer it would make the cleanup interruptible again. A finalizer that fails replaces a
-success with its failure, but never an earlier failure or interruption.
-
-When the cleanup depends on how the effect ended, `.OnExit` and `FIO.acquireReleaseExitWith` hand the
-finalizer the outcome as a `FiberResult`: `Succeeded`, `Failed`, or `Interrupted` with its cause.
+`Ensuring` and `FIO.acquireReleaseWith` run their cleanup on success, failure and interruption, and acquire and release
+run uninterruptibly, so a resource that was acquired is always released. `.OnExit` and `FIO.acquireReleaseExitWith` also
+tell the cleanup how the effect ended. `FIO.uninterruptible` and `FIO.uninterruptibleMask` shield regions of your own.
 
 ```fsharp
 // Keep the file only if writing it succeeded; delete a partial one on a failure or an interruption.
@@ -149,89 +104,35 @@ let writeReport (path: string) (lines: string list) =
         (fun writer -> FIO.forEachDiscard lines (fun line -> FIO.attempt (fun () -> writer.WriteLine line) id))
 ```
 
-## Channels
-
-`Channel<'A>()` is unbounded. For back-pressure or a drop policy, use ZIO's queue family:
+## Channels, promises and semaphores
 
 | Constructor | A write to a full channel… |
 |-------------|----------------------------|
+| `Channel<'A>()` | never happens: unbounded |
 | `Channel<'A>.Bounded n` | suspends until a reader makes room |
 | `Channel<'A>.Dropping n` | drops the new message |
 | `Channel<'A>.Sliding n` | drops the oldest message |
 
-`Write` yields its message (use `.Write(message).Unit()` to discard it), also when a full dropping
-channel dropped it; on a full bounded channel it suspends. `TryWrite` never suspends and yields
-whether the message was written — `false` from a full bounded or dropping channel, `true` from a
-full sliding one. `Read` suspends until a message arrives; `TryRead` never suspends, yielding the next
-message as `Some`, or `None` from an empty channel. A capacity below 1 throws.
+`Read` and `Write` suspend when they must; `TryRead` and `TryWrite` never do.
 
-## Promises and semaphores
-
-`Promise<'A, 'E>()` is completed once — `Succeed` or `Fail`, each yielding whether this call completed
-it — and `Await` suspends any number of fibers until then: a readiness signal, or a reply slot.
-
-```fsharp
-type Command = GetBalance of reply: Promise<int, exn>
-
-let balance (inbox: Channel<Command>) =
-    fio {
-        let reply = Promise<int, exn>()
-        do! inbox.Write(GetBalance reply).Unit()
-        return! reply.Await()
-    }
-```
-
-`Semaphore n` bounds how many effects run at once: `WithPermit effect` waits for a permit (interruptibly,
-unless the caller is not), runs the effect, and gives the permit back however it ends. To run many
-items at most `n` at a time, `FIO.forEachParN n items f` does the same on just `n` fibers.
-`System.Threading` has a `Semaphore` too: when it is opened after `FIO.DSL`, write `FIO.DSL.Semaphore`.
-
-## Features
-
-- **Effects** — lazy, composable `FIO<'A, 'E>` with typed errors
-- **Fibers** — green threads for scalable concurrency
-- **Channels** — typed message passing between fibers: unbounded, bounded, dropping or sliding
-- **Resource safety** — `acquireReleaseWith`, outcome-aware `OnExit`/`acquireReleaseExitWith`, and uninterruptible regions, as in ZIO
-- **Structured concurrency** — fail-fast `ZipPar`, `forEachPar` and `forEachParN`, plus `Race` (first to succeed) and `RaceFirst` (first to settle), all of which interrupt losers automatically
-- **Composition** — `fio { }` CE, operators (`>>=`, `<&>`, `<|>`), combinators
-- **Refs** — `Ref<'A>`, an atomic reference cell shared between fibers (with `FIO.DSL` open it shadows FSharp.Core's `Ref<'T>` annotation; `'T ref` is unaffected)
-- **Promises & semaphores** — `Promise<'A, 'E>`, completed once and awaited by many, and `Semaphore`, which bounds how many effects run at once
-- **Console** — lines and keys as effects; `tryReadLine` yields `None` at end of input
+A `Promise<'A, 'E>` is completed once and awaited by any number of fibers. A `Semaphore n` bounds how many effects run
+at once (`WithPermit`), and a `Ref<'A>` is an atomic cell shared between fibers.
 
 ## Runtimes
 
-Effects are interpreted by a runtime. Pick one explicitly — `DirectRuntime` (`open FIO.Runtime.Direct`) or
-`WorkStealingRuntime` (`open FIO.Runtime.WorkStealing`) — or use `DefaultRuntime` (`open FIO.Runtime.Default`).
-
 | Runtime | Notes |
 |---------|-------|
-| `DirectRuntime` | Multi-threaded via the .NET thread pool — one task per fiber, no scheduler of its own. Handy for tests and as a baseline. |
-| `WorkStealingRuntime` | Multi-threaded, work-stealing scheduler. **The default.** |
+| `DirectRuntime` | One .NET task per fiber, no scheduler of its own. Handy for tests and as a baseline. |
+| `WorkStealingRuntime` | Work-stealing scheduler. **The default** (`DefaultRuntime`, used by `FIOApp`). |
 
-`DefaultRuntime = WorkStealingRuntime` — `FIOApp` uses it unless you `override _.runtime`.
-
-Both runtimes run on the .NET thread pool: `DirectRuntime` runs each fiber as a pool task, and the workers of
-`WorkStealingRuntime` resume on pool threads after waiting for work. Code that blocks pool threads (`.Result`,
-`.Wait()` or `Thread.Sleep` inside many effects at once) can therefore stall FIO. Wait without blocking
-(`FIO.sleep`, `FIO.awaitTask`), or, if blocking cannot be avoided, raise the pool's minimum with
-`ThreadPool.SetMinThreads` at startup.
-
-A runtime is `IDisposable` (`use runtime = new DefaultRuntime()`). Disposing it interrupts every fiber still running on it — roots started
-with `Run`, and daemons — waits up to 10 seconds for their finalizers, then stops its workers;
-`Shutdown timeout` does the same with your own bound. A fiber still unwinding when the time is up is
-abandoned: on `WorkStealingRuntime` it runs no further step once its current slice of steps ends (a
-step that is running your code runs to its end), while on `DirectRuntime`, which has no workers to
-stop, it goes on unwinding after `Shutdown` returns. A root or daemon that had finished
-and only waited for its children gets its result; a fiber deeper in the tree in that state does not.
-`Run` afterwards throws `ObjectDisposedException`.
-`FIOApp` disposes its runtime when the app ends.
+Both run on the .NET thread pool, so don't block it (`.Result`, `.Wait()`, `Thread.Sleep`); wait with `FIO.sleep` or
+`FIO.awaitTask` instead. Disposing a runtime interrupts the fibers still running and waits up to 10 seconds for their
+finalizers.
 
 ## Benchmarks
 
-Eleven concurrency workloads (Pingpong, Threadring, Chameneos, Philosophers, …) and a combinator
-microbenchmark run against every runtime, reporting execution time and allocations. Pingpong is tracked
-per commit on the [**live benchmark dashboard**](https://fs-fio.github.io/fio/dev/bench/); the full suite,
-its parameters, and the A/B comparison protocol are documented in
+Twelve workloads (Pingpong, Threadring, Chameneos, …) run on both runtimes and report time and allocations. Pingpong is
+tracked per commit on the [live dashboard](https://fs-fio.github.io/fio/dev/bench/); the suite is described in
 [`benchmarks/FIO.Benchmarks/README.md`](https://github.com/fs-fio/fio/blob/main/benchmarks/FIO.Benchmarks/README.md).
 
 ## Packages
@@ -243,8 +144,10 @@ its parameters, and the A/B comparison protocol are documented in
 | [`FSharp.FIO.Sockets`](https://www.nuget.org/packages/FSharp.FIO.Sockets) | TCP sockets |
 | [`FSharp.FIO.WebSockets`](https://www.nuget.org/packages/FSharp.FIO.WebSockets) | WebSockets |
 
-Each extension library has its own README with API details:
-[Http](https://github.com/fs-fio/fio/blob/main/src/FIO.Http/README.md) · [Sockets](https://github.com/fs-fio/fio/blob/main/src/FIO.Sockets/README.md) · [WebSockets](https://github.com/fs-fio/fio/blob/main/src/FIO.WebSockets/README.md).
+Each extension has its own README:
+[Http](https://github.com/fs-fio/fio/blob/main/src/FIO.Http/README.md) ·
+[Sockets](https://github.com/fs-fio/fio/blob/main/src/FIO.Sockets/README.md) ·
+[WebSockets](https://github.com/fs-fio/fio/blob/main/src/FIO.WebSockets/README.md).
 
 ## Contributing
 

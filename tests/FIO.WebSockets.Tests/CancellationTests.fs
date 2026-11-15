@@ -1,5 +1,6 @@
 module FIO.WebSockets.Tests.CancellationTests
 
+open FIO.Tests.Utilities
 open FIO.WebSockets.Tests.Utilities
 
 open FIO.DSL
@@ -7,13 +8,13 @@ open FIO.Runtime
 open FIO.WebSockets
 open FIO.Runtime.WorkStealing
 
+open Expecto
+
 open System
 open System.Threading
 open System.Diagnostics
 open System.Threading.Tasks
 open System.Collections.Concurrent
-
-open Expecto
 
 // Direct runs fibers on the thread pool; only WorkStealingRuntime has a worker that a test can hold.
 let private testSingleWorkerRuntime name (test: FIORuntime -> unit) =
@@ -148,7 +149,7 @@ let cancellationTests =
                                 })
                             (fun port ->
                                 fio {
-                                    let! ws = WebSocketClient.connectStringWith $"ws://localhost:{port}/"
+                                    let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
                                     let! receiveFiber = (ws.ReceiveMessage()).Fork()
                                     do! sleepMs 100.0
                                     do! receiveFiber.InterruptNow()
@@ -167,7 +168,7 @@ let cancellationTests =
             testAllRuntimes "connect - an interruption against an unreachable URL terminates promptly" (fun runtime ->
                 let effect =
                     fio {
-                        let! connectFiber = (WebSocketClient.connectStringWith "ws://192.0.2.1:9/").Fork()
+                        let! connectFiber = (WebSocketClient.connectDefault "ws://192.0.2.1:9/").Fork()
 
                         do! sleepMs 100.0
                         do! connectFiber.InterruptNow()
@@ -509,7 +510,7 @@ let cancellationTests =
                                 })
                             (fun port ->
                                 fio {
-                                    let! ws = WebSocketClient.connectStringWith $"ws://localhost:{port}/"
+                                    let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
                                     let cts = new CancellationTokenSource()
                                     cts.Cancel()
                                     let stopwatch = Stopwatch.StartNew()
@@ -533,7 +534,7 @@ let cancellationTests =
                         noopHandler
                         (fun port ->
                             fio {
-                                let! ws = WebSocketClient.connectStringWith $"ws://localhost:{port}/"
+                                let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
                                 let cts = new CancellationTokenSource()
                                 cts.Cancel()
                                 let! outcome =
@@ -566,7 +567,7 @@ let cancellationTests =
                                 })
                             (fun port ->
                                 fio {
-                                    let! ws = WebSocketClient.connectStringWith $"ws://localhost:{port}/"
+                                    let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
                                     let! holder = ws.ReceiveMessage().Fork()
                                     do! sleepMs 200.0
                                     let! scope =

@@ -1,10 +1,8 @@
 module FIO.Tests.JoinAllFailFastTests
 
 open FIO.Tests.Utilities
-open FIO.Tests.Utilities.FsCheckProperties
 
 open FIO.DSL
-open FIO.Runtime
 
 open Expecto
 

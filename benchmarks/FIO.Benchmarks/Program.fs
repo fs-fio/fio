@@ -2,13 +2,13 @@ module FIO.Benchmarks.Program
 
 open FIO.Benchmarks.Benchmarks
 
+open Perfolizer.Horology
+
 open BenchmarkDotNet.Jobs
-open BenchmarkDotNet.Running
 open BenchmarkDotNet.Configs
 open BenchmarkDotNet.Engines
 open BenchmarkDotNet.Reports
-
-open Perfolizer.Horology
+open BenchmarkDotNet.Running
 
 open System
 

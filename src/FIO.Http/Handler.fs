@@ -101,19 +101,6 @@ module HttpHandler =
                 return! cont response request
             }
 
-    /// Combines two handlers' responses for the same request with the given function.
-    let zipWith
-        (combiner: HttpResponse -> HttpResponse -> HttpResponse)
-        (handler: HttpHandler<'E>)
-        (handler': HttpHandler<'E>)
-        : HttpHandler<'E> =
-        fun request ->
-            fio {
-                let! response = handler request
-                let! response' = handler' request
-                return combiner response response'
-            }
-
     /// Returns a handler that falls back to another if the first fails.
     let orElse (handler': HttpHandler<'E>) (handler: HttpHandler<'E>) : HttpHandler<'E> =
         fun request -> handler request <|> handler' request

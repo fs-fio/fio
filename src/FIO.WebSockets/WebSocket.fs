@@ -25,14 +25,7 @@ type WebSocket
     let receiveLock = new SemaphoreSlim(1, 1)
 
     let logAndSuppress (context: string) (error: WsError) =
-        fio {
-            let str = error.ToString()
-            do!
-                FIO.attempt
-                    (fun () -> eprintfn $"WebSocket encountered error during {context}: {str}")
-                    WsError.fromException
-            return ()
-        }
+        FIO.attempt (fun () -> eprintfn $"WebSocket encountered error during {context}: {error}") WsError.fromException
 
     let attempt (func: unit -> 'A) = FIO.attempt func WsError.fromException
 
@@ -98,6 +91,39 @@ type WebSocket
             )
             |> ignore
 
+    // A timeout bounds an operation through a token linked to the caller's; both sources go back in the release.
+    let linkTimeout (timeoutMs: int) (cancellationToken: CancellationToken) =
+        if timeoutMs > 0 then
+            let timeoutCts = new CancellationTokenSource(timeoutMs)
+            let linkedCts =
+                CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token)
+            struct (timeoutCts, linkedCts, linkedCts.Token)
+        else
+            struct (null, null, cancellationToken)
+
+    let disposeTimeout (timeoutCts: CancellationTokenSource) (linkedCts: CancellationTokenSource) =
+        releaseLogged "linkedCts disposal" (fun () ->
+            if not (isNull linkedCts) then
+                linkedCts.Dispose())
+        releaseLogged "timeoutCts disposal" (fun () ->
+            if not (isNull timeoutCts) then
+                timeoutCts.Dispose())
+
+    // The messages are built only when an error is remapped: built up front, they cost every send and receive.
+    let remapCancelled
+        (timeoutCts: CancellationTokenSource)
+        (cancellationToken: CancellationToken)
+        (timedOut: unit -> string)
+        (cancelled: unit -> WsError)
+        (error: WsError)
+        =
+        if not (isNull timeoutCts) && timeoutCts.IsCancellationRequested then
+            FIO.fail (TimeoutError(timedOut ()))
+        elif cancellationToken.IsCancellationRequested then
+            FIO.fail (cancelled ())
+        else
+            FIO.fail error
+
     // The closing handshake waits for the peer's close frame, so it is bounded like a send, or a peer that stopped
     // reading would hold a finalizer and with it an app's shutdown.
     let boundedBySendTimeout
@@ -105,48 +131,20 @@ type WebSocket
         (label: string)
         (operation: CancellationToken -> FIO<unit, WsError>)
         =
-        let setup =
-            attempt
-            <| fun () ->
-                let timeoutCts =
-                    if config.SendTimeout > 0 then
-                        new CancellationTokenSource(config.SendTimeout)
-                    else
-                        null
+        let setup = attempt <| fun () -> linkTimeout config.SendTimeout cancellationToken
 
-                let linkedCts =
-                    if isNull timeoutCts then
-                        null
-                    else
-                        CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token)
+        let release struct (timeoutCts, linkedCts, _: CancellationToken) =
+            FIO.succeedWith <| fun () -> disposeTimeout timeoutCts linkedCts
 
-                struct (timeoutCts, linkedCts)
-
-        let release struct (timeoutCts: CancellationTokenSource, linkedCts: CancellationTokenSource) =
-            FIO.succeedWith
-            <| fun () ->
-                releaseLogged "linkedCts disposal" (fun () ->
-                    if not (isNull linkedCts) then
-                        linkedCts.Dispose())
-                releaseLogged "timeoutCts disposal" (fun () ->
-                    if not (isNull timeoutCts) then
-                        timeoutCts.Dispose())
-
-        let run struct (timeoutCts: CancellationTokenSource, linkedCts: CancellationTokenSource) =
-            let remapTimeout (error: WsError) =
-                if not (isNull timeoutCts) && timeoutCts.IsCancellationRequested then
-                    FIO.fail (TimeoutError $"{label} timed out after {config.SendTimeout}ms")
-                elif cancellationToken.IsCancellationRequested then
-                    FIO.fail (SendFailed $"{label} was cancelled through its cancellation token")
-                else
-                    FIO.fail error
-
-            let effectiveToken =
-                if isNull linkedCts then
-                    cancellationToken
-                else
-                    linkedCts.Token
-            (operation effectiveToken).CatchAll remapTimeout
+        let run struct (timeoutCts, _: CancellationTokenSource, effectiveToken) =
+            (operation effectiveToken)
+                .CatchAll(fun error ->
+                    remapCancelled
+                        timeoutCts
+                        cancellationToken
+                        (fun () -> $"{label} timed out after {config.SendTimeout}ms")
+                        (fun () -> SendFailed $"{label} was cancelled through its cancellation token")
+                        error)
 
         FIO.acquireReleaseWith setup release run
 
@@ -220,23 +218,8 @@ type WebSocket
                              "receive message"
                      )
                  else
-                     let timeoutCts =
-                         if config.ReceiveTimeout > 0 then
-                             new CancellationTokenSource(config.ReceiveTimeout)
-                         else
-                             null
-
-                     let linkedCts =
-                         if isNull timeoutCts then
-                             null
-                         else
-                             CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token)
-
-                     let effectiveToken =
-                         if isNull linkedCts then
-                             cancellationToken
-                         else
-                             linkedCts.Token
+                     let struct (timeoutCts, linkedCts, effectiveToken) =
+                         linkTimeout config.ReceiveTimeout cancellationToken
                      let lockTask = receiveLock.WaitAsync effectiveToken
                      let pending: Task<struct (WebSocketMessageType * int * int64)> ref = ref null
                      Ok
@@ -261,12 +244,7 @@ type WebSocket
                 let cleanUp () =
                     ArrayPool<byte>.Shared.Return rented.Value
                     releaseLogged "receiveLock release" (fun () -> releasePermitWhenGranted receiveLock lockTask)
-                    releaseLogged "linkedCts disposal" (fun () ->
-                        if not (isNull linkedCts) then
-                            linkedCts.Dispose())
-                    releaseLogged "timeoutCts disposal" (fun () ->
-                        if not (isNull timeoutCts) then
-                            timeoutCts.Dispose())
+                    disposeTimeout timeoutCts linkedCts
 
                 match pending.Value with
                 | null -> cleanUp ()
@@ -324,15 +302,13 @@ type WebSocket
                 }
 
             // A receive its caller cancelled leaves the connection aborted, which must not read as a close.
-            let remap (error: WsError) =
-                if not (isNull timeoutCts) && timeoutCts.IsCancellationRequested then
-                    FIO.fail (TimeoutError $"Receive operation timed out after {config.ReceiveTimeout}ms")
-                elif cancellationToken.IsCancellationRequested then
-                    FIO.fail (ReceiveFailed "The receive was cancelled through its cancellation token")
-                else
-                    FIO.fail error
-
-            computation.CatchAll remap
+            computation.CatchAll(fun error ->
+                remapCancelled
+                    timeoutCts
+                    cancellationToken
+                    (fun () -> $"Receive operation timed out after {config.ReceiveTimeout}ms")
+                    (fun () -> ReceiveFailed "The receive was cancelled through its cancellation token")
+                    error)
 
         FIO.cancellationToken().FlatMap(fun fiberToken -> FIO.acquireReleaseWith setup (release fiberToken) receive)
 
@@ -371,23 +347,8 @@ type WebSocket
                              "send frame"
                      )
                  else
-                     let timeoutCts =
-                         if config.SendTimeout > 0 then
-                             new CancellationTokenSource(config.SendTimeout)
-                         else
-                             null
-
-                     let linkedCts =
-                         if isNull timeoutCts then
-                             null
-                         else
-                             CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token)
-
-                     let effectiveToken =
-                         if isNull linkedCts then
-                             cancellationToken
-                         else
-                             linkedCts.Token
+                     let struct (timeoutCts, linkedCts, effectiveToken) =
+                         linkTimeout config.SendTimeout cancellationToken
                      let lockTask = sendLock.WaitAsync effectiveToken
 
                      let buffer =
@@ -412,12 +373,7 @@ type WebSocket
                     if not (isNull buffer) then
                         ArrayPool<byte>.Shared.Return buffer
                     releaseLogged "sendLock release" (fun () -> releasePermitWhenGranted sendLock lockTask)
-                    releaseLogged "linkedCts disposal" (fun () ->
-                        if not (isNull linkedCts) then
-                            linkedCts.Dispose())
-                    releaseLogged "timeoutCts disposal" (fun () ->
-                        if not (isNull timeoutCts) then
-                            timeoutCts.Dispose())
+                    disposeTimeout timeoutCts linkedCts
 
                 match pending.Value with
                 | null -> cleanUp ()
@@ -483,15 +439,13 @@ type WebSocket
                         do! FIO.awaitUnitTask closeTask sendError
                 }
 
-            let remapTimeout (error: WsError) =
-                if not (isNull timeoutCts) && timeoutCts.IsCancellationRequested then
-                    FIO.fail (TimeoutError $"Send operation timed out after {config.SendTimeout}ms")
-                elif cancellationToken.IsCancellationRequested then
-                    FIO.fail (SendFailed "The send was cancelled through its cancellation token")
-                else
-                    FIO.fail error
-
-            computation.CatchAll remapTimeout
+            computation.CatchAll(fun error ->
+                remapCancelled
+                    timeoutCts
+                    cancellationToken
+                    (fun () -> $"Send operation timed out after {config.SendTimeout}ms")
+                    (fun () -> SendFailed "The send was cancelled through its cancellation token")
+                    error)
 
         FIO.acquireReleaseWith setup release send
 

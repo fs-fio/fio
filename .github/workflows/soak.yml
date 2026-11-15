@@ -45,12 +45,28 @@ jobs:
             ${{ runner.os }}-nuget-
 
       - name: Soak the core suite (Release)
-        run: >
-          bash scripts/stress-test.sh ${{ inputs.runs || '20' }} tests/FIO.Tests/FIO.Tests.fsproj
-          --logger "trx;LogFilePrefix=soak-${{ matrix.os }}"
-          --results-directory ./soak-results
-          --blame-hang-timeout 5m --blame-hang-dump-type mini
-          --blame-crash --blame-crash-dump-type mini
+        env:
+          RUNS: ${{ inputs.runs || '20' }}
+          OS: ${{ matrix.os }}
+        run: |
+          if [[ ! "$RUNS" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::runs must be a positive whole number, got '$RUNS'"
+            exit 1
+          fi
+          dotnet build -c Release ./FIO.slnx
+          failed=0
+          for ((i = 1; i <= RUNS; i++)); do
+            echo "::group::Run $i of $RUNS"
+            dotnet test -c Release --no-build tests/FIO.Tests/FIO.Tests.fsproj \
+              --logger "trx;LogFilePrefix=soak-$OS" \
+              --results-directory ./soak-results \
+              --blame-hang-timeout 5m --blame-hang-dump-type mini \
+              --blame-crash --blame-crash-dump-type mini \
+              || failed=$((failed + 1))
+            echo "::endgroup::"
+          done
+          echo "Failed runs: $failed of $RUNS"
+          [ "$failed" -eq 0 ]
 
       - name: Upload failures
         if: failure()

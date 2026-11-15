@@ -1,20 +1,23 @@
 # FIO Examples
 
-Runnable example projects for [FIO](https://github.com/fs-fio/fio) — the core DSL, the
-`FIOApp` framework, and each extension library. Every project is a console app that builds FIO
-from source; run it from the repository root with the command in its row.
+[![Run Tests](https://github.com/fs-fio/fio/actions/workflows/test.yml/badge.svg)](https://github.com/fs-fio/fio/actions/workflows/test.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/fs-fio/fio/blob/main/LICENSE.md)
+![.NET 11](https://img.shields.io/badge/.NET-11-512BD4.svg?logo=dotnet)
+
+Runnable example projects for [FIO](https://github.com/fs-fio/fio) — the core DSL, the `FIOApp` framework, and each
+extension library. Every project is a console app that builds FIO from source; run it from the repository root with the
+command in its row.
 
 | Example | Shows | Run |
 |---------|-------|-----|
-| **[FIO.Examples.DSL](FIO.Examples.DSL)** | A tour of the core DSL — `FIO.succeed`/`fail`, running effects on a runtime, fork/join, the `fio { }` CE, interruption, and the operators. | `dotnet run --project examples/FIO.Examples.DSL` |
-| **[FIO.Examples.App](FIO.Examples.App)** | The big `FIOApp` showcase — CE control flow, channels, error handling, async/task interop, 100k-fiber concurrency, race/timeout, resources (with outcome-aware release), promises, semaphores, bounded parallelism, shutdown hooks, and custom exit codes. | `dotnet run --project examples/FIO.Examples.App` |
+| **[FIO.Examples.DSL](FIO.Examples.DSL)** | A tour of the core DSL — running effects, fork/join, the `fio { }` CE, interruption, and the operators. | `dotnet run --project examples/FIO.Examples.DSL` |
+| **[FIO.Examples.App](FIO.Examples.App)** | `FIOApp` programs — channels, error handling, task interop, 100k-fiber concurrency, race/timeout, resources, promises, semaphores, shutdown hooks and exit codes. | `dotnet run --project examples/FIO.Examples.App` |
 | **[FIO.Examples.Http](FIO.Examples.Http)** | An HTTP server with routing, JSON, query params, body parsing, and middleware (`FSharp.FIO.Http`). | `dotnet run --project examples/FIO.Examples.Http` |
 | **[FIO.Examples.Sockets](FIO.Examples.Sockets)** | A TCP echo server and interactive client running concurrently in one app (`FSharp.FIO.Sockets`). | `dotnet run --project examples/FIO.Examples.Sockets` |
 | **[FIO.Examples.WebSockets](FIO.Examples.WebSockets)** | A WebSocket echo server and interactive client running concurrently in one app (`FSharp.FIO.WebSockets`). | `dotnet run --project examples/FIO.Examples.WebSockets` |
 
-New to FIO? Start with **DSL** for the fundamentals, then **App** for how real programs are
-structured. The **Http**, **Sockets**, and **WebSockets** examples each pair with their library's
-README.
+New to FIO? Start with **DSL** for the fundamentals, then **App** for how real programs are structured. The **Http**,
+**Sockets**, and **WebSockets** examples each pair with their library's README.
 
 ## Links
 

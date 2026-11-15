@@ -3,9 +3,9 @@ module FIO.Tests.WorkerInfrastructureTests
 open FIO.Runtime
 open FIO.Runtime.WorkStealing
 
-open System
-
 open Expecto
+
+open System
 
 [<Tests>]
 let workerInfrastructureTests =
@@ -29,29 +29,22 @@ let workerInfrastructureTests =
                             "EWS: 0"
                         ]
 
-                    for runtimeName, make in
-                        [
-                            "WorkStealingRuntime", (fun config -> new WorkStealingRuntime(config) :> FIORuntime)
-                        ] do
-                        for field, config, shown in invalid ->
-                            testCase $"{runtimeName} - rejects {field}" (fun () ->
-                                let thrown =
-                                    try
-                                        use _runtime = make config
-                                        None
-                                    with ex ->
-                                        Some ex
+                    for field, config, shown in invalid ->
+                        testCase $"WorkStealingRuntime - rejects {field}" (fun () ->
+                            let thrown =
+                                try
+                                    use _runtime = new WorkStealingRuntime(config)
+                                    None
+                                with ex ->
+                                    Some ex
 
-                                match thrown with
-                                | Some(:? ArgumentException as ex) ->
-                                    Expect.stringContains
-                                        ex.Message
-                                        "Invalid worker configuration"
-                                        "The message should say what is wrong"
-                                    Expect.stringContains
-                                        ex.Message
-                                        shown
-                                        "The message should show the offending count"
-                                | other -> failtest $"Expected ArgumentException, got {other}")
+                            match thrown with
+                            | Some(:? ArgumentException as ex) ->
+                                Expect.stringContains
+                                    ex.Message
+                                    "Invalid worker configuration"
+                                    "The message should say what is wrong"
+                                Expect.stringContains ex.Message shown "The message should show the offending count"
+                            | other -> failtest $"Expected ArgumentException, got {other}")
                 ]
         ]

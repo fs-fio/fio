@@ -1,14 +1,15 @@
 module FIO.WebSockets.Tests.ExtensionsTests
 
+open FIO.Tests.Utilities
 open FIO.WebSockets.Tests.Utilities
 
 open FIO.DSL
 open FIO.WebSockets
 open FIO.WebSockets.WebSocketExtensions
 
-open System.Text.Json
-
 open Expecto
+
+open System.Text.Json
 
 [<Tests>]
 let extensionsTests =

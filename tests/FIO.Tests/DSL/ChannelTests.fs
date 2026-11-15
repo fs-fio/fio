@@ -1,7 +1,7 @@
 module FIO.Tests.ChannelTests
 
 open FIO.Tests.Utilities
-open FIO.Tests.Utilities.FsCheckProperties
+open FIO.Tests.FsCheckProperties
 
 open FIO.DSL
 open FIO.Runtime
@@ -46,38 +46,6 @@ let channelTests =
 
                         Expect.equal c1 1 "Channel with message should have count 1"
                         Expect.equal c2 0 "Other channel should remain at count 0")
-                ]
-
-            testList
-                "Id"
-                [
-                    testPropertyWithConfig fsCheckConfig "Id - each channel has unique id"
-                    <| fun (runtime: FIORuntime) ->
-                        let effect =
-                            fio {
-                                let chan1 = Channel<int>()
-                                let chan2 = Channel<int>()
-                                return chan1.Id, chan2.Id
-                            }
-
-                        let id1, id2 = runtime.Run(effect).UnsafeSuccess()
-
-                        Expect.notEqual id1 id2 "Each channel should have a unique id"
-                        Expect.notEqual id1 Guid.Empty "Channel id should not be empty"
-
-                    testPropertyWithConfig fsCheckConfig "Id - is stable across repeated access"
-                    <| fun (runtime: FIORuntime) ->
-                        let effect =
-                            fio {
-                                let chan = Channel<int>()
-                                let id1 = chan.Id
-                                let id2 = chan.Id
-                                return id1, id2
-                            }
-
-                        let id1, id2 = runtime.Run(effect).UnsafeSuccess()
-
-                        Expect.equal id1 id2 "Id should return the same value on repeated access"
                 ]
 
             testList

@@ -71,25 +71,25 @@ let routePatternTests =
 
                         Expect.isNone result "Should not match"
 
-                    testCase "fromString - parses a simple path"
+                    testCase "parse - parses a simple path"
                     <| fun () ->
-                        let path = RoutePath.fromString "/users/list"
+                        let path = RoutePath.parse "/users/list"
 
                         let result = RoutePath.tryMatch path [ "users"; "list" ]
 
                         Expect.isSome result "Should match"
 
-                    testCase "fromString - handles the root path"
+                    testCase "parse - handles the root path"
                     <| fun () ->
-                        let path = RoutePath.fromString "/"
+                        let path = RoutePath.parse "/"
 
                         let result = RoutePath.tryMatch path []
 
                         Expect.isSome result "Root should match"
 
-                    testCase "fromString - a parameter path rejects a different literal or a shorter path"
+                    testCase "parse - a parameter path rejects a different literal or a shorter path"
                     <| fun () ->
-                        let path = RoutePath.fromString "/users/:id"
+                        let path = RoutePath.parse "/users/:id"
 
                         let differentLiteral = RoutePath.tryMatch path [ "posts"; "42" ]
                         let missingParameter = RoutePath.tryMatch path [ "users" ]

@@ -231,17 +231,13 @@ module KestrelBridge =
         (response: FIO.Http.HttpResponse)
         : Task<unit> =
         task {
-            let! bodyBytes =
-                task {
-                    match response.Body with
-                    | ResponseBody.Empty -> return None
-                    | ResponseBody.Text text ->
-                        let bytes = Encoding.UTF8.GetBytes text
-                        return Some bytes
-                    | ResponseBody.Bytes bytes -> return Some bytes
-                    | ResponseBody.Json obj -> return Some(JsonSerializer.SerializeToUtf8Bytes(obj, jsonOptions))
-                    | ResponseBody.Stream _ -> return None
-                }
+            let bodyBytes =
+                match response.Body with
+                | ResponseBody.Text text -> Some(Encoding.UTF8.GetBytes text)
+                | ResponseBody.Bytes bytes -> Some bytes
+                | ResponseBody.Json obj -> Some(JsonSerializer.SerializeToUtf8Bytes(obj, jsonOptions))
+                | ResponseBody.Empty
+                | ResponseBody.Stream _ -> None
 
             let streamToDispose =
                 match response.Body with
@@ -261,33 +257,9 @@ module KestrelBridge =
                 let bodiless =
                     status = 204 || status = 205 || status = 304 || (status >= 100 && status < 200)
 
-                match response.Body with
+                match response.Body, bodyBytes with
                 | _ when bodiless -> ()
-                | ResponseBody.Empty -> ()
-                | ResponseBody.Text _ ->
-                    match bodyBytes with
-                    | Some bytes ->
-                        ctx.Response.ContentLength <- int64 bytes.Length
-                        if not isHead then
-                            do! ctx.Response.Body.WriteAsync(bytes, 0, bytes.Length)
-                    | None -> ()
-                | ResponseBody.Bytes _ ->
-                    match bodyBytes with
-                    | Some bytes ->
-                        ctx.Response.ContentLength <- int64 bytes.Length
-                        if not isHead then
-                            do! ctx.Response.Body.WriteAsync(bytes, 0, bytes.Length)
-                    | None -> ()
-                | ResponseBody.Json _ ->
-                    match bodyBytes with
-                    | Some bytes ->
-                        if not (HeaderHelpers.contains "Content-Type" response.Headers) then
-                            ctx.Response.ContentType <- "application/json; charset=utf-8"
-                        ctx.Response.ContentLength <- int64 bytes.Length
-                        if not isHead then
-                            do! ctx.Response.Body.WriteAsync(bytes, 0, bytes.Length)
-                    | None -> ()
-                | ResponseBody.Stream(stream, lengthOpt) ->
+                | ResponseBody.Stream(stream, lengthOpt), _ ->
                     if isNull stream then
                         invalidArg "stream" "Response stream cannot be null"
                     match lengthOpt with
@@ -295,6 +267,15 @@ module KestrelBridge =
                     | None -> ()
                     if not isHead then
                         do! stream.CopyToAsync ctx.Response.Body
+                | body, Some bytes ->
+                    match body with
+                    | ResponseBody.Json _ when not (HeaderHelpers.contains "Content-Type" response.Headers) ->
+                        ctx.Response.ContentType <- "application/json; charset=utf-8"
+                    | _ -> ()
+                    ctx.Response.ContentLength <- int64 bytes.Length
+                    if not isHead then
+                        do! ctx.Response.Body.WriteAsync(bytes, 0, bytes.Length)
+                | _, None -> ()
             finally
                 streamToDispose |> Option.iter (fun stream -> stream.Dispose())
         }

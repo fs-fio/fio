@@ -62,9 +62,6 @@ module RoutePath =
         else
             Exact segments
 
-    /// Parses a path string into a route path.
-    let fromString (path: string) : RoutePath = parse path
-
     /// Tries to match segments against a route path, returning captured parameters and any remainder.
     let tryMatch (routePath: RoutePath) (segments: string list) : (obj list * string list) option =
         match routePath with
@@ -166,29 +163,27 @@ module Route =
             invalidArg "routeStr" errorMessage
 
     /// Creates a GET route pattern from a path string.
-    let get (path: string) : RoutePattern =
-        RoutePattern.get (RoutePath.fromString path)
+    let get (path: string) : RoutePattern = RoutePattern.get (RoutePath.parse path)
 
     /// Creates a POST route pattern from a path string.
     let post (path: string) : RoutePattern =
-        RoutePattern.post (RoutePath.fromString path)
+        RoutePattern.post (RoutePath.parse path)
 
     /// Creates a PUT route pattern from a path string.
-    let put (path: string) : RoutePattern =
-        RoutePattern.put (RoutePath.fromString path)
+    let put (path: string) : RoutePattern = RoutePattern.put (RoutePath.parse path)
 
     /// Creates a DELETE route pattern from a path string.
     let delete (path: string) : RoutePattern =
-        RoutePattern.delete (RoutePath.fromString path)
+        RoutePattern.delete (RoutePath.parse path)
 
     /// Creates a PATCH route pattern from a path string.
     let patch (path: string) : RoutePattern =
-        RoutePattern.patch (RoutePath.fromString path)
+        RoutePattern.patch (RoutePath.parse path)
 
     /// Creates a HEAD route pattern from a path string.
     let head (path: string) : RoutePattern =
-        RoutePattern.head (RoutePath.fromString path)
+        RoutePattern.head (RoutePath.parse path)
 
     /// Creates an OPTIONS route pattern from a path string.
     let options (path: string) : RoutePattern =
-        RoutePattern.options (RoutePath.fromString path)
+        RoutePattern.options (RoutePath.parse path)

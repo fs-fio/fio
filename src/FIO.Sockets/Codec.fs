@@ -62,6 +62,13 @@ module Codec =
                     }
         }
 
+    let private jsonDecode<'A> (options: JsonSerializerOptions) (bytes: byte[]) : FIO<'A, SocketError> =
+        FIO.attempt
+            (fun () ->
+                let json = Encoding.UTF8.GetString bytes
+                JsonSerializer.Deserialize<'A>(json, options))
+            (fun ex -> CodecError("JSON decoding failed", ex))
+
     /// Creates a JSON codec using the given serializer options.
     let jsonWithOptions<'A> (options: JsonSerializerOptions) : SocketCodec<'A> =
         {
@@ -72,13 +79,7 @@ module Codec =
                             let json = JsonSerializer.Serialize(value, options)
                             Encoding.UTF8.GetBytes json)
                         (fun ex -> CodecError("JSON encoding failed", ex))
-            Decode =
-                fun bytes ->
-                    FIO.attempt
-                        (fun () ->
-                            let json = Encoding.UTF8.GetString bytes
-                            JsonSerializer.Deserialize<'A>(json, options))
-                        (fun ex -> CodecError("JSON decoding failed", ex))
+            Decode = jsonDecode<'A> options
         }
 
     /// A JSON codec using default serializer options.
@@ -91,17 +92,9 @@ module Codec =
             Encode =
                 fun value ->
                     FIO.attempt
-                        (fun () ->
-                            let json = JsonSerializer.Serialize(value, opts)
-                            Encoding.UTF8.GetBytes(json + "\n"))
+                        (fun () -> Encoding.UTF8.GetBytes(JsonSerializer.Serialize(value, opts) + "\n"))
                         (fun ex -> CodecError("JSON line encoding failed", ex))
-            Decode =
-                fun bytes ->
-                    FIO.attempt
-                        (fun () ->
-                            let json = Encoding.UTF8.GetString(bytes).TrimEnd('\n', '\r')
-                            JsonSerializer.Deserialize<'A>(json, opts))
-                        (fun ex -> CodecError("JSON line decoding failed", ex))
+            Decode = jsonDecode<'A> opts
         }
 
     /// Adapts a codec to a new type using forward and backward conversions.

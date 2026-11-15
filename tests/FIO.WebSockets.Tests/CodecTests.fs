@@ -1,16 +1,15 @@
 module FIO.WebSockets.Tests.CodecTests
 
-open FIO.WebSockets.Tests.Utilities
-open FIO.WebSockets.Tests.Utilities.FsCheckProperties
+open FIO.Tests.Utilities
 
 open FIO.DSL
 open FIO.Runtime
 open FIO.WebSockets
 
+open Expecto
+
 open System.Text.Json
 open System.Net.WebSockets
-
-open Expecto
 
 [<Tests>]
 let codecTests =
@@ -22,7 +21,7 @@ let codecTests =
                 "frame"
                 [
 
-                    testPropertyWithConfig fsCheckConfig "frame - roundtrips a Text frame"
+                    testAllRuntimes "frame - roundtrips a Text frame"
                     <| fun (runtime: FIORuntime) ->
                         let frame = Text "hello"
                         let effect =
@@ -64,7 +63,7 @@ let codecTests =
                         | Binary b -> Expect.equal b data "Binary data should match"
                         | other -> failtest $"Expected Binary frame but got {other}")
 
-                    testPropertyWithConfig fsCheckConfig "binary - roundtrip preserves the data"
+                    testAllRuntimes "binary - roundtrip preserves the data"
                     <| fun (runtime: FIORuntime) ->
                         let data = [| 1uy; 2uy; 3uy; 4uy; 5uy |]
                         let effect =
@@ -111,7 +110,7 @@ let codecTests =
                         | Text s -> Expect.equal s "hello" "Text content should match"
                         | other -> failtest $"Expected Text frame but got {other}")
 
-                    testPropertyWithConfig fsCheckConfig "text - roundtrip preserves the string"
+                    testAllRuntimes "text - roundtrip preserves the string"
                     <| fun (runtime: FIORuntime) ->
                         let text = "hello world"
                         let effect =
@@ -276,7 +275,7 @@ let codecTests =
                 "map"
                 [
 
-                    testPropertyWithConfig fsCheckConfig "map - roundtrips through a bidirectional mapping"
+                    testAllRuntimes "map - roundtrips through a bidirectional mapping"
                     <| fun (runtime: FIORuntime) ->
                         let intCodec = Codec.text |> Codec.map int string
                         let effect =

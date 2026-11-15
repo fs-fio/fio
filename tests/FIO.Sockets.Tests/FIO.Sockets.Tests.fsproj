@@ -1,10 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-    <PropertyGroup>
-        <GenerateProgramFile>false</GenerateProgramFile>
-    </PropertyGroup>
-
     <ItemGroup>
+        <Compile Include="../Shared/Utilities.fs" Link="Utils/SharedUtilities.fs" />
         <Compile Include="Utils/Utilities.fs" />
         <Compile Include="CodecTests.fs" />
         <Compile Include="ServerSocketTests.fs" />
@@ -13,7 +10,6 @@
         <Compile Include="SocketTests.fs" />
         <Compile Include="ExtensionsTests.fs" />
         <Compile Include="CancellationTests.fs" />
-        <Compile Include="Program.fs" />
     </ItemGroup>
 
     <ItemGroup>
@@ -27,8 +23,6 @@
         </PackageReference>
         <PackageReference Include="Microsoft.NET.Test.Sdk" />
         <PackageReference Include="Expecto" />
-        <PackageReference Include="Expecto.FsCheck" />
-        <PackageReference Include="FsCheck" />
         <PackageReference Include="YoloDev.Expecto.TestSdk" />
     </ItemGroup>
 

@@ -1,18 +1,18 @@
 module FIO.Sockets.Tests.ServerSocketTests
 
+open FIO.Tests.Utilities
 open FIO.Sockets.Tests.Utilities
 
 open FIO.DSL
 open FIO.Sockets
 
+open Expecto
+
 open System
-open System.IO
 open System.Net
 open System.Text
 open System.Threading
 open System.Diagnostics
-
-open Expecto
 
 let private connectEachAndAwaitEnd (connections: int) (port: int) =
     task {
@@ -50,17 +50,6 @@ let private acceptLoopTimed (connections: int) (configure: ServerSocketConfig ->
         return outcome
     }
 
-let private withCapturedError (body: unit -> 'A) =
-    let original = Console.Error
-    use captured = new StringWriter()
-    Console.SetError captured
-
-    try
-        let result = body ()
-        result, captured.ToString()
-    finally
-        Console.SetError original
-
 [<Tests>]
 let serverSocketTests =
     testList
@@ -69,7 +58,7 @@ let serverSocketTests =
             testList
                 "Bind / Accept"
                 [
-                    testAllRuntimes "bind - succeeds on port 0" (fun runtime ->
+                    testAllRuntimesSequenced "bind - succeeds on port 0" (fun runtime ->
                         let effect =
                             fio {
                                 let! config = ServerSocketConfig.create "127.0.0.1" 0
@@ -84,7 +73,7 @@ let serverSocketTests =
 
                         Expect.isGreaterThan port 0 "Port should be assigned")
 
-                    testAllRuntimes "bind - resolves the hostname localhost" (fun runtime ->
+                    testAllRuntimesSequenced "bind - resolves the hostname localhost" (fun runtime ->
                         let effect =
                             fio {
                                 let! config = ServerSocketConfig.create "localhost" 0
@@ -99,7 +88,7 @@ let serverSocketTests =
 
                         Expect.isGreaterThan port 0 "Port should be assigned for a resolved hostname")
 
-                    testAllRuntimes "bind - fails with BindFailed when the port is in use" (fun runtime ->
+                    testAllRuntimesSequenced "bind - fails with BindFailed when the port is in use" (fun runtime ->
                         let effect =
                             fio {
                                 let! config = ServerSocketConfig.create "127.0.0.1" 0
@@ -134,7 +123,7 @@ let serverSocketTests =
                             failtest "A port in use must not bind a second time"
                         | Error other, _ -> failtest $"Expected BindFailed but got {other}")
 
-                    testAllRuntimes "bind - releases its socket when listening fails" (fun runtime ->
+                    testAllRuntimesSequenced "bind - releases its socket when listening fails" (fun runtime ->
                         let probe =
                             new Sockets.Socket(
                                 Sockets.AddressFamily.InterNetwork,
@@ -180,7 +169,7 @@ let serverSocketTests =
                             Expect.isTrue rebound "A failed bind must release its socket, leaving the port free"
                         | other -> failtest $"Expected BindFailed for a socket that cannot listen, got {other}")
 
-                    testAllRuntimes "accept - receives a client connection" (fun runtime ->
+                    testAllRuntimesSequenced "accept - receives a client connection" (fun runtime ->
                         let result =
                             withTestServer
                                 (fun socket ->
@@ -201,26 +190,29 @@ let serverSocketTests =
 
                         Expect.equal result "from server" "Should receive server message")
 
-                    testAllRuntimes "accept - fails with AcceptFailed on a closed server socket" (fun runtime ->
-                        let effect =
-                            fio {
-                                let! config = ServerSocketConfig.create "127.0.0.1" 0
-                                let! server = ServerSocket.bind config
-                                do! ServerSocket.close server
-                                return!
-                                    (ServerSocket.accept server)
-                                        .Map(fun _ -> None)
-                                        .CatchAll(fun error -> FIO.succeed (Some error))
-                            }
+                    testAllRuntimesSequenced
+                        "accept - fails with AcceptFailed on a closed server socket"
+                        (fun runtime ->
+                            let effect =
+                                fio {
+                                    let! config = ServerSocketConfig.create "127.0.0.1" 0
+                                    let! server = ServerSocket.bind config
+                                    do! ServerSocket.close server
+                                    return!
+                                        (ServerSocket.accept server)
+                                            .Map(fun _ -> None)
+                                            .CatchAll(fun error -> FIO.succeed (Some error))
+                                }
 
-                        let result = runtime.Run(effect).UnsafeResult()
+                            let result = runtime.Run(effect).UnsafeResult()
 
-                        match result with
-                        | Succeeded(Some(AcceptFailed _)) -> ()
-                        | other ->
-                            failtest $"Accepting on a closed server socket must fail with AcceptFailed, got %A{other}")
+                            match result with
+                            | Succeeded(Some(AcceptFailed _)) -> ()
+                            | other ->
+                                failtest
+                                    $"Accepting on a closed server socket must fail with AcceptFailed, got %A{other}")
 
-                    testAllRuntimes
+                    testAllRuntimesSequenced
                         "accept - applies the AcceptedSocketConfig's receive timeout to the accepted socket"
                         (fun runtime ->
                             let effect =
@@ -258,7 +250,7 @@ let serverSocketTests =
                                     "The accepted socket should carry the configured timeout"
                             | other, _ -> failtest $"An idle accepted socket must time out, got {other}")
 
-                    testAllRuntimes
+                    testAllRuntimesSequenced
                         "accept - applies the AcceptedSocketConfig's NoDelay and buffer sizes to the accepted socket"
                         (fun runtime ->
                             let effect =
@@ -303,26 +295,28 @@ let serverSocketTests =
             testList
                 "Lifecycle"
                 [
-                    testAllRuntimes "withServerSocket - acquires and releases the server socket" (fun runtime ->
-                        let effect =
-                            fio {
-                                let! config = ServerSocketConfig.create "127.0.0.1" 0
+                    testAllRuntimesSequenced
+                        "withServerSocket - acquires and releases the server socket"
+                        (fun runtime ->
+                            let effect =
+                                fio {
+                                    let! config = ServerSocketConfig.create "127.0.0.1" 0
 
-                                let! result =
-                                    ServerSocket.withServerSocket config (fun server ->
-                                        fio {
-                                            let! ep = ServerSocket.getLocalEndPoint server
-                                            let port = (ep :?> IPEndPoint).Port
-                                            return port > 0
-                                        })
-                                return result
-                            }
+                                    let! result =
+                                        ServerSocket.withServerSocket config (fun server ->
+                                            fio {
+                                                let! ep = ServerSocket.getLocalEndPoint server
+                                                let port = (ep :?> IPEndPoint).Port
+                                                return port > 0
+                                            })
+                                    return result
+                                }
 
-                        let result = runtime.Run(effect).UnsafeSuccess()
+                            let result = runtime.Run(effect).UnsafeSuccess()
 
-                        Expect.isTrue result "Should have gotten a valid port")
+                            Expect.isTrue result "Should have gotten a valid port")
 
-                    testAllRuntimes "acceptLoop - handles multiple connections" (fun runtime ->
+                    testAllRuntimesSequenced "acceptLoop - handles multiple connections" (fun runtime ->
                         let echoes =
                             withTestEchoServer
                                 (fun port ->
@@ -344,7 +338,7 @@ let serverSocketTests =
             testList
                 "Inspection"
                 [
-                    testAllRuntimes "getConfig - returns the bound configuration" (fun runtime ->
+                    testAllRuntimesSequenced "getConfig - returns the bound configuration" (fun runtime ->
                         let effect =
                             fio {
                                 let! config = ServerSocketConfig.create "127.0.0.1" 0
@@ -359,7 +353,7 @@ let serverSocketTests =
                         Expect.equal retrieved.BindAddress "127.0.0.1" "BindAddress"
                         Expect.equal retrieved.BindPort 0 "BindPort")
 
-                    testAllRuntimes "getLocalEndPoint - returns the bound endpoint" (fun runtime ->
+                    testAllRuntimesSequenced "getLocalEndPoint - returns the bound endpoint" (fun runtime ->
                         let effect =
                             fio {
                                 let! config = ServerSocketConfig.create "127.0.0.1" 0
@@ -379,7 +373,7 @@ let serverSocketTests =
             testList
                 "serve / serveWith (bind + accept + close in one effect)"
                 [
-                    testAllRuntimes
+                    testAllRuntimesSequenced
                         "serve - accepts a connection and closes the server when interrupted"
                         (fun runtime ->
                             let received = ResizeArray<string>()
@@ -436,7 +430,7 @@ let serverSocketTests =
                                 "serve must deliver the message to its handler"
                             Expect.isFalse stillListening "serve must close its server socket when it is interrupted")
 
-                    testAllRuntimes "serveWith - runs a request/response protocol" (fun runtime ->
+                    testAllRuntimesSequenced "serveWith - runs a request/response protocol" (fun runtime ->
                         let effect =
                             fio {
                                 let! probe = ServerSocketConfig.create "127.0.0.1" 0
@@ -470,7 +464,7 @@ let serverSocketTests =
             testList
                 "Accept-loop resilience"
                 [
-                    testAllRuntimes
+                    testAllRuntimesSequenced
                         "acceptLoopWith - runs at most maxConcurrentHandlers handlers, treating a non-positive limit as one"
                         (fun runtime ->
                             let entered = ref 0
@@ -516,7 +510,7 @@ let serverSocketTests =
                             Expect.equal whileFirstRuns 1 "A limit of 0 must still admit exactly one handler at a time"
                             Expect.equal total 2 "The second handler must run once the first one finishes")
 
-                    testAllRuntimes "acceptLoop - survives a failing handler and keeps serving" (fun runtime ->
+                    testAllRuntimesSequenced "acceptLoop - survives a failing handler and keeps serving" (fun runtime ->
                         let attempts = ref 0
                         let firstFailed = Channel<unit>()
                         let flakyHandler (socket: Socket) =
@@ -563,7 +557,7 @@ let serverSocketTests =
                         Expect.equal reply "still alive" "A failing handler must not stop the accept loop"
                         Expect.isGreaterThanOrEqual attempts.Value 2 "The loop must have accepted a second connection")
 
-                    testAllRuntimes
+                    testAllRuntimesSequenced
                         "acceptLoop - survives a handler that throws, closes its connection and keeps serving"
                         (fun runtime ->
                             let attempts = ref 0
@@ -611,7 +605,7 @@ let serverSocketTests =
                                 (Some "still alive")
                                 "A handler that throws must not stop the accept loop")
 
-                    testAllRuntimes
+                    testAllRuntimesSequenced
                         "acceptLoop - stops with AcceptFailed when its server socket is closed under it"
                         (fun runtime ->
                             let served = Channel<unit>()
@@ -649,7 +643,7 @@ let serverSocketTests =
                                 failtest
                                     $"The loop must stop promptly with AcceptFailed once its server socket is closed, got %A{other}")
 
-                    testAllRuntimes
+                    testAllRuntimesSequenced
                         "acceptLoop - a connection whose options cannot be set is closed at once and costs the loop no pause"
                         (fun runtime ->
                             let connections = 200
@@ -685,7 +679,7 @@ let serverSocketTests =
                                 (1 + connections / 40)
                                 "A streak of failures should be reported by its first and every fortieth")
 
-                    testAllRuntimes
+                    testAllRuntimesSequenced
                         "acceptLoop - reports a handler's failure and a handler's crash on standard error"
                         (fun runtime ->
                             let attempts = ref 0

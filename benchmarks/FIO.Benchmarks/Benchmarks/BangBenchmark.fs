@@ -1,7 +1,8 @@
 namespace FIO.Benchmarks.Benchmarks
 
-open FIO.DSL
 open FIO.Benchmarks
+
+open FIO.DSL
 
 open BenchmarkDotNet.Attributes
 

@@ -5,6 +5,7 @@
     </PropertyGroup>
 
     <ItemGroup>
+        <Compile Include="../Shared/Utilities.fs" Link="Utils/SharedUtilities.fs" />
         <Compile Include="Utils/Utilities.fs" />
         <Compile Include="../Shared/ChildProcessRunner.fs" Link="Utils/ChildProcessRunner.fs" />
         <Compile Include="Utils/ChildProcess.fs" />

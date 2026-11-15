@@ -1,15 +1,16 @@
 module FIO.WebSockets.Tests.WebSocketServerTests
 
+open FIO.Tests.Utilities
 open FIO.WebSockets.Tests.Utilities
 
 open FIO.DSL
 open FIO.WebSockets
 
+open Expecto
+
 open System
 open System.Net.Http
 open System.Threading
-
-open Expecto
 
 let private malformedUpgrade (port: int) =
     String.concat
@@ -226,14 +227,6 @@ let webSocketServerTests =
                             | Some(ConnectionClosed _) -> ()
                             | other -> failtest $"The failed handler's connection should be closed, got {other}"
                             Expect.equal echoed "still serving" "A handler that fails must not stop the loop")
-
-                    testAllRuntimes "startDefault - is an alias for start" (fun runtime ->
-                        let state = runWithTimeout runtime (clientStateThrough WebSocketServer.startDefault)
-
-                        Expect.equal
-                            state
-                            Net.WebSockets.WebSocketState.Open
-                            "A client should connect to the listener startDefault started")
                 ]
 
             testList

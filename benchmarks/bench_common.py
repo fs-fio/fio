@@ -20,8 +20,7 @@ BYTE_UNITS = {
     "MB": 1024.0 ** 2,
     "GB": 1024.0 ** 3,
 }
-# Also matches the removed Polling/Signaling runtimes and the old three-leg specs, so stored results stay readable.
-RUNTIME_PATTERN = re.compile(r"^(Direct|Polling|Signaling|WorkStealing)(-\d+-\d+(-\d+)?)?$")
+RUNTIME_PATTERN = re.compile(r"^(Direct|WorkStealing-\d+-\d+)$")
 
 JOB_CHARACTERISTIC_COLS = {
     "AnalyzeLaunchVariance", "EvaluateOverhead", "MaxAbsoluteError", "MaxRelativeError",
@@ -33,6 +32,8 @@ JOB_CHARACTERISTIC_COLS = {
     "IterationTime", "LaunchCount", "MaxIterationCount", "MaxWarmupIterationCount",
     "MemoryRandomization", "MinIterationCount", "MinWarmupIterationCount", "RunStrategy",
     "UnrollFactor", "WarmupCount",
+    # Added by BenchmarkDotNet 0.16; without them a 0.16 row never pairs with a 0.15 row.
+    "ConsumeTasksSynchronously", "JitTieringMode",
 }
 
 

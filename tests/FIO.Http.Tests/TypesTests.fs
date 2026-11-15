@@ -2,11 +2,11 @@ module FIO.Http.Tests.TypesTests
 
 open FIO.Http
 
+open Expecto
+
 open System
 open System.IO
 open System.Text
-
-open Expecto
 
 [<Tests>]
 let typesTests =

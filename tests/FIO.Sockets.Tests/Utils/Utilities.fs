@@ -1,70 +1,14 @@
 module FIO.Sockets.Tests.Utilities
 
+open FIO.Tests.Utilities
+
 open FIO.DSL
-open FIO.Sockets
 open FIO.Runtime
-open FIO.Runtime.Direct
-open FIO.Runtime.WorkStealing
+open FIO.Sockets
 
 open System
 open System.Net
 open System.Diagnostics
-
-open Expecto
-open FsCheck.FSharp
-
-let testConfig =
-    { WorkerConfig.Default with
-        EvaluationWorkers = 2
-    }
-
-module FsCheckProperties =
-
-    // One pair for every property: FsCheck asks for the generator once per property and never disposes it.
-    let private propertyRuntimes =
-        lazy
-            [
-                new DirectRuntime() :> FIORuntime
-                new WorkStealingRuntime(testConfig) :> FIORuntime
-            ]
-
-    type Generators =
-        static member Runtime() =
-            Gen.elements propertyRuntimes.Value |> Arb.fromGen
-
-    let fsCheckConfig =
-        { FsCheckConfig.defaultConfig with
-            maxTest = 100
-            arbitrary = [ typeof<Generators> ]
-        }
-
-[<CLIMutable>]
-type TestMessage = { Id: int; Text: string }
-
-let runtimes () =
-    [
-        new DirectRuntime() :> FIORuntime
-        new WorkStealingRuntime(testConfig) :> FIORuntime
-    ]
-
-let private disposeRuntime (runtime: FIORuntime) =
-    match box runtime with
-    | :? IDisposable as d -> d.Dispose()
-    | _ -> ()
-
-let testAllRuntimes name (f: FIORuntime -> unit) =
-    testSequenced (
-        testList
-            name
-            [
-                for rt in runtimes () ->
-                    testCase (rt.GetType().Name) (fun () ->
-                        try
-                            f rt
-                        finally
-                            disposeRuntime rt)
-            ]
-    )
 
 let noopHandler (_socket: Socket) = FIO.unit ()
 
@@ -74,29 +18,7 @@ let echoHandler (socket: Socket) =
         do! socket.SendBytes data
     }
 
-// Async.RunSynchronously's timeout waits for the computation to stop, which a hung fiber never does, so it never fires.
-let runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, SocketError>) =
-    let fiber = runtime.Run effect
-    let result = fiber.Task()
-
-    if not (result.Wait(TimeSpan.FromSeconds 10.0)) then
-        runtime.Run(fiber.InterruptNow()) |> ignore
-        failtest $"The effect did not finish within 10 s on {runtime.Name}"
-
-    match result.Result with
-    | Succeeded value -> value
-    | Failed error -> failtest $"Effect failed: {error}"
-    | Interrupted ex -> failtest $"Interrupted: {ex.Message}"
-
-let sleepMs (ms: float) =
-    FIO.sleep (TimeSpan.FromMilliseconds ms)
-
-let freePort () =
-    let probe = new Sockets.TcpListener(IPAddress.Loopback, 0)
-    probe.Start()
-    let port = (probe.LocalEndpoint :?> IPEndPoint).Port
-    probe.Stop()
-    port
+let runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, SocketError>) = runWithin 10.0 runtime effect
 
 // The port freePort returns can be taken before the server binds it, so a server whose bind failed is started again on a fresh port.
 let serveAndConnect (runtime: FIORuntime) (serveOn: int -> FIO<unit, SocketError>) =
@@ -133,18 +55,6 @@ let serveAndConnect (runtime: FIORuntime) (serveOn: int -> FIO<unit, SocketError
             server, port, client
 
     start 5
-
-let waitForTerminal (fiber: Fiber<'A, 'E>) (budgetMs: int) =
-    fio {
-        let stopwatch = Stopwatch.StartNew()
-        let mutable terminal = fiber.IsCompleted() || fiber.IsInterrupted()
-
-        while not terminal && stopwatch.ElapsedMilliseconds < int64 budgetMs do
-            do! sleepMs 20.0
-            terminal <- fiber.IsCompleted() || fiber.IsInterrupted()
-
-        return terminal, stopwatch.ElapsedMilliseconds
-    }
 
 let connectWhenListening (host: string) (port: int) =
     (SocketClient.connectWith host port).Retry 60 (fun (_, _, _) -> FIO.sleep (TimeSpan.FromMilliseconds 50.0))

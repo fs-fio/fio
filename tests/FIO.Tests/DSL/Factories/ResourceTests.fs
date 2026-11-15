@@ -1,7 +1,7 @@
 module FIO.Tests.Factories.ResourceTests
 
 open FIO.Tests.Utilities
-open FIO.Tests.Utilities.FsCheckProperties
+open FIO.Tests.FsCheckProperties
 
 open FIO.DSL
 open FIO.Runtime
@@ -364,60 +364,56 @@ let tests =
                                     EvaluationWorkers = 1
                                 }
 
-                            for name, make in
-                                [
-                                    "WorkStealingRuntime", (fun () -> new WorkStealingRuntime(oneWorker) :> FIORuntime)
-                                ] ->
-                                testCase name (fun () ->
-                                    let runtime = make ()
-                                    use control = new DirectRuntime()
-                                    let parked = new ManualResetEventSlim false
-                                    let blocking = new ManualResetEventSlim false
-                                    let unblock = new ManualResetEventSlim false
-                                    let released = new ManualResetEventSlim false
-                                    let resource =
-                                        TaskCompletionSource<string> TaskCreationOptions.RunContinuationsAsynchronously
-                                    let acquire =
-                                        FIO
-                                            .succeedWith(fun () -> parked.Set())
-                                            .FlatMap(fun () -> FIO.awaitTask resource.Task id)
-                                    let release = fun _ -> FIO.succeedWith (fun () -> released.Set())
+                            testCase "WorkStealingRuntime" (fun () ->
+                                let runtime = new WorkStealingRuntime(oneWorker) :> FIORuntime
+                                use control = new DirectRuntime()
+                                let parked = new ManualResetEventSlim false
+                                let blocking = new ManualResetEventSlim false
+                                let unblock = new ManualResetEventSlim false
+                                let released = new ManualResetEventSlim false
+                                let resource =
+                                    TaskCompletionSource<string> TaskCreationOptions.RunContinuationsAsynchronously
+                                let acquire =
+                                    FIO
+                                        .succeedWith(fun () -> parked.Set())
+                                        .FlatMap(fun () -> FIO.awaitTask resource.Task id)
+                                let release = fun _ -> FIO.succeedWith (fun () -> released.Set())
 
-                                    try
-                                        let fiber =
-                                            runtime.Run(FIO.acquireReleaseWith acquire release (fun _ -> FIO.unit ()))
+                                try
+                                    let fiber =
+                                        runtime.Run(FIO.acquireReleaseWith acquire release (fun _ -> FIO.unit ()))
 
-                                        Expect.isTrue (parked.Wait(TimeSpan.FromSeconds 5.0)) "Acquire should start"
+                                    Expect.isTrue (parked.Wait(TimeSpan.FromSeconds 5.0)) "Acquire should start"
 
-                                        Thread.Sleep 50
-                                        let blocker =
-                                            runtime.Run(
-                                                FIO.succeedWith (fun () ->
-                                                    blocking.Set()
-                                                    unblock.Wait())
-                                                : FIO<unit, exn>
-                                            )
+                                    Thread.Sleep 50
+                                    let blocker =
+                                        runtime.Run(
+                                            FIO.succeedWith (fun () ->
+                                                blocking.Set()
+                                                unblock.Wait())
+                                            : FIO<unit, exn>
+                                        )
 
-                                        Expect.isTrue
-                                            (blocking.Wait(TimeSpan.FromSeconds 5.0))
-                                            "The blocker should hold the only worker"
+                                    Expect.isTrue
+                                        (blocking.Wait(TimeSpan.FromSeconds 5.0))
+                                        "The blocker should hold the only worker"
 
-                                        resource.SetResult "resource"
-                                        Thread.Sleep 50
-                                        control.Run(fiber.InterruptNow()).Task().Wait()
-                                        unblock.Set()
-                                        blocker.Task().Wait()
-                                        fiber.Task().Wait()
+                                    resource.SetResult "resource"
+                                    Thread.Sleep 50
+                                    control.Run(fiber.InterruptNow()).Task().Wait()
+                                    unblock.Set()
+                                    blocker.Task().Wait()
+                                    fiber.Task().Wait()
 
-                                        Expect.isTrue
-                                            (released.Wait(TimeSpan.FromSeconds 5.0))
-                                            "Release should run for a resource the awaited task produced"
-                                    finally
-                                        unblock.Set()
+                                    Expect.isTrue
+                                        (released.Wait(TimeSpan.FromSeconds 5.0))
+                                        "Release should run for a resource the awaited task produced"
+                                finally
+                                    unblock.Set()
 
-                                        match box runtime with
-                                        | :? IDisposable as disposable -> disposable.Dispose()
-                                        | _ -> ())
+                                    match box runtime with
+                                    | :? IDisposable as disposable -> disposable.Dispose()
+                                    | _ -> ())
                         ]
                 ]
 

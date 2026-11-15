@@ -1,16 +1,11 @@
 <Project>
 
-    <!-- Keep this version first: publish.yml reads the baseline from the first Version element in this file. -->
     <PropertyGroup>
-        <Version>0.6.0-beta</Version>
-    </PropertyGroup>
-
-    <PropertyGroup Condition="'$(PackageReleaseVersion)' != '' and '$(MSBuildProjectName)' != 'FIO'">
-        <Version>$(PackageReleaseVersion)</Version>
+        <Version>0.7.0-beta</Version>
     </PropertyGroup>
 
     <PropertyGroup>
-        <TargetFramework>net10.0</TargetFramework>
+        <TargetFramework>net11.0</TargetFramework>
         <IsPackable>false</IsPackable>
         <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
         <DisableImplicitFSharpCoreReference>true</DisableImplicitFSharpCoreReference>
