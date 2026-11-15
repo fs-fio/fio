@@ -176,18 +176,11 @@ module FIO =
             acquire,
             fun resource ->
                 let finalizer = release resource
-
-                if obj.ReferenceEquals(finalizer, null) then
-                    raiseNullEffect ()
+                checkEffect finalizer
 
                 let used =
                     try
-                        let used = useResource resource
-
-                        if obj.ReferenceEquals(used, null) then
-                            raiseNullEffect ()
-
-                        used
+                        nonNullEffect (useResource resource)
                     with ex ->
                         interrupt (Defect ex) ex.Message
 
@@ -208,12 +201,7 @@ module FIO =
 
                 let used =
                     try
-                        let used = useResource resource
-
-                        if obj.ReferenceEquals(used, null) then
-                            raiseNullEffect ()
-
-                        used
+                        nonNullEffect (useResource resource)
                     with ex ->
                         interrupt (Defect ex) ex.Message
 

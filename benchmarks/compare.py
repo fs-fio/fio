@@ -39,7 +39,7 @@ def load_results(csv_path: Path) -> dict[tuple, dict]:
     header, data = rows[0], rows[1:]
 
     # The FIO runtime param is the last column whose values all look like a runtime spec —
-    # distinguishing it by value from the job-characteristic Runtime column (".NET 10.0").
+    # distinguishing it by value from the job-characteristic Runtime column (".NET 11.0" and the like).
     runtime_idx = next(
         (i for i in reversed(range(len(header)))
          if all(RUNTIME_PATTERN.match(r[i]) for r in data)),
@@ -165,10 +165,10 @@ def self_test() -> int:
     assert parse_scalar("3.41 GB", BYTE_UNITS) == 3.41 * 1024 ** 3
     assert parse_scalar("NA", BYTE_UNITS) != parse_scalar("NA", BYTE_UNITS)  # NaN
     assert extract_benchmark_name("FIO.Benchmarks.Benchmarks.ForkBenchmark-report.csv") == "Fork"
-    assert RUNTIME_PATTERN.match("WorkStealing-12-200-1")
     assert RUNTIME_PATTERN.match("WorkStealing-12-200")
     assert RUNTIME_PATTERN.match("Direct")
     assert not RUNTIME_PATTERN.match(".NET 10.0")
+    assert not RUNTIME_PATTERN.match(".NET 11.0")
     assert delta(100.0, 90.0) == -10.0
     assert flag(11.0, 10.0) == " 🔴" and flag(-11.0, 10.0) == " 🟢" and flag(5.0, 10.0) == ""
     assert split_keys({1: 0, 2: 0}, {2: 0, 3: 0}) == ([2], [1], [3])

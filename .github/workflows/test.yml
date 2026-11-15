@@ -18,33 +18,23 @@ env:
   FIO_RUN_STRESS: "1"
 
 jobs:
-  # Layout is Fantomas's (the version pinned in dotnet-tools.json, with the .editorconfig override): this job fails on
-  # any F# file the formatter would change. `dotnet fantomas .` fixes it.
-  format:
-    runs-on: ubuntu-latest
-
-    timeout-minutes: 10
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6
-        with:
-          global-json-file: global.json
-
-      - name: Restore tools
-        run: dotnet tool restore
-
-      - name: Check formatting
-        run: dotnet fantomas --check .
-
-  build:
+  # Every suite in one configuration per leg. The ruleset requires the three `build (<os>)` names. Release is what
+  # ships, and F# compiles task { } into state machines only in optimized builds: the release legs test that code on
+  # x64 and ARM64, and run the interpreter JIT-limit guard (InterpreterSizeTests), which Debug skips. checked-casts
+  # runs an optimized build whose node casts are checked (FioCheckedCasts), so a slot mistake throws. The ubuntu Debug
+  # leg also checks layout with the pinned Fantomas, so a file `dotnet fantomas .` would change fails a required check.
+  test:
+    name: ${{ matrix.name }}
     strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
       fail-fast: false
+      matrix:
+        include:
+          - { name: build (ubuntu-latest), id: ubuntu-latest, os: ubuntu-latest, config: Debug }
+          - { name: build (windows-latest), id: windows-latest, os: windows-latest, config: Debug }
+          - { name: build (macos-latest), id: macos-latest, os: macos-latest, config: Debug }
+          - { name: release (ubuntu-latest), id: release-ubuntu-latest, os: ubuntu-latest, config: Release }
+          - { name: release (macos-latest), id: release-macos-latest, os: macos-latest, config: Release }
+          - { name: checked-casts, id: checked-casts, os: ubuntu-latest, config: Release, props: -p:FioCheckedCasts=true }
     runs-on: ${{ matrix.os }}
 
     timeout-minutes: 30
@@ -57,6 +47,14 @@ jobs:
         uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6
         with:
           global-json-file: global.json
+
+      - name: Restore tools
+        if: matrix.id == 'ubuntu-latest'
+        run: dotnet tool restore
+
+      - name: Check formatting
+        if: matrix.id == 'ubuntu-latest'
+        run: dotnet fantomas --check .
 
       - name: Cache NuGet packages
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
@@ -70,12 +68,12 @@ jobs:
         run: dotnet restore ./FIO.slnx
 
       - name: Build
-        run: dotnet build --no-restore ./FIO.slnx
+        run: dotnet build -c ${{ matrix.config }} --no-restore ${{ matrix.props }} ./FIO.slnx
 
       - name: Run tests
         run: >
-          dotnet test --no-build --verbosity normal ./FIO.slnx
-          --logger "trx;LogFilePrefix=${{ matrix.os }}"
+          dotnet test -c ${{ matrix.config }} --no-build --verbosity normal ./FIO.slnx
+          --logger "trx;LogFilePrefix=${{ matrix.id }}"
           --results-directory ./test-results
           --blame-hang-timeout 5m --blame-hang-dump-type none
           ${{ runner.os != 'Windows' && '--blame-crash --blame-crash-dump-type mini' || '' }}
@@ -84,7 +82,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: test-results-${{ matrix.os }}
+          name: test-results-${{ matrix.id }}
           path: ./test-results/*.trx
           if-no-files-found: warn
 
@@ -92,124 +90,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: crash-dumps-${{ matrix.os }}
-          path: |
-            ./test-results/**/*.dmp
-            ./test-results/**/Sequence_*.xml
-          if-no-files-found: ignore
-
-  # Release is what ships, and F# compiles task { } into state machines only in optimized builds: this job tests that
-  # code, on x64 and on ARM64, and it is where the interpreter JIT-limit guard (InterpreterSizeTests) runs, since Debug
-  # builds skip it.
-  release:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-      fail-fast: false
-    runs-on: ${{ matrix.os }}
-
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6
-        with:
-          global-json-file: global.json
-
-      - name: Cache NuGet packages
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj', 'Directory.Build.props', 'Directory.Packages.props', 'global.json') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-
-
-      - name: Restore dependencies
-        run: dotnet restore ./FIO.slnx
-
-      - name: Build (Release)
-        run: dotnet build -c Release --no-restore ./FIO.slnx
-
-      - name: Run tests (Release)
-        run: >
-          dotnet test -c Release --no-build --verbosity normal ./FIO.slnx
-          --logger "trx;LogFilePrefix=release-${{ matrix.os }}"
-          --results-directory ./test-results
-          --blame-hang-timeout 5m --blame-hang-dump-type none
-          --blame-crash --blame-crash-dump-type mini
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: test-results-release-${{ matrix.os }}
-          path: ./test-results/*.trx
-          if-no-files-found: warn
-
-      - name: Upload crash dumps
-        if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: crash-dumps-release-${{ matrix.os }}
-          path: |
-            ./test-results/**/*.dmp
-            ./test-results/**/Sequence_*.xml
-          if-no-files-found: ignore
-
-  # Release reads node slots with unchecked casts; this job runs every suite on an optimized build whose casts are
-  # checked (FioCheckedCasts), so a slot mistake throws instead of going unnoticed.
-  checked-casts:
-    runs-on: ubuntu-latest
-
-    timeout-minutes: 30
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6
-        with:
-          global-json-file: global.json
-
-      - name: Cache NuGet packages
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
-        with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.fsproj', 'Directory.Build.props', 'Directory.Packages.props', 'global.json') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-
-
-      - name: Restore dependencies
-        run: dotnet restore ./FIO.slnx
-
-      - name: Build (Release, checked casts)
-        run: dotnet build -c Release --no-restore -p:FioCheckedCasts=true ./FIO.slnx
-
-      - name: Run tests (Release, checked casts)
-        run: >
-          dotnet test -c Release --no-build --verbosity normal ./FIO.slnx
-          --logger "trx;LogFilePrefix=checked-casts"
-          --results-directory ./test-results
-          --blame-hang-timeout 5m --blame-hang-dump-type none
-          --blame-crash --blame-crash-dump-type mini
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: test-results-checked-casts
-          path: ./test-results/*.trx
-          if-no-files-found: warn
-
-      - name: Upload crash dumps
-        if: failure()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: crash-dumps-checked-casts
+          name: crash-dumps-${{ matrix.id }}
           path: |
             ./test-results/**/*.dmp
             ./test-results/**/Sequence_*.xml

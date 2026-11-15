@@ -1,12 +1,12 @@
 module FIO.Http.Tests.ChildProcess
 
-open FIO.Http.Tests.Utilities
+open FIO.Tests.Utilities
 
 open FIO.App
 open FIO.DSL
 open FIO.Http
-open FIO.Runtime.WorkStealing
 open FIO.Http.SimpleRoutes
+open FIO.Runtime.WorkStealing
 
 open System
 

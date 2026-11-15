@@ -106,14 +106,7 @@ type Socket internal (netSocket: Sockets.Socket, config: SocketConfig) =
             | reason -> FIO.fail (ConnectionClosed $"Receive side out of sync after {reason}; close the connection")
 
     let logAndSuppress (context: string) (error: SocketError) =
-        fio {
-            let str = error.ToString()
-            do!
-                FIO.attempt
-                    (fun () -> eprintfn $"Socket encountered error during {context}: {str}")
-                    SocketError.fromException
-            return ()
-        }
+        FIO.attempt (fun () -> eprintfn $"Socket encountered error during {context}: {error}") SocketError.fromException
 
     let attempt (func: unit -> 'A) =
         FIO.attempt func SocketError.fromException

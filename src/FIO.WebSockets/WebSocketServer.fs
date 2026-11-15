@@ -22,16 +22,9 @@ module WebSocketServer =
         }
 
     let private logAndSuppress (context: string) (error: WsError) =
-        fio {
-            let str = error.ToString()
-
-            do!
-                FIO.attempt
-                    (fun () -> eprintfn $"WebSocketServer encountered error during {context}: {str}")
-                    WsError.fromException
-
-            return ()
-        }
+        FIO.attempt
+            (fun () -> eprintfn $"WebSocketServer encountered error during {context}: {error}")
+            WsError.fromException
 
     // HttpListener spells "every interface" as `+` and fails to start on 0.0.0.0 or [::].
     let private allInterfaces (url: string) =
@@ -47,9 +40,6 @@ module WebSocketServer =
             do! FIO.attempt (fun () -> listener.Start()) WsError.connectionFailed
             return listener
         }
-
-    /// Starts an HTTP listener bound to the given URL prefix. Alias for start.
-    let startDefault (url: string) : FIO<HttpListener, WsError> = start url
 
     let private stop (listener: HttpListener) : FIO<unit, WsError> =
         (FIO.attempt (fun () -> listener.Stop()) WsError.fromException)
@@ -225,13 +215,13 @@ module WebSocketServer =
                     .Ensuring(disposeConnection connection.Socket)
                     .Ensuring(finish connection)
 
-            let refuseAtLimit (request: HttpListenerContext) =
+            let answer503 (context: string) (request: HttpListenerContext) =
                 (FIO.attempt
                     (fun () ->
                         request.Response.StatusCode <- 503
                         request.Response.Close())
                     WsError.fromException)
-                    .CatchAll(logAndSuppress "refusing a request at the connection limit")
+                    .CatchAll(logAndSuppress context)
 
             // Forked in the uninterruptible hand-off, a handler is protected: the loop's interruption leaves it running
             // for the shutdown's close, and the loop's exit interrupts what the shutdown left behind.
@@ -241,7 +231,7 @@ module WebSocketServer =
                         pending.Value <- null
 
                         if config.MaxConnections > 0 && connections.Count >= config.MaxConnections then
-                            do! refuseAtLimit request
+                            do! answer503 "refusing a request at the connection limit" request
                         else
                             match! upgrade request config None with
                             | Some ws ->
@@ -301,13 +291,7 @@ module WebSocketServer =
                     | Some request ->
                         pending.Value <- null
 
-                        do!
-                            (FIO.attempt
-                                (fun () ->
-                                    request.Response.StatusCode <- 503
-                                    request.Response.Close())
-                                WsError.fromException)
-                                .CatchAll(logAndSuppress "refusing a request during shutdown")
+                        do! answer503 "refusing a request during shutdown" request
 
                         return! refuse ()
                     | None -> ()
@@ -342,8 +326,6 @@ module WebSocketServer =
                             Timeout.Infinite
                     let deadline = Task.Delay limit
 
-                    // An abort does not end I/O that is pending without a token, such as a close waiting in a handler's
-                    // finalizer for a peer that never answers; ending the connection does.
                     let endConnection (connection: Connection) =
                         FIO.succeedWith (fun () -> connection.Socket.Kill())
 

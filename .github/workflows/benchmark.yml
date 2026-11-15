@@ -18,7 +18,7 @@ on:
   workflow_dispatch:
 
 # The job that runs the benchmark code, which a pull request controls, gets a read-only token; only the tracking job,
-# which runs no code from the repository, may push the dashboard and comment.
+# which runs no code from the repository, may push the dashboard.
 permissions:
   contents: read
 
@@ -133,7 +133,6 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
-      pull-requests: write
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -153,7 +152,4 @@ jobs:
           output-file-path: benchmark-results/benchmark-results.json
           github-token: ${{ secrets.GITHUB_TOKEN }}
           auto-push: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
-          comment-on-alert: true
-          alert-threshold: "150%"
-          fail-on-alert: false
-          alert-comment-cc-users: "@${{ github.actor }}"
+          comment-on-alert: false

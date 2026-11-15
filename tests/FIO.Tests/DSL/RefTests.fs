@@ -1,7 +1,7 @@
 module FIO.Tests.RefTests
 
 open FIO.Tests.Utilities
-open FIO.Tests.Utilities.FsCheckProperties
+open FIO.Tests.FsCheckProperties
 
 open FIO.DSL
 open FIO.Runtime

@@ -5,8 +5,8 @@ open FIO.DSL
 open Expecto
 
 open System
-open System.Diagnostics
 open System.Reflection
+open System.Diagnostics
 open System.Reflection.Emit
 open System.Runtime.CompilerServices
 

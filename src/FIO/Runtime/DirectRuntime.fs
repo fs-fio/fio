@@ -6,6 +6,34 @@ open FIO.Runtime.InterpreterCore
 open System
 open System.Threading
 open System.Threading.Tasks
+open System.Collections.Generic
+
+type internal ContStackPool private () =
+    [<ThreadStatic; DefaultValue>]
+    static val mutable private pool: Stack<Stack<Cont>>
+
+    static member inline Rent() =
+        let mutable pool = ContStackPool.pool
+        if isNull pool then
+            pool <- Stack<_>()
+            ContStackPool.pool <- pool
+
+        if pool.Count > 0 then
+            let stack = pool.Pop()
+            stack.Clear()
+            stack
+        else
+            Stack<Cont> ContStackLimits.DefaultCapacity
+
+    static member inline Return(stack: Stack<Cont>) =
+        let mutable pool = ContStackPool.pool
+        if isNull pool then
+            pool <- Stack<_>()
+            ContStackPool.pool <- pool
+
+        if pool.Count < ContStackLimits.MaxPool && stack.Count <= ContStackLimits.MaxDepth then
+            stack.Clear()
+            pool.Push stack
 
 /// A runtime with no scheduler of its own: each fiber is a .NET task on the thread pool and a blocked fiber awaits.
 type DirectRuntime() =
@@ -25,6 +53,12 @@ type DirectRuntime() =
 
         let inline onErrorComplete error = result <- ValueSome <| Error error
 
+        let inline settle outcome =
+            processOutcome &state onSuccessComplete onErrorComplete outcome
+
+        let inline interrupted message =
+            settle (OutcomeInterrupted(interruptionFor currentFiberContext message))
+
         task {
             try
                 while not state.Completed do
@@ -34,8 +68,7 @@ type DirectRuntime() =
                     then
                         match! currentFiberContext.Task with
                         | Ok _ -> raise (InvalidOperationException "Fiber was cancelled but completed successfully.")
-                        | Error error ->
-                            processOutcome &state onSuccessComplete onErrorComplete (OutcomeInterrupted error)
+                        | Error error -> settle (OutcomeInterrupted error)
                     else
                         match handleSharedCase &state onSuccessComplete onErrorComplete with
                         | ValueNone -> ()
@@ -43,8 +76,7 @@ type DirectRuntime() =
                             match runtimeCase with
                             | HandleWriteChan(message, channel, reportAccepted) ->
                                 match tryWriteChannel channel message reportAccepted with
-                                | Written result ->
-                                    processOutcome &state onSuccessComplete onErrorComplete (OutcomeSucceeded result)
+                                | Written result -> settle (OutcomeSucceeded result)
                                 | MustWait ->
                                     try
                                         let cancellationToken =
@@ -55,26 +87,14 @@ type DirectRuntime() =
 
                                         do! channel.Queue.WriteAsync(message, cancellationToken)
 
-                                        processOutcome
-                                            &state
-                                            onSuccessComplete
-                                            onErrorComplete
-                                            (OutcomeSucceeded message)
+                                        settle (OutcomeSucceeded message)
                                     with :? OperationCanceledException when
                                         currentFiberContext.CancellationToken.IsCancellationRequested ->
-                                        processOutcome
-                                            &state
-                                            onSuccessComplete
-                                            onErrorComplete
-                                            (OutcomeInterrupted(
-                                                interruptionFor
-                                                    currentFiberContext
-                                                    "Fiber was interrupted while blocked on a channel write."
-                                            ))
+                                        interrupted "Fiber was interrupted while blocked on a channel write."
                             | HandleReadChan channel ->
                                 let mutable value = Unchecked.defaultof<_>
                                 if channel.Queue.TryRead &value then
-                                    processOutcome &state onSuccessComplete onErrorComplete (OutcomeSucceeded value)
+                                    settle (OutcomeSucceeded value)
                                 else
                                     try
                                         let mutable waiting = true
@@ -86,24 +106,16 @@ type DirectRuntime() =
                                                     channel.Queue.WaitToReadAsync currentFiberContext.CancellationToken
                                             if channel.Queue.TryRead &value then
                                                 waiting <- false
-                                        processOutcome &state onSuccessComplete onErrorComplete (OutcomeSucceeded value)
+                                        settle (OutcomeSucceeded value)
                                     with :? OperationCanceledException when
                                         currentFiberContext.CancellationToken.IsCancellationRequested ->
-                                        processOutcome
-                                            &state
-                                            onSuccessComplete
-                                            onErrorComplete
-                                            (OutcomeInterrupted(
-                                                interruptionFor
-                                                    currentFiberContext
-                                                    "Fiber was interrupted while blocked on a channel read."
-                                            ))
+                                        interrupted "Fiber was interrupted while blocked on a channel read."
                             | HandleForkEffect(effect, fiber, fiberContext, daemon) ->
                                 attachFork currentFiberContext fiberContext daemon (state.InterruptionSuppressed > 0)
                                 if daemon then
                                     this.TrackDaemon fiberContext
                                 Task.Run(fun () -> this.RunFiber effect fiberContext :> Task) |> ignore
-                                processOutcome &state onSuccessComplete onErrorComplete (OutcomeSucceeded fiber)
+                                settle (OutcomeSucceeded fiber)
                             | HandleJoinFiber fiberContext ->
                                 try
                                     let! value =
@@ -111,15 +123,7 @@ type DirectRuntime() =
                                     processResult &state onSuccessComplete onErrorComplete value
                                 with :? OperationCanceledException when
                                     currentFiberContext.CancellationToken.IsCancellationRequested ->
-                                    processOutcome
-                                        &state
-                                        onSuccessComplete
-                                        onErrorComplete
-                                        (OutcomeInterrupted(
-                                            interruptionFor
-                                                currentFiberContext
-                                                "Fiber was interrupted while blocked on a fiber join."
-                                        ))
+                                    interrupted "Fiber was interrupted while blocked on a fiber join."
                             | HandleJoinFirst fiberContexts ->
                                 let contexts = List.toArray fiberContexts
                                 try
@@ -134,30 +138,13 @@ type DirectRuntime() =
                                             whenAny.WaitAsync currentFiberContext.CancellationToken
                                     let index =
                                         contexts |> Array.findIndex (fun fiberContext -> fiberContext.IsTerminal())
-                                    processOutcome
-                                        &state
-                                        onSuccessComplete
-                                        onErrorComplete
-                                        (OutcomeSucceeded(box index))
+                                    settle (OutcomeSucceeded(box index))
                                 with :? OperationCanceledException when
                                     currentFiberContext.CancellationToken.IsCancellationRequested ->
-                                    processOutcome
-                                        &state
-                                        onSuccessComplete
-                                        onErrorComplete
-                                        (OutcomeInterrupted(
-                                            interruptionFor
-                                                currentFiberContext
-                                                "Fiber was interrupted while blocked on a fiber join."
-                                        ))
+                                    interrupted "Fiber was interrupted while blocked on a fiber join."
                             | HandleJoinAllFailFast fiberContexts ->
                                 match tryCompleteJoinAll fiberContexts with
-                                | ValueSome outcome ->
-                                    processOutcome
-                                        &state
-                                        onSuccessComplete
-                                        onErrorComplete
-                                        (OutcomeSucceeded(box outcome))
+                                | ValueSome outcome -> settle (OutcomeSucceeded(box outcome))
                                 | ValueNone ->
                                     try
                                         let! outcome =
@@ -166,40 +153,21 @@ type DirectRuntime() =
                                                 (state.InterruptionSuppressed > 0)
                                                 currentFiberContext
                                                 currentFiberContext.CancellationToken
-                                        processOutcome &state onSuccessComplete onErrorComplete outcome
+                                        settle outcome
                                     with :? OperationCanceledException when
                                         currentFiberContext.CancellationToken.IsCancellationRequested ->
-                                        processOutcome
-                                            &state
-                                            onSuccessComplete
-                                            onErrorComplete
-                                            (OutcomeInterrupted(
-                                                interruptionFor
-                                                    currentFiberContext
-                                                    "Fiber was interrupted while blocked on a fiber join."
-                                            ))
+                                        interrupted "Fiber was interrupted while blocked on a fiber join."
                             | HandleAwaitTask(task, node) ->
                                 try
                                     let! value = awaitedTask task state.InterruptionSuppressed currentFiberContext
-                                    processOutcome &state onSuccessComplete onErrorComplete (OutcomeSucceeded value)
+                                    settle (OutcomeSucceeded value)
                                 with
                                 | :? TaskCanceledException when
                                     state.InterruptionSuppressed = 0
                                     && currentFiberContext.CancellationToken.IsCancellationRequested
                                     ->
-                                    processOutcome
-                                        &state
-                                        onSuccessComplete
-                                        onErrorComplete
-                                        (OutcomeInterrupted(
-                                            interruptionFor currentFiberContext "Task has been cancelled."
-                                        ))
-                                | ex ->
-                                    processOutcome
-                                        &state
-                                        onSuccessComplete
-                                        onErrorComplete
-                                        (awaitTaskFailureOutcome currentFiberContext node ex)
+                                    interrupted "Task has been cancelled."
+                                | ex -> settle (awaitTaskFailureOutcome currentFiberContext node ex)
                 return result.Value
             finally
                 ContStackPool.Return state.ContStack

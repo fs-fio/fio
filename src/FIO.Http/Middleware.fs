@@ -18,7 +18,7 @@ module Middleware =
 
     /// Creates a middleware that transforms every handler in a route collection.
     let create (transform: HttpHandler<'E> -> HttpHandler<'E>) : Middleware<'E> =
-        fun routes -> Routes.transform transform routes
+        fun routes -> Routes.map transform routes
 
     /// Creates a middleware that runs an effect before each handler.
     let before (effect: HttpRequest -> FIO<unit, 'E>) : Middleware<'E> =
@@ -32,37 +32,19 @@ module Middleware =
 
     /// Creates a middleware that runs an effect after each handler, given the request and response.
     let after (effect: HttpRequest -> HttpResponse -> FIO<unit, 'E>) : Middleware<'E> =
-        create
-        <| fun handler ->
-            fun request ->
-                fio {
-                    let! response = handler request
-                    do! effect request response
-                    return response
-                }
+        create (HttpHandler.tapWithRequest effect)
 
     /// Creates a middleware that adds a header to every response.
     let addHeader (name: string) (value: string) : Middleware<'E> =
-        create
-        <| fun handler ->
-            fun request ->
-                fio {
-                    let! response = handler request
-                    return HttpResponse.withHeader name value response
-                }
+        create (HttpHandler.map (HttpResponse.withHeader name value))
 
     /// Creates a middleware that adds several headers to every response.
     let addHeaders (headers: (string * string) list) : Middleware<'E> =
-        create
-        <| fun handler ->
-            fun request ->
-                fio {
-                    let! response = handler request
-                    let withHeaders =
-                        headers
-                        |> List.fold (fun resp (name, value) -> HttpResponse.withHeader name value resp) response
-                    return withHeaders
-                }
+        create (
+            HttpHandler.map (fun response ->
+                headers
+                |> List.fold (fun resp (name, value) -> HttpResponse.withHeader name value resp) response)
+        )
 
     /// Creates a middleware that logs each request.
     let logging (logger: HttpRequest -> FIO<unit, 'E>) : Middleware<'E> = before logger

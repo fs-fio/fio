@@ -1,371 +1,132 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code in this repository. Personal, machine-specific notes live in the untracked `CLAUDE.local.md`.
 
-> Personal, machine-specific guidance (working preferences and local setup) lives in an untracked
-> `CLAUDE.local.md` alongside this file. It is git-ignored; this file is the shared, committed guidance.
+## Project
 
-## Project Overview
+FIO is a type-safe, purely functional effect system for F#: an IO monad plus fibers. <https://github.com/fs-fio/fio>, MIT.
 
-FIO is a type-safe, purely functional effect system for F#. IO monad + fibers (green threads) for concurrent/async apps.
+- .NET 11 / F# 11. `TargetFramework` is set once in `Directory.Build.props`; solution `FIO.slnx`; SDK pinned in `global.json`.
+- Version `0.7.0-beta`, set once in `Directory.Build.props`; a release tag `v<Version>` must equal it.
+- Runtime async: .NET 11 needs nothing from FIO on the runtime side; FIO's `task { }` stays a state machine until FSharp.Core ships a runtime-async `task` (dotnet/fsharp#20918). No hand-written builder, no `LangVersion preview`.
 
-**Target:** .NET 10, F# 10 (`TargetFramework` is set once, in `Directory.Build.props`), `.slnx` solution format (`FIO.slnx`). SDK pinned to `10.0.400` via `global.json` (`rollForward: latestMinor`).
-
-Repository: <https://github.com/fs-fio/fio> · License: MIT · Baseline version: `0.6.0-beta` (single source of truth in `Directory.Build.props`).
-
-## Build Commands
+## Commands
 
 ```bash
-dotnet build                                    # Build all (or: dotnet build ./FIO.slnx)
-dotnet test                                     # Run all tests
-dotnet test tests/FIO.Tests/                    # Core tests only
-dotnet test tests/FIO.Sockets.Tests/            # Sockets tests only
-dotnet test tests/FIO.WebSockets.Tests/         # WebSockets tests only
-dotnet test tests/FIO.Http.Tests/               # HTTP tests only
-dotnet test --filter "Name~TestName"            # Run specific test
-dotnet test --filter "Name~Runtime conformance" # Run test file/group
-
-# Formatting (Fantomas, pinned in dotnet-tools.json) — see Formatting & Tooling below
-dotnet tool restore                             # once per clone: install the pinned Fantomas
-dotnet fantomas .                               # format every F# file
-dotnet fantomas --check .                       # what CI's format job runs (exit 99: a file needs formatting)
-
-# Run examples (five example projects: DSL, App, Http, Sockets, WebSockets)
-dotnet run --project examples/FIO.Examples.DSL
-dotnet run --project examples/FIO.Examples.App
-dotnet run --project examples/FIO.Examples.Http
-dotnet run --project examples/FIO.Examples.Sockets
-dotnet run --project examples/FIO.Examples.WebSockets
-
-# Benchmarks (Release mode, BenchmarkDotNet) — see the Benchmarks section below
-dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*"           # all benchmarks
-dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Pingpong*"  # one benchmark
-dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --list flat            # list benchmarks
-python3 benchmarks/plot.py                      # visualize results (HTML + PNG/SVG; needs pandas, plotly, kaleido)
-python3 benchmarks/compare.py <dirA> <dirB>     # A/B diff of two results dirs (stdlib-only)
-
-# Scripts (the only two; there is deliberately no Makefile — the dotnet CLI is the build interface)
-bash scripts/pack.sh                            # pack the four packages as a lockstep publish.yml run does, into artifacts/
-bash scripts/stress-test.sh 50 [dotnet test args]  # run the Release suite N times, counting failures (prefix FIO_RUN_STRESS=1 for the stress tests)
+dotnet build                                    # build everything
+dotnet test                                     # all suites; add -c Release to run the JIT-limit guard
+dotnet test tests/FIO.Tests/                    # one suite (also FIO.Sockets.Tests, FIO.WebSockets.Tests, FIO.Http.Tests)
+dotnet test --filter "Name~TestName"            # one test or group
+dotnet tool restore && dotnet fantomas .        # format; CI runs dotnet fantomas --check .
+dotnet run --project examples/FIO.Examples.App  # also .DSL, .Http, .Sockets, .WebSockets
+dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Pingpong*"
+python3 benchmarks/compare.py <dirA> <dirB>     # A/B diff; benchmarks/plot.py draws charts
+dotnet pack -c Release -p:StripInternals=true -o artifacts  # pack the four packages, as publish.yml does
+for i in $(seq 50); do FIO_RUN_STRESS=1 dotnet test -c Release --no-build || echo "run $i failed"; done  # soak, after dotnet build -c Release
 ```
 
-## Package Structure
+The dotnet CLI is the build interface: there is deliberately no Makefile or scripts folder.
 
-Four NuGet packages. Folder/assembly names use the `FIO*` prefix; published **NuGet IDs use the `FSharp.` prefix**:
+## Packages
 
-| Folder / assembly | NuGet package ID | Scope | Error type |
-|-------------------|------------------|-------|------------|
-| `FIO` | `FSharp.FIO` | Core (FIO monad, fibers, channels, runtimes, App framework, Console I/O) | `'E` (user-chosen, e.g. `exn`) |
-| `FIO.Sockets` | `FSharp.FIO.Sockets` | TCP sockets | `SocketError` |
-| `FIO.WebSockets` | `FSharp.FIO.WebSockets` | WebSockets | `WsError` |
-| `FIO.Http` | `FSharp.FIO.Http` | HTTP server, Kestrel-based | `exn` (`HttpError` models failures inside a handler) |
+| Folder | NuGet ID | Errors |
+|---|---|---|
+| `src/FIO` | `FSharp.FIO` | user-chosen `'E` |
+| `src/FIO.Sockets` | `FSharp.FIO.Sockets` | `SocketError` |
+| `src/FIO.WebSockets` | `FSharp.FIO.WebSockets` | `WsError` |
+| `src/FIO.Http` | `FSharp.FIO.Http` (Kestrel) | `exn`; `HttpError` inside handlers |
 
-Each extension library has its own README that is the source of truth for its API design:
-`src/FIO.Sockets/README.md`, `src/FIO.WebSockets/README.md`, `src/FIO.Http/README.md`. Benchmarks are
-documented in `benchmarks/FIO.Benchmarks/README.md`, and the runnable example projects are indexed in
-`examples/README.md`.
+Each extension's README describes its user-facing API. Extension modules are `[<RequireQualifiedAccess>]` and nothing in them is `[<AutoOpen>]`: `SocketExtensions`, `WebSocketExtensions`, `SimpleRoutes` and the Http operator/builder modules are opt-in.
 
-## Key Files
+## Key files (`.fsproj` order is compile order)
 
-Core DSL (`src/FIO/DSL/`), compile order matters:
-- `Utilities.fs` - Internal boxing/atomics helpers (`boxTask`, `boxVoidTask`; `tryClaim`, `tryTransition`, `transitionFrom`, `initIfNull`) and `validateTimeout`
-- `Exceptions.fs` - `InterruptionCause` DU and `FiberInterruptedException`
-- `Core.fs` - The effect type (`FIOBase`, `FIO<'A,'E>`, and the internal `NodeKind`, `NodeOps` and node classes; see **FIO Type**), `Fiber<'A,'E>`, `Channel<'A>` (unbounded, or `Bounded`/`Dropping`/`Sliding` static constructors), `FiberContext`, `WorkItem`, `Cont`, `JoinAllLatch`, and the generic static holder `NullSuccess` (the cached `Success` node that `FIO.unit` returns). Also hosts the type's primitive instance members: `FlatMap` (a `Bind` node), `CatchAll` (a `Catch` node), `Ensuring` (an `OnFinalize` node), `OnExit` (an `OnExit` node, whose finalizer function is handed the outcome), `Fork`, `ForkDaemon`, and the transformation cluster `Map` / `MapError` / `MapBoth` / `Result` / `Option` / `Choice` (`Map` is a `Map` node; `MapError` is a `Catch` node whose handler builds a `Failure`; `MapBoth`/`Result`/`Option`/`Choice` are one `Fold` node with `Success`/`Failure` constructors on both sides).
-- `Factories.fs` - `FIO.unit` (one cached `Success` per error type, also behind the CE's `Zero`), `FIO.succeed`, `FIO.fail`, `FIO.attempt`, `FIO.succeedWith` (thunk that must not throw; a throw is a `Defect`), `FIO.suspend`, `FIO.sleep`, `FIO.collectAll`, `FIO.collectAllPar`, `FIO.forkTask`, etc. Also ZIO's uninterruptible regions: `FIO.uninterruptible`, `FIO.uninterruptibleMask` (its body gets an `InterruptibilityRestorer`), and `FIO.acquireReleaseWith`, built on the internal `AcquireRelease` primitive — acquire and release run uninterruptibly, use at the caller's level, and a `useResource` that throws still runs release. `FIO.acquireReleaseExitWith` is the same primitive with an `OnExit` release, so release gets use's outcome. `FIO.forEachParN` runs `min(parallelism, n)` worker fibers through `forEachPar`, each taking the next item from an `Interlocked` index (ZIO's design): elements run on worker fibers, so a child an element forks without joining stays attached to its worker
-- `Ref.fs` - `Ref<'A>`: atomic reference cell (boxed CAS), `Get`/`Set`/`Update`/`Modify`/`GetAndSet`/`GetAndUpdate`/`UpdateAndGet` plus `Unsafe*` accessors for non-effect code. Built on `FIO.succeedWith`; no interpreter support needed
-- `Promise.fs` - `Promise<'A,'E>`: completed once (`Succeed`/`Fail` yield whether this call completed it), awaited by any number of fibers. A `TaskCompletionSource<obj>` holding a boxed `Result` — `RunContinuationsAsynchronously`, never faulted or cancelled — awaited through the internal `AwaitTask`, so awaiters get its interruption rules; no interpreter support needed
-- `Semaphore.fs` - `Semaphore`: `WithPermit` over a `SemaphoreSlim(permits, permits)` and `FIO.acquireReleaseWith`; the fiber's token is taken before the uninterruptible acquire, and a permit goes back exactly when its `SemaphoreSlim` wait succeeded (now, or by `ContinueWith` when the waiter gave up first). The name clashes with `System.Threading.Semaphore` when that namespace is opened after `FIO.DSL`
-- `Extensions.fs` - Instance methods built on the Core cluster (`Zip`, `Tap`, `Race`, `RaceFirst`, `Retry`, `Timeout`, `OrElse`, etc.). `Unit` and `As` build internal `Map` nodes (`As` boxes its value once, when built), `ZipRight` a `Bind` node, and `TapBoth`, `OrElseEither`, `Fold` and `FoldFIO` `Fold` nodes directly, so they are not `inline` (an `inline` public member cannot use internals). The parallel `ZipPar`/`Race` family is built on the internal `JoinFirst` primitive and interrupts its losers; `ZipPar` is fail-fast, while the first-to-succeed `Race`/`RaceEither`/`ZipParError` wait for the other side when the first to settle fails
-- `Operators.fs` - Infix operators (`>>=`, `<!>`, `<&>`, `<|>`, etc.), in an `[<AutoOpen>]` module
-- `CE.fs` - `fio { }` computation expression builder
+- `src/FIO/DSL/`: `Utilities.fs` (boxing/atomic helpers, `validateTimeout`), `Exceptions.fs` (`InterruptionCause`), `Core.fs` (`FIOBase`, `FIO<'A,'E>`, node classes, `Fiber`, `Channel`, `FiberContext`, `WorkItem`, `Cont`, `JoinAllLatch`, the primitive members), `Factories.fs`, `Primitives.fs` (`Ref`, `Promise`, `Semaphore`), `Extensions.fs` (combinators built on Core), `Operators.fs`, `CE.fs`.
+- `src/FIO/Console.fs`: console effects; `readLine`/`readKey` go through one background stdin reader, so a waiting fiber stays interruptible.
+- `src/FIO/Runtime/`: `Runtime.fs` (`FIORuntime`, the registry, `Shutdown`), `InterpreterCore.fs` (`processOutcome`, `handleSharedCase`, `RuntimeCase`, `attachFork`), `DirectRuntime.fs`, `WorkStealingRuntime.fs`, `DefaultRuntime.fs` (`DefaultRuntime = WorkStealingRuntime`).
+- `src/FIO/App.fs`: `FIOApp<'A,'E>` runs the effect as a child of a root fiber, so every finalizer has run before `onOutcome`/`onShutdown`; exit codes 0 / 1 / 130.
 
-Console I/O (`src/FIO/Console.fs`):
-- Namespace `FIO.Console`, module `Console` (`[<RequireQualifiedAccess>]`). Output functions wrap `System.Console` via `FIO.attempt`; every function takes an `onError: exn -> 'E` argument because console I/O genuinely throws. `print`/`printLine` take a `Printf.TextWriterFormat<unit>` (formatted output); `write`/`writeLine` take a plain `string`; plus `clear`.
-- `readLine` and `readKey` go through one process-global background stdin reader thread (`StdinReader`, internal for the tests' `readKey` seam) and await a `TaskCompletionSource`, so a waiting fiber is interruptible and no evaluation worker is blocked. Input that arrives for an interrupted read is kept and delivered to the next read: a line to the next `readLine`, a key to the next `readKey` or as the first character of the next `readLine`; a value handed to a fiber interrupted before using it goes back (`awaitStdin`'s finalizer) to a queue served before anything read later, though a read already waiting on the terminal can overtake it — tests that abandon a read must release and drain it (`withBlockingStdIn` in `ConsoleTests.fs`). `StdinReader.readKey` is a test seam (`withTypedKeys`), since `Console.ReadKey` cannot be driven without a terminal. `readKey` fails through `onError` when stdin is redirected, and `readLine` at end of input (`EndOfStreamException`); `tryReadLine` yields `None` there instead.
+## Architecture rules
 
-Runtime (`src/FIO/Runtime/`):
-- `Runtime.fs` - `FIORuntime` (abstract base, `IDisposable`: `Shutdown timeout` and `Dispose` interrupt the live roots and daemons it tracks, wait for them to unwind, then stop the workers through the per-runtime `StopWorkers` hook), `WorkerConfig`, `ContStackPool`, `LockedWorkDeque`
-- `WorkerInfrastructure.fs` - `FIOWorkerRuntime` (adds EvaluationWorkers/EvaluationSteps params), `WorkerLifecycle`
-- `InterpreterCore.fs` - Shared interpreter logic (`InterpreterState` struct, `processOutcome`/`processResult`/`handleSharedCase`, `Outcome` DU, `RuntimeCase` DU for runtime-specific dispatch, `attachFork` and its static `ForkScopeCallback`, and the shared park/resume helpers)
-- `DirectRuntime.fs` - .NET Tasks, waits for blocked fibers
-- `WorkStealingRuntime.fs` - Custom fibers, work-stealing scheduler (per-worker `runNext` slot + work-stealing deque + shared global queue; at-most-one-waker async parking). The default runtime
-- `DefaultRuntime.fs` - Type alias: `DefaultRuntime = WorkStealingRuntime`
+- Effects are internal sealed node classes under the public `FIOBase`/`FIO<'A,'E>` (internal constructors, `[<NoEquality; NoComparison>]`). A node holds a `NodeKind`, slots `A` and `B`, and reaches user code only through its `NodeOps`, a lazy singleton per instantiation; nothing in `src` may compare ops by identity.
+- A null child, finalizer or acquire throws where the node is built. A continuation, thunk or body that throws or returns null becomes a `Defect` when it runs.
+- Slot reads are unchecked casts in Release and checked in Debug or with `-p:FioCheckedCasts=true`; the "Nodes - every node kind holds its payload in the slots the interpreter reads" test covers every kind.
+- Runtimes: `DirectRuntime` (one .NET task per fiber, the reference) and `WorkStealingRuntime` (the default; its workers are async loops on the thread pool). `Run` is the only entry point and never waits for, interrupts or discards running fibers.
+- Only the `ChainCont` arm is inline in `processOutcome`; the others live in the `NoInlining` helpers (`processRegionCont`, `unwindFinalizers`, `runExitFinalizer`). A loop over 2,000 basic blocks silently compiles with MinOpts: `InterpreterSizeTests` fails above ~1,800 (Release only); check tiers with `DOTNET_JitDisasmSummary=1`.
+- `Cont` stays ≤ 56 bytes: a new case reuses existing fields by name and type.
+- No non-generic statics (`static let`, `static member val`): they add a class-init check to every closure in the file. Cache in generic holders (`NullSuccess`, `CancellationTokenNode<'E>`, the ops singletons, `ForkScopeCallback<'Marker>`).
+- The per-worker pools in WorkStealing are a measured fence: never move them to thread-static pools.
+- `FiberContext.SetOnTerminal` has one slot. A new park on fibers that may be parked on again keeps its waiter unclaimable until every hook is written, and never touches the parent after making it claimable.
+- `Publish` runs every step even when one throws (reschedule waiters, tell the parent, set the result, release tokens, fire the unwound hook), then rethrows the first exception; `OnChildUnwound`'s stack-depth fallback logs instead.
+- A continuation frame keeps its node's subtree reachable until popped: bounded, never accumulating across a loop.
 
-Framework (`src/FIO/App.fs`):
-- `App.fs` - `FIOApp<'A,'E>` abstract base class. 7 overridable members (beside `Run`, `RunAsync`, `Stop()` and `IsRunning`): `effect`, `runtime`, `onOutcome`, `onOutcomeTimeout`, `onShutdown`, `onShutdownTimeout`, `mapExitCode` over `AppResult<'A,'E>` (`AppSucceeded`/`AppFailed`/`AppInterrupted`/`AppFatalError`). The effect runs as a child of a root fiber that awaits it (`scoped`): an interrupted fiber publishes before its finalizers run, but the root *completes*, and completion waits for the child to unwind — that is what guarantees every finalizer has run before `onOutcome`/`onShutdown` and before the runtime is disposed. `Stop()` and the signal handlers interrupt the child; the handlers are registered before the runtime is created and the effect starts, and a request that races startup is applied when the child is forked. `onOutcomeTimeout`/`onShutdownTimeout` outside 0..`Int32.MaxValue` ms (or `Timeout.InfiniteTimeSpan`) make `Run` throw before the effect starts — the rule `FIORuntime.Shutdown` uses, shared via `validateTimeout` in `DSL/Utilities.fs`. An interrupted child maps by cause: `ExplicitInterrupt`/`ParentInterrupted` → `AppInterrupted` (130); `Defect` → `AppFatalError` with the thrown exception, `InvalidArgument`/`ResourceExhaustion` → `AppFatalError` (1, as in ZIO — the same code as `AppFailed`).
+## Semantic invariants (do not break)
 
-Extension libs expose `[<RequireQualifiedAccess>]` modules named after their domain (e.g. `SocketClient.connect`, `ServerSocket.serve`, `WebSocketClient.connectDefault`, `Routes`, `Codec`). The type-extension modules (`SocketExtensions`, `WebSocketExtensions`) and `SimpleRoutes` are **opt-in**, as are the Http operator and builder modules (`RoutesOperators`, `MiddlewareOperators`, `HttpHandlerOperators`, `RouteBuilder`, `TypedRoutes`, `ServerBuilder`) — nothing in the extension libraries is `[<AutoOpen>]`: open them (extension members need it) or qualify them.
+- Constructing an effect runs nothing.
+- `>>=`, `<*>`, `*>`, `<*` run left to right; `<&>`, `&>`, `<&`, `<&&>` are genuinely concurrent on both runtimes.
+- Interruption propagates the same way on every runtime.
+- Parallel combinators (`ZipPar`/`Race` family, `forEachPar`, `forEachParN`) settle on the first relevant completion and interrupt the rest; only the first-to-succeed `Race`, `RaceEither`, `ZipParError` and `FIO.raceAll` wait for the others after a failure.
+- `Ensuring`/`OnExit` finalizers run on success, error and interruption. A fiber is never discarded without unwinding, short of an expired `Shutdown` timeout; a runtime never drops queued work.
+- A failing finalizer replaces a success with its failure, never an earlier failure or interruption.
+- `FoldFIO`, `TapBoth` and the other fold nodes hand `onError` only this effect's failure: a failure raised by `onSuccess` propagates (ZIO's `foldZIO`).
+- `Semaphore.WithPermit` returns a permit exactly when its `SemaphoreSlim` wait succeeded, decided by the wait, never by a flag or an outcome.
+- `Fork` is scope-attached: a finishing fiber interrupts its children and publishes only after they unwind. `ForkDaemon` opts out, so its lifetime is the caller's.
+- Children forked while `InterruptionSuppressed > 0` go to `protectedScope` and are interrupted only once the fiber has unwound.
+- Scope completion never blocks a scheduler thread: it is the `completing`/`outstanding`/`published` latch settled by `TryFinish`.
+- Suppression means uncancellable: `FIO.cancellationToken()` yields `CancellationToken.None` and awaits skip `WaitAsync`.
+- Suppression levels are absolute (save and restore, never count); acquire stays suppressed until release is registered. A restorer belongs only in its own mask's body: used in a finalizer it makes the cleanup interruptible.
+- When a region ends at level 0 with the token cancelled, the outcome becomes an interruption before any further continuation runs.
+- Disposal interrupts, then waits: the registry tracks roots and daemons until they unwind (one `SetOnUnwound` hook; nothing finished stays reachable); `Shutdown` interrupts them, waits up to its timeout, then `Abandon`s the rest and stops the workers through the `stopping` flag.
+- An interrupted fiber publishes at once while its subtree unwinds, and its joiners resume at the interruption; a completing fiber waits for its children.
+- No non-`'E` value ever enters the error channel: user code that throws where no `'E` can be produced is a `Defect` interruption.
 
-Extension design decisions that are easy to undo by accident (each README describes the user-facing side):
-- **Sockets** (`Socket.fs`): each socket owns its receive buffer and at most one read, started with no token (it ends when the socket is closed), so a receive that times out or is interrupted leaves the bytes for the next one. Receives take turns (a `SemaphoreSlim`) rather than failing a second receive: `ReceiveLine(n).Timeout(...)` polling starts the next receive while the timed-out one is still unwinding. That polling can still drop a line that arrives as the timer fires: the race is decided before the interrupt reaches the receive, which takes the line and is discarded. `SocketConfig.withReceiveTimeout` decides inside the receive and is the loss-free way to poll; the README says so. Only rejected input (a line or frame over its limit, a negative frame length) poisons the receive side.
-- **WebSockets** (`WebSocketServer.fs`): `shutdown` sends 1001 to every connection, then at `ShutdownTimeout` interrupts the unfinished handlers *before* ending their connections with `Kill` (which disposes the .NET socket and so ends I/O pending without a token), so a routine shutdown logs no handler errors. `close` is `Stop()` then `Abort()` (Abort releases what Stop keeps, such as http.sys's session on Windows, while `Close()` after `Stop()` re-binds the port on macOS/Linux), and it is idempotent; `acceptLoop` only stops a listener it was given, and `serve`, which owns its listener, closes it. `accept` waits uninterruptibly: the fiber's token stops the listener, which ends the wait, so a request that has arrived is always upgraded or answered. After stopping the listener, the shutdown gives its refusal fiber one second and then interrupts it. The refusal is a protected child that nothing else would interrupt, and a managed `HttpListener.Stop()` that throws midway strands the request it awaits, which hangs the shutdown (about 1 run in 650, so only a stress loop shows it).
-- **Http** (`Server.fs`, `KestrelBridge.fs`): the embedded host gets a no-op `IHostLifetime` (`QuietLifetime`) and no configuration sources, because the default `ConsoleLifetime` cancels every Ctrl+C and SIGTERM (which defeats `FIOApp`'s second-signal escape) and `appsettings.json` could add listeners. `Server.run` (behind `runServer`) handles only the first SIGINT/SIGTERM/SIGQUIT. `stop` refuses new requests with 503 through the `RequestTracker`, drains for `ShutdownTimeout`, then cuts the rest (interrupt, 503); `start` and `stop` are serialised by a gate, and a stopped server cannot start again.
+## Extension decisions (easy to undo by accident)
 
-## Core Architecture
+- **Sockets:** each socket owns its buffer and at most one read, started without a token; receives take turns on a `SemaphoreSlim`; only rejected input poisons the receive side; `withReceiveTimeout` is the loss-free poll.
+- **WebSockets:** shutdown sends 1001, then at `ShutdownTimeout` interrupts handlers *before* ending connections with `Kill`; `close` is `Stop()` then `Abort()` and idempotent; `accept` waits uninterruptibly; the refusal fiber is cut after one second.
+- **Http:** the host gets a no-op `QuietLifetime` (the default `ConsoleLifetime` swallows every Ctrl+C and defeats `FIOApp`'s second-signal escape) and no configuration sources (`appsettings.json` could add listeners); `runServer` handles only the first signal; `start`/`stop` share a gate, and a stopped server cannot restart.
 
-### FIO Type (`src/FIO/DSL/Core.fs`)
+## Change checklist
 
-`FIO<'A, 'E>` is a public abstract class over the public, non-generic `FIOBase`. Both have internal constructors, so code outside the assembly cannot subclass them, and `FIOBase` has no public members. Every effect is an instance of an internal sealed node class (`BindNode<'A,'B,'E>`, `MapNode<'A,'B,'E>`, …). A node holds a `NodeKind` (a fieldless struct union the interpreter matches on exhaustively), two object slots fixed at construction — `A` (its child, a boxed value or a payload) and `B` (its `NodeOps`, or a second payload) — and any typed fields only its ops read. The interpreter reads `Kind`, `A` and `B` and reaches user code only through the node's `NodeOps`, so no effect is rebuilt to erase its types. Each ops class has one instance per type instantiation, held in a lazy static that every node of that instantiation shares; the statics take no lock, so two threads can each create one on first use, and nothing in `src` may compare ops by identity (the sharing test does, on an instantiation only it builds). The kinds:
-- `Success`/`Failure` - Terminal values (`Success` boxes its value once, when the node is built)
-- `Interrupt` - Self-interruption with cause and message
-- `FiberCancellationToken` - Access the current fiber's cancellation token (one cached node per error type)
-- `Action` - Synchronous side effects
-- `Bind`/`Catch`/`Fold` - Effect composition: `FlatMap`, `CatchAll`, and the `MapBoth`/`Result`/`Option`/`Choice`/`Fold`/`FoldFIO`/`TapBoth`/`OrElseEither` family; each pushes one `ChainCont`, `Fold` with both sides
-- `Map` - `Map`/`Unit`/`As`: runs the child and applies the mapper to its success as the outcome unwinds (one `MappedCont` frame)
-- `OnFinalize` - Interrupt-safe finalizer infrastructure (`Ensuring`)
-- `OnExit` - A finalizer function handed the outcome (`OnExit`, and `acquireReleaseExitWith`'s release)
-- `Suspend` - Defer effect construction (thunk)
-- `WithSuppression` - Uninterruptible regions and `restore` (sets an absolute suppression level derived from the outer one)
-- `AcquireRelease` - `acquireReleaseWith`: runs acquire one level more suppressed; its `AcquiredCont` frame restores the caller's level and registers release in the same step
-- `WriteChan`/`TryWriteChan`/`ReadChan` - Channel message passing (`Write` yields the message; `TryWrite` never suspends and yields whether the message was written)
-- `ForkEffect`/`ForkDaemonEffect` - Fork a scoped or a daemon fiber (`Fork` and `ForkDaemon` build them inside a `Suspend`, so each run forks a new fiber)
-- `JoinFiber` - Wait for fiber
-- `JoinFirst` - Wait for the first of several fibers to settle
-- `JoinAllFailFast` - Wait for all fibers, settling early on the first failure
-- `AwaitTask` - .NET Task interop
-
-The node classes and `NodeOps` are `internal` — external code uses factory functions (`FIO.succeed`, `FIO.fail`, etc.) and instance methods (`FlatMap`, `Map`, `Fork`, `CatchAll`). Both public types are `[<NoEquality; NoComparison>]`, so `=` on effects does not compile. Every node that holds an effect checks it where it is built: a null child (including the receiver of an extension builder such as `Unit`, `As` or `ZipRight`, which compile to static methods with no `callvirt` check), a null finalizer or a null acquire throws `NullReferenceException` there, so the interpreter never reads a null node outside its handlers. A continuation, thunk or body that throws or returns null becomes a `Defect` when it runs, and so does a `useResource` that returns null, with release still run. Slot reads are unchecked `Unsafe.As` casts in Release and checked casts in Debug (`NodeCasts.cast`), or in any build with `-p:FioCheckedCasts=true` (it defines `FIO_CHECKED_CASTS`; CI's `checked-casts` job runs every suite that way), and a test builds every kind and checks the slots the interpreter reads ("Nodes - every node kind holds its payload in the slots the interpreter reads").
-
-### Runtime Hierarchy
-
-```
-FIORuntime (abstract)
-├── DirectRuntime
-└── FIOWorkerRuntime (abstract, adds WorkerConfig: EvaluationWorkers/EvaluationSteps)
-    └── WorkStealingRuntime (= DefaultRuntime)
-```
-
-- **DirectRuntime** - .NET Tasks, waits for blocked fibers. The reference implementation and benchmark baseline
-- **WorkStealingRuntime** - Custom fibers, **work-stealing** scheduler: per-worker local queues (a `runNext` slot + a work-stealing deque) and a shared global queue, with work-stealing across idle workers, at-most-one-waker wakeups, and async parking. Its workers are async loops (`WorkerLifecycle.startWorker`) that resume on .NET thread-pool threads after waiting for work (`workGate.WaitAsync`), so code that blocks pool threads can stall WorkStealing as well as Direct; the README's runtime section says so.
-
-**DefaultRuntime = WorkStealingRuntime** (recommended)
-
-Worker config fields: **EvaluationWorkers** (worker count), **EvaluationSteps** (interpreter steps per work item before a fiber yields). The `EWC`/`EWS` acronyms are the `ConfigString` display labels and the benchmark spec shorthand (`WorkStealing-{EWC}-{EWS}`).
-
-### Key Internal Types
-
-- **Fiber<'A,'E>** - Green thread, returns `FiberResult<'A, 'E>` (Succeeded/Failed/Interrupted)
-- **FiberContext** - Internal execution state: completion, interruption, cancellation token, blocking work item queue (parked joiners) and the reschedule sink (`RescheduleOnEnd`) a joiner leaves behind, through which both `Interrupt` and a publish that happens later on another thread resume the joiners. Disposing a fiber's handle only records the request while it runs (`disposed` 0 → 2); the token sources are released once it has unwound (2 → 1), so a running fiber is never disturbed. It also holds two one-slot hooks, each fired once: `SetOnTerminal`, used by `JoinAllLatch`, and `SetOnUnwound`, used by the runtime registry (see **Disposal interrupts, then waits**). `SetOnTerminal` has **one slot**, and the latch parks are safe only because nothing parks on the same fibers twice. A new park that can be woken mid-install, on fibers that may be parked on again, must keep its waiter un-claimable until every hook is written (or a stale wake can overwrite a freshly installed hook), and must not touch the parent's context after making it claimable, since a woken parent may already have finished and released its token source. Its `Id` is drawn on first read (`CreateId`: a CAS claims the low half and the high half is written last; a reader that loses spins until it is), so a fiber whose Id is never read never calls `Guid.NewGuid`. A scoped child holds exactly one scope registration (`AddRegistration` throws on a second), made with the static `ForkScopeCallback` and the child as its state; `attachFork` calls `AttachTo` first, because the callback reads the parent through `Parent`, and a scope already cancelled runs it inside `Register`. Its completion (`Publish`) runs every step even when one throws: each parked waiter is rescheduled on its own (`RescheduleBlockingWorkItems`, which `Interrupt` uses too), then the parent is told, `published` is set, the token sources are released and the unwound hook fires, and only then is the first exception rethrown, so a failing resume never strands other waiters, the parent or `Shutdown`. The stack-depth fallback in `OnChildUnwound` logs such an exception instead, since one thrown on a pool thread would end the process
-- **Channel<'A>** - Type-safe channel backed by an internal `MailboxQueue<obj>` (wrapper over `System.Threading.Channels`; messages are boxed) with blocking work item rescheduling. `Bounded` and `Dropping` use a bounded .NET channel in `Wait` mode, `Sliding` in `DropOldest`; only a full `Bounded` channel makes a writer wait (`parkUntilWritable` on WorkStealing, `WriteAsync` with the fiber's token on Direct), and an interrupted writer never writes unless it waits uninterruptibly. `TryWrite` never waits: a full `Bounded` or `Dropping` channel yields `false`. `TryRead` is `Read`'s non-suspending fast path (an `Action`, no runtime case): a parked reader woken for a message `TryRead` took first re-runs `ReadChan` and parks again
-- **WorkItem** - Mutable work unit: effect + fiber context + continuation stack + interruption suppression level
-- **Cont** - Continuation types: `ChainCont`/`FinalizerCont`/`PostFinalizerCont`/`RestoreSuppressionCont`/`AcquiredCont`/`MappedCont`. `ChainCont`, `FinalizerCont`, `AcquiredCont` and `MappedCont` hold the node they continue; `PostFinalizerCont` holds a saved outcome and level, `RestoreSuppressionCont` a level. `ChainCont` holds a success side and a failure side, either of which may be null (a `Bind` node pushes only a success side, a `Catch` node only a failure side, a `Fold` node itself on both); a null side passes the outcome on, and the other calls the node's ops (`Continue` or `Fail`). It is one frame, popped before either side runs, so a failure of the success side is not handed to the error side (ZIO's `foldZIO`). One kind instead of three halves the exception-handling regions in each inlined `processOutcome`, which made the interpreter microbenchmarks 3–7% faster. Code added to the inlined `processOutcome` has a measurable cost, since it is expanded at every call site of each runtime's loop — and a hard limit: the JIT compiles a method with more than 2,000 basic blocks without optimization (MinOpts), silently. Loops that crossed it ran 5–37% slower on channel workloads, so only the hot `ChainCont` arm is inline; the finalizer, suppression and `MappedCont` arms live in the `NoInlining` helpers `processRegionCont` and `unwindFinalizers`. Adding the map frame (W66's `Mapped` case, now the `Map` kind) slowed some WorkStealing micro operations whose bytes did not change by up to about 10% (a completed `await`, a parked `Bounded(1)` write), most likely through the loops' codegen, while every macro workload got faster; that cost was measured and accepted. `tests/FIO.Tests/Runtime/InterpreterSizeTests.fs` fails when any runtime's loop exceeds ~1,800 estimated blocks (that check runs under `dotnet test -c Release` only — `test.yml`'s `release` job and `publish.yml` — since Debug builds have no state machine to measure), and `DOTNET_JitDisasmSummary=1` shows each loop's tier. `FinalizerCont` holds an `OnFinalize` or `OnExit` node and ensures its finalizer runs on interruption, not just success/error; for an `OnExit` node the arm hands the node's ops (`RunExit`) the `PostFinalizerSaved` it already computed, through the `NoInlining` `runExitFinalizer`, which builds the finalizer from the outcome (an `OnFinalize` node pays one kind check and no allocation). Keep the arm's kind check before its push, with the `OnExit` work in the helper: an arm that kept `saved` live across the push made every `processRegionCont` call save three more registers. Keep caches out of non-generic statics: a non-generic static (`static let`, `static member val`) gives its file a static initializer, which adds a class-initialization check to every static closure in it; caches are generic holders for that reason (`NullSuccess`, `CancellationTokenNode<'E>`, the ops singletons, and `ForkScopeCallback<'Marker>` in `InterpreterCore.fs`). `PostFinalizerCont` restores the saved suppression level after a finalizer completes, and the saved outcome unless the finalizer's is worse (a failure replaces a success, never an earlier failure or interruption). `RestoreSuppressionCont` sets `InterruptionSuppressed` back to an absolute level on any outcome. `AcquiredCont` does the same when an acquire ends and, on success, pushes release's `FinalizerCont` (via `unwindFinalizers`) before the region-exit check, so no step separates acquiring from registering release. `MappedCont` holds its `Map` node in the `node` field it shares with `FinalizerCont` (a mapper field would grow `Cont`); on a success it swaps in the mapper's result (the node's ops `Apply`) and keeps popping, so a map adds no step and no interruption check before the next continuation, a throwing mapper becomes a `Defect`, and a failure or interruption skips it. `Cont` is copied on every push and pop, so a new case reuses existing fields by name and type (F# shares their storage) and `InterpreterSizeTests` fails if it grows past 56 bytes. A frame keeps its node, and so the node's whole child subtree, reachable until it is popped, including parts that already ran: a joined fiber's context and result, an awaited task and its result, a `Success` node's value (W66's `MappedCont` already did this for maps). The retention is bounded — at most the subtrees of the frames on the stack, released as they pop, never accumulating across a tail-recursive loop — and a `fio { }` block cuts it, since its `Delay` is a `Suspend` node that holds only its thunk.
-- **Continuation stack** (a `Stack<Cont>`: on the `WorkItem` in WorkStealing, in `InterpreterState` in Direct) / **ContStackPool** - thread-static pool that `DirectRuntime` rents from and returns to
-- **Per-worker pools** - `WorkStealingRuntime.Run` allocates a fiber's first `WorkItem` and continuation stack; after that
-  WorkStealing recycles both in its own per-worker pools on the `Scheduler`. Collapsing them onto thread-static pools
-  cost 18–33% WorkStealing wall time on park-heavy workloads while staying alloc-neutral — the per-worker pools are a
-  deliberate, measured fence
-- **InterruptionCause** - `ParentInterrupted` | `ExplicitInterrupt` | `InvalidArgument` | `ResourceExhaustion` | `Defect` (user code threw where no typed error could be produced)
-
-### Concurrency Primitives
-
-Concurrency is built on the core types: **Fiber<'A,'E>** (green threads via `.Fork()`/`.Join()`), **Channel<'A>** (typed message passing), **Ref<'A>** (atomic reference cell, `src/FIO/DSL/Ref.fs`), **Promise<'A,'E>** (completed once, awaited by many, `src/FIO/DSL/Promise.fs`) and **Semaphore** (`WithPermit` bounds concurrent effects, `src/FIO/DSL/Semaphore.fs`); bounded fan-out is `FIO.forEachParN`. `Console` is the library module.
-
-### Operator Reference
-
-| Op | Exec | Returns | Use |
-|----|------|---------|-----|
-| `>>=` | Seq | fn result | Bind/chain |
-| `<!>` | - | Transformed | Map |
-| `<*>` | Seq | Tuple | Combine |
-| `*>` | Seq | Second | Side effect then result |
-| `<*` | Seq | First | Result then side effect |
-| `<&>` | Par | Tuple | Concurrent exec |
-| `&>` | Par | Second | Concurrent, keep second |
-| `<&` | Par | First | Concurrent, keep first |
-| `<&&>` | Par | Unit | Parallel, discard both (awaits both, fail-fast) |
-| `<\|>` | Seq | First success | Fallback/recovery |
-| `<+>` | Seq | Choice | Either-fallback (OrElseEither) |
-| `<?>` | Par | Choice | Race for first success (RaceEither) |
-
-(`<\|>` is the `<|>` operator; the backslash escapes the pipe inside this markdown table.)
-
-## Development Patterns
-
-### Writing Effects
-
-```fsharp
-// Computation expression (preferred for complex logic)
-let effect = fio {
-    let! x = someEffect
-    do! Console.printLine "msg" id
-    return x + 1
-}
-
-// Operators (preferred for pipelines)
-let effect = someEffect >>= fun x -> FIO.succeed (x + 1)
-```
-
-### Running Effects
-
-```fsharp
-// Run on a runtime directly (a runtime is IDisposable: disposing it interrupts what is still running)
-use runtime = new DefaultRuntime()
-let fiber = runtime.Run effect
-match fiber.Task() |> Async.AwaitTask |> Async.RunSynchronously with
-| Succeeded v -> ...
-| Failed e -> ...
-| Interrupted exn -> ...
-
-// FIOApp (recommended)
-type MyApp() =
-    inherit FIOApp<unit, exn>()
-    override _.effect = myEffect
-
-[<EntryPoint>]
-let main _ = MyApp().Run()
-```
-
-### API Naming Convention
-
-Factory functions use **lowercase** F#-idiomatic style: `FIO.succeed`, `FIO.fail`, `FIO.attempt`, `FIO.sleep`, `FIO.never`, `FIO.collectAll`, `FIO.collectAllPar`, `FIO.forEach`, `FIO.forEachPar`, `FIO.forEachParN`, `FIO.suspend`, `FIO.acquireReleaseWith`, `FIO.acquireReleaseExitWith`.
-
-Instance methods use **PascalCase**: `effect.Map(f)`, `effect.FlatMap(f)`, `effect.Fork()`, `effect.CatchAll(f)`, `effect.Ensuring(fin)`, `effect.OnExit(fin)`, `effect.ZipRight(eff)`.
-
-Library modules use **qualified access**: e.g. `Console.printLine "msg" id`.
-
-### Tail recursion
-
-`[<TailCall>]` marks ordinary (non-effect) recursion that must compile to a loop: `Ref.cas`, the HTTP route
-matchers (`RoutePattern.fs`, `Routes.fs`), and both `InterpretAsync` members, where it stops the
-interpreter from calling itself. It can go on module-level and class-level `let` functions and on members,
-but not on a local `let rec` (FS0824). FIO effect loops (`FlatMap`, `fio { return! loop () }`) never get
-it: the interpreter runs each iteration from its own loop, so they cannot overflow the stack, and the
-check, which cannot tell that `FlatMap` runs its lambda later, wrongly rejects some of them. For them,
-keep `return! loop ()` last so no continuation piles up. The attribute changes no IL and costs nothing at
-runtime.
-
-## Benchmarks
-
-Macro benchmarks live in `benchmarks/FIO.Benchmarks/` (BenchmarkDotNet 0.15.8); `benchmarks/FIO.Benchmarks/README.md`
-is the source of truth (parameters and defaults, tuning, result interpretation, the A/B protocol). Twelve workloads:
-**Bang, Big, BoundedBuffer, Chameneos, Counting, Fibonacci, Fork, Philosophers, Pingpong, Threadring, Trapezoidal, ZipRace**. Eleven are classic concurrency workloads; **ZipRace** is a combinator microbenchmark that regression-guards the parallel-combinator primitives. Every run reports **execution time and allocated memory**.
-
-- **Layout:** one file per benchmark in `Benchmarks/`: its workload module and a class that carries `[<MemoryDiagnoser>]` + `[<RankColumn>]` (on the class, not the base), inherits `FIOBenchmark` (the shared runtime parameter, setup, cleanup and measured `Run`) and builds the effect. The `FIO.Benchmarks.Benchmarks` namespace, the class name, the `Run` method name, its parameter names and the `Runtime` parameter name are the report and series identity — `compare.py` and the gh-pages tracker key off them — so do not rename them.
-- **Runtimes:** spec format `Direct | WorkStealing-{EWC}-{EWS}`, via `FIO_BENCH_RUNTIMES` (default `Direct,WorkStealing-12-200`). `compare.py`/`plot.py` (sharing `bench_common.py`) still parse the removed runtimes (Polling, Signaling) and the old three-leg labels, so stored results stay readable; `compare.py` pairs rows on the exact label, so a three-leg `WorkStealing-12-200-1` row never pairs with a two-leg one (it is listed under **Unmatched rows**).
-- **Iteration control:** `FIO_BENCH_WARMUP` (default 3), `FIO_BENCH_ITERATIONS` (default 30); a CLI `--job`/`-j` (e.g. `--job Dry`) **overrides** them. Per-benchmark params: `FIO_BENCH_<NAME>_<PARAM>`.
-- **A/B comparison:** allocations are comparable across sessions; **wall time drifts 20–50% between sessions** on dev machines — compare times only from same-session adjacent A/B runs, bracketed by sentinel re-runs.
-- **Decision rule (WorkStealing first):** WorkStealing is the main runtime, and execution time outranks memory. A change may slow Direct by any amount, or allocate or hold more memory on either runtime, when that change itself makes WorkStealing confirmed faster and no WorkStealing case slower; a change that leaks (keeps finished fibers or their results reachable) fails whatever it buys. Report every Direct and memory cost with the change.
+- **New effect constructor:** build it from existing nodes; a new node class goes in `Core.fs`, with an ops singleton overriding only what its kind uses.
+- **New node kind:** add the `NodeKind` case, handle it in `handleSharedCase` (check `isFinalizerNode` and `processRegionCont` by hand), check its child in the constructor, add it to the slot test, measure.
+- **New `Cont` case:** handle it in `processRegionCont`, reusing existing fields.
+- **New runtime-specific case:** add it to `RuntimeCase`, route it from `handleSharedCase`, and reuse `awaitedTask`, `settledTaskEffect`, `parkOnTask` and `resumeWith`.
+- **Runtime change:** tests and benchmarks; never clear queues; only `Shutdown`/`Dispose` interrupt.
+- **Extension change:** error model, API, README. **Behavior change:** examples and tests. **New public API:** a doc comment per `docs/COMMENT_STYLE.md`.
 
 ## Testing
 
-- **Expecto + FsCheck** for property-based testing. `dotnet test` runs through YoloDev.Expecto.TestSdk, which never calls `Program.main`, so the runner config there (`Parallel`, `Summary`, `Colours 256`) applies only to `dotnet exec FIO.Tests.dll` (with `--child`, `main` runs a child-process scenario instead). Pinned versions (`Directory.Packages.props`): Expecto 11.1.1, FsCheck 3.6.0.
-- `tests/FIO.Tests/Utils/Utilities.fs` is the single source of runtime test helpers: `allRuntimes()`, `testAllRuntimes`, `testAllRuntimesSequenced` (for `System.Console`'s process-global state), `stressTestAllRuntimes` (`testAllRuntimes` behind the `FIO_RUN_STRESS` gate), and the FsCheck `Generators` `Arb` (one lazily built runtime pair per assembly, since FsCheck asks for it once per property and never disposes it). All of them cover **both** runtimes — `DirectRuntime`, `WorkStealingRuntime`. Do not redefine these per test file: a helper named "all runtimes" that quietly omits one is how a runtime-specific defect survives a green suite
-- They share one `testConfig` (`EvaluationWorkers = 2`), not `WorkerConfig.Default`, and so do the extension suites' `Utils/Utilities.fs`. `allRuntimes()` builds both runtimes for every test list and Expecto runs lists in parallel, so the default (`ProcessorCount - 1`) would keep thousands of workers alive at once and make wall-clock deadline assertions flake under load. `testAllRuntimes` disposes each runtime after its test, which interrupts anything the test left running. Stress tests mostly use `testConfig` too (through `stressTestAllRuntimes`, or a `WorkStealingRuntime(testConfig)` they build per test); a test that needs a particular worker count builds its runtime with an explicit config, and the bounded-buffer channel stress test uses `WorkerConfig.Default` for real parallelism
-- `tests/FIO.Tests/Runtime/ConformanceTests.fs` asserts the two runtimes are observationally equivalent — defect paths, typed-error integrity, `Await`/`UnsafeResult` agreement, runtime disposal and the registry's release of finished fibers (`TrackedCount`), joins resuming at a target's interruption. It deliberately uses `'E = string`, because `Fiber.Task()` casts the error channel with `error :?> 'E`: a non-`'E` value there raises `InvalidCastException`, which `'E = exn` silently absorbs
-- Heavy stress/regression tests (deadlock & lost-wakeup guards) are **opt-in** via the `FIO_RUN_STRESS=1` env var (`stressEnabled`/`stressTestCase` in `tests/FIO.Tests/Utils/Utilities.fs`) — off by default locally, enabled in CI
-- Behaviour that must run in its own process — `FIOApp` signal handling, or anything that could crash the test host — uses the shared wrapper `tests/Shared/ChildProcessRunner.fs` (linked into `FIO.Tests` and `FIO.Http.Tests` as `Utils/ChildProcessRunner.fs`): `new ChildProcess([ scenario; args... ])` re-runs the test assembly as `dotnet exec <Tests>.dll --child <scenario> [args]`, with `WaitForLine`, `Signal` and `WaitForExit`. Each project's own `Utils/ChildProcess.fs` keeps just its scenarios and the `--child` dispatch (`run`, called from `Program.fs`). Signal tests skip on Windows
-- Console tests use `System.Console.SetOut`/`SetIn` with `StringWriter`/`StringReader` for deterministic capture — must use `testSequenced` (not parallel) because `System.Console` has process-global state
-- Four test projects:
-  - `FIO.Tests` — core library, organized into `DSL/`, `Lib/`, `Framework/`, `Runtime/` subfolders; the factory functions and extension methods are split by sub-group into `DSL/Factories/*.fs` and `DSL/Extensions/*.fs`, each file a `[<Tests>]` list under the same top label ("Factory Functions" / "Extension Methods"). Test names follow `Subject - sentence` (the member under test, then the behaviour) in all four projects
-  - `FIO.Sockets.Tests` — TCP sockets, flat structure with `testAllRuntimes` + `withTestServer`/`withTestEchoServer` helpers
-  - `FIO.WebSockets.Tests` — WebSockets, flat structure
-  - `FIO.Http.Tests` — HTTP server tests
-- **Test layout is Arrange / Act / Assert, shown by blank lines, never by comments.** A test body is up to three blocks: Arrange (inputs, effects, runtimes, servers), Act (the one call under test, bound with `let`, e.g. `let result = runtime.Run(effect).UnsafeResult()`), and Assert (`Expect…`, or a `match` on the bound result ending in `failtest`). Exactly one blank line separates blocks and none appears inside a block — a long Arrange is a cue to extract a helper. A block may be absent (a pure function has no Arrange), but Act and Assert are always separated, even in a two-line test
-  - `Expect.throwsT`/`Expect.throws` (`fun () -> act`) are the only forms that merge Act into Assert, since the throw is the act; otherwise `Run` is never passed straight into `Expect` or `match`
-  - Assertions run outside the effect: an effect run inside `withTestServer` and similar wrappers returns what it observed, and the test asserts on the returned value after the wrapper returns
-  - A test whose point is a sequence (lifecycle, interruptibility, resource tests) may repeat Act/Assert pairs after one Arrange
-  - Property tests follow the same layout; their generated arguments count as Arrange
-  - Fantomas keeps these blank lines because `.editorconfig` sets `fsharp_blank_lines_around_nested_multiline_expressions = false`; its default adds blank lines around multi-line expressions, which would split Arrange blocks
-- Core tests use `Generators` type for FsCheck Arb across both runtimes; the Sockets and WebSockets suites have their own FsCheck generators, while `FIO.Http.Tests` uses none (and references no FsCheck packages); every extension suite has a `testAllRuntimes` helper. The Sockets and Http helpers wrap `testSequenced`; the WebSockets suite runs in parallel, so a test there that touches process-global state (`Console.SetError`, `Console.SetIn`, …) must be wrapped in `testSequenced` explicitly
-- `InternalsVisibleTo` exposes the core project to `FIO.Tests`, `FIO.Sockets` to `FIO.Sockets.Tests` (a socket's OS options, via the internal `Socket.NetSocket`) and `FIO.Http` to `FIO.Http.Tests` (a server's own runtime, via `Server.runtimeOf`); `FIO.WebSockets` exposes nothing. The three `InternalsVisibleTo` items are conditional on `StripInternals != true`, which `publish.yml` and `scripts/pack.sh` set when packing, so published assemblies grant no friend access
-- `tests/FIO.Tests/Runtime/InterpreterSizeTests.fs` guards the JIT's optimization limit for each runtime's interpreter loop (see **Cont** above). Its two loop-size tests skip in Debug (its `Cont - stays 56 bytes` test runs in every configuration), so the loop guard is enforced by `dotnet test -c Release` — `test.yml`'s `release` job and `publish.yml` run it
-- Stack-safety canaries live in `tests/FIO.Tests/DSL/FIOTests.fs` — the eight "Stack safety - deep left-chained FlatMap/CatchAll/Ensuring/OnExit/MapBoth/Map/TapBoth and Fold/Unit and As" tests at depth 10000 guard that building and running a deep chain never recurses: a node's constructor only stores its child, and the interpreter walks children and continuation frames (`MappedCont` included) in its loop. Keep both properties for every node kind.
+- Expecto + FsCheck. `dotnet test` runs through YoloDev.Expecto.TestSdk and never calls `Program.main`.
+- Use the helpers in `tests/Shared/Utilities.fs` (`allRuntimes()`, `testAllRuntimes`, `testAllRuntimesSequenced`, `stressTestAllRuntimes`), linked into every test project, and `Generators` in `tests/Shared/FsCheckProperties.fs`; they cover both runtimes and use `testConfig` (2 workers). Never redefine them per file.
+- Conformance tests use `'E = string`: `Fiber.Task()` casts the error, and `exn` would hide a wrong value.
+- Stress tests are opt-in with `FIO_RUN_STRESS=1`; CI sets it.
+- Behaviour that needs its own process (signals, possible crashes) uses `tests/Shared/ChildProcessRunner.fs` (`ChildProcess`); signal tests skip on Windows.
+- Tests that touch `System.Console` run sequenced, and one that abandons a read releases and drains it (`withBlockingStdIn`).
+- Layout: Arrange / Act / Assert separated by single blank lines, no comments. Act is one bound call; only `Expect.throws*` merges Act into Assert; asserts run outside the effect. Names are `Subject - sentence`.
+- `InternalsVisibleTo` (core → `FIO.Tests`, Sockets → `FIO.Sockets.Tests`, Http → `FIO.Http.Tests`) is dropped when packing with `StripInternals=true`.
+- The "Stack safety - deep left-chained …" tests (depth 10,000) guard that no node kind recurses when built or run.
 
-## Semantic Invariants (Do Not Break)
+## Benchmarks
 
-- **Effect laziness**: constructing an effect must NOT execute side effects
-- **Sequential ordering**: `>>=`, `<*>`, `*>`, `<*` preserve left-to-right semantics
-- **Parallel operators**: `<&>`, `&>`, `<&`, `<&&>` must be genuinely concurrent on both runtimes
-- **Interruption semantics**: interruption must propagate through fibers consistently across all runtimes
-- **Fail-fast parallelism**: the parallel combinators (`ZipPar`/`Race` family, `forEachPar`, `forEachParN`) settle on the first relevant completion and interrupt losers/peers — they must never hang on a stuck sibling (except the first-to-succeed waits of `Race`, `RaceEither`, `ZipParError` and `FIO.raceAll`: when the first to settle fails they wait for the others, as a `Race` test pins)
-- **Finalizer guarantee**: `Ensuring` and `OnExit` finalizers run on all three outcomes — success, error, and
-  interruption (an `OnExit` finalizer is told which, with the interruption's cause). There is no fourth outcome: short of a `Shutdown`/`Dispose` whose timeout expires (see **Disposal interrupts, then waits**), a fiber may never be discarded without unwinding. In
-  particular a runtime must not drop queued work items to "reset" itself
-- **A permit goes back exactly when it was granted.** `Semaphore.WithPermit` releases iff its `SemaphoreSlim` wait
-  succeeded — at once, or by `ContinueWith` when the waiter was interrupted while the grant was in flight. A flag or
-  an outcome cannot decide this: a wait can be granted after the fiber has already seen its interruption
-- **Fork is scope-attached** (ZIO's `fork`, not its `forkDaemon`): when a fiber finishes it interrupts
-  every fiber it forked, and **does not publish its own result until they have unwound** — so once you
-  observe a completed fiber's result, every finalizer in its subtree has already run (an interrupted fiber
-  publishes at once: see **Interrupted fibers publish immediately**). `ForkDaemon` opts out: a daemon fiber
-  is neither interrupted nor awaited by its parent (nothing interrupts or awaits it automatically except the
-  runtime's `Shutdown`/`Dispose`), and its lifetime becomes the caller's to manage.
-  Consequence for API design: to observe a forked child's result you must await it *inside* the parent,
-  or the parent finishing will interrupt it first
-- **Uninterruptible forks are protected.** An interrupted fiber interrupts its children at once, except
-  those it forked while `InterruptionSuppressed > 0` (a finalizer, an uninterruptible region,
-  acquire/release): `attachFork` puts them in `FiberContext`'s `protectedScope`, which is cancelled
-  only when the fiber finishes unwinding (`CompleteInternal`). Without it, a finalizer's `Timeout`,
-  `RaceFirst` or `ZipPar` forked children that were born interrupted (once the fiber had forked
-  anything before), and an uninterruptible region lost its forked work to the interruption it defers
-- **Scope completion must never block a scheduler thread.** The parent/child rendezvous is the latch in
-  `FiberContext` (`completing`/`outstanding`/`published`, settled by `TryFinish`), modelled on
-  `JoinAllLatch`. An earlier attempt awaited children inside `Complete` and deadlocked: the await
-  occupied a worker, and with few workers no thread was left to run the children being waited for
-- **Suppression means uncancellable.** While `InterruptionSuppressed > 0` (an `Ensuring` or `OnExit` finalizer, an `uninterruptible`/`uninterruptibleMask` region outside `restore`, or `acquireReleaseWith`'s acquire and release),
-  the fiber is uninterruptible, so `FIO.cancellationToken()` yields `CancellationToken.None` and
-  `awaitedTask` skips `WaitAsync`. Both follow the same rule, and it is what lets a finalizer `sleep`,
-  `async` or `awaitAsync` after its fiber was interrupted — handing out the already-cancelled token
-  made `Task.Delay` fault instantly and `Register` fire immediately, truncating cleanup
-- **Suppression levels are absolute.** Every change of `InterruptionSuppressed` is undone by restoring a saved level, never by counting: `WithSuppression(update, body)` captures the level on entry, sets it to `update outer`, runs `body outer`, and pushes `RestoreSuppressionCont` with the captured level (a mask raises the level by one, `restore.Restore` sets the level its mask captured). So a `restore` from a mask opened inside a finalizer stays uninterruptible — its captured level is already above 0 — but a restorer captured outside (at level 0) and used in a finalizer makes that part interruptible, as in ZIO: use a restorer only in its own mask's body. `acquireReleaseWith` must keep acquire suppressed until release is registered: an acquire that takes a step after creating its resource, or resumes from a task, leaked the resource on interrupt when it ran interruptibly
-- **An interruption takes effect the moment a region ends.** When a `RestoreSuppressionCont` or `PostFinalizerCont` brings the level back to 0 while the fiber's token is cancelled, `processOutcome` turns the outcome into an interruption before popping further, so no continuation code after an uninterruptible region or a finalizer runs once the fiber is interrupted (ZIO's rule). Finalizers further out still run
-- **Disposal interrupts, then waits.** The registry (`Runtime.fs`) holds every root (from `Run`) and daemon (from `ForkDaemon`) not yet unwound, in 16 lock-striped reference sets; `Watch` installs one shared `SetOnUnwound` hook that removes a fiber the moment it unwinds, so nothing keeps a finished fiber or its result reachable (a per-thread design that pruned lazily once leaked them — the review's blocker). `SetOnUnwound` fires once the result is set (`published` 0 → 1 claimed → 2 set; a `Publish` that lost the state to an `Interrupt` spins until that interrupt has set its result). `Dispose`/`Shutdown` interrupt every tracked fiber, set `draining` and wait until the stripes are empty, and only then stop the workers; scoped children are covered by their roots. The wait is bounded by the timeout: a tracked fiber that only waits for its children then publishes the value it has (`Abandon`), and fibers still unwinding are abandoned with the workers, their remaining finalizers unrun: `StopWorkers` first sets a `stopping` flag that the step-budget check reads, so a fiber in the middle of its steps leaves its worker at its next yield point (on `DirectRuntime`, which has no workers, fibers keep unwinding after `Shutdown` returns). Only roots and daemons are tracked, so a fiber deeper in the tree that only waits for its children gets no result. A concurrent or later `Shutdown` waits for the first. `Watch` adds a fiber before reading the disposed flag, so a `Run` racing disposal is either seen by `Shutdown` or interrupts itself; `Run` after disposal throws `ObjectDisposedException`, and a daemon forked after it is interrupted at once
-- **Interrupted fibers publish immediately.** A fiber that is *interrupted* surfaces its result at once
-  while its subtree unwinds behind it; only a fiber that *completes* holds its result back. Children are
-  interrupted on both paths (protected ones only once the fiber has unwound), so no finalizer is
-  skipped either way — only the ordering differs. Joiners (`Join`, `JoinFirst`) parked on an interrupted
-  fiber resume at the interruption on every runtime, not after its finalizers
-- **Error typing**: extensions must not leak raw exceptions as public errors (FIO.Http's server pipeline is
-  typed `exn` by design; Sockets and WebSockets surface `SocketError`/`WsError`). Nothing may place a
-  non-`'E` value in the error channel: when user code throws where no `'E` can be produced (a `Suspend`
-  thunk, a `FlatMap`/`CatchAll` continuation, a `Map` mapper, a throwing `onError`), or returns null
-  where an effect is expected, the fiber dies with `InterruptionCause.Defect`, and joining an interrupted
-  fiber propagates interruption rather than a typed failure
+- 12 workloads in `benchmarks/FIO.Benchmarks/Benchmarks/`, one file each: a class inheriting `FIOBenchmark` that carries `[<MemoryDiagnoser>]` and `[<RankColumn>]` itself. The namespace, class names, `Run`, its parameter names and `Runtime` are the series identity: never rename them.
+- Runtime spec `Direct | WorkStealing-{EWC}-{EWS}` (worker count, steps per slice) via `FIO_BENCH_RUNTIMES`.
+- Allocations compare across sessions; times only within one session, in adjacent A/B pairs bracketed by sentinels.
+- Decision rule, WorkStealing first: a change may slow Direct or raise memory only if it makes WorkStealing confirmed faster with no WorkStealing case slower; a leak fails regardless. Report every Direct and memory cost.
 
-## Architecture Change Checklist
+## CI (`.github/workflows/`)
 
-- **New effect constructor**: build it from existing node classes where it can (`Factories.fs`, `Extensions.fs`, `Operators.fs`, `CE.fs` as needed). A new node class goes in `Core.fs`: its constructor fixes its slots, and when the interpreter must call into it, a sealed ops class with a lazy per-instantiation singleton overrides only the `NodeOps` members its kind uses (the defaults throw)
-- **New node kind**: add a `NodeKind` case, handle it in `handleSharedCase` in `InterpreterCore.fs` (its match is exhaustive, so the compiler flags it; `isFinalizerNode` and `processRegionCont`'s `FinalizerCont` arm match with wildcards, so check them by hand), check the node's child in its constructor, and add it to the slot test in `FIOTests.fs`. `handleSharedCase` is inlined into both runtimes' loops, so a new kind changes their machine code: check the blocks and measure
-- **New continuation (`Cont`) case**: handle it in the `NoInlining` `processRegionCont` (only `ChainCont` is inline in `processOutcome`), and store it in fields that already exist by name and type, so `Cont` stays 56 bytes (`MappedCont` reuses `FinalizerCont`'s `node`)
-- **New runtime-specific effect case**: add to `RuntimeCase` DU in `InterpreterCore.fs`, route from `handleSharedCase`, then handle it in each runtime's `RuntimeCase` match. Before writing it out per runtime, check whether it fits an existing shared helper — `awaitedTask` (how to wait, given interruption suppression), `settledTaskEffect` (settled task → resume effect), `parkOnTask` (park on an unfinished task; the reschedule seam is the only per-runtime part), `resumeWith` (carry the suppression level onto a rented work item). Only the scheduling seam should differ between runtimes
-- **Runtime change**: update interpreter logic, add tests, and validate benchmarks. A runtime has one
-  entry point, `Run`: schedule the effect on a new fiber and return. It must never wait for, interrupt,
-  or discard fibers already running — clearing scheduler queues destroys in-flight work *without*
-  running finalizers, which `tests/FIO.Tests/Runtime/ConformanceTests.fs` guards against. Only
-  `Shutdown`/`Dispose` interrupt running fibers, and they wait up to their timeout for them to unwind rather than discard them
-- **Extension change**: update error model, DSL surface, and extension README
-- **Behavior change**: update examples and tests to match new semantics
-- **New public API**: add a concise XML doc comment per [`docs/COMMENT_STYLE.md`](docs/COMMENT_STYLE.md)
+- `test.yml`, one matrix job: Debug on Ubuntu/Windows/macOS (the ruleset requires the `build (<os>)` checks), Release on Ubuntu/macOS (where `InterpreterSizeTests` runs), `checked-casts`; `build (ubuntu-latest)` also checks formatting. Stress on, `--blame-hang-timeout 5m`, no coverage.
+- `soak.yml`: nightly, the Release core suite N times (default 20) on Ubuntu/macOS.
+- `benchmark.yml`: a Dry smoke test of every benchmark, then a measured Pingpong run published to the gh-pages tracker (not a gate; series names embed the runtime spec).
+- `publish.yml`: tags `v*` (must equal `<Version>`); packs with `dotnet pack -c Release -p:StripInternals=true`; only a pushed tag publishes, via NuGet trusted publishing in the `production` environment, so renaming the file or the environment breaks it. Actions are pinned to SHAs.
 
-## CI
+## Style & tooling
 
-Four GitHub Actions workflows in `.github/workflows/`:
-
-- **`test.yml` (Run Tests)** — push/PR on **`main`** + manual. Matrix: Ubuntu, Windows, macOS (`fail-fast: false`), one identical test step per OS. Sets `FIO_RUN_STRESS=1` to enable the opt-in stress/regression tests, bounded by `timeout-minutes: 30` because a deadlock is a plausible failure mode here. Uploads a TRX per test project per OS `if: always()`; `--blame-hang-timeout 5m` turns a hang into a failed test with a name — a CI-only flake cannot be re-run with better capture. The ruleset requires the `build (<os>)` checks, so keep the job and matrix names. A second job, `release`, builds and tests in **Release** with stress on Ubuntu and macOS (x64 and ARM64): Release is what ships, F# compiles `task { }` into state machines only when optimizing, and it is where `InterpreterSizeTests` runs. Both jobs pass `--blame-crash` (mini dumps; not on Windows, which would need procdump) and upload the dumps and blame sequence files on failure. A third job, `checked-casts`, builds and tests Release with `-p:FioCheckedCasts=true` on Ubuntu. A fourth, `format`, restores the pinned Fantomas (`dotnet tool restore`) and runs `dotnet fantomas --check .`, failing on any F# file the formatter would change. **No coverage in CI** (instrumentation slows every run, and nothing consumed the reports); coverage is a local `dotnet test --collect:"XPlat Code Coverage"` measurement.
-- **`soak.yml` (Nightly Soak)** — scheduled (02:00 UTC) + manual (input `runs`, default 20): `scripts/stress-test.sh` runs the core suite in Release with stress on Ubuntu and macOS, with crash and hang dumps, and uploads TRX, dumps and blame sequence files on failure. It exists for the rare crash or race one CI run misses; a schedule runs only from the default branch.
-- **`benchmark.yml` (Performance Benchmarks)** — push/PR to **main** (skipping docs-only changes) + manual, Ubuntu only. First a **smoke test** (all benchmarks × both runtimes, tiny params, `--job Dry`) to fail fast on hang/throw; then a measured **Pingpong** run. That job runs the repository's code with a read-only token and no persisted credentials; a separate `track` job, which runs none, gets the write scopes and publishes to <https://fs-fio.github.io/fio/dev/bench/> (`gh-pages`, on `main` only). That dashboard is a **tracker, not a gate** — shared-runner variance swamps any useful threshold, so `fail-on-alert` is off and the real perf gate is the local sentinel-bracketed A/B protocol. The series names embed the runtime spec (`Pingpong - WorkStealing-2-200`), so changing a spec starts a new series and orphans the history.
-- **`publish.yml` (Publish NuGet Packages)** — on tags. `v*` = **lockstep** (all four packages; tag must equal `Directory.Build.props` `<Version>`); `core-v*` packs the core with `-p:Version` (and must equal the baseline too); `http-v*`/`sockets-v*`/`websockets-v*` = **per-package** release (sets `PackageReleaseVersion`; the FIO dependency stays the baseline as a minimum, `>=`, not a pin). A pushed tag matching none of these starts no run; a manual run on such a tag fails. The `pack` job resolves and checks the version before the build; then it builds Release, runs tests, packs with `-p:StripInternals=true` (the packed assemblies carry no `InternalsVisibleTo`) and uploads the packages as an artifact, with read-only permissions. The `publish` job runs only for a **pushed tag** (`github.event_name == 'push'`), so every `workflow_dispatch` run — on a branch or on a tag — is a dry run that ends after `pack`. It runs none of the repository's code: in the `production` environment, with `contents: write` and `id-token: write`, it pushes the artifact to NuGet.org through **trusted publishing** (`NuGet/login` swaps the job's OIDC token for a short-lived API key; no key is stored) and creates a GitHub release, marked prerelease for a version with a suffix. The nuget.org policy names `fs-fio/fio`, `publish.yml` and `production`, so renaming the file or the environment breaks publishing. All actions are pinned to commit SHAs (Dependabot keeps them current).
-
-## Commit Style
-
-Short, sentence-style messages (e.g., "Fix benchmark output", "Improve App.fs"). No strict prefixes; keep messages descriptive.
-
-## Comment Style
-
-Two tiers — see [`docs/COMMENT_STYLE.md`](docs/COMMENT_STYLE.md) for the full guide and per-construct examples:
-
-- **Public, user-facing API** (callable from a referencing package): a concise, ZIO-style XML doc comment (`///`). One verb-first summary line by default; "this effect" voice; describe behavior, not the signature. **Never** document internal/private items, the node classes and `NodeOps`, runtime internals, or the `FIOBuilder` CE methods.
-- **Internals**: comment-free. Use an inline `//` only when the *why* isn't obvious from the code. Never restate what the code does. No commented-out code (use git history).
-
-Keep doc comments well-formed XML — rephrase types out of prose ("an effect") or, in a comment that opens with a tag, escape them (`FIO&lt;'A,'E&gt;`) — since `WarnOn 3390` fails the build on malformed doc XML. A bare `///` comment is XML-escaped by the compiler, so markup in it (`<c>…</c>`, entities) ships as literal text: a comment with markup opens with `<summary>` (`/// <summary>… <c>FlatMap</c>.</summary>`).
-
-## Formatting & Tooling
-
-- **`.editorconfig`** governs formatting: UTF-8, LF line endings, final newline, trim trailing whitespace (except `*.md`). 4-space indent by default (F#, project files and the rest); 2-space for JSON/YAML.
-- **Fantomas** owns the layout of every F# file. The version is pinned in `dotnet-tools.json` (`dotnet tool restore` once per clone), and it runs with its defaults plus one `.editorconfig` override, `fsharp_blank_lines_around_nested_multiline_expressions = false`, which keeps blank lines as written (in tests they are the Arrange/Act/Assert boundaries). Run `dotnet fantomas .` before calling work done; CI's `format` job runs `dotnet fantomas --check .`. A Fantomas bump can reformat code, so it comes as its own PR with a reformat-only commit, and Dependabot ignores `fantomas`. Fantomas 8.0.10–8.1.0 cannot print `new T { r with … }` (its own output fails to parse, so it refuses the whole file): write `new T({ r with … })`.
-- **`TreatWarningsAsErrors=true`** — set once in `Directory.Build.props`, applies to every project. Fix all warnings. Use `TreatWarningsAsErrors`, **not** `WarningsAsErrors` (the F# SDK reads the latter as a warning-number list).
-- **XML docs:** packable libraries set `GenerateDocumentationFile=true` and `WarnOn 3390` (see **Comment Style**).
-- **Central Package Management:** all package versions are pinned in `Directory.Packages.props` (e.g. BenchmarkDotNet 0.15.8). FSharp.Core's implicit reference is disabled in favor of an explicit, version-less `PackageReference` so the central version wins. **FSharp.Core 11.0.101 is the consumers' floor**, packed as `>= 11.0.101`: an F# consumer on an older FSharp.Core gets only a warning and a crash at run time, so it is raised only when the code needs a newer API, and Dependabot ignores it.
-- **Versioning:** the baseline `<Version>` lives once in `Directory.Build.props`; the publish workflow requires a `v*`/`core-v*` tag to equal it, and an extension tag sets that package's version through `PackageReleaseVersion`. Only the four `src/` libraries are packable (`IsPackable`); tests/benchmarks/examples are not.
-- F# `ParallelCompilation` and `Deterministic` use SDK defaults (no project-level overrides). F# compile order matters — file order in `.fsproj` is the compilation order.
-- Layout is Fantomas's; naming and idiom still match the existing code in `src/` and `tests/`.
+- Naming: factories lowercase (`FIO.succeed`, `FIO.acquireReleaseWith`), instance members PascalCase (`effect.FlatMap`), library modules qualified (`Console.printLine`).
+- Opens: none unused; groups in the order project-local (`FIO.*.Tests`, `FIO.Benchmarks`), FIO, third-party (Expecto, FsCheck, BenchmarkDotNet), `System`, `Microsoft`, a blank line between groups, shortest line first within a group.
+- Commits: short, sentence-style ("Fix benchmark output").
+- Comments: see `docs/COMMENT_STYLE.md`. One-line `///` on public API, none on internals; doc XML must be well-formed (`WarnOn 3390`), and a comment with markup opens with `<summary>`.
+- Fantomas (pinned in `dotnet-tools.json`) owns layout, with one `.editorconfig` override (`fsharp_blank_lines_around_nested_multiline_expressions = false`) that keeps the AAA blank lines. Run it before calling work done; a Fantomas bump is its own PR. Write `new T({ r with … })`: Fantomas 8.0.10–8.1.0 cannot print `new T { r with … }`.
+- `TreatWarningsAsErrors=true` everywhere; use it, not `WarningsAsErrors` (which takes a list of warning numbers).
+- Package versions live in `Directory.Packages.props`. FSharp.Core 11.0.101 is the consumers' floor: raise it only when the code needs a newer API.
+- `[<TailCall>]` goes on ordinary recursion that must be a loop (`Ref.cas`, the HTTP route matchers, both `InterpretAsync` members), never on FIO effect loops; keep `return! loop ()` last.

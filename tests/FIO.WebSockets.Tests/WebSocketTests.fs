@@ -1,14 +1,15 @@
 module FIO.WebSockets.Tests.WebSocketTests
 
+open FIO.Tests.Utilities
 open FIO.WebSockets.Tests.Utilities
 
 open FIO.DSL
 open FIO.WebSockets
 
+open Expecto
+
 open System
 open System.Net.WebSockets
-
-open Expecto
 
 [<Tests>]
 let webSocketTests =
@@ -92,33 +93,6 @@ let webSocketTests =
                                 | Frame(Binary b) -> Expect.equal b data $"Binary of {size} bytes"
                                 | other -> failtest $"Expected binary frame but got {other}")
 
-                    testAllRuntimes "ReceiveMessage - fails with MessageTooLarge past MaxMessageSize" (fun runtime ->
-                        let result =
-                            withTestServer
-                                echoHandler
-                                (fun port ->
-                                    fio {
-                                        let config =
-                                            WebSocketConfig.defaultConfig
-                                            |> WebSocketConfig.withMaxMessageSize 10_000L
-                                        let! ws =
-                                            WebSocketClient.connect
-                                                (Uri $"ws://localhost:{port}/")
-                                                config
-                                                Threading.CancellationToken.None
-                                        do! ws.SendText(String('x', 16_384))
-                                        let! result = ws.ReceiveMessage().Result()
-                                        do! ws.Abort().Ignore()
-                                        return result
-                                    })
-                                runtime
-
-                        match result with
-                        | Error(MessageTooLarge(actual, max)) ->
-                            Expect.equal max 10_000L "The configured limit"
-                            Expect.isGreaterThan actual 10_000L "The size at which the limit was crossed"
-                        | other -> failtest $"Expected MessageTooLarge but got {other}")
-
                     testAllRuntimes
                         "ReceiveMessage - past MaxMessageSize, aborts the connection rather than returning the rest as a message"
                         (fun runtime ->
@@ -143,7 +117,9 @@ let webSocketTests =
                                     runtime
 
                             match first with
-                            | Error(MessageTooLarge _) -> ()
+                            | Error(MessageTooLarge(actual, max)) ->
+                                Expect.equal max 10_000L "The configured limit"
+                                Expect.isGreaterThan actual 10_000L "The size at which the limit was crossed"
                             | other -> failtest $"Expected MessageTooLarge but got {other}"
                             match second with
                             | Error(Closed _) -> ()
@@ -363,40 +339,6 @@ let webSocketTests =
                         | other ->
                             failtest
                                 $"The peer's receive should end with an error or a disconnect, not a clean close, got %A{other}")
-                ]
-
-            testList
-                "Connection state"
-                [
-                    testAllRuntimes "State - returns Open for a connected socket" (fun runtime ->
-                        let state =
-                            withTestServer
-                                noopHandler
-                                (fun port ->
-                                    fio {
-                                        let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
-                                        let! state = ws.State()
-                                        do! ws.Close()
-                                        return state
-                                    })
-                                runtime
-
-                        Expect.equal state WebSocketState.Open "Should be Open")
-
-                    testAllRuntimes "CloseStatus - returns None for an open socket" (fun runtime ->
-                        let status =
-                            withTestServer
-                                noopHandler
-                                (fun port ->
-                                    fio {
-                                        let! ws = WebSocketClient.connectDefault $"ws://localhost:{port}/"
-                                        let! status = ws.CloseStatus()
-                                        do! ws.Close()
-                                        return status
-                                    })
-                                runtime
-
-                        Expect.isNone status "CloseStatus should be None for open socket")
                 ]
 
             testList

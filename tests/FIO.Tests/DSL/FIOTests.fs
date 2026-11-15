@@ -1,7 +1,7 @@
 module FIO.Tests.FIOTests
 
 open FIO.Tests.Utilities
-open FIO.Tests.Utilities.FsCheckProperties
+open FIO.Tests.FsCheckProperties
 
 open FIO.DSL
 open FIO.Runtime
@@ -12,6 +12,7 @@ open System
 open System.Threading
 open System.Diagnostics
 open System.Threading.Tasks
+
 open Microsoft.FSharp.Reflection
 
 let private kindName (node: FIOBase) =
@@ -596,10 +597,10 @@ let fioTests =
                 ]
 
             testList
-                "Throw-in-handler (E-1 / E-2)"
+                "Throw-in-handler"
                 [
                     testAllRuntimes
-                        "Action - throwing onError surfaces the original exception as a defect (E-1)"
+                        "Action - throwing onError surfaces the original exception as a defect"
                         (fun runtime ->
                             let originalExn = InvalidOperationException "original"
                             let effect: FIO<int, exn> =
@@ -617,7 +618,7 @@ let fioTests =
                                 | other -> failtest $"Expected a Defect cause but got {other}"
                             | other -> failtest $"Expected Interrupted but got {other}")
 
-                    testAllRuntimes "FlatMap - throwing continuation produces a defect (E-2)" (fun runtime ->
+                    testAllRuntimes "FlatMap - throwing continuation produces a defect" (fun runtime ->
                         let effect: FIO<int, exn> =
                             FIO.succeed(42).FlatMap(fun (_: int) -> failwith "continuation throws")
 
@@ -634,7 +635,7 @@ let fioTests =
                             | other -> failtest $"Expected a Defect cause but got {other}"
                         | other -> failtest $"Expected Interrupted but got {other}")
 
-                    testAllRuntimes "CatchAll - throwing error handler produces a defect (E-2)" (fun runtime ->
+                    testAllRuntimes "CatchAll - throwing error handler produces a defect" (fun runtime ->
                         let effect: FIO<int, exn> =
                             FIO
                                 .fail(InvalidOperationException "typed error")

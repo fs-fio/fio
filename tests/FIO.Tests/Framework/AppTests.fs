@@ -9,11 +9,11 @@ open FIO.Runtime
 open FIO.Runtime.Direct
 open FIO.Runtime.WorkStealing
 
+open Expecto
+
 open System
 open System.IO
 open System.Threading
-
-open Expecto
 
 let private silenceErr (body: unit -> 'a) =
     let original = Console.Error
@@ -247,13 +247,6 @@ let private runLogged (run: TestApp -> int) (effect: FIO<int, string>) =
     let exitCode = run (TestApp(effect, log))
     exitCode, Seq.toList log
 
-let private testUnix name (body: unit -> unit) =
-    testCase name (fun () ->
-        if OperatingSystem.IsWindows() then
-            skiptest "A POSIX signal cannot be sent to a single process on Windows"
-
-        body ())
-
 let private runSignalled (scenario: string) (signal: string) =
     use child = new ChildProcess([ scenario ])
     Expect.isTrue
@@ -472,13 +465,13 @@ let appTests =
             testList
                 "Shutdown hooks"
                 [
-                    testCase "onShutdown - default hook is a no-op that does not affect exit code"
+                    testCase "onShutdown and onOutcome - the default hooks are no-ops that do not affect exit code"
                     <| fun () ->
                         let app = MinimalApp(FIO.succeed 42)
 
                         let exitCode = app.Run()
 
-                        Expect.equal exitCode 0 "Default shutdown hook should not change success exit code"
+                        Expect.equal exitCode 0 "The default hooks should not change the success exit code"
 
                     testCase "onShutdown - custom success hook runs"
                     <| fun () ->
@@ -596,14 +589,6 @@ let appTests =
             testList
                 "onOutcome"
                 [
-                    testCase "onOutcome - default hook is a no-op that does not affect exit code"
-                    <| fun () ->
-                        let app = MinimalApp(FIO.succeed 42)
-
-                        let exitCode = app.Run()
-
-                        Expect.equal exitCode 0 "Default outcome hook should not change success exit code"
-
                     testCase "onOutcome - runs with AppSucceeded on success"
                     <| fun () ->
                         let log = ResizeArray()
@@ -1029,7 +1014,7 @@ let appTests =
                             exited
                             "The app must not overrule a handler that cancelled the second SIGTERM (.NET runs SIGTERM handlers newest first, so the app's, registered first, runs last)")
 
-                    FsCheckProperties.stressTestCase
+                    stressTestCase
                         "Run - an app whose runtime is shut down under it always ends, 200 times in a row"
                         (fun () ->
                             let outcomes =

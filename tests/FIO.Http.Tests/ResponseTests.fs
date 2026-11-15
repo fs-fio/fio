@@ -2,9 +2,9 @@ module FIO.Http.Tests.ResponseTests
 
 open FIO.Http
 
-open System.IO
-
 open Expecto
+
+open System.IO
 
 [<Tests>]
 let responseTests =

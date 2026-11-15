@@ -10,7 +10,7 @@
         <PackageTags>fsharp;effects;async;concurrent;functional;zio;fibers</PackageTags>
     </PropertyGroup>
 
-    <!-- Left out of published packages: publish.yml and scripts/pack.sh pack with StripInternals=true. -->
+    <!-- Left out of published packages: publish.yml packs with StripInternals=true. -->
     <ItemGroup Condition="'$(StripInternals)' != 'true'">
         <InternalsVisibleTo Include="FIO.Tests" />
     </ItemGroup>
@@ -25,15 +25,12 @@
         <Compile Include="DSL\Exceptions.fs" />
         <Compile Include="DSL\Core.fs" />
         <Compile Include="DSL\Factories.fs" />
-        <Compile Include="DSL\Ref.fs" />
-        <Compile Include="DSL\Promise.fs" />
-        <Compile Include="DSL\Semaphore.fs" />
+        <Compile Include="DSL\Primitives.fs" />
         <Compile Include="DSL\Extensions.fs" />
         <Compile Include="DSL\Operators.fs" />
         <Compile Include="DSL\CE.fs" />
         <Compile Include="Console.fs" />
         <Compile Include="Runtime\Runtime.fs" />
-        <Compile Include="Runtime\WorkerInfrastructure.fs" />
         <Compile Include="Runtime\InterpreterCore.fs" />
         <Compile Include="Runtime\DirectRuntime.fs" />
         <Compile Include="Runtime\WorkStealingRuntime.fs" />

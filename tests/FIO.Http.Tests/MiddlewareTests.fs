@@ -1,13 +1,14 @@
 module FIO.Http.Tests.MiddlewareTests
 
+open FIO.Tests.Utilities
 open FIO.Http.Tests.Utilities
 
 open FIO.DSL
 open FIO.Http
 
-open System
-
 open Expecto
+
+open System
 
 let private applyMiddleware
     (middleware: Middleware<exn>)
@@ -24,7 +25,7 @@ let middlewareTests =
         "Middleware"
         [
 
-            testAllRuntimes "addHeader - adds a header to every response" (fun runtime ->
+            testAllRuntimesSequenced "addHeader - adds a header to every response" (fun runtime ->
                 let mw = Middleware.addHeader "X-Custom" "value"
 
                 let resp =
@@ -32,7 +33,7 @@ let middlewareTests =
 
                 Expect.equal (HttpResponse.header "X-Custom" resp) (Some "value") "Header added")
 
-            testAllRuntimes "addHeaders - adds several headers" (fun runtime ->
+            testAllRuntimesSequenced "addHeaders - adds several headers" (fun runtime ->
                 let mw = Middleware.addHeaders [ "X-A", "1"; "X-B", "2" ]
 
                 let resp = applyMiddleware mw HttpHandler.ok (makeGetRequest "/test") runtime
@@ -40,7 +41,7 @@ let middlewareTests =
                 Expect.equal (HttpResponse.header "X-A" resp) (Some "1") "X-A"
                 Expect.equal (HttpResponse.header "X-B" resp) (Some "2") "X-B")
 
-            testAllRuntimes "before - runs an effect before the handler" (fun runtime ->
+            testAllRuntimesSequenced "before - runs an effect before the handler" (fun runtime ->
                 let mutable ran = false
                 let mw = Middleware.before (fun _ -> FIO.attempt (fun () -> ran <- true) id)
 
@@ -49,7 +50,7 @@ let middlewareTests =
                 Expect.isTrue ran "Before effect ran"
                 Expect.equal resp.Status HttpStatusCode.OK "200")
 
-            testAllRuntimes "after - runs an effect after the handler" (fun runtime ->
+            testAllRuntimesSequenced "after - runs an effect after the handler" (fun runtime ->
                 let mutable capturedStatus = HttpStatusCode.Continue
                 let mw =
                     Middleware.after (fun _ resp -> FIO.attempt (fun () -> capturedStatus <- resp.Status) id)
@@ -59,7 +60,7 @@ let middlewareTests =
                 Expect.equal capturedStatus HttpStatusCode.OK "Captured status"
                 Expect.equal resp.Status HttpStatusCode.OK "200")
 
-            testAllRuntimes "compose - applies the outer middleware after the inner" (fun runtime ->
+            testAllRuntimesSequenced "compose - applies the outer middleware after the inner" (fun runtime ->
                 let inner = Middleware.addHeader "X-Inner" "true"
                 let outer = Middleware.addHeader "X-Outer" "true"
                 let composed = Middleware.compose outer inner
@@ -69,14 +70,14 @@ let middlewareTests =
                 Expect.equal (HttpResponse.header "X-Inner" resp) (Some "true") "Inner"
                 Expect.equal (HttpResponse.header "X-Outer" resp) (Some "true") "Outer")
 
-            testAllRuntimes "requestId - adds an X-Request-ID header" (fun runtime ->
+            testAllRuntimesSequenced "requestId - adds an X-Request-ID header" (fun runtime ->
                 let mw = Middleware.requestId (fun () -> "test-id-123")
 
                 let resp = applyMiddleware mw HttpHandler.ok (makeGetRequest "/test") runtime
 
                 Expect.equal (HttpResponse.header "X-Request-ID" resp) (Some "test-id-123") "Request ID")
 
-            testAllRuntimes "logging - calls the logger with the request" (fun runtime ->
+            testAllRuntimesSequenced "logging - calls the logger with the request" (fun runtime ->
                 let mutable loggedPath = ""
                 let mw =
                     Middleware.logging (fun req -> FIO.attempt (fun () -> loggedPath <- req.Path) id)
@@ -90,28 +91,32 @@ let middlewareTests =
                 "timeout"
                 [
 
-                    testAllRuntimes "timeout - returns the handler's response when it is fast enough" (fun runtime ->
-                        let mw = Middleware.timeout (TimeSpan.FromSeconds 5.0)
+                    testAllRuntimesSequenced
+                        "timeout - returns the handler's response when it is fast enough"
+                        (fun runtime ->
+                            let mw = Middleware.timeout (TimeSpan.FromSeconds 5.0)
 
-                        let resp =
-                            applyMiddleware mw (HttpHandler.text "fast") (makeGetRequest "/test") runtime
+                            let resp =
+                                applyMiddleware mw (HttpHandler.text "fast") (makeGetRequest "/test") runtime
 
-                        match resp.Body with
-                        | ResponseBody.Text t -> Expect.equal t "fast" "Fast response"
-                        | _ -> failtest "Expected Text body")
+                            match resp.Body with
+                            | ResponseBody.Text t -> Expect.equal t "fast" "Fast response"
+                            | _ -> failtest "Expected Text body")
 
-                    testAllRuntimes "timeout - returns 408 when the handler exceeds the duration" (fun runtime ->
-                        let slowHandler =
-                            fun _ ->
-                                (FIO.sleep (TimeSpan.FromSeconds 10.0))
-                                    .FlatMap(fun () -> FIO.succeed (Response.okText "slow"))
-                        let mw = Middleware.timeout (TimeSpan.FromMilliseconds 100.0)
+                    testAllRuntimesSequenced
+                        "timeout - returns 408 when the handler exceeds the duration"
+                        (fun runtime ->
+                            let slowHandler =
+                                fun _ ->
+                                    (FIO.sleep (TimeSpan.FromSeconds 10.0))
+                                        .FlatMap(fun () -> FIO.succeed (Response.okText "slow"))
+                            let mw = Middleware.timeout (TimeSpan.FromMilliseconds 100.0)
 
-                        let resp = applyMiddleware mw slowHandler (makeGetRequest "/test") runtime
+                            let resp = applyMiddleware mw slowHandler (makeGetRequest "/test") runtime
 
-                        Expect.equal resp.Status HttpStatusCode.RequestTimeout "408 Timeout")
+                            Expect.equal resp.Status HttpStatusCode.RequestTimeout "408 Timeout")
 
-                    testAllRuntimes "timeoutExn - times out like timeout" (fun runtime ->
+                    testAllRuntimesSequenced "timeoutExn - times out like timeout" (fun runtime ->
                         let mw = Middleware.timeout (TimeSpan.FromSeconds 5.0)
 
                         let resp =
@@ -124,7 +129,7 @@ let middlewareTests =
                 "cors"
                 [
 
-                    testAllRuntimes "cors - adds CORS headers to a normal request" (fun runtime ->
+                    testAllRuntimesSequenced "cors - adds CORS headers to a normal request" (fun runtime ->
                         let mw =
                             Middleware.cors [ "http://example.com" ] [ "GET"; "POST" ] [ "Content-Type" ]
                         let req =
@@ -141,7 +146,7 @@ let middlewareTests =
                             (Some "GET, POST")
                             "Allow-Methods")
 
-                    testAllRuntimes "cors - returns 204 for an OPTIONS preflight" (fun runtime ->
+                    testAllRuntimesSequenced "cors - returns 204 for an OPTIONS preflight" (fun runtime ->
                         let mw = Middleware.cors [ "*" ] [ "GET"; "POST" ] [ "Content-Type" ]
                         let routes = Routes.route (Route.get "/test") HttpHandler.ok |> Middleware.apply mw
                         let req =
@@ -153,7 +158,7 @@ let middlewareTests =
                         Expect.equal resp.Status HttpStatusCode.NoContent "204 Preflight"
                         Expect.isSome (HttpResponse.header "Access-Control-Max-Age" resp) "Max-Age header")
 
-                    testAllRuntimes "cors - returns 403 for a disallowed origin" (fun runtime ->
+                    testAllRuntimesSequenced "cors - returns 403 for a disallowed origin" (fun runtime ->
                         let mw = Middleware.cors [ "http://allowed.com" ] [ "GET" ] [ "Content-Type" ]
                         let req =
                             makeGetRequest "/test" |> HttpRequest.withHeader "Origin" "http://evil.com"
@@ -162,7 +167,7 @@ let middlewareTests =
 
                         Expect.equal resp.Status HttpStatusCode.Forbidden "403")
 
-                    testAllRuntimes "cors - allows a request without an Origin header" (fun runtime ->
+                    testAllRuntimesSequenced "cors - allows a request without an Origin header" (fun runtime ->
                         let mw = Middleware.cors [ "http://allowed.com" ] [ "GET" ] [ "Content-Type" ]
 
                         let resp = applyMiddleware mw HttpHandler.ok (makeGetRequest "/test") runtime
@@ -174,7 +179,7 @@ let middlewareTests =
                 "basicAuth"
                 [
 
-                    testAllRuntimes "basicAuth - passes valid credentials" (fun runtime ->
+                    testAllRuntimesSequenced "basicAuth - passes valid credentials" (fun runtime ->
                         let authenticate user pass =
                             FIO.succeed (user = "admin" && pass = "secret")
                         let mw = Middleware.basicAuth authenticate
@@ -187,7 +192,7 @@ let middlewareTests =
 
                         Expect.equal resp.Status HttpStatusCode.OK "Authenticated")
 
-                    testAllRuntimes "basicAuth - rejects invalid credentials" (fun runtime ->
+                    testAllRuntimesSequenced "basicAuth - rejects invalid credentials" (fun runtime ->
                         let authenticate user pass =
                             FIO.succeed (user = "admin" && pass = "secret")
                         let mw = Middleware.basicAuth authenticate
@@ -200,7 +205,7 @@ let middlewareTests =
 
                         Expect.equal resp.Status HttpStatusCode.Unauthorized "401")
 
-                    testAllRuntimes "basicAuth - rejects a missing Authorization header" (fun runtime ->
+                    testAllRuntimesSequenced "basicAuth - rejects a missing Authorization header" (fun runtime ->
                         let authenticate _ _ = FIO.succeed true
                         let mw = Middleware.basicAuth authenticate
 
@@ -208,7 +213,7 @@ let middlewareTests =
 
                         Expect.equal resp.Status HttpStatusCode.Unauthorized "401")
 
-                    testAllRuntimes "basicAuth - rejects malformed base64" (fun runtime ->
+                    testAllRuntimesSequenced "basicAuth - rejects malformed base64" (fun runtime ->
                         let authenticate _ _ = FIO.succeed true
                         let mw = Middleware.basicAuth authenticate
                         let req =
@@ -219,7 +224,7 @@ let middlewareTests =
 
                         Expect.equal resp.Status HttpStatusCode.Unauthorized "401 for bad base64")
 
-                    testAllRuntimes "basicAuth - rejects credentials without a colon" (fun runtime ->
+                    testAllRuntimesSequenced "basicAuth - rejects credentials without a colon" (fun runtime ->
                         let called = ref false
                         let authenticate _ _ =
                             called.Value <- true
@@ -235,7 +240,7 @@ let middlewareTests =
                         Expect.equal resp.Status HttpStatusCode.Unauthorized "401 for credentials without a colon"
                         Expect.isFalse called.Value "Credentials without a colon must not reach the authenticator")
 
-                    testAllRuntimes "basicAuth - handles a colon in the password" (fun runtime ->
+                    testAllRuntimesSequenced "basicAuth - handles a colon in the password" (fun runtime ->
                         let authenticate user pass =
                             FIO.succeed (user = "admin" && pass = "pass:word:with:colons"): FIO<bool, exn>
                         let mw = Middleware.basicAuth authenticate
@@ -254,7 +259,7 @@ let middlewareTests =
                 "bearerAuth"
                 [
 
-                    testAllRuntimes "bearerAuth - passes a valid token and attaches the user" (fun runtime ->
+                    testAllRuntimesSequenced "bearerAuth - passes a valid token and attaches the user" (fun runtime ->
                         let authenticate token =
                             if token = "valid-token" then
                                 FIO.succeed (Some "user1")
@@ -276,7 +281,7 @@ let middlewareTests =
                         | ResponseBody.Text t -> Expect.equal t "user1" "User metadata"
                         | _ -> failtest "Expected Text body")
 
-                    testAllRuntimes "bearerAuth - rejects an invalid token" (fun runtime ->
+                    testAllRuntimesSequenced "bearerAuth - rejects an invalid token" (fun runtime ->
                         let authenticate _ = FIO.succeed None
                         let mw = Middleware.bearerAuth authenticate
                         let req =
@@ -287,7 +292,7 @@ let middlewareTests =
 
                         Expect.equal resp.Status HttpStatusCode.Unauthorized "401")
 
-                    testAllRuntimes "bearerAuth - rejects a missing Authorization header" (fun runtime ->
+                    testAllRuntimesSequenced "bearerAuth - rejects a missing Authorization header" (fun runtime ->
                         let authenticate _ = FIO.succeed (Some "user")
                         let mw = Middleware.bearerAuth authenticate
 
@@ -295,7 +300,7 @@ let middlewareTests =
 
                         Expect.equal resp.Status HttpStatusCode.Unauthorized "401")
 
-                    testAllRuntimes "bearerAuth - rejects an empty token" (fun runtime ->
+                    testAllRuntimesSequenced "bearerAuth - rejects an empty token" (fun runtime ->
                         let authenticate _ = FIO.succeed (Some "user")
                         let mw = Middleware.bearerAuth authenticate
                         let req = makeGetRequest "/test" |> HttpRequest.withHeader "Authorization" "Bearer "
@@ -305,7 +310,7 @@ let middlewareTests =
                         Expect.equal resp.Status HttpStatusCode.Unauthorized "401 for empty token")
                 ]
 
-            testAllRuntimes "errorHandler - catches an error and converts it to a response" (fun runtime ->
+            testAllRuntimesSequenced "errorHandler - catches an error and converts it to a response" (fun runtime ->
                 let mw =
                     Middleware.errorHandler (fun (ex: exn) -> Response.internalServerErrorText ex.Message)
                 let failingHandler = fun _ -> FIO.fail (exn "boom")
@@ -321,7 +326,7 @@ let middlewareTests =
                 "MiddlewareOperators"
                 [
 
-                    testAllRuntimes "( @@ ) - applies a middleware to routes" (fun runtime ->
+                    testAllRuntimesSequenced "( @@ ) - applies a middleware to routes" (fun runtime ->
                         let routes =
                             MiddlewareOperators.(@@)
                                 (Routes.route (Route.get "/test") HttpHandler.ok)
@@ -331,7 +336,7 @@ let middlewareTests =
 
                         Expect.equal (HttpResponse.header "X-Applied" resp) (Some "yes") "Applied")
 
-                    testAllRuntimes "( +++ ) - composes two middlewares" (fun runtime ->
+                    testAllRuntimesSequenced "( +++ ) - composes two middlewares" (fun runtime ->
                         let composed =
                             MiddlewareOperators.(+++) (Middleware.addHeader "X-A" "1") (Middleware.addHeader "X-B" "2")
 

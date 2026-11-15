@@ -1,7 +1,7 @@
 module FIO.Tests.FiberTests
 
 open FIO.Tests.Utilities
-open FIO.Tests.Utilities.FsCheckProperties
+open FIO.Tests.FsCheckProperties
 
 open FIO.DSL
 open FIO.Runtime
@@ -41,32 +41,6 @@ let fiberTests =
     testList
         "Fiber"
         [
-            testList
-                "Fiber - Id"
-                [
-                    testPropertyWithConfig fsCheckConfig "Id - is unique per fiber"
-                    <| fun (runtime: FIORuntime, value: int) ->
-                        let effect =
-                            fio {
-                                let! f1 = FIO.succeed(value).Fork()
-                                let! f2 = FIO.succeed(value).Fork()
-                                let! f3 = FIO.succeed(value).Fork()
-                                return f1.Id, f2.Id, f3.Id
-                            }
-
-                        let id1, id2, id3 = runtime.Run(effect).UnsafeSuccess()
-
-                        Expect.notEqual id1 id2 "Fiber IDs should be distinct (1 vs 2)"
-                        Expect.notEqual id2 id3 "Fiber IDs should be distinct (2 vs 3)"
-                        Expect.notEqual id1 id3 "Fiber IDs should be distinct (1 vs 3)"
-
-                    testAllRuntimes "Id - is a non-empty GUID" (fun runtime ->
-                        let fiber = runtime.Run(FIO.succeed 42)
-                        let _ = fiber.UnsafeSuccess()
-
-                        Expect.notEqual fiber.Id Guid.Empty "Fiber ID should not be empty GUID")
-                ]
-
             testList
                 "Fiber - CancellationToken"
                 [
@@ -677,18 +651,6 @@ let fiberTests =
                 ]
 
             testList
-                "Fiber - ToString"
-                [
-                    testAllRuntimes "ToString - returns the fiber ID as a string" (fun runtime ->
-                        let fiber = runtime.Run(FIO.succeed 42)
-                        let _result = fiber.UnsafeSuccess()
-
-                        let str = fiber.ToString()
-
-                        Expect.equal str (fiber.Id.ToString()) "ToString should return the fiber's ID as string")
-                ]
-
-            testList
                 "Fiber - IDisposable"
                 [
                     testAllRuntimes "Dispose - leaves a completed fiber's result readable" (fun runtime ->
@@ -854,39 +816,6 @@ let fiberTests =
             testList
                 "FiberResult - Pattern Matching"
                 [
-                    testPropertyWithConfig fsCheckConfig "Succeeded - pattern matches success result"
-                    <| fun (runtime: FIORuntime, value: int) ->
-                        let fiber = runtime.Run(FIO.succeed value)
-                        let result = fiber.UnsafeResult()
-
-                        match result with
-                        | Succeeded r -> Expect.equal r value "Succeeded should contain the result"
-                        | Failed _ -> failtest "Expected Succeeded but got Failed"
-                        | Interrupted _ -> failtest "Expected Succeeded but got Interrupted"
-
-                    testPropertyWithConfig fsCheckConfig "Failed - pattern matches failure result"
-                    <| fun (runtime: FIORuntime, error: string) ->
-                        let fiber = runtime.Run(FIO.fail error)
-                        let result = fiber.UnsafeResult()
-
-                        match result with
-                        | Succeeded _ -> failtest "Expected Failed but got Succeeded"
-                        | Failed e -> Expect.equal e error "Failed should contain the error"
-                        | Interrupted _ -> failtest "Expected Failed but got Interrupted"
-
-                    testAllRuntimes "Interrupted - pattern matches interrupted result with cause" (fun runtime ->
-                        let fiber = runtime.Run(FIO.interruptNow ())
-                        let result = fiber.UnsafeResult()
-
-                        match result with
-                        | Succeeded _ -> failtest "Expected Interrupted but got Succeeded"
-                        | Failed _ -> failtest "Expected Interrupted but got Failed"
-                        | Interrupted ex ->
-                            Expect.equal
-                                ex.cause
-                                ExplicitInterrupt
-                                "Interrupted should contain ExplicitInterrupt cause")
-
                     testAllRuntimes "InterruptionCause - all cause variants can be matched" (fun runtime ->
                         let causes =
                             [
@@ -975,7 +904,8 @@ let fiberTests =
                         let protectedChild = new FiberContext()
                         parent.ChildScopeToken.Register(fun () -> raise (InvalidOperationException "callback failed"))
                         |> ignore
-                        parent.ProtectedChildScopeToken.Register(fun () -> protectedChild.Interrupt())
+                        parent.ProtectedChildScopeToken.Register(fun () ->
+                            protectedChild.Interrupt(ExplicitInterrupt, "Fiber was interrupted."))
                         |> ignore
 
                         let thrown =
@@ -1032,7 +962,7 @@ let fiberTests =
 
                         let thrown =
                             try
-                                context.Interrupt()
+                                context.Interrupt(ExplicitInterrupt, "Fiber was interrupted.")
                                 None
                             with ex ->
                                 Some ex
@@ -1045,8 +975,14 @@ let fiberTests =
                 ]
 
             testList
-                "Fiber - Id (lazy)"
+                "Fiber - Id"
                 [
+                    testAllRuntimes "Id - is a non-empty GUID" (fun runtime ->
+                        let fiber = runtime.Run(FIO.succeed 42)
+                        let _ = fiber.UnsafeSuccess()
+
+                        Expect.notEqual fiber.Id Guid.Empty "Fiber ID should not be empty GUID")
+
                     testAllRuntimes "Fiber.Id - is the same on every read and from another thread" (fun runtime ->
                         let fiber = runtime.Run(FIO.succeed 42)
                         let _ = fiber.UnsafeSuccess()

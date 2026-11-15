@@ -1,21 +1,23 @@
 module FIO.Http.Tests.KestrelBridgeTests
 
+open FIO.Tests.Utilities
 open FIO.Http.Tests.Utilities
 
 open FIO.DSL
 open FIO.Http
-open FIO.Http.SimpleRoutes
 open FIO.Runtime.Default
+open FIO.Http.SimpleRoutes
+
+open Expecto
 
 open System
 open System.IO
 open System.Text
 open System.Threading
 open System.Threading.Tasks
+
 open Microsoft.AspNetCore.Http
 open Microsoft.AspNetCore.Http.Features
-
-open Expecto
 
 type private TrackingStream(bytes: byte array) =
     inherit MemoryStream(bytes)

@@ -3,10 +3,10 @@ module FIO.WebSockets.Tests.TypesTests
 open FIO.DSL
 open FIO.WebSockets
 
+open Expecto
+
 open System
 open System.Net.WebSockets
-
-open Expecto
 
 [<Tests>]
 let typesTests =

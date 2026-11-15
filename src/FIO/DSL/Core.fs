@@ -40,6 +40,14 @@ module internal NodeCasts =
     [<MethodImpl(MethodImplOptions.NoInlining)>]
     let raiseNullEffect () : unit = raise (NullReferenceException())
 
+    let inline checkEffect<'T when 'T: not struct> (effect: 'T) =
+        if obj.ReferenceEquals(effect, null) then
+            raiseNullEffect ()
+
+    let inline nonNullEffect<'T when 'T: not struct> (effect: 'T) : 'T =
+        checkEffect effect
+        effect
+
 [<Struct; RequireQualifiedAccess; NoEquality; NoComparison>]
 type internal NodeKind =
     | Success
@@ -425,9 +433,7 @@ and [<Sealed; AllowNullLiteral>] internal FiberContext() =
             cancelScope (Volatile.Read &protectedScope)
             this.TryFinish reschedule
 
-    member internal this.Interrupt(?cause, ?message) =
-        let cause = defaultArg cause ExplicitInterrupt
-        let message = defaultArg message "Fiber was interrupted."
+    member internal this.Interrupt(cause: InterruptionCause, message: string) =
         if
             Volatile.Read &completing = 0
             && tryTransition &state (int FiberContextState.Running) (int FiberContextState.Interrupted)
@@ -643,7 +649,7 @@ and [<Sealed>] Fiber<'A, 'E> internal () =
 
 /// A typed, asynchronous channel for passing messages between fibers.
 and [<Sealed; AllowNullLiteral>] Channel<'A>
-    private (id: Guid, valueQueue: MailboxQueue<obj>, blockingSlot: BlockingWorkItemSlot, mode: ChannelMode) =
+    private (valueQueue: MailboxQueue<obj>, blockingSlot: BlockingWorkItemSlot, mode: ChannelMode) =
     [<VolatileField>]
     let mutable upcastChannel = null
 
@@ -654,25 +660,22 @@ and [<Sealed; AllowNullLiteral>] Channel<'A>
         MailboxQueue<obj>.Bounded(capacity, fullMode)
 
     /// Creates a new, empty channel with no capacity limit.
-    new() = Channel(Guid.NewGuid(), MailboxQueue<obj>(), BlockingWorkItemSlot(), Unbounded)
+    new() = Channel(MailboxQueue<obj>(), BlockingWorkItemSlot(), Unbounded)
 
     /// Creates a new, empty channel holding at most the given number of messages; a write to a full channel suspends
     /// until a message is read. A capacity below 1 throws ArgumentOutOfRangeException.
     static member Bounded(capacity: int) : Channel<'A> =
-        Channel<'A>(Guid.NewGuid(), bounded capacity BoundedChannelFullMode.Wait, BlockingWorkItemSlot(), Bounded)
+        Channel<'A>(bounded capacity BoundedChannelFullMode.Wait, BlockingWorkItemSlot(), Bounded)
 
     /// Creates a new, empty channel holding at most the given number of messages; a write to a full channel drops the
     /// new message. A capacity below 1 throws ArgumentOutOfRangeException.
     static member Dropping(capacity: int) : Channel<'A> =
-        Channel<'A>(Guid.NewGuid(), bounded capacity BoundedChannelFullMode.Wait, BlockingWorkItemSlot(), Dropping)
+        Channel<'A>(bounded capacity BoundedChannelFullMode.Wait, BlockingWorkItemSlot(), Dropping)
 
     /// Creates a new, empty channel holding at most the given number of messages; a write to a full channel drops the
     /// oldest message. A capacity below 1 throws ArgumentOutOfRangeException.
     static member Sliding(capacity: int) : Channel<'A> =
-        Channel<'A>(Guid.NewGuid(), bounded capacity BoundedChannelFullMode.DropOldest, BlockingWorkItemSlot(), Sliding)
-
-    /// This channel's unique identifier.
-    member _.Id: Guid = id
+        Channel<'A>(bounded capacity BoundedChannelFullMode.DropOldest, BlockingWorkItemSlot(), Sliding)
 
     /// The number of messages currently buffered in this channel.
     member _.Count: int = valueQueue.Count
@@ -726,7 +729,7 @@ and [<Sealed; AllowNullLiteral>] Channel<'A>
     member internal _.Mode = mode
 
     member internal _.Upcast() =
-        initIfNull &upcastChannel (fun () -> Channel<obj>(id, valueQueue, blockingSlot, mode))
+        initIfNull &upcastChannel (fun () -> Channel<obj>(valueQueue, blockingSlot, mode))
 
 /// The non-generic base type that every effect derives from; it has no public members.
 and [<AbstractClass; NoEquality; NoComparison>] FIOBase =
@@ -904,9 +907,7 @@ and [<Sealed>] internal ActionOps<'A, 'E> private () =
 and [<Sealed>] internal BindNode<'A, 'B, 'E>(inner: FIO<'A, 'E>, cont: 'A -> FIO<'B, 'E>) =
     inherit FIO<'B, 'E>(NodeKind.Bind, inner, BindOps<'A, 'B, 'E>.Instance)
 
-    do
-        if obj.ReferenceEquals(inner, null) then
-            raiseNullEffect ()
+    do checkEffect inner
 
     member _.Cont = cont
 
@@ -926,19 +927,12 @@ and [<Sealed>] internal BindOps<'A, 'B, 'E> private () =
             current
 
     override _.Continue(node, value) =
-        let effect = (cast<BindNode<'A, 'B, 'E>> node).Cont(value :?> 'A)
-
-        if obj.ReferenceEquals(effect, null) then
-            raiseNullEffect ()
-
-        effect
+        nonNullEffect ((cast<BindNode<'A, 'B, 'E>> node).Cont(value :?> 'A)) :> FIOBase
 
 and [<Sealed>] internal CatchNode<'A, 'E, 'E1>(inner: FIO<'A, 'E>, handler: 'E -> FIO<'A, 'E1>) =
     inherit FIO<'A, 'E1>(NodeKind.Catch, inner, CatchOps<'A, 'E, 'E1>.Instance)
 
-    do
-        if obj.ReferenceEquals(inner, null) then
-            raiseNullEffect ()
+    do checkEffect inner
 
     member _.Handler = handler
 
@@ -958,20 +952,13 @@ and [<Sealed>] internal CatchOps<'A, 'E, 'E1> private () =
             current
 
     override _.Fail(node, error) =
-        let effect = (cast<CatchNode<'A, 'E, 'E1>> node).Handler(error :?> 'E)
-
-        if obj.ReferenceEquals(effect, null) then
-            raiseNullEffect ()
-
-        effect
+        nonNullEffect ((cast<CatchNode<'A, 'E, 'E1>> node).Handler(error :?> 'E)) :> FIOBase
 
 and [<Sealed>] internal FoldNode<'A, 'E, 'B, 'E1>
     (inner: FIO<'A, 'E>, onSuccess: 'A -> FIO<'B, 'E1>, onFailure: 'E -> FIO<'B, 'E1>) =
     inherit FIO<'B, 'E1>(NodeKind.Fold, inner, FoldOps<'A, 'E, 'B, 'E1>.Instance)
 
-    do
-        if obj.ReferenceEquals(inner, null) then
-            raiseNullEffect ()
+    do checkEffect inner
 
     member _.OnSuccess = onSuccess
 
@@ -993,27 +980,15 @@ and [<Sealed>] internal FoldOps<'A, 'E, 'B, 'E1> private () =
             current
 
     override _.Continue(node, value) =
-        let effect = (cast<FoldNode<'A, 'E, 'B, 'E1>> node).OnSuccess(value :?> 'A)
-
-        if obj.ReferenceEquals(effect, null) then
-            raiseNullEffect ()
-
-        effect
+        nonNullEffect ((cast<FoldNode<'A, 'E, 'B, 'E1>> node).OnSuccess(value :?> 'A)) :> FIOBase
 
     override _.Fail(node, error) =
-        let effect = (cast<FoldNode<'A, 'E, 'B, 'E1>> node).OnFailure(error :?> 'E)
-
-        if obj.ReferenceEquals(effect, null) then
-            raiseNullEffect ()
-
-        effect
+        nonNullEffect ((cast<FoldNode<'A, 'E, 'B, 'E1>> node).OnFailure(error :?> 'E)) :> FIOBase
 
 and [<Sealed>] internal MapNode<'A, 'B, 'E>(inner: FIO<'A, 'E>, mapper: 'A -> 'B) =
     inherit FIO<'B, 'E>(NodeKind.Map, inner, MapOps<'A, 'B, 'E>.Instance)
 
-    do
-        if obj.ReferenceEquals(inner, null) then
-            raiseNullEffect ()
+    do checkEffect inner
 
     member _.Mapper = mapper
 
@@ -1038,9 +1013,7 @@ and [<Sealed>] internal MapOps<'A, 'B, 'E> private () =
 and [<Sealed>] internal UnitNode<'A, 'E>(inner: FIO<'A, 'E>) =
     inherit FIO<unit, 'E>(NodeKind.Map, inner, UnitOps<'A, 'E>.Instance)
 
-    do
-        if obj.ReferenceEquals(inner, null) then
-            raiseNullEffect ()
+    do checkEffect inner
 
 and [<Sealed>] internal UnitOps<'A, 'E> private () =
     inherit NodeOps()
@@ -1062,9 +1035,7 @@ and [<Sealed>] internal UnitOps<'A, 'E> private () =
 and [<Sealed>] internal AsNode<'A, 'B, 'E>(inner: FIO<'A, 'E>, value: 'B) =
     inherit FIO<'B, 'E>(NodeKind.Map, inner, AsOps<'A, 'B, 'E>.Instance)
 
-    do
-        if obj.ReferenceEquals(inner, null) then
-            raiseNullEffect ()
+    do checkEffect inner
 
     let boxed = box value
 
@@ -1097,9 +1068,7 @@ and [<Sealed>] internal FinalizeNode<'A, 'E>(inner: FIO<'A, 'E>, finalizer: FIO<
 and [<Sealed>] internal ExitNode<'A, 'E>(inner: FIO<'A, 'E>, finalizer: FiberResult<'A, 'E> -> FIO<unit, 'E>) =
     inherit FIO<'A, 'E>(NodeKind.OnExit, inner, ExitOps<'A, 'E>.Instance)
 
-    do
-        if obj.ReferenceEquals(inner, null) then
-            raiseNullEffect ()
+    do checkEffect inner
 
     member _.Finalizer = finalizer
 
@@ -1125,12 +1094,7 @@ and [<Sealed>] internal ExitOps<'A, 'E> private () =
             | PostFinalizerFailed error -> Failed(error :?> 'E)
             | PostFinalizerInterrupted error -> Interrupted(error :?> FiberInterruptedException)
 
-        let effect = (cast<ExitNode<'A, 'E>> node).Finalizer outcome
-
-        if obj.ReferenceEquals(effect, null) then
-            raiseNullEffect ()
-
-        effect
+        nonNullEffect ((cast<ExitNode<'A, 'E>> node).Finalizer outcome) :> FIOBase
 
 and [<Sealed>] internal SuspendNode<'A, 'E>(thunk: unit -> FIO<'A, 'E>) =
     inherit FIO<'A, 'E>(NodeKind.Suspend, thunk, SuspendOps<'A, 'E>.Instance)
@@ -1151,12 +1115,7 @@ and [<Sealed>] internal SuspendOps<'A, 'E> private () =
             current
 
     override _.Force node =
-        let effect = (cast<unit -> FIO<'A, 'E>> node.A) ()
-
-        if obj.ReferenceEquals(effect, null) then
-            raiseNullEffect ()
-
-        effect
+        nonNullEffect ((cast<unit -> FIO<'A, 'E>> node.A) ()) :> FIOBase
 
 and [<Sealed>] internal SuppressionNode<'A, 'E>(update: int -> int, body: int -> FIO<'A, 'E>) =
     inherit FIO<'A, 'E>(NodeKind.WithSuppression, update, SuppressionOps<'A, 'E>.Instance)
@@ -1179,19 +1138,12 @@ and [<Sealed>] internal SuppressionOps<'A, 'E> private () =
             current
 
     override _.Body(node, level) =
-        let effect = (cast<SuppressionNode<'A, 'E>> node).Body level
-
-        if obj.ReferenceEquals(effect, null) then
-            raiseNullEffect ()
-
-        effect
+        nonNullEffect ((cast<SuppressionNode<'A, 'E>> node).Body level) :> FIOBase
 
 and [<Sealed>] internal AcquireReleaseNode<'A, 'A1, 'E>(acquire: FIO<'A1, 'E>, onAcquired: 'A1 -> FIO<'A, 'E>) =
     inherit FIO<'A, 'E>(NodeKind.AcquireRelease, acquire, AcquireReleaseOps<'A, 'A1, 'E>.Instance)
 
-    do
-        if obj.ReferenceEquals(acquire, null) then
-            raiseNullEffect ()
+    do checkEffect acquire
 
     member _.OnAcquired = onAcquired
 
@@ -1211,12 +1163,7 @@ and [<Sealed>] internal AcquireReleaseOps<'A, 'A1, 'E> private () =
             current
 
     override _.OnAcquired(node, value) =
-        let effect = (cast<AcquireReleaseNode<'A, 'A1, 'E>> node).OnAcquired(value :?> 'A1)
-
-        if obj.ReferenceEquals(effect, null) then
-            raiseNullEffect ()
-
-        effect
+        nonNullEffect ((cast<AcquireReleaseNode<'A, 'A1, 'E>> node).OnAcquired(value :?> 'A1)) :> FIOBase
 
 and [<Sealed>] internal WriteChanNode<'A, 'E>(message: obj, channel: Channel<obj>, reportAccepted: bool) =
     inherit
@@ -1243,9 +1190,7 @@ and [<Sealed>] internal ForkNode<'A, 'E, 'E1>(effect: FIO<'A, 'E>, fiber: Fiber<
             ForkOps<'A, 'E, 'E1>.Instance
         )
 
-    do
-        if obj.ReferenceEquals(effect, null) then
-            raiseNullEffect ()
+    do checkEffect effect
 
     member _.Fiber = fiber
 

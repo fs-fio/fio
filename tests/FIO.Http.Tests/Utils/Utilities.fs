@@ -1,11 +1,13 @@
 module FIO.Http.Tests.Utilities
 
+open FIO.Tests.Utilities
+
 open FIO.DSL
 open FIO.Http
 open FIO.Runtime
-open FIO.Runtime.Direct
 open FIO.Runtime.Default
-open FIO.Runtime.WorkStealing
+
+open Expecto
 
 open System
 open System.Net
@@ -13,17 +15,8 @@ open System.Text
 open System.Threading
 open System.Net.Sockets
 open System.Threading.Tasks
+
 open Microsoft.AspNetCore.Connections
-
-open Expecto
-
-let testConfig =
-    { WorkerConfig.Default with
-        EvaluationWorkers = 2
-    }
-
-[<CLIMutable>]
-type TestMessage = { Id: int; Text: string }
 
 type FailingStream(prefix: byte array) =
     inherit IO.Stream()
@@ -58,46 +51,6 @@ type FailingStream(prefix: byte array) =
     override _.SetLength(_: int64) = raise (NotSupportedException())
 
     override _.Write(_: byte array, _: int, _: int) = raise (NotSupportedException())
-
-let runtimes () =
-    [
-        new DirectRuntime() :> FIORuntime
-        new WorkStealingRuntime(testConfig) :> FIORuntime
-    ]
-
-let private disposeRuntime (rt: FIORuntime) =
-    match box rt with
-    | :? IDisposable as d -> d.Dispose()
-    | _ -> ()
-
-let testAllRuntimes name (f: FIORuntime -> unit) =
-    testSequenced (
-        testList
-            name
-            [
-                for rt in runtimes () ->
-                    testCase (rt.GetType().Name)
-                    <| fun () ->
-                        try
-                            f rt
-                        finally
-                            disposeRuntime rt
-            ]
-    )
-
-// Async.RunSynchronously's timeout waits for the computation to stop, which a hung fiber never does, so it never fires.
-let private runWithin (seconds: float) (runtime: FIORuntime) (effect: FIO<'A, exn>) =
-    let fiber = runtime.Run effect
-    let result = fiber.Task()
-
-    if not (result.Wait(TimeSpan.FromSeconds seconds)) then
-        runtime.Run(fiber.InterruptNow()) |> ignore
-        failtest $"The effect did not finish within {seconds} s on {runtime.Name}"
-
-    match result.Result with
-    | Succeeded value -> value
-    | Failed error -> failtest $"Effect failed: {error}"
-    | Interrupted ex -> failtest $"Interrupted: {ex.Message}"
 
 let runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, exn>) = runWithin 30.0 runtime effect
 
@@ -140,13 +93,6 @@ let sendRawRequest (port: int) (request: string) =
     with _ ->
         ""
 
-let findAvailablePort () =
-    let listener = new TcpListener(IPAddress.Loopback, 0)
-    listener.Start()
-    let port = (listener.LocalEndpoint :?> IPEndPoint).Port
-    listener.Stop()
-    port
-
 // Windows retries a refused loopback connect for two seconds, so a connect that is not quick counts as not listening.
 let isListening (port: int) =
     use tcp = new TcpClient()
@@ -173,10 +119,10 @@ let rec isAddressInUse (error: exn) =
     | :? SocketException as ex when ex.SocketErrorCode = SocketError.AddressAlreadyInUse -> true
     | _ -> isAddressInUse error.InnerException
 
-// A port from findAvailablePort can be taken before the server binds it, so a start that lost its port retries on a fresh one.
+// A port from freePort can be taken before the server binds it, so a start that lost its port retries on a fresh one.
 let startOnFreePort (runtime: FIORuntime) (start: int -> FIO<'S, exn>) : int * 'S =
     let rec attempt remaining =
-        let port = findAvailablePort ()
+        let port = freePort ()
         let started = runtime.Run(start port).Task()
 
         if not (started.Wait(TimeSpan.FromSeconds 30.0)) then
@@ -200,7 +146,7 @@ let forkServerOnFreePort
     (serve: int -> FIO<unit, exn>)
     : int * Fiber<unit, exn> =
     let rec attempt remaining =
-        let port = findAvailablePort ()
+        let port = freePort ()
         let ended =
             TaskCompletionSource<bool> TaskCreationOptions.RunContinuationsAsynchronously
         let driver =
@@ -233,7 +179,7 @@ let forkServerOnFreePort
 // A round that finds its port held by another program returns None and is repeated on a fresh port.
 let onFreePort (round: int -> 'T option) : 'T =
     let rec attempt remaining =
-        match round (findAvailablePort ()) with
+        match round (freePort ()) with
         | Some value -> value
         | None when remaining > 0 -> attempt (remaining - 1)
         | None -> failtest "Every port tried was held by something other than the server under test"
@@ -265,14 +211,3 @@ let withConfiguredServer
 
 let withTestHttpServer (routes: Routes<exn>) (action: int -> 'T) : 'T =
     withConfiguredServer id routes (fun port _ -> action port)
-
-let withCapturedError (body: unit -> 'T) : 'T * string =
-    let original = Console.Error
-    use captured = new IO.StringWriter()
-    Console.SetError captured
-
-    try
-        let result = body ()
-        result, captured.ToString()
-    finally
-        Console.SetError original

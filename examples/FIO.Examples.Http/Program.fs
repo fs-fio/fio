@@ -1,7 +1,7 @@
 module private FIO.Examples.Http
 
-open FIO.DSL
 open FIO.App
+open FIO.DSL
 open FIO.Http
 open FIO.Http.SimpleRoutes
 open FIO.Http.RoutesOperators

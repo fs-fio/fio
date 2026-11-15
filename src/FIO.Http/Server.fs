@@ -7,11 +7,12 @@ open System
 open System.Net
 open System.Threading
 open System.Threading.Tasks
-open Microsoft.Extensions.Hosting
-open Microsoft.Extensions.Logging
+open System.Runtime.InteropServices
+
 open Microsoft.AspNetCore.Builder
 open Microsoft.AspNetCore.Hosting
-open System.Runtime.InteropServices
+open Microsoft.Extensions.Hosting
+open Microsoft.Extensions.Logging
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.DependencyInjection.Extensions
 
@@ -328,29 +329,3 @@ module Server =
 
     /// Creates, starts, and runs a server with its own default runtime until shutdown, then stops it.
     let runServer (config: ServerConfig) (routes: Routes<exn>) : FIO<unit, exn> = runScoped (create config routes)
-
-module ServerBuilder =
-
-    /// Sets the host on a configuration.
-    let host host (config: ServerConfig) : ServerConfig = { config with Host = host }
-
-    /// Sets the port on a configuration.
-    let port port (config: ServerConfig) : ServerConfig = { config with Port = port }
-
-    /// Sets the maximum request body size on a configuration.
-    let maxBodySize size (config: ServerConfig) : ServerConfig =
-        { config with
-            MaxRequestBodySize = size
-        }
-
-    /// Sets how long, in milliseconds, a stopping server lets requests in flight finish; 0 or less waits indefinitely.
-    let shutdownTimeout (timeout: int) (config: ServerConfig) : ServerConfig =
-        { config with
-            ShutdownTimeout = timeout
-        }
-
-    /// Creates and starts a server from the configuration and routes.
-    let startNow (routes: Routes<exn>) (config: ServerConfig) : FIO<FIOServer, exn> = Server.startServer config routes
-
-    /// Creates, starts, and runs a server from the configuration and routes.
-    let runNow (routes: Routes<exn>) (config: ServerConfig) : FIO<unit, exn> = Server.runServer config routes

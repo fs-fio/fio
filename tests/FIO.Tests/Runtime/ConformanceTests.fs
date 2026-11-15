@@ -1,11 +1,9 @@
 module FIO.Tests.ConformanceTests
 
 open FIO.Tests.Utilities
-open FIO.Tests.Utilities.FsCheckProperties
 
 open FIO.DSL
 open FIO.Runtime
-open FIO.Runtime.Direct
 open FIO.Runtime.WorkStealing
 
 open Expecto
@@ -20,11 +18,7 @@ let private testFreshRuntimes name (test: FIORuntime -> unit) =
     testList
         name
         [
-            for runtimeName, make in
-                [
-                    "DirectRuntime", (fun () -> new DirectRuntime() :> FIORuntime)
-                    "WorkStealingRuntime", (fun () -> new WorkStealingRuntime(testConfig) :> FIORuntime)
-                ] -> testCase runtimeName (fun () -> test (make ()))
+            for runtimeName, make in runtimeFactories -> testCase runtimeName (fun () -> test (make ()))
         ]
 
 let private lowestCpuSecondsOf (samples: int) =
@@ -33,17 +27,6 @@ let private lowestCpuSecondsOf (samples: int) =
         Thread.Sleep 400
         (Process.GetCurrentProcess().TotalProcessorTime - before).TotalSeconds)
     |> List.min
-
-let private cpuAddedByInterruptedWait (runtime: FIORuntime) (wait: FIO<unit, string>) =
-    let started = new ManualResetEventSlim(false)
-    let waiting =
-        FIO.uninterruptible (FIO.succeedWith(fun () -> started.Set()).FlatMap(fun () -> wait))
-    let ambient = lowestCpuSecondsOf 3
-    let fiber = runtime.Run waiting
-    started.Wait(TimeSpan.FromSeconds 5.0) |> ignore
-    runtime.Run(fiber.InterruptNow(): FIO<unit, string>).UnsafeResult() |> ignore
-    Thread.Sleep 300
-    lowestCpuSecondsOf 3 - ambient
 
 let private expectDefect (runtime: FIORuntime) (label: string) (effect: FIO<int, string>) =
     let name = runtime.GetType().Name
@@ -1257,11 +1240,7 @@ let conformanceTests =
                     testList
                         "Stress - Run racing Dispose never loses a fiber"
                         [
-                            for runtimeName, make in
-                                [
-                                    "DirectRuntime", (fun () -> new DirectRuntime() :> FIORuntime)
-                                    "WorkStealingRuntime", (fun () -> new WorkStealingRuntime(testConfig) :> FIORuntime)
-                                ] ->
+                            for runtimeName, make in runtimeFactories ->
                                 stressTestCase runtimeName (fun () ->
                                     let deadline = Stopwatch.StartNew()
                                     let mutable lost = 0

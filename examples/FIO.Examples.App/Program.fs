@@ -1,7 +1,7 @@
 module private FIO.Examples.App
 
-open FIO.DSL
 open FIO.App
+open FIO.DSL
 open FIO.Console
 open FIO.Runtime.WorkStealing
 
@@ -33,32 +33,6 @@ type EnterNumberApp() =
             match! FIO.attempt (fun () -> Int32.TryParse input) id with
             | true, number -> return $"You entered the number: %i{number}."
             | false, _ -> return! FIO.fail (IOException "You entered an invalid number!")
-        }
-
-// Demonstrates try/with in the CE: catches a failed effect and re-fails with its error.
-type TryWithApp() =
-    inherit FIOApp<string, int>()
-
-    override _.effect =
-        fio {
-            try
-                do! FIO.fail 1
-                return "Successfully completed!"
-            with errorCode ->
-                return! FIO.fail errorCode
-        }
-
-// Demonstrates try/finally in the CE: the finalizer always runs, even on failure.
-type TryFinallyApp() =
-    inherit FIOApp<string, int>()
-
-    override _.effect =
-        fio {
-            try
-                do! FIO.fail 1
-                return "Successfully completed!"
-            finally
-                Console.printLine "Running finalizer, always executes" (fun _ -> -2)
         }
 
 // Combines try/with and try/finally in a single computation expression.
@@ -222,21 +196,22 @@ type AppError =
     | WebServiceError of int
     | GeneralError of string
 
+// A database read and a webservice call that each fail half of the time.
+let readFromDatabase: FIO<string, bool> =
+    fio {
+        let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> true)
+        if rand = 0 then return "data" else return! FIO.fail false
+    }
+
+let awaitWebservice: FIO<char, int> =
+    fio {
+        let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> -1)
+        if rand = 1 then return 'S' else return! FIO.fail 404
+    }
+
 // Recovers from failing database/webservice effects, falling back to a default result.
 type ErrorHandlingApp() =
     inherit FIOApp<string * char, AppError>()
-
-    let readFromDatabase: FIO<string, bool> =
-        fio {
-            let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> true)
-            if rand = 0 then return "data" else return! FIO.fail false
-        }
-
-    let awaitWebservice: FIO<char, int> =
-        fio {
-            let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> -1)
-            if rand = 1 then return 'S' else return! FIO.fail 404
-        }
 
     let databaseResult: FIO<string, AppError> =
         fio { return! readFromDatabase.CatchAll(fun error -> FIO.fail (DbError error)) }
@@ -250,18 +225,6 @@ type ErrorHandlingApp() =
 // Like ErrorHandlingApp, but retries each failing effect before falling back.
 type ErrorHandlingWithRetryApp() =
     inherit FIOApp<string * char, AppError>()
-
-    let readFromDatabase: FIO<string, bool> =
-        fio {
-            let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> true)
-            if rand = 0 then return "data" else return! FIO.fail false
-        }
-
-    let awaitWebservice: FIO<char, int> =
-        fio {
-            let! rand = FIO.attempt (fun () -> Random.Shared.Next(0, 2)) (fun _ -> -1)
-            if rand = 1 then return 'S' else return! FIO.fail 404
-        }
 
     let databaseResult: FIO<string, AppError> =
         fio {
@@ -367,37 +330,7 @@ let fib n =
 
     a
 
-// Forks .NET tasks computing Fibonacci numbers and awaits them concurrently.
-type FiberFromTaskApp() =
-    inherit FIOApp<unit, exn>()
-
-    let fibonacci n =
-        FIO.forkTask
-            (fun () ->
-                task {
-                    printfn $"Task computing Fibonacci of %i{n}..."
-                    let value = fib n
-                    printfn $"Fibonacci of %i{n} is %i{value}"
-                    return ()
-                })
-            id
-
-    override _.effect =
-        let await (fiber: Fiber<unit, exn>) =
-            fio {
-                do! fiber.Join()
-                return ()
-            }
-
-        fio {
-            let! fiber35 = fibonacci 35L
-            let! fiber40 = fibonacci 40L
-            let! fiber45 = fibonacci 45L
-
-            do! await fiber35 <&&> await fiber40 <&&> await fiber45
-        }
-
-// Like FiberFromTaskApp, but the tasks return values that are joined and printed.
+// Forks .NET tasks computing Fibonacci numbers, then joins their results concurrently and prints them.
 type FiberFromGenericTaskApp() =
     inherit FIOApp<unit, exn>()
 
@@ -679,8 +612,6 @@ let examples =
     [
         nameof WelcomeApp, fun () -> WelcomeApp().Run()
         nameof EnterNumberApp, fun () -> EnterNumberApp().Run()
-        nameof TryWithApp, fun () -> TryWithApp().Run()
-        nameof TryFinallyApp, fun () -> TryFinallyApp().Run()
         nameof TryWithFinallyApp, fun () -> TryWithFinallyApp().Run()
         nameof ForApp, fun () -> ForApp().Run()
         nameof GuessNumberApp, fun () -> GuessNumberApp().Run()
@@ -691,7 +622,6 @@ let examples =
         nameof ErrorHandlingWithRetryApp, fun () -> ErrorHandlingWithRetryApp().Run()
         nameof AsyncErrorHandlingApp, fun () -> AsyncErrorHandlingApp().Run()
         nameof HighlyConcurrentApp, fun () -> HighlyConcurrentApp().Run()
-        nameof FiberFromTaskApp, fun () -> FiberFromTaskApp().Run()
         nameof FiberFromGenericTaskApp, fun () -> FiberFromGenericTaskApp().Run()
         nameof CommandLineArgsApp, fun () -> CommandLineArgsApp([| "arg1"; "arg2"; "test" |]).Run()
         nameof CustomRuntimeApp, fun () -> CustomRuntimeApp().Run()

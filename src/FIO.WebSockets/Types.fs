@@ -162,11 +162,6 @@ module WsError =
     /// Converts a WebSocket error back into an exception.
     let toException (error: WsError) : exn =
         match error with
-        | ConnectionFailed message -> Exception $"Connection failed: {message}"
-        | SendFailed message -> Exception $"Send failed: {message}"
-        | ReceiveFailed message -> Exception $"Receive failed: {message}"
-        | MessageTooLarge(actual, max) -> Exception $"Message size {actual} exceeds maximum {max}"
         | TimeoutError message -> TimeoutException message
-        | CodecError message -> Exception $"Codec error: {message}"
-        | Closed message -> Exception $"Connection closed: {message}"
         | GeneralError message -> WebSocketException message
+        | _ -> Exception(error.ToString())

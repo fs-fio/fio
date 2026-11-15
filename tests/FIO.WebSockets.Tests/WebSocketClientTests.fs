@@ -1,15 +1,16 @@
 module FIO.WebSockets.Tests.WebSocketClientTests
 
+open FIO.Tests.Utilities
 open FIO.WebSockets.Tests.Utilities
 
 open FIO.DSL
 open FIO.WebSockets
 
+open Expecto
+
 open System
 open System.Threading
 open System.Net.WebSockets
-
-open Expecto
 
 [<Tests>]
 let webSocketClientTests =
@@ -55,23 +56,21 @@ let webSocketClientTests =
 
                         Expect.equal state WebSocketState.Open "Should be connected")
 
-                    testAllRuntimes
-                        "connectString/connectStringWith/connectDefault - connect to a listening server"
-                        (fun runtime ->
-                            let state =
-                                withTestServer
-                                    noopHandler
-                                    (fun port ->
-                                        fio {
-                                            let url = $"ws://localhost:{port}/"
-                                            let! ws = WebSocketClient.connectDefault url
-                                            let! state = ws.State()
-                                            do! ws.Close()
-                                            return state
-                                        })
-                                    runtime
+                    testAllRuntimes "connectString/connectDefault - connect to a listening server" (fun runtime ->
+                        let state =
+                            withTestServer
+                                noopHandler
+                                (fun port ->
+                                    fio {
+                                        let url = $"ws://localhost:{port}/"
+                                        let! ws = WebSocketClient.connectDefault url
+                                        let! state = ws.State()
+                                        do! ws.Close()
+                                        return state
+                                    })
+                                runtime
 
-                            Expect.equal state WebSocketState.Open "Should be connected")
+                        Expect.equal state WebSocketState.Open "Should be connected")
 
                     testAllRuntimes "connect - fails for an unreachable host" (fun runtime ->
                         let effect =

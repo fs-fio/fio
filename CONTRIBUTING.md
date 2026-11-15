@@ -1,12 +1,10 @@
 # Contributing to FIO
 
-Thanks for your interest in contributing to FIO — a type-safe, purely functional
-effect system for F#. This guide covers how to build, test, and submit changes.
+Thanks for your interest in contributing to FIO. This guide covers how to build, test, and submit changes.
 
 ## Prerequisites
 
-- **.NET 10 SDK** (the repository pins the SDK in [`global.json`](global.json))
-- F# 10
+- The .NET SDK pinned in [`global.json`](global.json) (it brings the F# compiler)
 
 ## Build & test
 
@@ -23,15 +21,17 @@ Benchmarks (Release, BenchmarkDotNet):
 dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*"
 ```
 
-Two scripts cover what a single `dotnet` command does not:
+Packing, and soaking the suite to catch rare failures:
 
 ```bash
-bash scripts/pack.sh             # pack the four packages as the release does, into artifacts/
-bash scripts/stress-test.sh 50   # build Release and run the whole suite 50 times, counting failures
+dotnet pack -c Release -p:StripInternals=true -o artifacts   # pack the four packages as the release does
+dotnet build -c Release
+for i in $(seq 50); do dotnet test -c Release --no-build || echo "run $i failed"; done
 ```
 
-`stress-test.sh` passes any further arguments to `dotnet test`, so a `--filter` narrows the runs; put
-`FIO_RUN_STRESS=1` in front to include the opt-in stress tests.
+The loop runs the whole Release suite 50 times and names each failed run, as the nightly `soak.yml` does for the core
+suite. Add a `--filter` to `dotnet test` to narrow the runs, and put `FIO_RUN_STRESS=1` in front of it to include the
+opt-in stress tests.
 
 ## Project layout
 
@@ -48,23 +48,13 @@ bash scripts/stress-test.sh 50   # build Release and run the whole suite 50 time
   `tests/`.
 - **`TreatWarningsAsErrors=true`** (in [`Directory.Build.props`](Directory.Build.props)) — fix every warning.
 - **F# compile order matters** — file order in each `.fsproj` is the compile order.
-- **Comment style:** two tiers — see [`docs/COMMENT_STYLE.md`](docs/COMMENT_STYLE.md).
-  Public, user-facing API gets a concise, ZIO-style XML doc comment (`///`);
-  internals stay comment-free, with an inline `//` only when the *why* isn't
-  obvious. Never restate what the code does, and never commit commented-out code.
-- **Package versions** are centralized in
-  [`Directory.Packages.props`](Directory.Packages.props) (Central Package
-  Management) — add or change versions there, not in individual `.fsproj` files.
+- **Comments:** a one-line `///` on public API, none on internals — see [`docs/COMMENT_STYLE.md`](docs/COMMENT_STYLE.md).
+- **Package versions** live in [`Directory.Packages.props`](Directory.Packages.props), not in the `.fsproj` files.
 
 ## Semantic invariants (do not break)
 
-- Effect construction must be lazy (no side effects until run).
-- Sequential operators (`>>=`, `<*>`, `*>`, `<*`) preserve left-to-right order.
-- Parallel operators (`<&>`, `&>`, `<&`, `<&&>`) must be genuinely concurrent.
-- Interruption propagates consistently across all runtimes.
-- `Ensuring` finalizers run on success, error, **and** interruption.
-- Extensions must not leak raw exceptions as public errors (FIO.Http's server pipeline is typed `exn` by design;
-  see its README).
+The runtime's guarantees are listed once, in [CLAUDE.md](CLAUDE.md#semantic-invariants-do-not-break). A change that
+breaks one is not a refactor.
 
 ## Pull requests
 
@@ -74,8 +64,8 @@ bash scripts/stress-test.sh 50   # build Release and run the whole suite 50 time
 4. Use short, descriptive, sentence-style commit messages (e.g. "Fix benchmark output") — no strict prefixes.
 5. Open the PR against `main` and fill out the template.
 
-CI runs the tests, stress tests included, in Debug on Ubuntu, Windows, and macOS, and in Release on Ubuntu and
-macOS; run `dotnet test -c Release` locally too, since the interpreter's JIT-limit guard runs only there.
+CI also runs the tests in Release, so run `dotnet test -c Release` locally too: the interpreter's JIT-limit guard runs
+only there.
 
 ## License
 

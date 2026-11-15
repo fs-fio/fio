@@ -3,17 +3,10 @@
 [![Performance Benchmarks](https://github.com/fs-fio/fio/actions/workflows/benchmark.yml/badge.svg)](https://github.com/fs-fio/fio/actions/workflows/benchmark.yml)
 [![Run Tests](https://github.com/fs-fio/fio/actions/workflows/test.yml/badge.svg)](https://github.com/fs-fio/fio/actions/workflows/test.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/fs-fio/fio/blob/main/LICENSE.md)
+![.NET 11](https://img.shields.io/badge/.NET-11-512BD4.svg?logo=dotnet)
 
-Macro benchmarks for the [FIO](https://github.com/fs-fio/fio) effect system, built on
-[BenchmarkDotNet](https://benchmarkdotnet.org/). Every workload runs across both runtimes
-and reports **both execution time and allocated memory**, so a run is a full performance profile
-of the scheduler and channel machinery — not just a single number.
-
-- **12 workloads** — 11 classic concurrency benchmarks + a parallel-combinator microbenchmark
-- **2 runtimes** — Direct, WorkStealing, compared side by side
-- **Time + memory** — each benchmark is `[<MemoryDiagnoser>]`, so allocations show up too
-- **Tunable** — worker config and per-benchmark parameters set via environment variables
-- **Plotting & A/B** — `plot.py` for charts, `compare.py` for regression-flagging diffs
+Macro benchmarks for [FIO](https://github.com/fs-fio/fio), built on [BenchmarkDotNet](https://benchmarkdotnet.org/).
+Every workload runs on both runtimes and reports execution time and allocated memory.
 
 ## Benchmarks
 
@@ -32,64 +25,25 @@ of the scheduler and channel machinery — not just a single number.
 | **Trapezoidal** | CPU-bound master/worker map-reduce |
 | **ZipRace** | Parallel-combinator overhead (ZipPar + RaceFirst per round) |
 
-The suite contains two kinds of benchmark. The first eleven are **classic concurrency
-workloads** (largely from the actor-benchmark literature) that measure the scheduler and
-channel machinery under recognizable shapes. **ZipRace** is a **combinator microbenchmark**:
-it invokes the parallel combinators over trivial effects so that per-invocation primitive cost
-(fork, `JoinFirst` park/settle, loser interruption, join) dominates — it exists to
-regression-guard the parallel-combinator runtime primitives, and doubles as the CI hang canary
-for their park/wake protocol. Future primitive-level guards belong in this second category.
+The first eleven are classic concurrency workloads. ZipRace is a microbenchmark that guards the parallel-combinator
+primitives and doubles as CI's hang canary for them.
 
 ## Usage
 
 ```bash
-# List available benchmarks
-dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --list flat
-
-# Default full run (all benchmarks, all runtimes, 30 iterations)
-dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*"
-
-# Run a specific benchmark
-dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Pingpong*"
-
-# Quick smoke test (1 iteration)
-dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Fork*" --job Dry
-
-# Short run
-dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Fork*" --job Short
-
-# Also export JSON (CSV, GitHub-markdown and HTML reports are written by default)
-dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Fork*" --exporters json
+dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --list flat              # list benchmarks
+dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*"             # full run
+dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Pingpong*"    # one benchmark
+dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Fork*" --job Dry   # smoke test
 ```
 
-The full run (`--filter "*"`) executes all 12 benchmarks × all parameter combinations × 2 runtimes × 30 iterations. This produces a comprehensive performance profile across the Direct and WorkStealing runtimes.
-
-> Passing `--job` (or `-j`) on the command line (e.g. `--job Dry` or `-j Short`) **overrides** the
-> env-var-configured job — only the CLI job runs. Omit it to honor `FIO_BENCH_WARMUP` /
-> `FIO_BENCH_ITERATIONS`; for a quick run without a CLI job, set `FIO_BENCH_ITERATIONS=1 FIO_BENCH_WARMUP=0`.
-
-Results are written to `BenchmarkDotNet.Artifacts/results/`.
+A CLI `--job` (or `-j`) replaces the job set by `FIO_BENCH_WARMUP`/`FIO_BENCH_ITERATIONS`. Results go to
+`BenchmarkDotNet.Artifacts/results/`.
 
 ## Configuration
 
-All parameters are configurable via environment variables. If unset, sensible defaults are used.
-
-### Runtimes
-
-```bash
-FIO_BENCH_RUNTIMES="Direct,WorkStealing-8-100"
-```
-
-Default: `Direct,WorkStealing-12-200` (12 = `CPU cores - 2` on a 14-core machine; set `FIO_BENCH_RUNTIMES` to fit yours)
-
-Runtime spec format: `Direct` | `WorkStealing-{EWC}-{EWS}`
-
-| Param | Meaning | Recommended |
-|-------|---------|-------------|
-| **EWC** | Evaluation worker count (fiber schedulers) | `CPU cores - 2`, leaving headroom for the OS and the BDN harness; more workers than cores contend, fewer leave cores idle |
-| **EWS** | Evaluation steps per work item before rescheduling | `100`–`300` (default: `200`); higher cuts scheduling overhead but raises tail latency |
-
-### Benchmark Parameters
+Runtimes: `FIO_BENCH_RUNTIMES="Direct,WorkStealing-{EWC}-{EWS}"`, default `Direct,WorkStealing-12-200`. EWC is the worker
+count (use `CPU cores - 2`), EWS the interpreter steps per work item before a fiber yields (100–300).
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -118,132 +72,37 @@ Runtime spec format: `Direct` | `WorkStealing-{EWC}-{EWS}`
 | `FIO_BENCH_TRAPEZOIDAL_POINTS` | `1000000` | Trapezoidal total points |
 | `FIO_BENCH_ZIPRACE_ROUNDS` | `1000,10000` | ZipRace round counts |
 
-### Full Example
+## Reading results
+
+- Channels box every message, so the int-message workloads (Bang, Pingpong, Threadring, BoundedBuffer) allocate per
+  message.
+- WorkStealing's workers allocate a little for housekeeping over wall-clock time, so treat its `Allocated` as an upper
+  bound; the env-var job's 100 ms minimum iteration time dilutes this.
+- BDN's macOS warning `Failed to set up high priority (Permission denied)` is harmless.
+
+## Plotting
 
 ```bash
-FIO_BENCH_RUNTIMES="WorkStealing-12-200" FIO_BENCH_FORK_ACTORS="5000,25000" \
-  dotnet run -c Release --project benchmarks/FIO.Benchmarks -- --filter "*Fork*"
+python3 -m venv .venv && . .venv/bin/activate && python -m pip install pandas plotly kaleido
+python benchmarks/plot.py            # --image-formats png,svg,pdf | none; --self-test
 ```
 
-## Interpreting results
+It writes one `<Benchmark>.html` per benchmark and a `summary.html` (speedup and allocation heatmaps against `Direct`)
+to `BenchmarkDotNet.Artifacts/plots/`, plus PNG/SVG images when `kaleido` is installed.
 
-- **Runtime ranking is not a size crossover.** A full 112-case sweep (all 12 workloads × every
-  parameter combination × the four runtimes the suite had then, 30 measured iterations, M4 Max / .NET SDK 10.0.400, measured September 2026, before 0.5.0-beta) gave
-  these geometric-mean speedups against `Direct` — above 1.00× is faster than `Direct`. The labels are that
-  release's three-part `{EWC}-{EWS}-{BWC}` specs; the third leg, blocking workers, has since been removed:
-
-  | Runtime | smallest params | largest params | overall | faster than `Direct` in |
-  |---------|:---------------:|:--------------:|:-------:|:-----------------------:|
-  | `Polling-12-200-1` | 0.63× | 0.61× | **0.60×** | 8 / 28 cases |
-  | `Signaling-12-200-1` | 0.72× | 0.71× | **0.68×** | 6 / 28 cases |
-  | `WorkStealing-12-200-1` | 1.18× | 1.26× | **1.20×** | 23 / 28 cases |
-
-  `WorkStealing` already beat `Direct` at smoke-test sizes and extended its lead at scale, so there was
-  no size threshold below which it should be discounted. The since-removed `Polling` and `Signaling`
-  were net *slower* than `Direct` at every size, worst on **Threadring** (0.16× and 0.33×): a ring
-  hands off strictly sequentially, so there is one runnable fiber at a time and no parallelism to
-  offset the park/wake cost.
-- **Direct + huge fork counts:** a large `FIO_BENCH_FORK_ACTORS` (e.g. `50000`) spawns one .NET task
-  per actor under `Direct`. Measured (September 2026, before 0.5.0-beta, with the since-removed runtimes), this was *not* a handicap — at 50 000 fibers `Direct` was both the
-  fastest and the lightest runtime in the set:
-
-  | Fibers | `Direct` | `Polling` | `Signaling` | `WorkStealing` |
-  |-------:|---------:|----------:|------------:|---------------:|
-  | 1 000 | 1.48 ms / 2.4 MB | 1.88 ms / 3.7 MB | 2.01 ms / 3.8 MB | 1.25 ms / 3.7 MB |
-  | 10 000 | 13.8 ms / 24 MB | 21.9 ms / 40 MB | 22.4 ms / 40 MB | 13.3 ms / 39 MB |
-  | 50 000 | **60.3 ms / 120 MB** | 104 ms / 201 MB | 108 ms / 203 MB | 62.1 ms / 197 MB |
-
-  `WorkStealing`'s lead on Fork *shrank* with scale rather than growing — 1.18× at 1 000 fibers,
-  1.04× at 10 000, 0.97× at 50 000. Mass fiber creation is the one axis where the .NET thread pool is
-  the thing to beat, so keep the large counts in the sweep: they are the interesting part.
-- **Allocations and boxing:** the channel implementation boxes every message to `obj`. **Bang**, **Pingpong** and
-  **Threadring** pass `int` messages (and **BoundedBuffer** replies with `int` items), so their `Allocated` column
-  includes per-message boxing as well as scheduling allocations; **Big**, **Chameneos**, **Counting** and
-  **Philosophers** send reference-typed messages, which do not box, and **Fibonacci**, **Fork**, **Trapezoidal**
-  and **ZipRace** use no channels.
-- **Reading the `Allocated` column for fiber runtimes:** worker-based runtimes — `WorkStealing` today; the
-  since-removed `Polling` and `Signaling` in older stored results — keep worker threads alive continuously,
-  and those workers perform small scheduler-housekeeping allocations
-  proportional to *wall-clock time*, not to the workload. For short iterations this inflates the per-op
-  `Allocated` number. The env-var job is configured with `MinIterationTime = 100ms` to dilute this noise (a CLI
-  `--job` does not set it), but
-  treat the absolute byte counts on the fiber runtimes as an **upper bound**. The relative ordering
-  (and the cross-runtime ratio shown in `summary.html`) remains meaningful; the precise byte count does
-  not.
-- **macOS "high priority" warning:** BDN emits `Failed to set up high priority (Permission denied)` on
-  macOS because raising thread priority needs `sudo`. This is a permission warning, not a measurement
-  problem — results are still valid. The Linux CI runner (`benchmark.yml`) prints it too.
-
-## Plotting Results
-
-After running benchmarks, generate charts comparing runtimes. By default the script writes both
-interactive HTML **and** static images (PNG + SVG), so the results are ready to view offline without
-a browser or network:
-
-```bash
-# in a virtual environment: Homebrew and Debian Pythons refuse a global pip install (PEP 668)
-python3 -m venv .venv && . .venv/bin/activate
-python -m pip install pandas plotly kaleido
-python benchmarks/plot.py
-# choose static formats (png, svg, pdf), or disable static export with an empty value / "none":
-python benchmarks/plot.py --image-formats png,svg,pdf
-python benchmarks/plot.py --image-formats none
-# self-test the parsers without touching artifacts (no kaleido needed):
-python benchmarks/plot.py --self-test
-# or point at non-default locations:
-python benchmarks/plot.py --results-dir path/to/results --output-dir path/to/plots
-```
-
-`kaleido` is what renders the static images; if it is missing the script still writes the HTML and
-prints a short notice. This reads all `*-report.csv` files from
-`BenchmarkDotNet.Artifacts/results/` and writes to `BenchmarkDotNet.Artifacts/plots/` — an
-interactive `.html` (loads Plotly from a CDN, needs network to render) plus `.png`/`.svg` static
-images per output. Two outputs are produced:
-
-- **`<Benchmark>.html`** (one per benchmark): three stacked subplots — mean time, mean ± StdDev, and
-  allocated memory — grouped by runtime across parameter combinations. Y axes auto-switch to log scale
-  when a benchmark spans more than 10× in value.
-- **`summary.html`** (one file): cross-benchmark dashboard with a speedup heatmap vs `Direct`, an
-  allocation-ratio heatmap vs `Direct`, and a per-runtime bar grid showing absolute mean times for every
-  benchmark on a log axis. Uses the largest configured parameter set per benchmark, so comparisons
-  reflect at-scale behaviour.
-
-## Comparing Two Runs (A/B)
-
-`benchmarks/compare.py` (stdlib-only — no pip installs needed) diffs two directories of
-`*Benchmark-report.csv` files and emits a markdown table of Δtime/Δalloc per case, flagging regressions
-and wins:
+## Comparing two runs (A/B)
 
 ```bash
 python3 benchmarks/compare.py results/A results/B --label-a baseline --label-b candidate
-python3 benchmarks/compare.py results/A results/B --output comparison.md
-python3 benchmarks/compare.py --self-test
 ```
 
-Directories are searched recursively; rows are matched on (method, params, runtime), with the runtime
-label compared exactly, so results recorded before 0.6.0-beta (`WorkStealing-12-200-1`) pair with current
-ones (`WorkStealing-12-200`) only after relabeling; rows found in only one directory are listed in an
-`## Unmatched rows` section at the end. Thresholds
-default to time ±10% / alloc ±5% (`--time-threshold` / `--alloc-threshold`).
+It matches rows on (method, params, runtime) and flags time ±10% / alloc ±5%. Allocations compare across sessions; wall
+time drifts 20–50% between sessions, so:
 
-**Interpreting deltas:** allocated bytes are nearly deterministic (the fiber runtimes' wall-clock housekeeping
-above aside) and comparable across sessions; wall
-time drifts with machine load/thermals (20–50% observed on an M4 Max across one day, July 2026), so only
-compare times from runs taken back-to-back in the same session — ideally adjacent A/B pairs per
-benchmark, bracketed by re-runs of a fixed sentinel benchmark to measure the session noise floor.
-
-**Full protocol for a working-tree-vs-baseline comparison:**
-
-1. Check out the baseline in a git worktree and copy the *current* benchmark project into it —
-   both sides must run byte-identical benchmark code; only the library may differ.
-2. Prebuild both trees in Release; run with a fixed `FIO_BENCH_WARMUP`/`FIO_BENCH_ITERATIONS`.
-3. For each benchmark, run baseline then candidate back-to-back and copy each `*-report.csv`
-   into `results/A` / `results/B`.
-4. Run a cheap fixed sentinel (e.g. Fork with `FIO_BENCH_FORK_ACTORS=1000`) on the baseline at
-   the start, one or two midpoints, and the end: its max/min spread per runtime is the session's
-   time-noise floor — time deltas below it are noise; allocation deltas are trustworthy regardless,
-   the fiber runtimes' small wall-clock housekeeping aside.
-5. Diff with `compare.py`. Run the machine idle and sleep-inhibited (`caffeinate -i` on macOS).
+1. Run byte-identical benchmark code on both trees (copy the current benchmark project into the baseline), in Release.
+2. Run baseline and candidate back-to-back per benchmark, with the machine idle (`caffeinate -i` on macOS).
+3. Bracket the session with a cheap sentinel (Fork with `FIO_BENCH_FORK_ACTORS=1000`) at the start, middle and end;
+   its spread is the noise floor for time.
 
 ## Links
 

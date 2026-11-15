@@ -9,16 +9,9 @@ open System.Threading
 module WebSocketClient =
 
     let private logAndSuppress (context: string) (error: WsError) =
-        fio {
-            let str = error.ToString()
-
-            do!
-                FIO.attempt
-                    (fun () -> eprintfn $"WebSocketClient encountered error during {context}: {str}")
-                    WsError.fromException
-
-            return ()
-        }
+        FIO.attempt
+            (fun () -> eprintfn $"WebSocketClient encountered error during {context}: {error}")
+            WsError.fromException
 
     /// Connects to a WebSocket server at the given URI using the given configuration and cancellation token.
     let connect (uri: Uri) (config: WebSocketConfig) (cancellationToken: CancellationToken) : FIO<WebSocket, WsError> =
@@ -65,14 +58,11 @@ module WebSocketClient =
         }
 
     /// Connects to the given URL string using default configuration and the fiber's cancellation token.
-    let connectStringWith (url: string) : FIO<WebSocket, WsError> =
+    let connectDefault (url: string) : FIO<WebSocket, WsError> =
         fio {
             let! cancellationToken = FIO.cancellationToken ()
             return! connectString url WebSocketConfig.defaultConfig cancellationToken
         }
-
-    /// Connects to the given URL string using default configuration. Alias for connectStringWith.
-    let connectDefault (url: string) : FIO<WebSocket, WsError> = connectStringWith url
 
     /// Connects, runs an action with the open connection, then closes it.
     let withConnection<'A>

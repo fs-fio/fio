@@ -7,7 +7,7 @@
       "commands": [
         "fantomas"
       ],
-      "rollForward": false
+      "rollForward": true
     }
   }
 }

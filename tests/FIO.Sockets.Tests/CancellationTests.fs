@@ -1,12 +1,15 @@
 module FIO.Sockets.Tests.CancellationTests
 
+open FIO.Tests.Utilities
 open FIO.Sockets.Tests.Utilities
 
 open FIO.DSL
-open FIO.Sockets
 open FIO.Runtime
+open FIO.Sockets
 open FIO.Runtime.Direct
 open FIO.Runtime.WorkStealing
+
+open Expecto
 
 open System
 open System.IO
@@ -15,52 +18,54 @@ open System.Threading
 open System.Diagnostics
 open System.Threading.Tasks
 
-open Expecto
-
 [<Tests>]
 let cancellationTests =
     testList
         "Cancellation"
         [
 
-            testAllRuntimes "connect - an interruption against an unreachable host terminates promptly" (fun runtime ->
-                let effect =
-                    fio {
-                        let! config = SocketConfig.create "192.0.2.1" 1234
+            testAllRuntimesSequenced
+                "connect - an interruption against an unreachable host terminates promptly"
+                (fun runtime ->
+                    let effect =
+                        fio {
+                            let! config = SocketConfig.create "192.0.2.1" 1234
 
-                        let! connectFiber = (SocketClient.connect config).Fork()
-                        do! sleepMs 100.0
-                        do! connectFiber.InterruptNow()
+                            let! connectFiber = (SocketClient.connect config).Fork()
+                            do! sleepMs 100.0
+                            do! connectFiber.InterruptNow()
 
-                        let! terminated, elapsed = waitForTerminal connectFiber 3_000
+                            let! terminated, elapsed = waitForTerminal connectFiber 3_000
 
-                        return terminated, elapsed, connectFiber.IsInterrupted()
-                    }
+                            return terminated, elapsed, connectFiber.IsInterrupted()
+                        }
 
-                let terminated, elapsed, interrupted = (runtime.Run effect).UnsafeSuccess()
+                    let terminated, elapsed, interrupted = (runtime.Run effect).UnsafeSuccess()
 
-                Expect.isTrue terminated $"Connect fiber should reach terminal state within 3s; took {elapsed}ms"
-                Expect.isTrue interrupted "Connect fiber should report Interrupted state after Interrupt"
-                Expect.isLessThan
-                    elapsed
-                    3_000L
-                    "Interrupted connect should terminate well under the OS connect timeout")
+                    Expect.isTrue terminated $"Connect fiber should reach terminal state within 3s; took {elapsed}ms"
+                    Expect.isTrue interrupted "Connect fiber should report Interrupted state after Interrupt"
+                    Expect.isLessThan
+                        elapsed
+                        3_000L
+                        "Interrupted connect should terminate well under the OS connect timeout")
 
-            testAllRuntimes "serve - interrupted while waiting for a connection, unwinds promptly" (fun runtime ->
-                let effect =
-                    fio {
-                        let! config = ServerSocketConfig.create "127.0.0.1" 0
-                        let! server = (ServerSocket.serve config (fun _ -> FIO.unit ())).Fork()
-                        do! sleepMs 200.0
-                        do! server.InterruptNow()
-                    }
-                let stopwatch = Stopwatch.StartNew()
+            testAllRuntimesSequenced
+                "serve - interrupted while waiting for a connection, unwinds promptly"
+                (fun runtime ->
+                    let effect =
+                        fio {
+                            let! config = ServerSocketConfig.create "127.0.0.1" 0
+                            let! server = (ServerSocket.serve config (fun _ -> FIO.unit ())).Fork()
+                            do! sleepMs 200.0
+                            do! server.InterruptNow()
+                        }
+                    let stopwatch = Stopwatch.StartNew()
 
-                let unwound = (runtime.Run effect).Task().Wait(TimeSpan.FromSeconds 3.0)
+                    let unwound = (runtime.Run effect).Task().Wait(TimeSpan.FromSeconds 3.0)
 
-                Expect.isTrue unwound $"The scope should unwind within 3s; took {stopwatch.ElapsedMilliseconds}ms")
+                    Expect.isTrue unwound $"The scope should unwind within 3s; took {stopwatch.ElapsedMilliseconds}ms")
 
-            testAllRuntimes
+            testAllRuntimesSequenced
                 "serve - interrupts its handlers with the loop, not after the fiber's other finalizers"
                 (fun runtime ->
                     let handlerStarted = new ManualResetEventSlim false
@@ -113,83 +118,79 @@ let cancellationTests =
                             EvaluationSteps = 200
                         }
 
-                    for name, make in
-                        [
-                            "WorkStealingRuntime", (fun () -> new WorkStealingRuntime(oneWorker) :> FIORuntime)
-                        ] ->
-                        testCase name (fun () ->
-                            let runtime = make ()
-                            use control = new DirectRuntime()
-                            let blocking = new ManualResetEventSlim false
-                            let unblock = new ManualResetEventSlim false
-                            let listening = ref None
-                            use handedOff = new ManualResetEventSlim false
-                            let handler (_: Socket) =
-                                FIO.succeedWith(fun () -> handedOff.Set()).FlatMap(fun () -> FIO.never ())
+                    testCase "WorkStealingRuntime" (fun () ->
+                        let runtime = new WorkStealingRuntime(oneWorker) :> FIORuntime
+                        use control = new DirectRuntime()
+                        let blocking = new ManualResetEventSlim false
+                        let unblock = new ManualResetEventSlim false
+                        let listening = ref None
+                        use handedOff = new ManualResetEventSlim false
+                        let handler (_: Socket) =
+                            FIO.succeedWith(fun () -> handedOff.Set()).FlatMap(fun () -> FIO.never ())
 
-                            try
-                                let server, port, probe =
-                                    serveAndConnect runtime (fun port ->
-                                        fio {
-                                            let! config = ServerSocketConfig.create "127.0.0.1" port
-                                            return!
-                                                ServerSocket.withServerSocket config (fun serverSocket ->
-                                                    listening.Value <- Some serverSocket.NetSocket
-                                                    ServerSocket.acceptLoop handler serverSocket)
-                                        })
-                                use probe = probe
+                        try
+                            let server, port, probe =
+                                serveAndConnect runtime (fun port ->
+                                    fio {
+                                        let! config = ServerSocketConfig.create "127.0.0.1" port
+                                        return!
+                                            ServerSocket.withServerSocket config (fun serverSocket ->
+                                                listening.Value <- Some serverSocket.NetSocket
+                                                ServerSocket.acceptLoop handler serverSocket)
+                                    })
+                            use probe = probe
 
-                                Expect.isTrue probe.Connected "The server should start listening"
-                                Expect.isTrue
-                                    (handedOff.Wait(TimeSpan.FromSeconds 5.0))
-                                    "The loop should hand the probe to a handler"
+                            Expect.isTrue probe.Connected "The server should start listening"
+                            Expect.isTrue
+                                (handedOff.Wait(TimeSpan.FromSeconds 5.0))
+                                "The loop should hand the probe to a handler"
 
-                                Thread.Sleep 100
-                                let blocker =
-                                    runtime.Run(
-                                        FIO.succeedWith (fun () ->
-                                            blocking.Set()
-                                            unblock.Wait())
-                                        : FIO<unit, exn>
-                                    )
+                            Thread.Sleep 100
+                            let blocker =
+                                runtime.Run(
+                                    FIO.succeedWith (fun () ->
+                                        blocking.Set()
+                                        unblock.Wait())
+                                    : FIO<unit, exn>
+                                )
 
-                                Expect.isTrue
-                                    (blocking.Wait(TimeSpan.FromSeconds 5.0))
-                                    "The blocker should hold the only worker"
+                            Expect.isTrue
+                                (blocking.Wait(TimeSpan.FromSeconds 5.0))
+                                "The blocker should hold the only worker"
 
-                                use client = new Sockets.TcpClient()
-                                client.Connect(IPAddress.Loopback, port)
-                                client.ReceiveTimeout <- 1_000
-                                Thread.Sleep 50
-                                let backlogged () =
-                                    listening.Value.Value.Poll(0, Sockets.SelectMode.SelectRead)
-                                let waited = Stopwatch.StartNew()
-                                while backlogged () && waited.ElapsedMilliseconds < 5_000L do
-                                    Thread.Sleep 1
+                            use client = new Sockets.TcpClient()
+                            client.Connect(IPAddress.Loopback, port)
+                            client.ReceiveTimeout <- 1_000
+                            Thread.Sleep 50
+                            let backlogged () =
+                                listening.Value.Value.Poll(0, Sockets.SelectMode.SelectRead)
+                            let waited = Stopwatch.StartNew()
+                            while backlogged () && waited.ElapsedMilliseconds < 5_000L do
+                                Thread.Sleep 1
 
-                                Expect.isFalse (backlogged ()) "The loop should take the connection off the backlog"
+                            Expect.isFalse (backlogged ()) "The loop should take the connection off the backlog"
 
-                                control.Run(server.InterruptNow()).Task().Wait()
-                                unblock.Set()
-                                blocker.Task().Wait()
-                                let closed =
-                                    try
-                                        client.GetStream().Read(Array.zeroCreate<byte> 1, 0, 1) = 0
-                                    with :? IOException ->
-                                        false
+                            control.Run(server.InterruptNow()).Task().Wait()
+                            unblock.Set()
+                            blocker.Task().Wait()
+                            let closed =
+                                try
+                                    client.GetStream().Read(Array.zeroCreate<byte> 1, 0, 1) = 0
+                                with :? IOException ->
+                                    false
 
-                                Expect.isTrue
-                                    closed
-                                    "The accepted connection should be closed by the loop, not left open or reset"
-                            finally
-                                unblock.Set()
+                            Expect.isTrue
+                                closed
+                                "The accepted connection should be closed by the loop, not left open or reset"
+                        finally
+                            unblock.Set()
 
-                                match box runtime with
-                                | :? IDisposable as disposable -> disposable.Dispose()
-                                | _ -> ())
+                            match box runtime with
+                            | :? IDisposable as disposable -> disposable.Dispose()
+                            | _ -> ())
                 ]
 
-            testAllRuntimes
+            testAllRuntimesSequenced
                 "withConnection - an interruption against an unreachable host unwinds promptly"
                 (fun runtime ->
                     let effect =
@@ -206,7 +207,7 @@ let cancellationTests =
 
                     Expect.isTrue unwound $"The scope should unwind within 3s; took {stopwatch.ElapsedMilliseconds}ms")
 
-            testAllRuntimes "ReceiveBytes - an interruption mid-block terminates promptly" (fun runtime ->
+            testAllRuntimesSequenced "ReceiveBytes - an interruption mid-block terminates promptly" (fun runtime ->
                 let terminated, elapsed, interrupted =
                     withTestServer
                         (fun socket ->
@@ -231,7 +232,7 @@ let cancellationTests =
                 Expect.isTrue terminated $"ReceiveBytes fiber should reach terminal state within 2s; took {elapsed}ms"
                 Expect.isTrue interrupted "ReceiveBytes fiber should report Interrupted after Interrupt")
 
-            testAllRuntimes
+            testAllRuntimesSequenced
                 "Interruption - a parent's interruption propagates to a child reading on a socket"
                 (fun runtime ->
                     let parentTerminated, parentInterrupted, childTerminated, childInterrupted =

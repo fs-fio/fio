@@ -1,101 +1,16 @@
 module FIO.WebSockets.Tests.Utilities
 
+open FIO.Tests.Utilities
+
 open FIO.DSL
 open FIO.Runtime
 open FIO.WebSockets
-open FIO.Runtime.Direct
-open FIO.Runtime.WorkStealing
+
+open Expecto
 
 open System
 open System.Net
-open System.Net.Sockets
-open System.Diagnostics
 open System.Threading.Tasks
-
-open Expecto
-open FsCheck.FSharp
-
-let testConfig =
-    { WorkerConfig.Default with
-        EvaluationWorkers = 2
-    }
-
-module FsCheckProperties =
-
-    // One pair for every property: FsCheck asks for the generator once per property and never disposes it.
-    let private propertyRuntimes =
-        lazy
-            [
-                new DirectRuntime() :> FIORuntime
-                new WorkStealingRuntime(testConfig) :> FIORuntime
-            ]
-
-    type Generators =
-
-        static member Runtime() =
-            Gen.elements propertyRuntimes.Value |> Arb.fromGen
-
-    let fsCheckConfig =
-        { FsCheckConfig.defaultConfig with
-            maxTest = 100
-            arbitrary = [ typeof<Generators> ]
-        }
-
-[<CLIMutable>]
-type TestMessage = { Id: int; Text: string }
-
-let runtimes () =
-    [
-        new DirectRuntime() :> FIORuntime
-        new WorkStealingRuntime(testConfig) :> FIORuntime
-    ]
-
-let private disposeRuntime (rt: FIORuntime) =
-    match box rt with
-    | :? IDisposable as d -> d.Dispose()
-    | _ -> ()
-
-let testAllRuntimes name (f: FIORuntime -> unit) =
-    testList
-        name
-        [
-            for rt in runtimes () ->
-                testCase (rt.GetType().Name) (fun () ->
-                    try
-                        f rt
-                    finally
-                        disposeRuntime rt)
-        ]
-
-let stressEnabled = Environment.GetEnvironmentVariable "FIO_RUN_STRESS" = "1"
-
-let stressTestAllRuntimes name (f: FIORuntime -> unit) =
-    if stressEnabled then
-        testSequenced (testAllRuntimes name f)
-    else
-        ptestCase name ignore
-
-let findAvailablePort () =
-    let listener = new TcpListener(IPAddress.Loopback, 0)
-    listener.Start()
-    let port = (listener.LocalEndpoint :?> IPEndPoint).Port
-    listener.Stop()
-    port
-
-let sleepMs (ms: float) =
-    FIO.sleep (TimeSpan.FromMilliseconds ms)
-
-let waitForTerminal (fiber: Fiber<'A, 'E>) (budgetMs: int) =
-    fio {
-        let stopwatch = Stopwatch.StartNew()
-        let mutable terminal = fiber.IsCompleted() || fiber.IsInterrupted()
-
-        while not terminal && stopwatch.ElapsedMilliseconds < int64 budgetMs do
-            do! sleepMs 20.0
-            terminal <- fiber.IsCompleted() || fiber.IsInterrupted()
-
-        return terminal, stopwatch.ElapsedMilliseconds
-    }
 
 let noopHandler (ws: WebSocket) =
     let rec loop () =
@@ -119,24 +34,15 @@ let echoHandler (ws: WebSocket) =
 
     loop ()
 
-// Async.RunSynchronously's timeout waits for the computation to stop, which a hung fiber never does, so it never fires.
-let runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, WsError>) =
-    let fiber = runtime.Run effect
-    let result = fiber.Task()
+let runWithTimeout (runtime: FIORuntime) (effect: FIO<'A, WsError>) = runWithin 30.0 runtime effect
 
-    if not (result.Wait(TimeSpan.FromSeconds 30.0)) then
-        runtime.Run(fiber.InterruptNow()) |> ignore
-        failtest $"The effect did not finish within 30 s on {runtime.Name}"
-
-    match result.Result with
-    | Succeeded value -> value
-    | Failed error -> failtest $"Effect failed: {error}"
-    | Interrupted ex -> failtest $"Interrupted: {ex.Message}"
+let stressTestAllRuntimes name (f: FIORuntime -> unit) =
+    testSequenced (FIO.Tests.Utilities.stressTestAllRuntimes name f)
 
 let startListenerWith (start: string -> FIO<HttpListener, WsError>) (host: string) =
     let rec attempt remaining =
         fio {
-            let port = findAvailablePort ()
+            let port = freePort ()
             let url = $"http://{host}:{port}/"
 
             let! outcome =
@@ -183,7 +89,7 @@ type ServedServer =
 let withServerOn (host: string) (startServer: string -> FIO<unit, WsError>) (action: ServedServer -> FIO<'A, WsError>) =
     let rec attempt remaining =
         fio {
-            let port = findAvailablePort ()
+            let port = freePort ()
             let unwound = TaskCompletionSource()
 
             let! server =

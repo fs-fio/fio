@@ -1,7 +1,7 @@
 module private FIO.Examples.WebSockets
 
-open FIO.DSL
 open FIO.App
+open FIO.DSL
 open FIO.Console
 open FIO.WebSockets
 

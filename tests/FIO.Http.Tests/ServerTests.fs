@@ -1,5 +1,6 @@
 module FIO.Http.Tests.ServerTests
 
+open FIO.Tests.Utilities
 open FIO.Http.Tests.Utilities
 
 open FIO.DSL
@@ -8,29 +9,22 @@ open FIO.Runtime
 open FIO.Runtime.Default
 open FIO.Http.SimpleRoutes
 
+open Expecto
+
 open System
 open System.Text
 open System.Net.Http
 open System.Threading
+open System.Diagnostics
 open System.Net.Sockets
 open System.Threading.Tasks
-
-open Expecto
-open System.Diagnostics
-
-let private testUnix name (body: unit -> unit) =
-    testCase name (fun () ->
-        if OperatingSystem.IsWindows() then
-            skiptest "A POSIX signal cannot be sent to a single process on Windows"
-
-        body ())
 
 let private stuckClient =
     new HttpClient(Timeout = Threading.Timeout.InfiniteTimeSpan)
 
 // The port can be taken before the child binds it, so a child that exits without listening is retried on a fresh one.
 let rec private startListeningChild scenario (shutdownTimeout: int) remaining =
-    let port = findAvailablePort ()
+    let port = freePort ()
     let child =
         new ChildProcess.ChildProcess([ scenario; string port; string shutdownTimeout ])
     let listening =
@@ -220,17 +214,6 @@ let serverTests =
                                 body
                                 """{"id":1,"text":"hello"}"""
                                 "JSON in the server's own casing should round-trip"
-
-                        testCase "Body handling - serves a text response body"
-                        <| fun () ->
-                            let routes = get "/text" (HttpHandler.text "plain text")
-
-                            let body =
-                                withTestHttpServer routes (fun port ->
-                                    use client = new HttpClient()
-                                    client.GetStringAsync($"http://127.0.0.1:{port}/text").Result)
-
-                            Expect.equal body "plain text" "Text body"
                     ]
 
                 testList
@@ -594,64 +577,12 @@ let serverTests =
                     ]
 
                 testList
-                    "ServerBuilder"
-                    [
-                        testCase "ServerBuilder - setters compose onto a configuration"
-                        <| fun () ->
-                            let config =
-                                ServerConfig.create "127.0.0.1" 1
-                                |> ServerBuilder.host "0.0.0.0"
-                                |> ServerBuilder.port 9999
-                                |> ServerBuilder.maxBodySize 4096L
-                                |> ServerBuilder.shutdownTimeout 750
-
-                            Expect.equal config.Host "0.0.0.0" "host must be applied"
-                            Expect.equal config.Port 9999 "port must be applied"
-                            Expect.equal config.MaxRequestBodySize 4096L "maxBodySize must be applied"
-                            Expect.equal config.ShutdownTimeout 750 "shutdownTimeout must be applied"
-
-                        testCase "ServerBuilder - setters are independent"
-                        <| fun () ->
-                            let baseConfig = ServerConfig.create "127.0.0.1" 8080
-
-                            let hostOnly = baseConfig |> ServerBuilder.host "example.test"
-
-                            Expect.equal hostOnly.Port baseConfig.Port "host must not disturb the port"
-                            Expect.equal
-                                hostOnly.MaxRequestBodySize
-                                baseConfig.MaxRequestBodySize
-                                "host must not disturb the body limit"
-                            Expect.equal baseConfig.Host "127.0.0.1" "the original config must be unchanged"
-
-                        testCase "ServerBuilder.startNow - serves a request and can be stopped"
-                        <| fun () ->
-                            let routes = get "/built" (HttpHandler.text "from builder")
-                            use runtime = new DefaultRuntime()
-                            let port, server =
-                                startOnFreePort (runtime :> FIORuntime) (fun port ->
-                                    ServerConfig.create "127.0.0.1" 1
-                                    |> ServerBuilder.host "127.0.0.1"
-                                    |> ServerBuilder.port port
-                                    |> ServerBuilder.startNow routes)
-
-                            try
-                                let body = getWhenListening $"http://127.0.0.1:{port}/built"
-
-                                Expect.equal
-                                    body
-                                    "from builder"
-                                    "ServerBuilder.startNow must serve the routes it was given"
-                            finally
-                                runWithTimeout (runtime :> FIORuntime) (Server.stop server) |> ignore
-                    ]
-
-                testList
                     "Server lifecycle"
                     [
                         testCase "start - fails with the bind error and leaves the server unstarted"
                         <| fun () ->
                             use runtime = new DefaultRuntime()
-                            let config = ServerConfig.create "192.0.2.1" (findAvailablePort ())
+                            let config = ServerConfig.create "192.0.2.1" (freePort ())
                             let routes = get "/ping" (HttpHandler.text "pong")
                             let server =
                                 runWithTimeout (runtime :> FIORuntime) (Server.createWithRuntime config routes runtime)
@@ -693,7 +624,7 @@ let serverTests =
                         testCase "stop - releases the server's own runtime even when start failed"
                         <| fun () ->
                             use runtime = new DefaultRuntime()
-                            let config = ServerConfig.create "192.0.2.1" (findAvailablePort ())
+                            let config = ServerConfig.create "192.0.2.1" (freePort ())
                             let routes = get "/ping" (HttpHandler.text "pong")
                             let server = runWithTimeout (runtime :> FIORuntime) (Server.create config routes)
                             let started =
@@ -736,7 +667,7 @@ let serverTests =
                         testCase "run - fails when the server has not been started"
                         <| fun () ->
                             use runtime = new DefaultRuntime()
-                            let config = ServerConfig.create "127.0.0.1" (findAvailablePort ())
+                            let config = ServerConfig.create "127.0.0.1" (freePort ())
                             let routes = get "/ping" (HttpHandler.text "pong")
                             let server =
                                 runWithTimeout (runtime :> FIORuntime) (Server.createWithRuntime config routes runtime)

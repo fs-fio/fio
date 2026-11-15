@@ -1,5 +1,6 @@
 module FIO.Http.Tests.HandlerTests
 
+open FIO.Tests.Utilities
 open FIO.Http.Tests.Utilities
 
 open FIO.DSL
@@ -19,28 +20,28 @@ let handlerTests =
             testList
                 "Factories"
                 [
-                    testAllRuntimes "succeed - returns a constant response" (fun runtime ->
+                    testAllRuntimesSequenced "succeed - returns a constant response" (fun runtime ->
                         let handler = HttpHandler.succeed Response.ok
 
                         let resp = runtime.Run(handler (makeGetRequest "/")).UnsafeSuccess()
 
                         Expect.equal resp.Status HttpStatusCode.OK "200")
 
-                    testAllRuntimes "fail - returns an error" (fun runtime ->
+                    testAllRuntimesSequenced "fail - returns an error" (fun runtime ->
                         let handler = HttpHandler.fail (exn "boom")
 
                         let error = runtime.Run(handler (makeGetRequest "/")).UnsafeError()
 
                         Expect.equal error.Message "boom" "Error message")
 
-                    testAllRuntimes "fromFIO - runs the effect ignoring the request" (fun runtime ->
+                    testAllRuntimesSequenced "fromFIO - runs the effect ignoring the request" (fun runtime ->
                         let handler = HttpHandler.fromFIO (FIO.succeed (Response.okText "from effect"))
 
                         let resp = runtime.Run(handler (makeGetRequest "/")).UnsafeSuccess()
 
                         Expect.equal resp.Status HttpStatusCode.OK "200")
 
-                    testAllRuntimes "fromFunc - wraps a pure function" (fun runtime ->
+                    testAllRuntimesSequenced "fromFunc - wraps a pure function" (fun runtime ->
                         let handler = HttpHandler.fromFunc (fun req -> Response.okText req.Path)
 
                         let resp = runtime.Run(handler (makeGetRequest "/test")).UnsafeSuccess()
@@ -53,12 +54,7 @@ let handlerTests =
             testList
                 "Response builders"
                 [
-                    testAllRuntimes "ok - returns 200" (fun runtime ->
-                        let resp = runtime.Run(HttpHandler.ok (makeGetRequest "/")).UnsafeSuccess()
-
-                        Expect.equal resp.Status HttpStatusCode.OK "200")
-
-                    testAllRuntimes "okJson - returns 200 with a JSON body" (fun runtime ->
+                    testAllRuntimesSequenced "okJson - returns 200 with a JSON body" (fun runtime ->
                         let handler = HttpHandler.okJson {| msg = "hi" |}
 
                         let resp = runtime.Run(handler (makeGetRequest "/")).UnsafeSuccess()
@@ -68,7 +64,7 @@ let handlerTests =
                         | ResponseBody.Json _ -> ()
                         | _ -> failtest "Expected Json body")
 
-                    testAllRuntimes "text - returns 200 with a text body" (fun runtime ->
+                    testAllRuntimesSequenced "text - returns 200 with a text body" (fun runtime ->
                         let handler = HttpHandler.text "hello"
 
                         let resp = runtime.Run(handler (makeGetRequest "/")).UnsafeSuccess()
@@ -77,38 +73,33 @@ let handlerTests =
                         | ResponseBody.Text t -> Expect.equal t "hello" "Body"
                         | _ -> failtest "Expected Text body")
 
-                    testAllRuntimes "noContent - returns 204" (fun runtime ->
-                        let resp = runtime.Run(HttpHandler.noContent (makeGetRequest "/")).UnsafeSuccess()
-
-                        Expect.equal resp.Status HttpStatusCode.NoContent "204")
-
-                    testAllRuntimes "notFound - returns 404" (fun runtime ->
+                    testAllRuntimesSequenced "notFound - returns 404" (fun runtime ->
                         let resp = runtime.Run(HttpHandler.notFound (makeGetRequest "/")).UnsafeSuccess()
 
                         Expect.equal resp.Status HttpStatusCode.NotFound "404")
 
-                    testAllRuntimes "badRequest - returns 400" (fun runtime ->
+                    testAllRuntimesSequenced "badRequest - returns 400" (fun runtime ->
                         let resp = runtime.Run(HttpHandler.badRequest (makeGetRequest "/")).UnsafeSuccess()
 
                         Expect.equal resp.Status HttpStatusCode.BadRequest "400")
 
-                    testAllRuntimes "serverError - returns 500" (fun runtime ->
+                    testAllRuntimesSequenced "serverError - returns 500" (fun runtime ->
                         let resp = runtime.Run(HttpHandler.serverError (makeGetRequest "/")).UnsafeSuccess()
 
                         Expect.equal resp.Status HttpStatusCode.InternalServerError "500")
 
-                    testAllRuntimes "unauthorized - returns 401" (fun runtime ->
+                    testAllRuntimesSequenced "unauthorized - returns 401" (fun runtime ->
                         let resp =
                             runtime.Run(HttpHandler.unauthorized (makeGetRequest "/")).UnsafeSuccess()
 
                         Expect.equal resp.Status HttpStatusCode.Unauthorized "401")
 
-                    testAllRuntimes "forbidden - returns 403" (fun runtime ->
+                    testAllRuntimesSequenced "forbidden - returns 403" (fun runtime ->
                         let resp = runtime.Run(HttpHandler.forbidden (makeGetRequest "/")).UnsafeSuccess()
 
                         Expect.equal resp.Status HttpStatusCode.Forbidden "403")
 
-                    testAllRuntimes "redirect - permanent returns 301 with Location" (fun runtime ->
+                    testAllRuntimesSequenced "redirect - permanent returns 301 with Location" (fun runtime ->
                         let handler = HttpHandler.redirect "/new" true
 
                         let resp = runtime.Run(handler (makeGetRequest "/old")).UnsafeSuccess()
@@ -116,7 +107,7 @@ let handlerTests =
                         Expect.equal resp.Status HttpStatusCode.MovedPermanently "301"
                         Expect.equal (HttpResponse.header "Location" resp) (Some "/new") "Location")
 
-                    testAllRuntimes "redirect - temporary returns 302 with Location" (fun runtime ->
+                    testAllRuntimesSequenced "redirect - temporary returns 302 with Location" (fun runtime ->
                         let handler = HttpHandler.redirect "/temp" false
 
                         let resp = runtime.Run(handler (makeGetRequest "/old")).UnsafeSuccess()
@@ -127,7 +118,7 @@ let handlerTests =
             testList
                 "Combinators"
                 [
-                    testAllRuntimes "map - transforms the response" (fun runtime ->
+                    testAllRuntimesSequenced "map - transforms the response" (fun runtime ->
                         let handler =
                             HttpHandler.text "hello"
                             |> HttpHandler.map (fun resp -> HttpResponse.withHeader "X-Mapped" "true" resp)
@@ -136,7 +127,7 @@ let handlerTests =
 
                         Expect.equal (HttpResponse.header "X-Mapped" resp) (Some "true") "Mapped header")
 
-                    testAllRuntimes "bind - chains to a new handler" (fun runtime ->
+                    testAllRuntimesSequenced "bind - chains to a new handler" (fun runtime ->
                         let handler =
                             HttpHandler.text "step1" |> HttpHandler.bind (fun _ -> HttpHandler.text "step2")
 
@@ -146,7 +137,7 @@ let handlerTests =
                         | ResponseBody.Text t -> Expect.equal t "step2" "Chained result"
                         | _ -> failtest "Expected Text body")
 
-                    testAllRuntimes "orElse - falls back on failure" (fun runtime ->
+                    testAllRuntimesSequenced "orElse - falls back on failure" (fun runtime ->
                         let failing = fun _ -> FIO.fail (exn "fail")
                         let fallback = HttpHandler.text "recovered"
                         let handler = failing |> HttpHandler.orElse fallback
@@ -157,7 +148,7 @@ let handlerTests =
                         | ResponseBody.Text t -> Expect.equal t "recovered" "Fallback"
                         | _ -> failtest "Expected Text body")
 
-                    testAllRuntimes "mapError - transforms the error type" (fun runtime ->
+                    testAllRuntimesSequenced "mapError - transforms the error type" (fun runtime ->
                         let handler =
                             HttpHandler.fail "original"
                             |> HttpHandler.mapError (fun (s: string) -> s + " mapped")
@@ -166,7 +157,7 @@ let handlerTests =
 
                         Expect.equal error "original mapped" "Mapped error")
 
-                    testAllRuntimes "tap - runs a side effect without changing the response" (fun runtime ->
+                    testAllRuntimesSequenced "tap - runs a side effect without changing the response" (fun runtime ->
                         let mutable tapped = false
                         let handler =
                             HttpHandler.text "hello"
@@ -181,7 +172,7 @@ let handlerTests =
             testList
                 "Control flow"
                 [
-                    testAllRuntimes "when' - runs the handler when the predicate is true" (fun runtime ->
+                    testAllRuntimesSequenced "when' - runs the handler when the predicate is true" (fun runtime ->
                         let handler =
                             HttpHandler.when'
                                 (fun req -> req.Method = HttpMethod.GET)
@@ -194,7 +185,7 @@ let handlerTests =
                         | ResponseBody.Text t -> Expect.equal t "matched" "Matched"
                         | _ -> failtest "Expected Text body")
 
-                    testAllRuntimes "when' - returns the fallback when the predicate is false" (fun runtime ->
+                    testAllRuntimesSequenced "when' - returns the fallback when the predicate is false" (fun runtime ->
                         let handler =
                             HttpHandler.when'
                                 (fun req -> req.Method = HttpMethod.POST)
@@ -205,7 +196,7 @@ let handlerTests =
 
                         Expect.equal resp.Status HttpStatusCode.NotFound "Fallback")
 
-                    testAllRuntimes "ifElse - runs the branch the predicate selects" (fun runtime ->
+                    testAllRuntimesSequenced "ifElse - runs the branch the predicate selects" (fun runtime ->
                         let handler =
                             HttpHandler.ifElse
                                 (fun req -> req.Method = HttpMethod.GET)
@@ -222,7 +213,7 @@ let handlerTests =
             testList
                 "JSON parsing"
                 [
-                    testAllRuntimes "parseJsonBody - parses valid JSON" (fun runtime ->
+                    testAllRuntimesSequenced "parseJsonBody - parses valid JSON" (fun runtime ->
                         let req =
                             HttpRequest.create HttpMethod.POST "/data"
                             |> HttpRequest.withBody (RequestBody.Text """{"Id":1,"Text":"hello"}""")
@@ -233,18 +224,20 @@ let handlerTests =
                         Expect.equal msg.Id 1 "Id"
                         Expect.equal msg.Text "hello" "Text")
 
-                    testAllRuntimes "parseJsonBody - binds camelCase JSON, as the server writes it" (fun runtime ->
-                        let req =
-                            HttpRequest.create HttpMethod.POST "/data"
-                            |> HttpRequest.withBody (RequestBody.Text """{"id":1,"text":"hello"}""")
-                        let parser = HttpHandler.parseJsonBody None
+                    testAllRuntimesSequenced
+                        "parseJsonBody - binds camelCase JSON, as the server writes it"
+                        (fun runtime ->
+                            let req =
+                                HttpRequest.create HttpMethod.POST "/data"
+                                |> HttpRequest.withBody (RequestBody.Text """{"id":1,"text":"hello"}""")
+                            let parser = HttpHandler.parseJsonBody None
 
-                        let msg = runtime.Run(parser req).UnsafeSuccess()
+                            let msg = runtime.Run(parser req).UnsafeSuccess()
 
-                        Expect.equal msg.Id 1 "Id"
-                        Expect.equal msg.Text "hello" "Text")
+                            Expect.equal msg.Id 1 "Id"
+                            Expect.equal msg.Text "hello" "Text")
 
-                    testAllRuntimes "parseJsonBody - binds a number written as a string" (fun runtime ->
+                    testAllRuntimesSequenced "parseJsonBody - binds a number written as a string" (fun runtime ->
                         let req =
                             HttpRequest.create HttpMethod.POST "/data"
                             |> HttpRequest.withBody (RequestBody.Text """{"id":"1","text":"hello"}""")
@@ -254,7 +247,7 @@ let handlerTests =
 
                         Expect.equal msg.Id 1 "A quoted number should bind, as the documentation promises")
 
-                    testAllRuntimes "parseJsonBody - fails on invalid JSON" (fun runtime ->
+                    testAllRuntimesSequenced "parseJsonBody - fails on invalid JSON" (fun runtime ->
                         let req =
                             HttpRequest.create HttpMethod.POST "/data"
                             |> HttpRequest.withBody (RequestBody.Text "not json")
@@ -266,7 +259,7 @@ let handlerTests =
                         | Failed _ -> ()
                         | other -> failtest $"Expected failure but got {other}")
 
-                    testAllRuntimes "parseJsonBody - fails on an empty body" (fun runtime ->
+                    testAllRuntimesSequenced "parseJsonBody - fails on an empty body" (fun runtime ->
                         let req =
                             HttpRequest.create HttpMethod.POST "/data"
                             |> HttpRequest.withBody (RequestBody.Text "   ")
@@ -282,7 +275,7 @@ let handlerTests =
                                 "An empty body must be named as such"
                         | other -> failtest $"Expected failure but got {other}")
 
-                    testAllRuntimes "parseJsonBody - fails on a JSON null" (fun runtime ->
+                    testAllRuntimesSequenced "parseJsonBody - fails on a JSON null" (fun runtime ->
                         let req =
                             HttpRequest.create HttpMethod.POST "/data"
                             |> HttpRequest.withBody (RequestBody.Text "null")
@@ -295,7 +288,7 @@ let handlerTests =
                             Expect.stringContains error.Message "deserialized to null" "A JSON null must be rejected"
                         | other -> failtest $"Expected failure but got {other}")
 
-                    testAllRuntimes "jsonBody - maps a parse failure through onError" (fun runtime ->
+                    testAllRuntimesSequenced "jsonBody - maps a parse failure through onError" (fun runtime ->
                         let handlerRan = ref false
                         let received = ref None
                         let handler =
@@ -324,7 +317,7 @@ let handlerTests =
             testList
                 "Reader / Local"
                 [
-                    testAllRuntimes "local - modifies the request for the inner handler" (fun runtime ->
+                    testAllRuntimesSequenced "local - modifies the request for the inner handler" (fun runtime ->
                         let inner = fun req -> FIO.succeed (Response.okText req.Path)
                         let handler = HttpHandler.local (fun req -> { req with Path = "/modified" }) inner
 
@@ -334,7 +327,7 @@ let handlerTests =
                         | ResponseBody.Text t -> Expect.equal t "/modified" "Modified path"
                         | _ -> failtest "Expected Text body")
 
-                    testAllRuntimes "asks - extracts a value from the request" (fun runtime ->
+                    testAllRuntimesSequenced "asks - extracts a value from the request" (fun runtime ->
                         let extractor = HttpHandler.asks (fun req -> req.Path)
 
                         let path = runtime.Run(extractor (makeGetRequest "/hello")).UnsafeSuccess()
@@ -345,7 +338,7 @@ let handlerTests =
                         "HttpHandlerOperators"
                         [
 
-                            testAllRuntimes "( <!> ) - maps the response" (fun runtime ->
+                            testAllRuntimesSequenced "( <!> ) - maps the response" (fun runtime ->
                                 let handler =
                                     (fun resp -> HttpResponse.withHeader "X-Op" "true" resp)
                                     |> HttpHandlerOperators.(<!>)
@@ -355,7 +348,7 @@ let handlerTests =
 
                                 Expect.equal (HttpResponse.header "X-Op" resp) (Some "true") "Operator map")
 
-                            testAllRuntimes "( <|> ) - falls back on failure" (fun runtime ->
+                            testAllRuntimesSequenced "( <|> ) - falls back on failure" (fun runtime ->
                                 let failing = fun _ -> FIO.fail (exn "fail")
                                 let handler = HttpHandlerOperators.(<|>) failing (HttpHandler.text "ok")
 
@@ -370,13 +363,13 @@ let handlerTests =
             testList
                 "Status-only handlers"
                 [
-                    testAllRuntimes "ok - returns 200 with an empty body" (fun runtime ->
+                    testAllRuntimesSequenced "ok - returns 200 with an empty body" (fun runtime ->
                         let response = runHandler runtime HttpHandler.ok
 
                         Expect.equal response.Status HttpStatusCode.OK "ok must be 200"
                         Expect.equal response.Body ResponseBody.Empty "ok must carry no body")
 
-                    testAllRuntimes "noContent - returns 204 with an empty body" (fun runtime ->
+                    testAllRuntimesSequenced "noContent - returns 204 with an empty body" (fun runtime ->
                         let response = runHandler runtime HttpHandler.noContent
 
                         Expect.equal response.Status HttpStatusCode.NoContent "noContent must be 204"
@@ -386,7 +379,7 @@ let handlerTests =
             testList
                 "Body-carrying error handlers"
                 [
-                    testAllRuntimes "notFoundText - carries the message" (fun runtime ->
+                    testAllRuntimesSequenced "notFoundText - carries the message" (fun runtime ->
                         let response = runHandler runtime (HttpHandler.notFoundText "no such thing")
 
                         Expect.equal response.Status HttpStatusCode.NotFound "404"
@@ -394,7 +387,7 @@ let handlerTests =
                         | ResponseBody.Text t -> Expect.equal t "no such thing" "Message must reach the body"
                         | other -> failtest $"Expected a text body, got {other}")
 
-                    testAllRuntimes "badRequestText - carries the message" (fun runtime ->
+                    testAllRuntimesSequenced "badRequestText - carries the message" (fun runtime ->
                         let response = runHandler runtime (HttpHandler.badRequestText "bad input")
 
                         Expect.equal response.Status HttpStatusCode.BadRequest "400"
@@ -402,7 +395,7 @@ let handlerTests =
                         | ResponseBody.Text t -> Expect.equal t "bad input" "Message must reach the body"
                         | other -> failtest $"Expected a text body, got {other}")
 
-                    testAllRuntimes "serverErrorText - carries the message" (fun runtime ->
+                    testAllRuntimesSequenced "serverErrorText - carries the message" (fun runtime ->
                         let response = runHandler runtime (HttpHandler.serverErrorText "it broke")
 
                         Expect.equal response.Status HttpStatusCode.InternalServerError "500"
@@ -410,7 +403,7 @@ let handlerTests =
                         | ResponseBody.Text t -> Expect.equal t "it broke" "Message must reach the body"
                         | other -> failtest $"Expected a text body, got {other}")
 
-                    testAllRuntimes "html - sets an HTML content type" (fun runtime ->
+                    testAllRuntimesSequenced "html - sets an HTML content type" (fun runtime ->
                         let response = runHandler runtime (HttpHandler.html "<h1>hi</h1>")
 
                         Expect.equal response.Status HttpStatusCode.OK "200"
@@ -418,7 +411,7 @@ let handlerTests =
                         | ResponseBody.Text t -> Expect.equal t "<h1>hi</h1>" "HTML must reach the body"
                         | other -> failtest $"Expected a text body, got {other}")
 
-                    testAllRuntimes "bytes - carries the payload and content type" (fun runtime ->
+                    testAllRuntimesSequenced "bytes - carries the payload and content type" (fun runtime ->
                         let payload = [| 7uy; 8uy; 9uy |]
 
                         let response =

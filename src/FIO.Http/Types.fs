@@ -51,6 +51,16 @@ module internal HeaderHelpers =
         map
         |> Map.exists (fun key _ -> String.Equals(key, name, StringComparison.OrdinalIgnoreCase))
 
+    let append (name: string) (value: string) (map: Map<string, string list>) =
+        Map.add name ((map |> Map.tryFind name |> Option.defaultValue []) @ [ value ]) map
+
+    let appendHeader (name: string) (value: string) (map: Map<string, string list>) =
+        if not (isValidHeaderName name) then
+            invalidArg
+                "name"
+                $"Invalid HTTP header name: '{name}'. Header names must consist of visible ASCII characters (RFC 7230)."
+        append name value map
+
 /// An error for modelling failures inside a route handler; the server itself never produces one.
 type HttpError =
     /// The request did not match any registered route.
@@ -362,28 +372,14 @@ module HttpRequest =
 
     /// Adds a query parameter value to a request.
     let withQueryParam name value request : HttpRequest =
-        let values =
-            request.QueryParams
-            |> Map.tryFind name
-            |> Option.defaultValue []
-            |> fun existing -> existing @ [ value ]
         { request with
-            QueryParams = Map.add name values request.QueryParams
+            QueryParams = HeaderHelpers.append name value request.QueryParams
         }
 
     /// Adds a header value to a request.
     let withHeader name value request : HttpRequest =
-        if not (HeaderHelpers.isValidHeaderName name) then
-            invalidArg
-                "name"
-                $"Invalid HTTP header name: '{name}'. Header names must consist of visible ASCII characters (RFC 7230)."
-        let values =
-            request.Headers
-            |> Map.tryFind name
-            |> Option.defaultValue []
-            |> fun existing -> existing @ [ value ]
         { request with
-            Headers = Map.add name values request.Headers
+            Headers = HeaderHelpers.appendHeader name value request.Headers
         }
 
     /// Sets a request's body.
@@ -470,17 +466,8 @@ module HttpResponse =
 
     /// Adds a header value to a response.
     let withHeader name value response : HttpResponse =
-        if not (HeaderHelpers.isValidHeaderName name) then
-            invalidArg
-                "name"
-                $"Invalid HTTP header name: '{name}'. Header names must consist of visible ASCII characters (RFC 7230)."
-        let values =
-            response.Headers
-            |> Map.tryFind name
-            |> Option.defaultValue []
-            |> fun existing -> existing @ [ value ]
         { response with
-            Headers = Map.add name values response.Headers
+            Headers = HeaderHelpers.appendHeader name value response.Headers
         }
 
     /// Sets a response's body.

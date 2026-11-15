@@ -6,6 +6,15 @@ open System.Diagnostics
 [<AutoOpen>]
 module Extensions =
 
+    let private printDebug (label: string) (failureLabel: string) (value: 'T) =
+        try
+            printfn "%s: %A" label value
+        with ex ->
+            try
+                eprintfn "%s print failed. Message: %s, Exception: %s" failureLabel label ex.Message
+            with _ ->
+                ()
+
     type FIO<'A, 'E> with
 
         /// Returns an effect that applies a possibly-throwing function to this effect's success value, mapping any exception to a typed error.
@@ -83,18 +92,7 @@ module Extensions =
         /// Returns an effect that prints this effect's success value with the given label, keeping the original value.
         member this.Debug(message: string) : FIO<'A, 'E> =
             this.Tap
-            <| fun value ->
-                (FIO.attempt
-                    (fun () ->
-                        try
-                            printfn "%s: %A" message value
-                        with ex ->
-                            try
-                                eprintfn "Debug print failed. Message: %s, Exception: %s" message ex.Message
-                            with _ ->
-                                ())
-                    id)
-                    .Ignore()
+            <| fun value -> (FIO.attempt (fun () -> printDebug message "Debug" value) id).Ignore()
 
         /// Returns an effect that prints this effect's error, keeping the original error.
         member inline this.DebugError() : FIO<'A, 'E> = this.DebugError "Debug Error"
@@ -102,18 +100,7 @@ module Extensions =
         /// Returns an effect that prints this effect's error with the given label, keeping the original error.
         member this.DebugError(message: string) : FIO<'A, 'E> =
             this.TapError
-            <| fun error ->
-                (FIO.attempt
-                    (fun () ->
-                        try
-                            printfn "%s: %A" message error
-                        with ex ->
-                            try
-                                eprintfn "Debug Error print failed. Message: %s, Exception: %s" message ex.Message
-                            with _ ->
-                                ())
-                    id)
-                    .Ignore()
+            <| fun error -> (FIO.attempt (fun () -> printDebug message "Debug Error" error) id).Ignore()
 
         /// Returns an effect that falls back to the given effect if this effect fails.
         member inline this.OrElse<'E1>(effect: FIO<'A, 'E1>) : FIO<'A, 'E1> = this.CatchAll <| fun _ -> effect

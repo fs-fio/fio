@@ -8,6 +8,8 @@ artifacts/
 [Tt]est[Rr]esult*/
 test-results/
 BenchmarkDotNet.Artifacts/
+# BenchmarkDotNet 0.16 builds each run's generated project here; an aborted run leaves it behind.
+.bdn/
 coverage
 *.log
 

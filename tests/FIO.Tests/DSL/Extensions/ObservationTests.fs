@@ -1,6 +1,6 @@
 module FIO.Tests.Extensions.ObservationTests
 
-open FIO.Tests.Utilities.FsCheckProperties
+open FIO.Tests.FsCheckProperties
 
 open FIO.DSL
 open FIO.Runtime
