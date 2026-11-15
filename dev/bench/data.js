@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1794599009071,
+  "lastUpdate": 1794762594672,
   "repoUrl": "https://github.com/fs-fio/fio",
   "entries": {
     "Benchmark": [
@@ -765,6 +765,40 @@ window.BENCHMARK_DATA = {
           {
             "name": "Pingpong - WorkStealing-2-200",
             "value": 121.287054,
+            "unit": "ms"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "hey@itsdaniel.dk",
+            "name": "Daniel Larsen",
+            "username": "itsdanieldk"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "4ab364a97e7072c9321060e1a67b3e6219a4440b",
+          "message": "relase 0.7.0-beta (#90)",
+          "timestamp": "2026-11-15T18:07:47+01:00",
+          "tree_id": "4ae7c6956d77442a0328ea37436216822b9af2b7",
+          "url": "https://github.com/fs-fio/fio/commit/4ab364a97e7072c9321060e1a67b3e6219a4440b"
+        },
+        "date": 1794762593963,
+        "tool": "customSmallerIsBetter",
+        "benches": [
+          {
+            "name": "Pingpong - Direct",
+            "value": 132.7973595,
+            "unit": "ms"
+          },
+          {
+            "name": "Pingpong - WorkStealing-2-200",
+            "value": 79.4144048,
             "unit": "ms"
           }
         ]
